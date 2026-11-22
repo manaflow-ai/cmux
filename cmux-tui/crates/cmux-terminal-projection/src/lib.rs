@@ -26,6 +26,7 @@
 
 pub mod project;
 pub mod style;
+pub mod sync;
 pub mod terminal;
 pub mod unicode;
 

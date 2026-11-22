@@ -1,0 +1,1877 @@
+//! Viewport state sync over datagrams.
+//!
+//! Leo: "the scroll occurs or whatever on f***ing mac / then it delays on my
+//! actual iphone display. thats the asinine part."
+//!
+//! The live viewport goes to the phone as newest-wins screen diffs in
+//! unreliable datagrams instead of an ordered byte stream, so a lost or late
+//! packet never holds back a newer screen:
+//!
+//! - The host captures the active screen ([`ScreenState::capture`]) and
+//!   [`SyncSender`] numbers each new state (seq 1, 2, ...). Every send is a
+//!   diff from the state the phone last ACKED (never the last sent), carrying
+//!   its seq and its base seq; base 0 is a keyframe from nothing.
+//! - [`SyncReceiver`] applies a diff only if it holds its base and the seq is
+//!   newer than the one it holds, and acks the newest seq it holds. Nothing
+//!   is waited for: a newer diff replaces an older one in flight.
+//! - Diffs larger than a datagram are fragmented (header: seq, base, frag
+//!   i/n); the receiver reassembles only the newest few seqs.
+//! - Rows that scroll off into the scrollback go on the reliable stream as VT
+//!   bytes ([`HistoryTracker`]), so the phone's history stays exact.
+//!
+//! Payloads work at row granularity: only the changed span of each changed
+//! row, with a per-payload style table, run-length repeats and varints. A
+//! typical redraw of a few rows fits one datagram.
+
+use std::collections::{HashMap, VecDeque};
+
+use crate::style::{Color, Style};
+use crate::terminal::{Cell, NARROW, Row, SPACER_HEAD, Terminal, WIDE, WIDE_TAIL};
+
+/// First two bytes of every sync datagram.
+pub const MAGIC: [u8; 2] = *b"VS";
+/// A (fragment of a) diff, host to phone.
+pub const KIND_DIFF: u8 = 1;
+/// An ack, phone to host.
+pub const KIND_ACK: u8 = 2;
+/// The payload format version.
+const VERSION: u8 = 1;
+/// States sent and not yet acked that the sender keeps (to diff from once acked).
+pub const SENT_RING: usize = 64;
+/// States the receiver keeps to apply a diff from (its held one and a few before).
+pub const HELD_RING: usize = 4;
+/// Seqs the receiver reassembles fragments for at once.
+pub const PARTIALS: usize = 4;
+/// The most fragments one diff may have (a sanity bound for the receiver).
+pub const MAX_FRAGMENTS: u64 = 4096;
+/// The largest grid a payload may describe (a sanity bound for the receiver).
+const MAX_CELLS: u64 = 1 << 22;
+
+// Mode bits of [`ScreenState::modes`].
+pub const MODE_ALTERNATE: u32 = 1;
+/// DECCKM (`?1`).
+pub const MODE_APP_CURSOR: u32 = 1 << 1;
+/// DECKPAM (`ESC =`).
+pub const MODE_KEYPAD_APP: u32 = 1 << 2;
+/// `?2004`.
+pub const MODE_BRACKETED_PASTE: u32 = 1 << 3;
+/// `?1004`.
+pub const MODE_FOCUS_EVENTS: u32 = 1 << 4;
+/// `?9`.
+pub const MODE_MOUSE_X10: u32 = 1 << 5;
+/// `?1000`.
+pub const MODE_MOUSE_NORMAL: u32 = 1 << 6;
+/// `?1002`.
+pub const MODE_MOUSE_BUTTON: u32 = 1 << 7;
+/// `?1003`.
+pub const MODE_MOUSE_ANY: u32 = 1 << 8;
+/// `?1005`.
+pub const MODE_MOUSE_UTF8: u32 = 1 << 9;
+/// `?1006`.
+pub const MODE_MOUSE_SGR: u32 = 1 << 10;
+/// `?1007`.
+pub const MODE_ALT_SCROLL: u32 = 1 << 11;
+/// `?1015`.
+pub const MODE_MOUSE_URXVT: u32 = 1 << 12;
+/// `?1016`.
+pub const MODE_MOUSE_SGR_PIXELS: u32 = 1 << 13;
+/// `?12` (set explicitly).
+pub const MODE_CURSOR_BLINK: u32 = 1 << 14;
+/// `?5`.
+pub const MODE_REVERSE_VIDEO: u32 = 1 << 15;
+/// `?2027` (grapheme clustering; on unless the program turned it off).
+pub const MODE_GRAPHEME_CLUSTER: u32 = 1 << 16;
+/// The kitty keyboard flags in use (5 bits) start at this bit.
+pub const KITTY_FLAGS_SHIFT: u32 = 24;
+
+/// DEC private modes and their bits.
+const PRIVATE_MODES: &[(u16, u32)] = &[
+    (1, MODE_APP_CURSOR),
+    (5, MODE_REVERSE_VIDEO),
+    (9, MODE_MOUSE_X10),
+    (12, MODE_CURSOR_BLINK),
+    (1000, MODE_MOUSE_NORMAL),
+    (1002, MODE_MOUSE_BUTTON),
+    (1003, MODE_MOUSE_ANY),
+    (1004, MODE_FOCUS_EVENTS),
+    (1005, MODE_MOUSE_UTF8),
+    (1006, MODE_MOUSE_SGR),
+    (1007, MODE_ALT_SCROLL),
+    (1015, MODE_MOUSE_URXVT),
+    (1016, MODE_MOUSE_SGR_PIXELS),
+    (2004, MODE_BRACKETED_PASTE),
+];
+
+// ---------------------------------------------------------------------------
+// The state.
+
+/// A cell's style: what the phone draws, and enough to compare with Ghostty.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SyncStyle {
+    pub fg: Color,
+    pub bg: Color,
+    pub underline_color: Color,
+    /// [`crate::style`] attribute bits (BOLD, FAINT, ...).
+    pub flags: u16,
+    /// 0 none, 1 single, 2 double, 3 curly, 4 dotted, 5 dashed.
+    pub underline: u8,
+    /// The OSC 8 link the cell is in (`params;uri`), "" for none.
+    pub link: String,
+}
+
+impl SyncStyle {
+    pub fn is_default(&self) -> bool {
+        *self == SyncStyle::default()
+    }
+
+    /// The SGR part (no link) as the crate's [`Style`].
+    pub fn sgr(&self) -> Style {
+        Style {
+            fg: self.fg,
+            bg: self.bg,
+            underline_color: self.underline_color,
+            flags: self.flags,
+            underline: self.underline,
+            link: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SyncCell {
+    /// The full grapheme ("" for a blank or a wide glyph's tail).
+    pub text: String,
+    /// [`crate::terminal::NARROW`], `WIDE`, `WIDE_TAIL` or `SPACER_HEAD`.
+    pub width: u8,
+    pub style: SyncStyle,
+}
+
+/// One viewport snapshot of the active screen (primary or alternate).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ScreenState {
+    pub cols: u16,
+    pub rows: u16,
+    /// `rows * cols`, row-major.
+    pub cells: Vec<SyncCell>,
+    /// (col, row).
+    pub cursor: (u16, u16),
+    pub cursor_visible: bool,
+    /// The DECSCUSR parameter last set (0: the terminal's default).
+    pub cursor_shape: u8,
+    /// `MODE_*` bits.
+    pub modes: u32,
+    pub alternate: bool,
+}
+
+fn to_u16(n: usize) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
+impl ScreenState {
+    /// The viewport of `term`'s active screen.
+    pub fn capture(term: &Terminal) -> ScreenState {
+        let (cols, rows) = (term.cols, term.rows);
+        let mut cells = Vec::with_capacity(cols * rows);
+        let mut styles: HashMap<u16, SyncStyle> = HashMap::new();
+        let screen = term.screen_rows();
+        for y in 0..rows {
+            let row = screen.get(y);
+            for x in 0..cols {
+                let cell = row.and_then(|r| r.cells.get(x)).copied().unwrap_or_default();
+                let style =
+                    styles.entry(cell.style).or_insert_with(|| sync_style(term, cell.style));
+                cells.push(SyncCell {
+                    text: if cell.ch == 0 { String::new() } else { term.cell_text(cell) },
+                    width: cell.kind,
+                    style: style.clone(),
+                });
+            }
+        }
+        let (x, y) = term.cursor();
+        let (mut modes, cursor_shape) = modes_of(term);
+        if term.is_alternate() {
+            modes |= MODE_ALTERNATE;
+        }
+        ScreenState {
+            cols: to_u16(cols),
+            rows: to_u16(rows),
+            cells,
+            cursor: (to_u16(x), to_u16(y)),
+            cursor_visible: term.cursor_visible,
+            cursor_shape,
+            modes,
+            alternate: term.is_alternate(),
+        }
+    }
+
+    /// A blank screen: nothing written, cursor home, visible.
+    pub fn blank(cols: u16, rows: u16) -> ScreenState {
+        ScreenState {
+            cols,
+            rows,
+            cells: vec![SyncCell::default(); usize::from(cols) * usize::from(rows)],
+            cursor: (0, 0),
+            cursor_visible: true,
+            cursor_shape: 0,
+            modes: MODE_GRAPHEME_CLUSTER,
+            alternate: false,
+        }
+    }
+
+    /// The cell at (col, row).
+    pub fn cell(&self, col: u16, row: u16) -> Option<&SyncCell> {
+        if col >= self.cols {
+            return None;
+        }
+        self.cells.get(usize::from(row) * usize::from(self.cols) + usize::from(col))
+    }
+
+    /// The cells of one row.
+    pub fn row(&self, row: u16) -> &[SyncCell] {
+        let cols = usize::from(self.cols);
+        let start = usize::from(row) * cols;
+        self.cells.get(start..start + cols).unwrap_or_default()
+    }
+
+    /// A stable 32-bit digest (FNV-1a) of everything in the state; a diff
+    /// carries the digest of the state it makes, so applying it to a wrong
+    /// base is caught.
+    pub fn digest(&self) -> u32 {
+        let mut h = Fnv::default();
+        h.u64(u64::from(self.cols));
+        h.u64(u64::from(self.rows));
+        h.u64(u64::from(self.cursor.0));
+        h.u64(u64::from(self.cursor.1));
+        h.u64(u64::from(self.cursor_visible));
+        h.u64(u64::from(self.cursor_shape));
+        h.u64(u64::from(self.modes));
+        h.u64(u64::from(self.alternate));
+        h.u64(self.cells.len() as u64);
+        // Equal styles side by side are hashed once.
+        let mut previous: Option<&SyncStyle> = None;
+        for cell in &self.cells {
+            h.bytes(cell.text.as_bytes());
+            h.u64(u64::from(cell.width));
+            if previous != Some(&cell.style) {
+                h.byte(0xFE);
+                let s = &cell.style;
+                for color in [s.fg, s.bg, s.underline_color] {
+                    h.color(color);
+                }
+                h.u64(u64::from(s.flags));
+                h.u64(u64::from(s.underline));
+                h.bytes(s.link.as_bytes());
+                previous = Some(&cell.style);
+            }
+        }
+        h.0
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Fnv(u32);
+
+impl Default for Fnv {
+    fn default() -> Self {
+        Fnv(0x811c_9dc5)
+    }
+}
+
+impl Fnv {
+    fn byte(&mut self, b: u8) {
+        self.0 ^= u32::from(b);
+        self.0 = self.0.wrapping_mul(0x0100_0193);
+    }
+    fn u64(&mut self, mut v: u64) {
+        loop {
+            let b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                self.byte(b);
+                return;
+            }
+            self.byte(b | 0x80);
+        }
+    }
+    fn bytes(&mut self, b: &[u8]) {
+        self.u64(b.len() as u64);
+        for &x in b {
+            self.byte(x);
+        }
+    }
+    fn color(&mut self, c: Color) {
+        match c {
+            Color::Default => self.byte(0),
+            Color::Indexed(n) => {
+                self.byte(1);
+                self.byte(n);
+            }
+            Color::Rgb(r, g, b) => {
+                self.byte(2);
+                self.byte(r);
+                self.byte(g);
+                self.byte(b);
+            }
+        }
+    }
+}
+
+fn sync_style(term: &Terminal, id: u16) -> SyncStyle {
+    let s = term.styles.get(id);
+    SyncStyle {
+        fg: s.fg,
+        bg: s.bg,
+        underline_color: s.underline_color,
+        flags: s.flags,
+        underline: s.underline,
+        link: if s.link == 0 { String::new() } else { term.links.get(s.link).to_string() },
+    }
+}
+
+/// The passed-on modes and the DECSCUSR parameter, read back from what the
+/// terminal would write to bring a reset terminal to them.
+fn modes_of(term: &Terminal) -> (u32, u8) {
+    let mut out = Vec::new();
+    term.write_modes(&mut out);
+    let mut modes = 0u32;
+    let mut shape = 0u8;
+    let mut clustering = true;
+    let mut i = 0;
+    while i < out.len() {
+        if out.get(i) != Some(&0x1b) {
+            i += 1;
+            continue;
+        }
+        match out.get(i + 1) {
+            Some(b'=') => {
+                modes |= MODE_KEYPAD_APP;
+                i += 2;
+            }
+            Some(b'[') => {
+                // Parameters, intermediates, final.
+                let start = i + 2;
+                let mut end = start;
+                while out.get(end).is_some_and(|b| !(0x40..=0x7e).contains(b)) {
+                    end += 1;
+                }
+                let Some(&last) = out.get(end) else { break };
+                let body = out.get(start..end).unwrap_or_default();
+                let number = |digits: &[u8]| -> u32 {
+                    std::str::from_utf8(digits).ok().and_then(|s| s.parse().ok()).unwrap_or(0)
+                };
+                match (body.first(), last) {
+                    (Some(b'?'), b'h' | b'l') => {
+                        let mode = number(body.get(1..).unwrap_or_default());
+                        let on = last == b'h';
+                        if mode == 2027 {
+                            clustering = on;
+                        }
+                        if let Some(&(_, bit)) =
+                            PRIVATE_MODES.iter().find(|(m, _)| u32::from(*m) == mode)
+                        {
+                            if on {
+                                modes |= bit;
+                            } else {
+                                modes &= !bit;
+                            }
+                        }
+                    }
+                    (Some(b'>'), b'u') => {
+                        let flags = number(body.get(1..).unwrap_or_default()) & 0x1f;
+                        modes |= flags << KITTY_FLAGS_SHIFT;
+                    }
+                    (_, b'q') if body.last() == Some(&b' ') => {
+                        let n = number(body.get(..body.len() - 1).unwrap_or_default());
+                        shape = u8::try_from(n).unwrap_or(0);
+                    }
+                    _ => {}
+                }
+                i = end + 1;
+            }
+            // The title (an OSC) comes last.
+            _ => break,
+        }
+    }
+    if clustering {
+        modes |= MODE_GRAPHEME_CLUSTER;
+    }
+    (modes, shape)
+}
+
+// ---------------------------------------------------------------------------
+// Diffs.
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyncError {
+    /// The payload ends early.
+    Truncated,
+    /// Not a payload of this version.
+    Version(u8),
+    /// A diff from a base, and no base given.
+    NoBase,
+    /// The base's grid is not the one the diff was made from.
+    GridMismatch,
+    /// Something in the payload is out of range.
+    Malformed(&'static str),
+    /// The result is not the state the diff was made for (a wrong base).
+    Digest,
+}
+
+impl std::fmt::Display for SyncError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SyncError::Truncated => write!(f, "sync payload truncated"),
+            SyncError::Version(v) => write!(f, "sync payload version {v}"),
+            SyncError::NoBase => write!(f, "sync diff needs a base"),
+            SyncError::GridMismatch => write!(f, "sync diff base grid differs"),
+            SyncError::Malformed(what) => write!(f, "sync payload malformed: {what}"),
+            SyncError::Digest => write!(f, "sync diff applied to the wrong base"),
+        }
+    }
+}
+
+impl std::error::Error for SyncError {}
+
+const FLAG_FROM_BLANK: u8 = 1;
+const FLAG_CURSOR_VISIBLE: u8 = 1 << 1;
+const FLAG_ALTERNATE: u8 = 1 << 2;
+
+// Cell stream tokens. A byte >= 0x20 starts a UTF-8 char: a narrow cell of
+// that one char.
+/// A narrow cell, empty.
+const T_EMPTY: u8 = 0x00;
+/// A narrow cell: varint length, then its text.
+const T_TEXT: u8 = 0x01;
+/// The next text token is a wide cell.
+const T_WIDE: u8 = 0x02;
+/// An empty wide tail.
+const T_TAIL: u8 = 0x03;
+/// The next text token is a spacer head.
+const T_SPACER_HEAD: u8 = 0x04;
+/// Varint n: the previous cell n more times.
+const T_REPEAT: u8 = 0x05;
+/// Varint index into the payload's style table (0 = default).
+const T_STYLE: u8 = 0x06;
+/// The next text token is a wide tail (one with text).
+const T_TAIL_TEXT: u8 = 0x07;
+
+/// A compact payload turning `base` (None: nothing held) into `latest`.
+/// A base of another grid is ignored (the payload starts from a blank screen).
+pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
+    let base = base.filter(|b| b.cols == latest.cols && b.rows == latest.rows);
+    let blank;
+    let (from, from_blank) = match base {
+        Some(b) => (b, false),
+        None => {
+            blank = ScreenState::blank(latest.cols, latest.rows);
+            (&blank, true)
+        }
+    };
+    let cols = usize::from(latest.cols);
+    // Changed spans: (row, first col, end col).
+    let mut spans = Vec::new();
+    for y in 0..latest.rows {
+        let a = from.row(y);
+        let b = latest.row(y);
+        let Some(first) = (0..cols).find(|&x| a.get(x) != b.get(x)) else { continue };
+        let last = (0..cols).rev().find(|&x| a.get(x) != b.get(x)).unwrap_or(first);
+        spans.push((y, first, last + 1));
+    }
+    // The styles the spans use.
+    let mut table: Vec<&SyncStyle> = Vec::new();
+    let mut index: HashMap<&SyncStyle, u64> = HashMap::new();
+    for &(y, a, b) in &spans {
+        for cell in latest.row(y).get(a..b).unwrap_or_default() {
+            if !cell.style.is_default() && !index.contains_key(&cell.style) {
+                table.push(&cell.style);
+                index.insert(&cell.style, table.len() as u64);
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(64 + spans.len() * 32);
+    out.push(VERSION);
+    let mut flags = 0;
+    if from_blank {
+        flags |= FLAG_FROM_BLANK;
+    }
+    if latest.cursor_visible {
+        flags |= FLAG_CURSOR_VISIBLE;
+    }
+    if latest.alternate {
+        flags |= FLAG_ALTERNATE;
+    }
+    out.push(flags);
+    put_varint(&mut out, u64::from(latest.cols));
+    put_varint(&mut out, u64::from(latest.rows));
+    put_varint(&mut out, u64::from(latest.cursor.0));
+    put_varint(&mut out, u64::from(latest.cursor.1));
+    out.push(latest.cursor_shape);
+    put_varint(&mut out, u64::from(latest.modes));
+    out.extend_from_slice(&latest.digest().to_le_bytes());
+    put_varint(&mut out, table.len() as u64);
+    for style in &table {
+        put_style(&mut out, style);
+    }
+    put_varint(&mut out, spans.len() as u64);
+    let mut next_row = 0u64;
+    for &(y, a, b) in &spans {
+        put_varint(&mut out, u64::from(y) - next_row);
+        next_row = u64::from(y) + 1;
+        put_varint(&mut out, a as u64);
+        put_varint(&mut out, (b - a) as u64);
+        let cells = latest.row(y).get(a..b).unwrap_or_default();
+        let mut style = 0u64;
+        let mut i = 0;
+        while let Some(cell) = cells.get(i) {
+            let id = index.get(&cell.style).copied().unwrap_or(0);
+            if id != style {
+                out.push(T_STYLE);
+                put_varint(&mut out, id);
+                style = id;
+            }
+            let start = out.len();
+            put_cell(&mut out, cell);
+            let token = out.len() - start;
+            let mut same = 1;
+            while cells.get(i + same) == Some(cell) {
+                same += 1;
+            }
+            let more = same - 1;
+            if more > 0 {
+                if more * token > 1 + varint_len(more as u64) {
+                    out.push(T_REPEAT);
+                    put_varint(&mut out, more as u64);
+                } else {
+                    for _ in 0..more {
+                        put_cell(&mut out, cell);
+                    }
+                }
+            }
+            i += same;
+        }
+    }
+    out
+}
+
+fn put_cell(out: &mut Vec<u8>, cell: &SyncCell) {
+    match cell.width {
+        WIDE => out.push(T_WIDE),
+        WIDE_TAIL if cell.text.is_empty() => {
+            out.push(T_TAIL);
+            return;
+        }
+        WIDE_TAIL => out.push(T_TAIL_TEXT),
+        SPACER_HEAD => out.push(T_SPACER_HEAD),
+        _ => {}
+    }
+    let mut chars = cell.text.chars();
+    match (chars.next(), chars.next()) {
+        (None, _) => out.push(T_EMPTY),
+        (Some(c), None) if u32::from(c) >= 0x20 => {
+            let mut buf = [0; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+        _ => {
+            out.push(T_TEXT);
+            put_varint(out, cell.text.len() as u64);
+            out.extend_from_slice(cell.text.as_bytes());
+        }
+    }
+}
+
+fn put_color(out: &mut Vec<u8>, color: Color) {
+    match color {
+        Color::Default => out.push(0),
+        Color::Indexed(n) => {
+            out.push(1);
+            out.push(n);
+        }
+        Color::Rgb(r, g, b) => {
+            out.push(2);
+            out.extend_from_slice(&[r, g, b]);
+        }
+    }
+}
+
+fn put_style(out: &mut Vec<u8>, s: &SyncStyle) {
+    let mut mask = 0u8;
+    if s.fg != Color::Default {
+        mask |= 1;
+    }
+    if s.bg != Color::Default {
+        mask |= 2;
+    }
+    if s.underline_color != Color::Default {
+        mask |= 4;
+    }
+    if s.flags != 0 {
+        mask |= 8;
+    }
+    if s.underline != 0 {
+        mask |= 16;
+    }
+    if !s.link.is_empty() {
+        mask |= 32;
+    }
+    out.push(mask);
+    if mask & 1 != 0 {
+        put_color(out, s.fg);
+    }
+    if mask & 2 != 0 {
+        put_color(out, s.bg);
+    }
+    if mask & 4 != 0 {
+        put_color(out, s.underline_color);
+    }
+    if mask & 8 != 0 {
+        put_varint(out, u64::from(s.flags));
+    }
+    if mask & 16 != 0 {
+        out.push(s.underline);
+    }
+    if mask & 32 != 0 {
+        put_varint(out, s.link.len() as u64);
+        out.extend_from_slice(s.link.as_bytes());
+    }
+}
+
+/// Applies a payload from [`diff`] to `base` (None: nothing held).
+pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, SyncError> {
+    let mut r = Reader::new(payload);
+    let version = r.u8()?;
+    if version != VERSION {
+        return Err(SyncError::Version(version));
+    }
+    let flags = r.u8()?;
+    let cols = r.small(u64::from(u16::MAX), "cols")?;
+    let rows = r.small(u64::from(u16::MAX), "rows")?;
+    if cols == 0 || rows == 0 || u64::from(cols) * u64::from(rows) > MAX_CELLS {
+        return Err(SyncError::Malformed("grid"));
+    }
+    let (cols, rows) = (cols as u16, rows as u16);
+    let mut state = if flags & FLAG_FROM_BLANK != 0 {
+        ScreenState::blank(cols, rows)
+    } else {
+        let base = base.ok_or(SyncError::NoBase)?;
+        if base.cols != cols || base.rows != rows {
+            return Err(SyncError::GridMismatch);
+        }
+        base.clone()
+    };
+    let cx = r.small(u64::from(u16::MAX), "cursor")? as u16;
+    let cy = r.small(u64::from(u16::MAX), "cursor")? as u16;
+    state.cursor = (cx, cy);
+    state.cursor_visible = flags & FLAG_CURSOR_VISIBLE != 0;
+    state.alternate = flags & FLAG_ALTERNATE != 0;
+    state.cursor_shape = r.u8()?;
+    state.modes = r.small(u64::from(u32::MAX), "modes")? as u32;
+    let digest = u32::from_le_bytes(r.array::<4>()?);
+    let count = r.small(MAX_CELLS, "styles")?;
+    let mut table = vec![SyncStyle::default()];
+    for _ in 0..count {
+        table.push(r.style()?);
+    }
+    let spans = r.small(u64::from(rows), "spans")?;
+    let mut y = 0u64;
+    let cols_u = u64::from(cols);
+    for _ in 0..spans {
+        // The delta counts from the row after the previous span.
+        y += r.varint()?;
+        if y >= u64::from(rows) {
+            return Err(SyncError::Malformed("row"));
+        }
+        let start = r.small(cols_u, "col")?;
+        let len = r.small(cols_u - start, "span")?;
+        let row_start = (y * cols_u + start) as usize;
+        let mut style = 0usize;
+        let mut done = 0u64;
+        let mut previous: Option<SyncCell> = None;
+        while done < len {
+            let token = r.peek()?;
+            match token {
+                T_STYLE => {
+                    r.u8()?;
+                    let id = r.small(table.len() as u64 - 1, "style")?;
+                    style = id as usize;
+                    continue;
+                }
+                T_REPEAT => {
+                    r.u8()?;
+                    let n = r.small(len - done, "repeat")?;
+                    let cell = previous.clone().ok_or(SyncError::Malformed("repeat"))?;
+                    for k in 0..n {
+                        if let Some(slot) = state.cells.get_mut(row_start + (done + k) as usize) {
+                            *slot = cell.clone();
+                        }
+                    }
+                    done += n;
+                    continue;
+                }
+                _ => {}
+            }
+            let (width, text) = r.cell()?;
+            let cell =
+                SyncCell { text, width, style: table.get(style).cloned().unwrap_or_default() };
+            if let Some(slot) = state.cells.get_mut(row_start + done as usize) {
+                *slot = cell.clone();
+            }
+            previous = Some(cell);
+            done += 1;
+        }
+        y += 1;
+    }
+    if r.remaining() != 0 {
+        return Err(SyncError::Malformed("trailing bytes"));
+    }
+    if state.digest() != digest {
+        return Err(SyncError::Digest);
+    }
+    Ok(state)
+}
+
+struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Reader { buf, pos: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.buf.len() - self.pos
+    }
+
+    fn peek(&self) -> Result<u8, SyncError> {
+        self.buf.get(self.pos).copied().ok_or(SyncError::Truncated)
+    }
+
+    fn u8(&mut self) -> Result<u8, SyncError> {
+        let b = self.peek()?;
+        self.pos += 1;
+        Ok(b)
+    }
+
+    fn take(&mut self, n: usize) -> Result<&'a [u8], SyncError> {
+        let end = self.pos.checked_add(n).ok_or(SyncError::Truncated)?;
+        let out = self.buf.get(self.pos..end).ok_or(SyncError::Truncated)?;
+        self.pos = end;
+        Ok(out)
+    }
+
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], SyncError> {
+        let bytes = self.take(N)?;
+        let mut out = [0; N];
+        out.copy_from_slice(bytes);
+        Ok(out)
+    }
+
+    fn varint(&mut self) -> Result<u64, SyncError> {
+        let mut value = 0u64;
+        for shift in (0..64).step_by(7) {
+            let b = self.u8()?;
+            value |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err(SyncError::Malformed("varint"))
+    }
+
+    /// A varint no larger than `max`.
+    fn small(&mut self, max: u64, what: &'static str) -> Result<u64, SyncError> {
+        let v = self.varint()?;
+        if v > max {
+            return Err(SyncError::Malformed(what));
+        }
+        Ok(v)
+    }
+
+    fn string(&mut self) -> Result<String, SyncError> {
+        let len = self.small(self.remaining() as u64, "length")? as usize;
+        let bytes = self.take(len)?;
+        String::from_utf8(bytes.to_vec()).map_err(|_| SyncError::Malformed("utf-8"))
+    }
+
+    fn color(&mut self) -> Result<Color, SyncError> {
+        match self.u8()? {
+            0 => Ok(Color::Default),
+            1 => Ok(Color::Indexed(self.u8()?)),
+            2 => {
+                let [r, g, b] = self.array::<3>()?;
+                Ok(Color::Rgb(r, g, b))
+            }
+            _ => Err(SyncError::Malformed("color")),
+        }
+    }
+
+    fn style(&mut self) -> Result<SyncStyle, SyncError> {
+        let mask = self.u8()?;
+        let mut s = SyncStyle::default();
+        if mask & 1 != 0 {
+            s.fg = self.color()?;
+        }
+        if mask & 2 != 0 {
+            s.bg = self.color()?;
+        }
+        if mask & 4 != 0 {
+            s.underline_color = self.color()?;
+        }
+        if mask & 8 != 0 {
+            s.flags = self.small(u64::from(u16::MAX), "flags")? as u16;
+        }
+        if mask & 16 != 0 {
+            s.underline = self.u8()?;
+        }
+        if mask & 32 != 0 {
+            s.link = self.string()?;
+        }
+        Ok(s)
+    }
+
+    /// One cell token (a kind prefix, then its text).
+    fn cell(&mut self) -> Result<(u8, String), SyncError> {
+        let width = match self.peek()? {
+            T_WIDE => WIDE,
+            T_TAIL => {
+                self.u8()?;
+                return Ok((WIDE_TAIL, String::new()));
+            }
+            T_TAIL_TEXT => WIDE_TAIL,
+            T_SPACER_HEAD => SPACER_HEAD,
+            _ => NARROW,
+        };
+        if width != NARROW {
+            self.u8()?;
+        }
+        let text = match self.peek()? {
+            T_EMPTY => {
+                self.u8()?;
+                String::new()
+            }
+            T_TEXT => {
+                self.u8()?;
+                self.string()?
+            }
+            b if b >= 0x20 => {
+                let len = match b {
+                    0x00..=0x7f => 1,
+                    0xc0..=0xdf => 2,
+                    0xe0..=0xef => 3,
+                    0xf0..=0xf7 => 4,
+                    _ => return Err(SyncError::Malformed("utf-8")),
+                };
+                let bytes = self.take(len)?;
+                std::str::from_utf8(bytes).map_err(|_| SyncError::Malformed("utf-8"))?.to_string()
+            }
+            _ => return Err(SyncError::Malformed("cell token")),
+        };
+        Ok((width, text))
+    }
+}
+
+fn put_varint(out: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            return;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+fn varint_len(mut v: u64) -> usize {
+    let mut n = 1;
+    while v >= 0x80 {
+        v >>= 7;
+        n += 1;
+    }
+    n
+}
+
+// ---------------------------------------------------------------------------
+// Datagrams.
+
+/// A parsed diff datagram header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Header {
+    pub epoch: u32,
+    pub seq: u64,
+    pub base: u64,
+    pub index: u64,
+    pub count: u64,
+}
+
+/// Parses a diff datagram: its header and its fragment's bytes.
+pub fn parse_diff_datagram(datagram: &[u8]) -> Option<(Header, &[u8])> {
+    let mut r = Reader::new(datagram);
+    if r.array::<2>().ok()? != MAGIC || r.u8().ok()? != KIND_DIFF {
+        return None;
+    }
+    let epoch = u32::from_le_bytes(r.array::<4>().ok()?);
+    let seq = r.varint().ok()?;
+    let base = r.varint().ok()?;
+    let index = r.varint().ok()?;
+    let count = r.varint().ok()?;
+    if seq == 0 || base >= seq || count == 0 || count > MAX_FRAGMENTS || index >= count {
+        return None;
+    }
+    let rest = datagram.get(r.pos..)?;
+    Some((Header { epoch, seq, base, index, count }, rest))
+}
+
+/// An ack datagram: the sender's epoch and the newest seq the phone holds.
+pub fn ack_datagram(epoch: u32, seq: u64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16);
+    out.extend_from_slice(&MAGIC);
+    out.push(KIND_ACK);
+    out.extend_from_slice(&epoch.to_le_bytes());
+    put_varint(&mut out, seq);
+    out
+}
+
+/// Parses an ack datagram: (epoch, seq).
+pub fn parse_ack_datagram(datagram: &[u8]) -> Option<(u32, u64)> {
+    let mut r = Reader::new(datagram);
+    if r.array::<2>().ok()? != MAGIC || r.u8().ok()? != KIND_ACK {
+        return None;
+    }
+    let epoch = u32::from_le_bytes(r.array::<4>().ok()?);
+    let seq = r.varint().ok()?;
+    (r.remaining() == 0).then_some((epoch, seq))
+}
+
+fn diff_header(out: &mut Vec<u8>, epoch: u32, seq: u64, base: u64, index: u64, count: u64) {
+    out.extend_from_slice(&MAGIC);
+    out.push(KIND_DIFF);
+    out.extend_from_slice(&epoch.to_le_bytes());
+    put_varint(out, seq);
+    put_varint(out, base);
+    put_varint(out, index);
+    put_varint(out, count);
+}
+
+/// Splits a payload into datagrams of at most `max_datagram` bytes.
+fn fragment(payload: &[u8], max_datagram: usize, epoch: u32, seq: u64, base: u64) -> Vec<Vec<u8>> {
+    // The header at its largest for this payload (index and count both
+    // bounded by the payload's length).
+    let bound = payload.len() as u64 + 1;
+    let header = 2 + 1 + 4 + varint_len(seq) + varint_len(base) + 2 * varint_len(bound);
+    let chunk = max_datagram.saturating_sub(header).max(1);
+    let count = payload.len().div_ceil(chunk).max(1);
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        let part = payload.get(index * chunk..((index + 1) * chunk).min(payload.len()));
+        let part = part.unwrap_or_default();
+        let mut d = Vec::with_capacity(header + part.len());
+        diff_header(&mut d, epoch, seq, base, index as u64, count as u64);
+        d.extend_from_slice(part);
+        out.push(d);
+    }
+    out
+}
+
+/// An epoch for a new sender: differs across host restarts, so a phone
+/// holding a seq from an earlier sender takes the new one's keyframe.
+fn new_epoch() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let mut h = Fnv::default();
+    h.u64(nanos);
+    h.u64(u64::from(std::process::id()));
+    h.u64(u64::from(COUNTER.fetch_add(1, Ordering::Relaxed)));
+    h.0
+}
+
+/// Host side.
+pub struct SyncSender {
+    max_datagram: usize,
+    epoch: u32,
+    latest: Option<ScreenState>,
+    latest_seq: u64,
+    /// States sent and not yet acked, oldest first.
+    sent: VecDeque<(u64, ScreenState)>,
+    acked_seq: u64,
+    acked: Option<ScreenState>,
+    /// The datagrams for (latest seq, acked seq), resent as they are.
+    cache: Option<(u64, u64, Vec<Vec<u8>>)>,
+    last_payload_len: usize,
+}
+
+impl SyncSender {
+    pub fn new(max_datagram: usize) -> Self {
+        Self::with_epoch(max_datagram, new_epoch())
+    }
+
+    /// A sender with a given epoch (tests, or a host that persists one).
+    pub fn with_epoch(max_datagram: usize, epoch: u32) -> Self {
+        SyncSender {
+            max_datagram: max_datagram.max(32),
+            epoch,
+            latest: None,
+            latest_seq: 0,
+            sent: VecDeque::new(),
+            acked_seq: 0,
+            acked: None,
+            cache: None,
+            last_payload_len: 0,
+        }
+    }
+
+    pub fn epoch(&self) -> u32 {
+        self.epoch
+    }
+
+    /// A new screen; bumps the seq only if it differs from the latest.
+    /// Returns the latest seq.
+    pub fn update(&mut self, latest: ScreenState) -> u64 {
+        if self.latest.as_ref() != Some(&latest) {
+            self.latest = Some(latest);
+            self.latest_seq += 1;
+        }
+        self.latest_seq
+    }
+
+    /// The datagrams for diff(last acked state, latest). Empty when the
+    /// phone already acked the latest.
+    pub fn datagrams(&mut self) -> Vec<Vec<u8>> {
+        let Some(latest) = &self.latest else { return Vec::new() };
+        if self.latest_seq == self.acked_seq {
+            return Vec::new();
+        }
+        if let Some((seq, base, datagrams)) = &self.cache
+            && *seq == self.latest_seq
+            && *base == self.acked_seq
+        {
+            return datagrams.clone();
+        }
+        let base = if self.acked_seq == 0 { None } else { self.acked.as_ref() };
+        let payload = diff(base, latest);
+        self.last_payload_len = payload.len();
+        let datagrams =
+            fragment(&payload, self.max_datagram, self.epoch, self.latest_seq, self.acked_seq);
+        if self.sent.back().map(|s| s.0) != Some(self.latest_seq) {
+            self.sent.push_back((self.latest_seq, latest.clone()));
+            while self.sent.len() > SENT_RING {
+                self.sent.pop_front();
+            }
+        }
+        self.cache = Some((self.latest_seq, self.acked_seq, datagrams.clone()));
+        datagrams
+    }
+
+    /// An ack from the phone (the newest seq it holds). Stale and unknown
+    /// acks are ignored; an ack of 0 (the phone holds nothing of ours) or of
+    /// a state no longer kept starts over from a keyframe.
+    pub fn on_ack(&mut self, datagram: &[u8]) {
+        let Some((epoch, seq)) = parse_ack_datagram(datagram) else { return };
+        if epoch != self.epoch || seq > self.latest_seq {
+            return;
+        }
+        if seq == 0 {
+            self.acked_seq = 0;
+            self.acked = None;
+            return;
+        }
+        if seq <= self.acked_seq {
+            return;
+        }
+        match self.sent.iter().position(|s| s.0 == seq) {
+            Some(i) => {
+                self.sent.drain(..i);
+                if let Some((s, state)) = self.sent.pop_front() {
+                    self.acked_seq = s;
+                    self.acked = Some(state);
+                }
+            }
+            None => {
+                // The phone holds a state this sender no longer has.
+                self.acked_seq = 0;
+                self.acked = None;
+            }
+        }
+    }
+
+    pub fn latest_seq(&self) -> u64 {
+        self.latest_seq
+    }
+
+    pub fn acked_seq(&self) -> u64 {
+        self.acked_seq
+    }
+
+    /// The latest state is not acked yet: the host's resend timer re-sends
+    /// [`SyncSender::datagrams`].
+    pub fn unacked(&self) -> bool {
+        self.latest_seq > self.acked_seq
+    }
+
+    /// The length of the last diff payload made (before fragmenting).
+    pub fn last_payload_len(&self) -> usize {
+        self.last_payload_len
+    }
+}
+
+struct Partial {
+    epoch: u32,
+    seq: u64,
+    base: u64,
+    frags: Vec<Option<Vec<u8>>>,
+    have: usize,
+}
+
+/// Phone side.
+#[derive(Default)]
+pub struct SyncReceiver {
+    epoch: Option<u32>,
+    seq: u64,
+    /// The held state and a few before it, oldest first.
+    held: VecDeque<(u64, ScreenState)>,
+    partials: Vec<Partial>,
+}
+
+impl SyncReceiver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Applies a complete diff only if it holds its base and its seq is newer
+    /// than the one held (newest wins). Returns the ack to send back (the
+    /// newest seq held) for every diff datagram; None for anything else.
+    pub fn on_datagram(&mut self, datagram: &[u8]) -> Option<Vec<u8>> {
+        let (h, data) = parse_diff_datagram(datagram)?;
+        let same_epoch = self.epoch == Some(h.epoch);
+        let held_seq = if same_epoch { self.seq } else { 0 };
+        let ack = |seq| Some(ack_datagram(h.epoch, seq));
+        if h.seq <= held_seq {
+            return ack(held_seq);
+        }
+        if h.base != 0 && !(same_epoch && self.held.iter().any(|s| s.0 == h.base)) {
+            return ack(held_seq);
+        }
+        let payload: std::borrow::Cow<'_, [u8]> = if h.count == 1 {
+            std::borrow::Cow::Borrowed(data)
+        } else {
+            match self.reassemble(h, data) {
+                Some(p) => std::borrow::Cow::Owned(p),
+                None => return ack(held_seq),
+            }
+        };
+        let base_state =
+            if h.base == 0 { None } else { self.held.iter().find(|s| s.0 == h.base).map(|s| &s.1) };
+        let Ok(state) = apply(base_state, &payload) else { return ack(held_seq) };
+        if !same_epoch {
+            self.epoch = Some(h.epoch);
+            self.held.clear();
+        }
+        self.seq = h.seq;
+        self.held.push_back((h.seq, state));
+        while self.held.len() > HELD_RING {
+            self.held.pop_front();
+        }
+        let (epoch, seq) = (h.epoch, self.seq);
+        self.partials.retain(|p| p.epoch != epoch || p.seq > seq);
+        ack(self.seq)
+    }
+
+    /// Adds a fragment; the whole payload once every fragment is in.
+    fn reassemble(&mut self, h: Header, data: &[u8]) -> Option<Vec<u8>> {
+        let (epoch, seq) = (self.epoch, self.seq);
+        self.partials.retain(|p| Some(p.epoch) != epoch || p.seq > seq);
+        let found = self.partials.iter().position(|p| {
+            p.epoch == h.epoch
+                && p.seq == h.seq
+                && p.base == h.base
+                && p.frags.len() as u64 == h.count
+        });
+        let i = match found {
+            Some(i) => i,
+            None => {
+                // The same seq with another base or count replaces its partial.
+                self.partials.retain(|p| p.epoch != h.epoch || p.seq != h.seq);
+                if self.partials.len() >= PARTIALS {
+                    // Drop the oldest seq (another epoch's first).
+                    let oldest = self
+                        .partials
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, p)| (p.epoch == h.epoch, p.seq))
+                        .map(|(i, _)| i)?;
+                    let older = self
+                        .partials
+                        .get(oldest)
+                        .is_some_and(|p| p.epoch != h.epoch || p.seq < h.seq);
+                    if !older {
+                        // Every partial is newer than this one: it is stale.
+                        return None;
+                    }
+                    self.partials.remove(oldest);
+                }
+                self.partials.push(Partial {
+                    epoch: h.epoch,
+                    seq: h.seq,
+                    base: h.base,
+                    frags: vec![None; h.count as usize],
+                    have: 0,
+                });
+                self.partials.len() - 1
+            }
+        };
+        let partial = self.partials.get_mut(i)?;
+        let slot = partial.frags.get_mut(h.index as usize)?;
+        if slot.is_none() {
+            *slot = Some(data.to_vec());
+            partial.have += 1;
+        }
+        if partial.have < partial.frags.len() {
+            return None;
+        }
+        let partial = self.partials.remove(i);
+        Some(partial.frags.into_iter().flatten().flatten().collect())
+    }
+
+    /// The state held (None before the first keyframe).
+    pub fn screen(&self) -> Option<&ScreenState> {
+        self.held.back().map(|s| &s.1)
+    }
+
+    /// The seq held (0: nothing).
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// The epoch of the sender whose state is held.
+    pub fn epoch(&self) -> Option<u32> {
+        self.epoch
+    }
+}
+
+// ---------------------------------------------------------------------------
+// History.
+
+/// Rows that left the viewport (scrolled into history) since the last call,
+/// as VT bytes for the reliable stream, so the phone's history stays exact.
+///
+/// The bytes are for a terminal of the host's columns that holds only the
+/// history: each row is written from column 0 and ends with `CR LF`, or, for a
+/// row that soft-wraps, runs on into the next. `ESC c` (RIS) means the host's
+/// scrollback was cleared (`ED 3`, a reset): the history starts over.
+#[derive(Default)]
+pub struct HistoryTracker {
+    /// The absolute index (rows dropped by the limit included) of the next
+    /// history row to write.
+    next: u64,
+    /// The last row written, to see a clear the count alone hides.
+    last: Option<Row>,
+    /// The last row written soft-wraps into the next.
+    wrapped: bool,
+}
+
+impl HistoryTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn take_new_rows(&mut self, term: &Terminal) -> Vec<u8> {
+        let mut out = Vec::new();
+        if term.is_alternate() {
+            return out;
+        }
+        let dropped = term.history_dropped;
+        let total = dropped + term.history.len() as u64;
+        let cleared = self.next > total
+            || (self.next > dropped
+                && self.last.as_ref().is_some_and(|last| {
+                    term.history.get((self.next - 1 - dropped) as usize) != Some(last)
+                }));
+        if cleared {
+            out.extend_from_slice(b"\x1bc");
+            self.next = 0;
+            self.wrapped = false;
+        }
+        let start = self.next.max(dropped);
+        for abs in start..total {
+            if let Some(row) = term.history.get((abs - dropped) as usize) {
+                write_history_row(term, row, self.wrapped, &mut out);
+                self.wrapped = row.wrapped;
+            }
+        }
+        if total > self.next || cleared {
+            self.last = term.history.back().cloned();
+        }
+        self.next = total;
+        out
+    }
+}
+
+fn write_osc8(out: &mut Vec<u8>, link: &str) {
+    out.extend_from_slice(b"\x1b]8;");
+    if link.is_empty() {
+        out.push(b';');
+    } else {
+        out.extend_from_slice(link.as_bytes());
+    }
+    out.extend_from_slice(b"\x1b\\");
+}
+
+/// One history row. `continuation`: the row before soft-wrapped into this
+/// one (the cursor waits at the last column, so its first cell is printed).
+fn write_history_row(term: &Terminal, row: &Row, continuation: bool, out: &mut Vec<u8>) {
+    let cols = term.cols;
+    let mut col = 0usize;
+    let mut blanks = 0usize;
+    let mut style: Option<u16> = None;
+    let mut link = 0u32;
+    let mut last_kind = NARROW;
+    let reset = |out: &mut Vec<u8>, style: &mut Option<u16>| {
+        if *style != Some(0) {
+            Style::default().write_sgr(out);
+            *style = Some(0);
+        }
+    };
+    for cell in &row.cells {
+        last_kind = cell.kind;
+        if cell.kind == WIDE_TAIL || cell.kind == SPACER_HEAD {
+            continue;
+        }
+        if *cell == Cell::default() && !(continuation && col == 0) {
+            blanks += 1;
+            col += 1;
+            continue;
+        }
+        if blanks > 0 {
+            out.extend_from_slice(format!("\x1b[{blanks}C").as_bytes());
+            blanks = 0;
+        }
+        let s = term.styles.get(cell.style);
+        if style != Some(cell.style) {
+            Style { link: 0, ..s }.write_sgr(out);
+            style = Some(cell.style);
+        }
+        if s.link != link {
+            write_osc8(out, if s.link == 0 { "" } else { term.links.get(s.link) });
+            link = s.link;
+        }
+        if cell.ch == 0 {
+            out.push(b' ');
+        } else {
+            term.write_cell(*cell, out);
+        }
+        col += cell.width();
+    }
+    if link != 0 {
+        write_osc8(out, "");
+    }
+    if row.wrapped {
+        // The cursor must wait at the last column for the next row to wrap
+        // into: pad with blanks (a trailing spacer head is the terminal's own).
+        let written = col - blanks;
+        if last_kind != SPACER_HEAD && written < cols {
+            reset(out, &mut style);
+            out.extend_from_slice(&vec![b' '; cols - written]);
+        }
+        if style.is_some() {
+            reset(out, &mut style);
+        }
+    } else {
+        reset(out, &mut style);
+        out.extend_from_slice(b"\r\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::OVERLINE;
+
+    fn term(cols: usize, rows: usize, bytes: &[u8]) -> Terminal {
+        let mut t = Terminal::new(cols, rows, 1000);
+        for &b in bytes {
+            t.advance(b);
+        }
+        t
+    }
+
+    fn feed(t: &mut Terminal, bytes: &[u8]) {
+        for &b in bytes {
+            t.advance(b);
+        }
+    }
+
+    fn roundtrip(base: Option<&ScreenState>, latest: &ScreenState) -> usize {
+        let payload = diff(base, latest);
+        let got = apply(base, &payload).expect("apply");
+        assert_eq!(&got, latest);
+        payload.len()
+    }
+
+    #[test]
+    fn keyframe_and_diffs_round_trip() {
+        let mut t = term(80, 24, b"$ echo hi\r\nhi\r\n$ ");
+        let a = ScreenState::capture(&t);
+        roundtrip(None, &a);
+        feed(&mut t, b"\x1b[1;31mred\x1b[0m and \x1b[4:3;58;5;9mcurly\x1b[0m \x1b[7minv\x1b[27m");
+        let b = ScreenState::capture(&t);
+        let n = roundtrip(Some(&a), &b);
+        assert!(n < 80, "small edit is small: {n}");
+        roundtrip(None, &b);
+        // Nothing changed: still a valid payload.
+        roundtrip(Some(&b), &b);
+    }
+
+    #[test]
+    fn wide_emoji_and_combining_round_trip() {
+        let text = "漢字 👍🏽 👨\u{200d}👩\u{200d}👧 🇯🇵 ❤\u{fe0f} cafe\u{301} क्ष \x1b]8;;https://x.y\x1b\\link\x1b]8;;\x1b\\";
+        let mut bytes = text.as_bytes().to_vec();
+        // A wide glyph at the last column leaves a spacer head.
+        bytes.extend_from_slice(b"\r\n");
+        bytes.extend_from_slice("x".repeat(19).as_bytes());
+        bytes.extend_from_slice("中文".as_bytes());
+        let t = term(20, 6, &bytes);
+        let s = ScreenState::capture(&t);
+        assert!(s.cells.iter().any(|c| c.width == WIDE));
+        assert!(s.cells.iter().any(|c| c.width == WIDE_TAIL));
+        assert!(s.cells.iter().any(|c| c.width == SPACER_HEAD));
+        assert!(s.cells.iter().any(|c| c.text == "e\u{301}"));
+        assert!(s.cells.iter().any(|c| !c.style.link.is_empty()));
+        roundtrip(None, &s);
+        roundtrip(Some(&ScreenState::blank(20, 6)), &s);
+    }
+
+    #[test]
+    fn styles_round_trip() {
+        let t = term(
+            60,
+            4,
+            b"\x1b[38;2;1;2;3;48;5;200;1;2;3;5;7;8;9;53mall\x1b[0m \x1b[21mdbl\x1b[0m\x1b[44m\x1b[K",
+        );
+        let s = ScreenState::capture(&t);
+        assert!(s.cells.iter().any(|c| c.style.flags & OVERLINE != 0));
+        roundtrip(None, &s);
+    }
+
+    #[test]
+    fn resize_is_a_keyframe_from_blank() {
+        let mut t = term(80, 24, b"hello\r\nworld");
+        let a = ScreenState::capture(&t);
+        t.resize(100, 30);
+        feed(&mut t, b"\x1b[Hresized");
+        let b = ScreenState::capture(&t);
+        let payload = diff(Some(&a), &b);
+        assert_eq!(apply(Some(&a), &payload).unwrap(), b);
+        assert_eq!(apply(None, &payload).unwrap(), b);
+        // A diff from a base cannot be applied without it, or to another grid.
+        let mut t2 = term(100, 30, b"x");
+        let c = ScreenState::capture(&t2);
+        feed(&mut t2, b"y");
+        let d = ScreenState::capture(&t2);
+        let payload = diff(Some(&c), &d);
+        assert_eq!(apply(None, &payload), Err(SyncError::NoBase));
+        assert_eq!(apply(Some(&a), &payload), Err(SyncError::GridMismatch));
+        // The wrong base of the right grid is caught by the digest.
+        assert_eq!(apply(Some(&b), &payload), Err(SyncError::Digest));
+    }
+
+    #[test]
+    fn modes_cursor_and_alternate_are_captured() {
+        let t = term(40, 10, b"\x1b[?1h\x1b=\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[5 q\x1b[?25l\x1b[>5u\x1b[?1049h\x1b[3;7H");
+        let s = ScreenState::capture(&t);
+        assert!(s.alternate);
+        for bit in [
+            MODE_ALTERNATE,
+            MODE_APP_CURSOR,
+            MODE_KEYPAD_APP,
+            MODE_BRACKETED_PASTE,
+            MODE_MOUSE_NORMAL,
+            MODE_MOUSE_SGR,
+            MODE_GRAPHEME_CLUSTER,
+        ] {
+            assert_ne!(s.modes & bit, 0, "bit {bit:#x}");
+        }
+        assert_eq!(s.modes >> KITTY_FLAGS_SHIFT, 5);
+        assert_eq!(s.cursor_shape, 5);
+        assert!(!s.cursor_visible);
+        assert_eq!(s.cursor, (6, 2));
+        roundtrip(None, &s);
+    }
+
+    #[test]
+    fn a_typical_redraw_fits_one_datagram() {
+        // Claude Code repaints its prompt box and status rows.
+        let mut t = term(100, 40, b"");
+        for i in 0..30 {
+            feed(
+                &mut t,
+                format!("line {i} of earlier output, some text to fill the row\r\n").as_bytes(),
+            );
+        }
+        let a = ScreenState::capture(&t);
+        let frame = |n: usize| {
+            format!(
+                "\x1b[34;1H\x1b[38;5;174m╭{}╮\x1b[0m\r\n\x1b[38;5;174m│\x1b[0m > typing {n}{}\x1b[38;5;174m│\x1b[0m\r\n\x1b[38;5;174m╰{}╯\x1b[0m\r\n  \x1b[2m? for shortcuts · {n} tokens\x1b[0m\x1b[K\r\n\x1b[1m✻ Thinking… ({n}s · esc to interrupt)\x1b[0m\x1b[K",
+                "─".repeat(98),
+                " ".repeat(86),
+                "─".repeat(98),
+            )
+        };
+        feed(&mut t, frame(1).as_bytes());
+        let b = ScreenState::capture(&t);
+        feed(&mut t, frame(2).as_bytes());
+        let c = ScreenState::capture(&t);
+        let full = roundtrip(Some(&a), &b);
+        let small = roundtrip(Some(&b), &c);
+        assert!(full < 1100, "five new rows of 100 cols: {full} bytes");
+        assert!(small < 100, "a counter tick: {small} bytes");
+        assert_eq!(fragment(&diff(Some(&a), &b), 1200, 7, 2, 1).len(), 1);
+    }
+
+    // Sender and receiver.
+
+    fn states(n: usize) -> Vec<ScreenState> {
+        let mut t = term(30, 8, b"");
+        let mut out = Vec::new();
+        for i in 0..n {
+            feed(&mut t, format!("step {i} 漢 👍\r\n").as_bytes());
+            out.push(ScreenState::capture(&t));
+        }
+        out
+    }
+
+    #[test]
+    fn in_order_delivery_and_acks() {
+        let s = states(5);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut rx = SyncReceiver::new();
+        assert!(tx.datagrams().is_empty());
+        for (i, state) in s.iter().enumerate() {
+            assert_eq!(tx.update(state.clone()), i as u64 + 1);
+            assert_eq!(tx.update(state.clone()), i as u64 + 1, "same state, same seq");
+            for d in tx.datagrams() {
+                if let Some(ack) = rx.on_datagram(&d) {
+                    tx.on_ack(&ack);
+                }
+            }
+            assert_eq!(rx.screen(), Some(state));
+            assert_eq!(tx.acked_seq(), i as u64 + 1);
+            assert!(!tx.unacked());
+            assert!(tx.datagrams().is_empty());
+        }
+    }
+
+    #[test]
+    fn diffs_are_from_the_acked_state_and_newest_wins() {
+        let s = states(4);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut rx = SyncReceiver::new();
+        tx.update(s[0].clone());
+        let d1 = tx.datagrams();
+        tx.update(s[1].clone());
+        let d2 = tx.datagrams();
+        // Both keyframes (nothing acked yet): base 0.
+        assert_eq!(parse_diff_datagram(&d2[0]).unwrap().0.base, 0);
+        // Reordered: 2 first, then the stale 1.
+        let a2 = rx.on_datagram(&d2[0]).unwrap();
+        assert_eq!(rx.seq(), 2);
+        let a1 = rx.on_datagram(&d1[0]).unwrap();
+        assert_eq!(rx.seq(), 2);
+        assert_eq!(rx.screen(), Some(&s[1]));
+        assert_eq!(parse_ack_datagram(&a1), Some((1, 2)));
+        // Duplicate.
+        assert!(rx.on_datagram(&d2[0]).is_some());
+        assert_eq!(rx.seq(), 2);
+        tx.on_ack(&a2);
+        assert_eq!(tx.acked_seq(), 2);
+        // A stale ack changes nothing.
+        tx.on_ack(&ack_datagram(1, 1));
+        assert_eq!(tx.acked_seq(), 2);
+        // Unknown epoch, future seq: ignored.
+        tx.on_ack(&ack_datagram(9, 2));
+        tx.on_ack(&ack_datagram(1, 99));
+        assert_eq!(tx.acked_seq(), 2);
+        tx.update(s[2].clone());
+        let d3 = tx.datagrams();
+        assert_eq!(parse_diff_datagram(&d3[0]).unwrap().0.base, 2);
+        // d3 lost; s[3] diffs from the acked 2 again.
+        tx.update(s[3].clone());
+        let d4 = tx.datagrams();
+        let h = parse_diff_datagram(&d4[0]).unwrap().0;
+        assert_eq!((h.seq, h.base), (4, 2));
+        let a4 = rx.on_datagram(&d4[0]).unwrap();
+        assert_eq!(rx.screen(), Some(&s[3]));
+        // d3 arrives late: stale, ignored.
+        rx.on_datagram(&d3[0]);
+        assert_eq!(rx.screen(), Some(&s[3]));
+        tx.on_ack(&a4);
+        assert!(!tx.unacked());
+    }
+
+    #[test]
+    fn a_base_not_held_is_ignored() {
+        let s = states(3);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut other = SyncReceiver::new();
+        tx.update(s[0].clone());
+        for d in tx.datagrams() {
+            tx.on_ack(&other.on_datagram(&d).unwrap());
+        }
+        tx.update(s[1].clone());
+        let d = tx.datagrams();
+        // A phone that never got the keyframe (restarted): it holds nothing,
+        // so a diff from base 1 is ignored and it acks 0.
+        let mut fresh = SyncReceiver::new();
+        let ack = fresh.on_datagram(&d[0]).unwrap();
+        assert!(fresh.screen().is_none());
+        assert_eq!(parse_ack_datagram(&ack), Some((1, 0)));
+        // The ack of 0 makes the sender start over with a keyframe.
+        tx.on_ack(&ack);
+        assert_eq!(tx.acked_seq(), 0);
+        let d = tx.datagrams();
+        assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.base, 0);
+        fresh.on_datagram(&d[0]);
+        assert_eq!(fresh.screen(), Some(&s[1]));
+    }
+
+    #[test]
+    fn a_new_sender_epoch_takes_over_with_a_keyframe() {
+        let s = states(3);
+        let mut rx = SyncReceiver::new();
+        let mut a = SyncSender::with_epoch(1200, 1);
+        for st in &s {
+            a.update(st.clone());
+            for d in a.datagrams() {
+                a.on_ack(&rx.on_datagram(&d).unwrap());
+            }
+        }
+        assert_eq!(rx.seq(), 3);
+        let mut b = SyncSender::with_epoch(1200, 2);
+        b.update(s[0].clone());
+        for d in b.datagrams() {
+            b.on_ack(&rx.on_datagram(&d).unwrap());
+        }
+        assert_eq!(rx.epoch(), Some(2));
+        assert_eq!(rx.seq(), 1);
+        assert_eq!(rx.screen(), Some(&s[0]));
+        assert_eq!(b.acked_seq(), 1);
+    }
+
+    #[test]
+    fn fragments_reassemble_and_loss_is_recovered_by_resend() {
+        let mut t = term(120, 40, b"");
+        for i in 0..40 {
+            feed(
+                &mut t,
+                format!("\x1b[3{}m{i:03} {}\x1b[0m\r\n", i % 8, "αβγ漢".repeat(20)).as_bytes(),
+            );
+        }
+        let big = ScreenState::capture(&t);
+        let mut tx = SyncSender::with_epoch(300, 3);
+        let mut rx = SyncReceiver::new();
+        tx.update(big.clone());
+        let d = tx.datagrams();
+        assert!(d.len() > 3, "fragmented: {}", d.len());
+        assert!(d.iter().all(|x| x.len() <= 300));
+        // Lose one fragment, deliver the rest out of order.
+        let lost = d.len() / 2;
+        for (i, x) in d.iter().enumerate().rev() {
+            if i != lost {
+                rx.on_datagram(x);
+            }
+        }
+        assert!(rx.screen().is_none());
+        // The resend (same datagrams) completes it; duplicates are fine.
+        let again = tx.datagrams();
+        assert_eq!(again, d);
+        for x in &again {
+            if let Some(ack) = rx.on_datagram(x) {
+                tx.on_ack(&ack);
+            }
+        }
+        assert_eq!(rx.screen(), Some(&big));
+        assert!(!tx.unacked());
+    }
+
+    #[test]
+    fn stale_partials_are_dropped_for_newer_seqs() {
+        let s = states(8);
+        let mut tx = SyncSender::with_epoch(60, 4);
+        let mut rx = SyncReceiver::new();
+        let mut first_frags = Vec::new();
+        for st in &s {
+            tx.update(st.clone());
+            let d = tx.datagrams();
+            assert!(d.len() > 1);
+            // Only the first fragment of every seq arrives.
+            first_frags.push(d);
+            rx.on_datagram(&first_frags.last().unwrap()[0]);
+            assert!(rx.partials.len() <= PARTIALS);
+        }
+        assert!(rx.screen().is_none());
+        // The newest seq completes.
+        for x in first_frags.last().unwrap() {
+            rx.on_datagram(x);
+        }
+        assert_eq!(rx.screen(), s.last());
+        // Older partials cannot complete after it.
+        for x in &first_frags[2] {
+            rx.on_datagram(x);
+        }
+        assert_eq!(rx.screen(), s.last());
+        assert!(rx.partials.iter().all(|p| p.seq > rx.seq()));
+    }
+
+    #[test]
+    fn malformed_datagrams_are_ignored() {
+        let mut rx = SyncReceiver::new();
+        assert!(rx.on_datagram(b"").is_none());
+        assert!(rx.on_datagram(b"XX\x01").is_none());
+        assert!(rx.on_datagram(&ack_datagram(1, 1)).is_none());
+        let mut d = Vec::new();
+        diff_header(&mut d, 1, 1, 0, 0, 1);
+        d.extend_from_slice(&[VERSION, 0, 5, 5, 0, 0, 0, 0]);
+        assert!(rx.on_datagram(&d).is_some());
+        assert!(rx.screen().is_none());
+        for cut in 0..40 {
+            let s = states(2);
+            let payload = diff(None, &s[1]);
+            let _ = apply(None, payload.get(..cut).unwrap_or_default());
+        }
+    }
+
+    #[test]
+    fn lossy_channel_converges() {
+        // Random drops, duplicates and reordering both ways.
+        let s = states(30);
+        let mut rng = 0x1234_5678_u64;
+        let mut next = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng % 100
+        };
+        let mut tx = SyncSender::with_epoch(120, 5);
+        let mut rx = SyncReceiver::new();
+        let mut to_phone: Vec<Vec<u8>> = Vec::new();
+        let mut to_host: Vec<Vec<u8>> = Vec::new();
+        for round in 0..2000 {
+            if let Some(st) = s.get(round / 3) {
+                tx.update(st.clone());
+            }
+            for d in tx.datagrams() {
+                if next() >= 40 {
+                    to_phone.push(d.clone());
+                }
+                if next() < 10 {
+                    to_phone.push(d);
+                }
+            }
+            // Deliver in a shuffled order.
+            while !to_phone.is_empty() {
+                let i = (next() as usize) % to_phone.len();
+                let d = to_phone.swap_remove(i);
+                if let Some(ack) = rx.on_datagram(&d)
+                    && next() >= 40
+                {
+                    to_host.push(ack);
+                }
+            }
+            while !to_host.is_empty() {
+                let i = (next() as usize) % to_host.len();
+                tx.on_ack(&to_host.swap_remove(i));
+            }
+            if round > s.len() * 3 && !tx.unacked() {
+                break;
+            }
+        }
+        assert!(!tx.unacked());
+        assert_eq!(rx.screen(), s.last());
+    }
+
+    // History.
+
+    fn replay(cols: usize, bytes: &[u8]) -> Terminal {
+        // A tall terminal holds what was written without scrolling.
+        let mut t = Terminal::new(cols, 400, 1000);
+        // RIS restarts it.
+        for &b in bytes {
+            t.advance(b);
+        }
+        t
+    }
+
+    fn texts(t: &Terminal, rows: &[Row]) -> Vec<(String, bool)> {
+        rows.iter()
+            .map(|r| {
+                let mut s = String::new();
+                for c in &r.cells {
+                    if c.kind == WIDE_TAIL || c.kind == SPACER_HEAD {
+                        continue;
+                    }
+                    s.push_str(if c.ch == 0 { " " } else { "" });
+                    if c.ch != 0 {
+                        s.push_str(&t.cell_text(*c));
+                    }
+                }
+                (s.trim_end().to_string(), r.wrapped)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn history_rows_replay_exactly() {
+        let mut host = Terminal::new(20, 4, 1000);
+        let mut tracker = HistoryTracker::new();
+        let mut stream = Vec::new();
+        let chunks: Vec<String> = vec![
+            "one\r\ntwo\r\n".into(),
+            "\x1b[31mred\x1b[0m   gap\r\n".into(),
+            format!("{}\r\n", "w".repeat(45)),
+            format!("{}中文\r\n", "x".repeat(19)),
+            "  lead\r\n漢字 👍🏽 e\u{301}\r\n".into(),
+            "\x1b]8;;http://a\x1b\\lnk\x1b]8;;\x1b\\\r\n".into(),
+            "a\r\nb\r\nc\r\nd\r\ne\r\n".into(),
+        ];
+        for c in &chunks {
+            feed(&mut host, c.as_bytes());
+            stream.extend(tracker.take_new_rows(&host));
+        }
+        let phone = replay(20, &stream);
+        let n = host.history.len();
+        let host_rows: Vec<Row> = host.history.iter().cloned().collect();
+        let got = texts(&phone, phone.screen_rows().get(..n).unwrap());
+        let want = texts(&host, &host_rows);
+        assert_eq!(got, want);
+        // Styles: the red cell.
+        let red = phone
+            .screen_rows()
+            .iter()
+            .flat_map(|r| &r.cells)
+            .find(|c| c.ch == u32::from('r'))
+            .unwrap();
+        assert_eq!(phone.styles.get(red.style).fg, Color::Indexed(1));
+        // Nothing new: nothing written.
+        assert!(tracker.take_new_rows(&host).is_empty());
+        // The alternate screen adds nothing.
+        feed(&mut host, b"\x1b[?1049hfoo\r\nbar\r\n\r\n\r\n\r\n");
+        assert!(tracker.take_new_rows(&host).is_empty());
+        feed(&mut host, b"\x1b[?1049l");
+        // A scrollback clear starts over.
+        feed(&mut host, b"\x1b[3Jnew\r\n1\r\n2\r\n3\r\n");
+        let again = tracker.take_new_rows(&host);
+        assert!(again.starts_with(b"\x1bc"));
+        let phone = replay(20, &again);
+        let host_rows: Vec<Row> = host.history.iter().cloned().collect();
+        assert_eq!(
+            texts(&phone, phone.screen_rows().get(..host_rows.len()).unwrap()),
+            texts(&host, &host_rows)
+        );
+    }
+}
