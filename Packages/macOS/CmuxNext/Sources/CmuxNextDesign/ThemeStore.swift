@@ -114,14 +114,10 @@ public final class ThemeStore {
         return changed
     }
 
-    /// Applies the Ghostty config's terminal theme lines (the iPhone's terminals). No change, no
-    /// observation.
-    public func applyTerminalConfigLines(_ lines: [String]) {
+    /// Applies the Ghostty config's terminal theme lines (the iPhone's terminals) and its
+    /// `background-image` (nil: none). No change, no observation.
+    public func applyTerminalConfig(lines: [String], backgroundImage image: TerminalBackgroundImage?) {
         if terminalConfigLines != lines { terminalConfigLines = lines }
-    }
-
-    /// Applies the Ghostty config's `background-image` (nil: none). No change, no observation.
-    public func applyTerminalBackgroundImage(_ image: TerminalBackgroundImage?) {
         if terminalBackgroundImage != image { terminalBackgroundImage = image }
     }
 
