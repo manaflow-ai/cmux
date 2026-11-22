@@ -587,18 +587,23 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func scheduleSpare() {
         guard spare == nil, sparesMade == 0, !spareScheduled, !shownOrder.isEmpty else { return }
         spareScheduled = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(Self.spareStillness * 1000)))
-            guard let self else { return }
-            self.spareScheduled = false
-            guard let view = self.collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
-                  CACurrentMediaTime() - self.lastScroll >= Self.spareStillness, !self.jumpingToTop,
-                  !self.rowAnimating(in: view) else {
-                self.scheduleSpare()
-                return
-            }
-            self.buildSpare(in: view)
+        // A run-loop timer in the common modes, not a task: code that spins the run loop from
+        // inside a main-queue block (a test host, a modal) never drains the main queue (green-16:
+        // the spare was never built in the unit host).
+        let timer = Timer(timeInterval: Self.spareStillness, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.spareTimerFired() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func spareTimerFired() {
+        spareScheduled = false
+        guard let view = collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
+              CACurrentMediaTime() - lastScroll >= Self.spareStillness, !jumpingToTop, !rowAnimating(in: view) else {
+            scheduleSpare()
+            return
+        }
+        buildSpare(in: view)
     }
 
     /// A row on screen animates from the main thread (a UIKit view animation in flight: a row
