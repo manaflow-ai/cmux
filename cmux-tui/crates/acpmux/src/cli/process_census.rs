@@ -135,7 +135,7 @@ fn age_secs(lstart: &str) -> Option<i64> {
     tm.tm_sec = i32::try_from(naive.second()).ok()?;
     tm.tm_isdst = -1;
     // SAFETY: mktime only reads and normalizes the `tm` it is given.
-    let at = i64::from(unsafe { libc::mktime(&raw mut tm) });
+    let at: i64 = unsafe { libc::mktime(&raw mut tm) };
     if at == -1 {
         return None;
     }
