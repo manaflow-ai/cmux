@@ -90,17 +90,17 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
     }
 
     private enum Words {
-        static var machine: String { String(localized: "cloud.palette.machine", defaultValue: "Cloud Machine", table: "CloudPalette", bundle: .module) }
-        static var create: String { String(localized: "cloud.palette.createDesktop", defaultValue: "Create desktop machine", table: "CloudPalette", bundle: .module) }
-        static var setup: String { String(localized: "cloud.palette.setupDesktop", defaultValue: "Set up desktop", table: "CloudPalette", bundle: .module) }
-        static var resume: String { String(localized: "cloud.palette.resumeDesktop", defaultValue: "Resume and open", table: "CloudPalette", bundle: .module) }
+        static var machine: String { String(localized: "cloud.palette.machine", defaultValue: "Cloud Machine", table: "CloudPalette", bundle: .localizedModule) }
+        static var create: String { String(localized: "cloud.palette.createDesktop", defaultValue: "Create desktop machine", table: "CloudPalette", bundle: .localizedModule) }
+        static var setup: String { String(localized: "cloud.palette.setupDesktop", defaultValue: "Set up desktop", table: "CloudPalette", bundle: .localizedModule) }
+        static var resume: String { String(localized: "cloud.palette.resumeDesktop", defaultValue: "Resume and open", table: "CloudPalette", bundle: .localizedModule) }
         static func state(_ state: String?) -> String? {
             switch state {
             case "ready": nil
-            case "resume": String(localized: "cloud.palette.paused", defaultValue: "Paused", table: "CloudPalette", bundle: .module)
-            case "desktopUnavailable": String(localized: "cloud.palette.desktopUnavailable", defaultValue: "Desktop service unavailable", table: "CloudPalette", bundle: .module)
-            case "starting": String(localized: "cloud.palette.starting", defaultValue: "Starting…", table: "CloudPalette", bundle: .module)
-            case "unavailable": String(localized: "cloud.palette.unavailable", defaultValue: "Machine unavailable", table: "CloudPalette", bundle: .module)
+            case "resume": String(localized: "cloud.palette.paused", defaultValue: "Paused", table: "CloudPalette", bundle: .localizedModule)
+            case "desktopUnavailable": String(localized: "cloud.palette.desktopUnavailable", defaultValue: "Desktop service unavailable", table: "CloudPalette", bundle: .localizedModule)
+            case "starting": String(localized: "cloud.palette.starting", defaultValue: "Starting…", table: "CloudPalette", bundle: .localizedModule)
+            case "unavailable": String(localized: "cloud.palette.unavailable", defaultValue: "Machine unavailable", table: "CloudPalette", bundle: .localizedModule)
             default: nil
             }
         }
