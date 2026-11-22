@@ -92,6 +92,50 @@ fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
     ids
 }
 
+/// Harnesses [`Hub::complete_own`] tries at most, in order.
+const OWN_CANDIDATES: usize = 4;
+
+/// The harnesses [`Hub::complete_own`] tries, in order, each with a headless recipe: `asked`,
+/// the default harness, then the others of the first one's recipe, the recipe's own built-in
+/// name (`claude`, `codex`) first, the rest by name. At most [`OWN_CANDIDATES`].
+fn own_candidates(
+    asked: Option<&str>,
+    default: Option<&str>,
+    harnesses: &BTreeMap<String, HarnessProfile>,
+) -> Vec<(String, HarnessProfile, Recipe)> {
+    let with_recipe = |n: &str| {
+        let p = harnesses.get(n)?;
+        recipes::recipe_for(n, p).ok().map(|r| (n.to_owned(), p.clone(), r))
+    };
+    let mut out: Vec<(String, HarnessProfile, Recipe)> = Vec::new();
+    for n in asked.into_iter().chain(default) {
+        if let Some(c) = with_recipe(n)
+            && !out.iter().any(|o| o.0 == c.0)
+        {
+            out.push(c);
+        }
+    }
+    let Some(recipe) = out.first().map(|c| c.2) else { return out };
+    let own_name = match recipe {
+        Recipe::Claude => "claude",
+        Recipe::Codex => "codex",
+        Recipe::OpenCode => "opencode",
+        Recipe::Pi => "pi",
+        Recipe::Omp => "omp",
+        Recipe::Grok => "grok",
+    };
+    let mut same: Vec<(String, HarnessProfile, Recipe)> = harnesses
+        .keys()
+        .filter(|n| !out.iter().any(|o| &o.0 == *n))
+        .filter_map(|n| with_recipe(n))
+        .filter(|c| c.2 == recipe)
+        .collect();
+    same.sort_by_key(|c| (c.0 != own_name, c.0.clone()));
+    out.extend(same);
+    out.truncate(OWN_CANDIDATES);
+    out
+}
+
 /// The user's Codex config (`$CODEX_HOME/config.toml`, the profile's
 /// `CODEX_HOME` first); empty when there is none.
 async fn codex_user_config(env: &BTreeMap<String, String>) -> CodexUserConfig {
@@ -193,9 +237,16 @@ impl Hub {
         reply
     }
 
-    /// One headless call for the daemon's own use (`prompt_coach.rs`): harness `name` (else the
-    /// default harness) on its small model, the answer cut to about `max_tokens` tokens. The
-    /// prompt is the daemon's, so `_acpmux/complete`'s prompt size limit does not apply.
+    /// One headless call for the daemon's own use (`prompt_coach.rs`, surge triage, the person
+    /// hold): harness `name` (else the default harness) on its small model, the answer cut to
+    /// about `max_tokens` tokens. The prompt is the daemon's, so `_acpmux/complete`'s prompt size
+    /// limit does not apply.
+    ///
+    /// A harness that cannot answer headless (a launcher that runs only in a terminal, a CLI not
+    /// installed or signed out) does not stall the caller: the next of [`own_candidates`] is
+    /// tried within the same deadline, so a chat on `claude-sr2` gets its triage from the
+    /// built-in `claude` (Mango's chat, 2026-11-22: 130 held messages, every triage call
+    /// `complete.failed` in ~60 ms because `sr2 claude` refuses `-p`).
     pub(super) async fn complete_own(
         self: &Arc<Self>,
         name: Option<&str>,
@@ -204,19 +255,43 @@ impl Hub {
         timeout: std::time::Duration,
         fallback: ModelFallback,
     ) -> Result<String, CompleteError> {
-        let (name, profile) = {
-            let cfg = self.config.read().await;
-            let found = |n: &str| cfg.harnesses.get(n).cloned().map(|p| (n.to_owned(), p));
-            name.and_then(found)
-                .filter(|(n, p)| recipes::recipe_for(n, p).is_ok())
-                .or_else(|| cfg.default_harness.as_deref().and_then(found))
-                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
-        };
-        let recipe = recipes::recipe_for(&name, &profile)?;
-        let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline, fallback).await?;
-        Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
+        let candidates = {
+            let cfg = self.config.read().await;
+            own_candidates(name, cfg.default_harness.as_deref(), &cfg.harnesses)
+        };
+        let mut last = CompleteError::UnknownHarness("(no default harness)".into());
+        for (name, profile, recipe) in candidates {
+            let req = Request {
+                prompt: prompt.clone(),
+                harness: Some(name.clone()),
+                model: None,
+                max_tokens,
+                timeout,
+            };
+            let started = std::time::Instant::now();
+            match self.complete_with(&name, &profile, recipe, &req, deadline, fallback).await {
+                Ok(reply) => {
+                    return Ok(reply
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned());
+                }
+                Err(e) => {
+                    let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    tracing::info!(agent = %name, reason = e.reason(), ms, "complete_own: harness failed");
+                    // The deadline is spent: no other harness has time left.
+                    let spent = matches!(e, CompleteError::Timeout { .. })
+                        || tokio::time::Instant::now() >= deadline;
+                    last = e;
+                    if spent {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last)
     }
 
     /// The harness's small model (`model_pick`). None: the CLI's default.
@@ -347,5 +422,40 @@ impl Hub {
             "harness": name,
             "model": model.unwrap_or_else(|| "default".to_owned()),
         }))
+    }
+}
+
+#[cfg(test)]
+mod own_candidates_tests {
+    use super::*;
+
+    fn harnesses(v: Value) -> BTreeMap<String, HarnessProfile> {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn a_launcher_that_fails_headless_falls_back_to_the_default_then_its_recipes_builtin() {
+        let all = harnesses(json!({
+            "claude-sr2": {"argv": ["/x/claude-sr2"], "kind": "claude-stdio", "family": "claude-sr2"},
+            "claude-sr2-pipe": {"argv": ["/x/claude-sr2"], "kind": "claude-stdio"},
+            "claude-work": {"argv": ["claude"], "kind": "claude-stdio"},
+            "claude": {"argv": ["claude"], "kind": "claude-stdio"},
+            "codex": {"argv": ["codex-acp"]},
+            "term": {"argv": ["claude"], "kind": "terminal"},
+            "gem": {"argv": ["gemini", "--acp"]},
+        }));
+        let names = |asked, default| -> Vec<String> {
+            own_candidates(asked, default, &all).into_iter().map(|c| c.0).collect()
+        };
+        assert_eq!(
+            names(Some("claude-sr2"), Some("claude-sr2-pipe")),
+            ["claude-sr2", "claude-sr2-pipe", "claude", "claude-work"],
+            "asked, default, the recipe's built-in, then the rest of the recipe"
+        );
+        assert_eq!(names(Some("codex"), Some("claude")), ["codex", "claude"], "no other codex");
+        // A harness with no headless recipe is skipped; the default's recipe leads.
+        assert_eq!(names(Some("term"), Some("claude-sr2"))[..2], ["claude-sr2", "claude"]);
+        assert_eq!(names(Some("gem"), None), Vec::<String>::new());
+        assert_eq!(names(None, Some("claude")).len(), OWN_CANDIDATES);
     }
 }

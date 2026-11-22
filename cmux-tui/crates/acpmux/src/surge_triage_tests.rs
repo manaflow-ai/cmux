@@ -8,6 +8,7 @@ fn held(id: &str, thread: &str, class: &str, text: &str) -> Held {
         from: format!("host/{thread}"),
         class: class.into(),
         text: text.into(),
+        at: 0,
     }
 }
 
@@ -232,4 +233,36 @@ fn digest_is_bounded() {
     assert!(
         text.starts_with("Held during a message surge: 320 message(s) in 320 thread(s) need you.")
     );
+}
+
+#[test]
+fn a_message_no_model_decided_reaches_the_chat_untriaged_after_its_bound() {
+    let mut old = held("p1", "review", "result", "pick a base");
+    old.at = 1_000;
+    let mut young = held("p2", "runners", "fyi", "runner queued");
+    young.at = 1_000 + MAX_UNTRIAGED_MS;
+    let b = batch_of(vec![old, young]);
+    let now = 1_000 + MAX_UNTRIAGED_MS;
+    // The model is out: nothing decided.
+    let mut d = decide(&b, None, &Owners::default());
+    assert_eq!(untriaged(&b, &mut d, now - 1, false), 0, "inside the bound it waits");
+    assert_eq!(untriaged(&b, &mut d, now, false), 1, "the one held past the bound goes");
+    let first = d[0].as_ref().unwrap();
+    assert_eq!(
+        (first.category, first.decided_by),
+        (Category::NeedsThisSession, DecidedBy::Untriaged)
+    );
+    assert!(d[1].is_none());
+    // Retries spent: every undecided message goes; a decided one is left as decided.
+    assert_eq!(untriaged(&b, &mut d, now, true), 1);
+    let decided: Vec<Decision> = d.into_iter().map(Option::unwrap).collect();
+    let lines = lines_of(&b, &decided);
+    assert_eq!(lines[0].decided_by, Some(DecidedBy::Untriaged), "the record keeps who decided");
+    let text = digest("coord", &lines).unwrap();
+    assert!(text.contains("2 of them were not triaged"), "{text}");
+    assert!(text.contains("runner queued") || text.contains("pick a base"), "{text}");
+    // A digest the model decided says nothing of it.
+    let b = batch_of(vec![held("p3", "t", "result", "x")]);
+    let lines = lines_of(&b, &known(&b, Some("1 this"), &Owners::default()));
+    assert!(!digest("coord", &lines).unwrap().contains("not triaged"));
 }

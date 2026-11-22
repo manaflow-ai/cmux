@@ -16,8 +16,11 @@
 //!    ([`Hub::note_inbox_subscription`]);
 //! 2. triages at most `MAX_BATCHES_PER_PASS` batches of the held messages no record decided,
 //!    each through one `complete_own` call on the harness's small model (Claude: Haiku; Codex:
-//!    its small model); blockers and questions skip the model. What the model leaves undecided
-//!    (a failed or timed-out call, a garbled line) stays held for a later pass;
+//!    its small model, or the next harness `complete_own` falls back to); blockers and
+//!    questions skip the model. What the model leaves undecided (a failed or timed-out call, a
+//!    garbled line) stays held for a later pass, until it was held [`triage::MAX_UNTRIAGED_MS`]
+//!    or the pass's [`RETRIES`] are spent: then it is decided untriaged (`needs_this_session`,
+//!    `decidedBy: untriaged`) and goes in the chat's digest, which says it was not triaged;
 //! 3. names the pass's digest before sending it (`digest_id`: a hash of its items) and journals
 //!    each batch with that name (`persist_surge_triage`), so a crash after it leaves a record
 //!    of a digest owed;
@@ -167,9 +170,10 @@ impl Journal {
     pub(super) fn read(&mut self, kind: &str, msg: &Value, at: u64) {
         match kind {
             "inbox" => {
-                if let Some(h) = triage::held_from_inbox(msg)
+                if let Some(mut h) = triage::held_from_inbox(msg)
                     && !self.held.iter().any(|x| x.prompt_id == h.prompt_id)
                 {
+                    h.at = at;
                     self.held.push(h);
                 }
             }
@@ -261,10 +265,14 @@ impl Hub {
         self.scope.spawn_until_cancelled("surge-triage", async move {
             let mut wait = hub.surge_triage_wait(DEBOUNCE);
             let mut failures = 0u32;
+            let mut fail_open = false;
             loop {
                 tokio::time::sleep(wait).await;
                 let mut busy = None;
-                let more = match hub.surge_triage_pass(&session).await {
+                let mut undecided = false;
+                let end = hub.surge_triage_pass_with(&session, fail_open).await;
+                fail_open = false;
+                let more = match end {
                     Ok(PassEnd::Done) => {
                         failures = 0;
                         false
@@ -282,6 +290,7 @@ impl Hub {
                     // The model left messages undecided: back off, as after a failure.
                     Ok(PassEnd::Undecided) => {
                         failures += 1;
+                        undecided = true;
                         false
                     }
                     Err(e) => {
@@ -293,11 +302,21 @@ impl Hub {
                 let mut due = hub.surge_triage_due.lock().unwrap_or_else(|e| e.into_inner());
                 let again = due.get(&session.id).copied().unwrap_or(false);
                 let retry = failures > 0 && failures <= RETRIES;
-                if !(more || again || retry || busy.is_some()) || super::queue::closing(&session) {
+                // The model left messages undecided through every retry: one more pass delivers
+                // them untriaged, so no held message waits for good (`triage::untriaged`).
+                let open = undecided && !retry;
+                if !(more || again || retry || open || busy.is_some())
+                    || super::queue::closing(&session)
+                {
                     due.remove(&session.id);
                     return;
                 }
                 due.insert(session.id.clone(), false);
+                if open {
+                    tracing::warn!(session = %session.id, "surge triage: no model answered through every retry; delivering what is held untriaged");
+                    fail_open = true;
+                    failures = 0;
+                }
                 wait = if retry {
                     hub.surge_triage_wait(RETRY_AFTER * 2u32.pow(failures - 1))
                 } else if let Some(after) = busy {
@@ -470,9 +489,18 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<PassEnd, RpcError> {
+        self.surge_triage_pass_with(session, false).await
+    }
+
+    /// One pass; `fail_open`: what the model leaves undecided is delivered untriaged.
+    pub(super) async fn surge_triage_pass_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fail_open: bool,
+    ) -> Result<PassEnd, RpcError> {
         let mut journal = self.surge_journal(session)?;
         // A failed write leaves the cached state ahead of the disk: the next pass reads it again.
-        let end = self.surge_triage_pass_on(session, &mut journal).await?;
+        let end = self.surge_triage_pass_on(session, &mut journal, fail_open).await?;
         let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
         all.insert(session.id.clone(), journal);
         Ok(end)
@@ -482,6 +510,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         journal: &mut Journal,
+        fail_open: bool,
     ) -> Result<PassEnd, RpcError> {
         // Blockers and questions first, with no model; then the rest through it.
         let (urgent, rest) = triage::split_urgent(&journal.held);
@@ -501,8 +530,14 @@ impl Hub {
             let d = triage::decide(&batch, None, &owners).into_iter().flatten().collect();
             decided.push((batch, d));
         }
+        let now = crate::store::now_ms();
         for batch in batches {
-            let all = self.surge_triage_batch(Some(harness.as_str()), &batch, &owners).await;
+            let mut all = self.surge_triage_batch(Some(harness.as_str()), &batch, &owners).await;
+            // Held past its bound, or the retries spent: it reaches the chat as it came.
+            let late = triage::untriaged(&batch, &mut all, now, fail_open);
+            if late > 0 {
+                tracing::warn!(session = %session.id, batch = %batch.batch_id, late, "surge triage: delivering held messages untriaged");
+            }
             undecided += all.iter().filter(|d| d.is_none()).count();
             let d: Vec<Decision> = all.into_iter().flatten().collect();
             if !d.is_empty() {
@@ -511,7 +546,6 @@ impl Hub {
         }
         // A repeat of what a digest already told its recipient (another host's report of one
         // incident, the same blocker again) is journaled with its receipt and shown nowhere.
-        let now = crate::store::now_ms();
         for (batch, d) in &mut decided {
             triage::mark_repeats(batch, d, &mut journal.told, now);
         }

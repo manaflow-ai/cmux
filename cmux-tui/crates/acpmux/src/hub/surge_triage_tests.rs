@@ -554,6 +554,7 @@ async fn a_question_and_an_expired_report_are_never_repeats() {
             from: "lane-b".into(),
             class: "question".into(),
             text: "which base?".into(),
+            at: 0,
         }],
     )
     .remove(0);
@@ -711,4 +712,84 @@ async fn a_fork_never_sends_its_parents_owed_digest_or_uses_its_grants() {
     assert_eq!(item(&events, "c1")["category"], "needs_this_session", "no inherited grant");
     assert_eq!(digested(&hub, &child.id), [json!(["c1"])], "the parent's digest is not sent");
     assert!(digested(&hub, &owner.id).is_empty());
+}
+
+/// A held message as the surge holder journals it: with its snapshot of the chat's held row.
+fn hold_counted(hub: &Hub, s: &Session, id: &str, thread: &str, class: &str, text: &str) {
+    let msg = json!({"promptId": id, "threadId": thread, "from": "lane-a", "class": class,
+        "text": text, "surgeHeld": true});
+    hub.persist_surge_event(s, "inbox", msg, None).unwrap();
+}
+
+/// The held row's count and the threads the listing marks held.
+fn held_row(hub: &Hub, s: &Session) -> (u64, Vec<String>) {
+    let listing = hub.inbox_threads(s);
+    let marked = listing["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["surgeHeld"] == true)
+        .map(|t| t["threadId"].as_str().unwrap().to_owned())
+        .collect();
+    (listing["surge"]["held"].as_u64().unwrap(), marked)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_held_row_counts_only_undecided_messages_and_drains_to_zero_across_a_restart() {
+    let (hub, s) = chat(Some("1 this\n2 noise")).await;
+    hold_counted(&hub, &s, "m1", "review", "result", "pick a base");
+    hold_counted(&hub, &s, "m2", "runners", "fyi", "queued");
+    let (held, _) = held_row(&hub, &s);
+    assert_eq!(held, 2);
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert_eq!(held_row(&hub, &s), (0, vec![]), "decided: none held, no thread marked");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let last = records(&events, triage::RECORD_KIND).filter(|r| r.get("surge").is_some()).last();
+    assert_eq!(last.unwrap()["surge"]["held"], 0, "the triage record publishes the drained row");
+
+    // One more held, then a restart: the row is rebuilt from the records, not a tally.
+    hold_counted(&hub, &s, "m3", "deploy", "result", "deploy failed");
+    hub.surge_triage_journals.lock().unwrap().clear();
+    *s.inbox() = Default::default();
+    hub.restore_inbox(&s);
+    assert_eq!(held_row(&hub, &s), (1, vec!["deploy".to_owned()]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_held_message_is_listed_while_pending_even_in_a_chat_of_unread_messages() {
+    let (hub, s) = chat(Some("1 this")).await;
+    // Mango's chat: thousands of unread, unnoticed messages no trim may take out.
+    for i in 0..(crate::hub::inbox::KEEP + 100) {
+        let msg = json!({"promptId": format!("u{i}"), "threadId": format!("from:lane-{i}"),
+            "from": format!("lane-{i}"), "class": "fyi", "text": "status"});
+        hub.append(&s, "mux", "inbox", msg);
+    }
+    hold_counted(&hub, &s, "h1", "review", "result", "pick a base");
+    *s.inbox() = Default::default();
+    hub.restore_inbox(&s);
+    assert_eq!(held_row(&hub, &s), (1, vec!["review".to_owned()]), "listed, not evicted");
+    let thread = hub.inbox_thread(&s, "review", false);
+    assert_eq!(thread["messages"][0]["promptId"], "h1", "and readable");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_model_that_never_answers_delivers_the_held_messages_untriaged_once_retries_are_spent() {
+    let (hub, s) = chat(None).await;
+    hold_counted(&hub, &s, "m1", "review", "result", "pick a base");
+    hold_counted(&hub, &s, "m2", "runners", "fyi", "runner queued");
+    scheduled(&hub, &s);
+    hub.schedule_surge_triage(&s);
+    wait_idle(&hub, &s).await;
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let items: Vec<(String, String)> = records(&events, triage::RECORD_KIND)
+        .flat_map(|r| r["items"].as_array().cloned().unwrap_or_default())
+        .map(|i| (i["promptId"].as_str().unwrap().into(), i["decidedBy"].as_str().unwrap().into()))
+        .collect();
+    assert_eq!(
+        items,
+        [("m1".into(), "untriaged".into()), ("m2".into(), "untriaged".into())],
+        "each delivered untriaged, once"
+    );
+    assert_eq!(digested(&hub, &s.id), [json!(["m1", "m2"])], "in one digest to the chat");
+    assert_eq!(held_row(&hub, &s), (0, vec![]));
 }

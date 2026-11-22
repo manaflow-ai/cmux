@@ -2166,10 +2166,17 @@ impl Hub {
                         reader: None,
                     };
                     if item.surge_held {
-                        if recent_held.len() == KEEP {
-                            recent_held.pop_front();
-                        }
                         recent_held.push_back(item);
+                        // The newest KEEP held ones, and every one still waiting for triage
+                        // (the listing shows those): the rest are the archive's.
+                        if recent_held.len() > 2 * KEEP {
+                            let keep_from = recent_held.len() - KEEP;
+                            let mut at = 0;
+                            recent_held.retain(|i: &Item| {
+                                at += 1;
+                                at > keep_from || counts.pending(&i.prompt_id)
+                            });
+                        }
                     } else {
                         items.push(item);
                     }
@@ -2199,7 +2206,14 @@ impl Hub {
             }
             true
         });
-        items.extend(recent_held);
+        let keep_from = recent_held.len().saturating_sub(KEEP);
+        items.extend(
+            recent_held
+                .into_iter()
+                .enumerate()
+                .filter(|(at, i)| *at >= keep_from || counts.pending(&i.prompt_id))
+                .map(|(_, i)| i),
+        );
         if scanned.is_err() || (items.is_empty() && counts.seq == 0) {
             return;
         }
@@ -2381,6 +2395,7 @@ impl Hub {
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
         threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
+        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
         let rows: Vec<Value> = threads
             .iter()
             .map(|(key, list)| {
@@ -2404,14 +2419,14 @@ impl Hub {
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
-                    "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // Held and still waiting for triage: what the chat's held row lists.
+                    "surgeHeld": list.iter().any(|i| i.surge_held && counts.pending(&i.prompt_id)),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
-        json!({"sessionId": session.id, "threads": rows, "surge": counts})
+        json!({"sessionId": session.id, "threads": rows, "surge": counts.json()})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
@@ -2544,9 +2559,13 @@ fn trim(inbox: &mut Inbox) {
         .chain(inbox.carrying.iter().map(|c| &c.ids))
         .flat_map(|ids| ids.iter().cloned())
         .collect();
+    // A held message still waiting for triage stays: the listing shows it until triage (or its
+    // fail-open) decides it, which bounds how many there are (`surge_triage.rs`).
+    let counts = inbox.surge_counts.clone();
+    let counts = counts.lock().unwrap_or_else(|e| e.into_inner());
     while inbox.items.len() > KEEP {
         let gone = |i: &Item| {
-            i.surge_held
+            (i.surge_held && !counts.pending(&i.prompt_id))
                 || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
         };
         match inbox.items.iter().position(gone) {
