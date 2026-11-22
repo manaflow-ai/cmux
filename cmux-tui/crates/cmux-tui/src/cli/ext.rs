@@ -83,9 +83,10 @@ cmux ext: make a cmux extension and watch it change as you work.
                                files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
-  cmux ext shot [DIR] [--out PNG] [--json]
-                               one reload, then what it rendered: the view's outline and a
-                               picture of the cmux window that shows it; exit 6 no picture
+  cmux ext shot [DIR] [--out PNG] [--record] [--json]
+                               one reload, then what it rendered: the view's outline, its design
+                               warnings and a picture of the cmux window that shows it; exit 6
+                               no picture. --record writes the scene into DIR/preview/scenes.json
   cmux ext add SOURCE [--no-install]
                                add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
                                /tree/REF/PATH link, URL#PATH, or a folder; again to update it
@@ -100,6 +101,10 @@ cmux ext: make a cmux extension and watch it change as you work.
                                the design check ext dev runs, on recorded scenes (a JSON array
                                of scene ops, or an object of them by name), against cmux's design
                                system or yours (ext dev reads DIR/cmux-design.json); exit 1 on a warning
+  cmux ext design --listing DIR [--json]
+                               registry review's design check: the folder's recorded scenes
+                               (preview/scenes.json, which its files must ship) against its own
+                               system; exit 1 when a scene warns or none is recorded
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -165,6 +170,10 @@ pub(super) enum Request {
         widget: bool,
         /// `--system FILE`: a `cmux-design.json` to check against instead of cmux's system.
         system: Option<PathBuf>,
+    },
+    /// `ext design --listing DIR`: registry review's design check of a folder.
+    DesignListing {
+        dir: PathBuf,
     },
 }
 
@@ -297,6 +306,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         "shot" => {
             // One `ext dev --once` reload with no install card, plus where the picture goes.
             let mut out = None;
+            let mut record = false;
             let mut dev = vec!["dev".to_string(), "--once".into(), "--no-install".into()];
             let mut words = rest.iter();
             while let Some(word) = words.next() {
@@ -306,6 +316,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                         Some(path) if path != "-" => out = Some(PathBuf::from(path)),
                         _ => return Err(usage("--out needs a file path")),
                     },
+                    "--record" => record = true,
                     "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
                         return Err(usage(&format!(
                             "{word}: ext shot reloads once and installs nothing"
@@ -319,7 +330,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             match parse(&dev)? {
-                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
+                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out, record })),
                 _ => Err(usage("ext shot")),
             }
         }
@@ -327,10 +338,16 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut files = Vec::new();
             let mut widget = false;
             let mut system = None;
+            let mut listing = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--widget" => widget = true,
+                    "--listing" => {
+                        listing = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--listing needs a folder"))?,
+                        ));
+                    }
                     "--system" => {
                         system = Some(PathBuf::from(
                             words
@@ -343,6 +360,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     }
                     _ => files.push(PathBuf::from(word)),
                 }
+            }
+            if let Some(dir) = listing {
+                if !files.is_empty() || widget || system.is_some() {
+                    return Err(usage(
+                        "ext design --listing DIR takes no FILE, --widget or --system: the folder's manifest and cmux-design.json say them",
+                    ));
+                }
+                return Ok(Request::DesignListing { dir });
             }
             if files.is_empty() {
                 return Err(usage("ext design needs a scene FILE"));
@@ -581,6 +606,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             };
             design::run(&files, surface, &system, json_out)
         }
+        Request::DesignListing { dir } => design::run_listing(&absolute(dir), json_out),
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
