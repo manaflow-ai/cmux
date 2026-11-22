@@ -80,6 +80,24 @@ Push the branch, then move the parent pointer (Submodule safety below). The cmux
 tag ("ghostty-next: sync to upstream vt-1.0.1"), and cmux-tui's tests pass on the fleet
 (`cmux-ci test --setup rust`).
 
+## Renderer patches in ghostty-next
+
+Upstream's renderer (`src/renderer/Thread.zig`, `generic.zig`, `Metal.zig`, `DisplayLink.zig`) has a
+few rules our patches must keep. Read
+[plans/cmux-next/ghostty-integration-DESIGN.md](../../plans/cmux-next/ghostty-integration-DESIGN.md)
+(G1 to G8, sec. 4b) before changing it.
+
+- Start and stop the CVDisplayLink only on the main thread. Doing it from the renderer thread can
+  deadlock inside CoreVideo on a display change and freeze the app (upstream discussion 14150 and the
+  comment in `Thread.zig`). Any patch that touches link start, stop or display-change handling says in
+  its PR which thread runs it.
+- No timer coalescing on the echo path. Upstream renders on wakeup and lets vsync pace frames (its old
+  10 ms coalescing timer is commented out). Batch output where it saves syscalls or wakeups for hidden
+  surfaces (G6, G7), never between a keystroke and its frame; a batching change names the key-to-frame
+  number it was measured against.
+- Keep the terminal lock short: copy what the frame needs under the lock and do style lookups after
+  releasing it, as `generic.zig` does.
+
 ## Submodule safety
 
 For any submodule (`ghostty`, `ghostty-next`, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.
