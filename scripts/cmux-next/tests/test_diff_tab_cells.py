@@ -214,7 +214,7 @@ class Page(unittest.TestCase):
 class Summary(unittest.TestCase):
     def test_cells_are_grouped_and_the_children_count_in_the_total(self):
         script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = script.split('"$cells" <<\'PY\' || status=1\n', 1)[1].split("\nPY\n", 1)[0]
 
         def run(app, daemon, children, focus):
             return {"child_time_check": {"ok": True, "seen_ms": 312.5}, "samples": [
@@ -247,7 +247,7 @@ class Summary(unittest.TestCase):
 
     def test_a_cell_that_is_not_to_be_read_is_a_fault_and_the_exit_is_1(self):
         script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = script.split('"$cells" <<\'PY\' || status=1\n', 1)[1].split("\nPY\n", 1)[0]
 
         def run(focus, after=None, check=True, scroll=None):
             tab = {"page": {"focus": focus}, "page_after": {"focus": focus if after is None else after}, "reads_expected": 15}
@@ -288,7 +288,7 @@ class Summary(unittest.TestCase):
 
     def test_without_cells_the_lines_are_the_ones_of_before(self):
         script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = script.split('"$cells" <<\'PY\' || status=1\n', 1)[1].split("\nPY\n", 1)[0]
         with tempfile.TemporaryDirectory() as scratch:
             runs = os.path.join(scratch, "runs")
             os.makedirs(runs)

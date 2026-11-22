@@ -136,13 +136,16 @@ def _diff_tab_cells():
     return diff_tab_cells
 
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+# macOS only. Off a Mac (the Linux script-test job imports this module through idle_cpu.py for its
+# pure helpers, such as thread_deltas) these stay None, and only the process readers need them.
+_MAC = sys.platform == "darwin"
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib") if _MAC else None
+_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib") if _MAC else None
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
     _responsible.argtypes = [ctypes.c_int]
-except AttributeError:  # an OS without the call: WebKit processes are not attributed
+except AttributeError:  # an OS without the call (or off a Mac): WebKit processes are not attributed
     _responsible = None
 
 MB = 1048576.0
@@ -153,7 +156,8 @@ class _Timebase(ctypes.Structure):
 
 
 _timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+if _MAC:
+    _libsystem.mach_timebase_info(ctypes.byref(_timebase))
 
 
 def usage(pid: int):
