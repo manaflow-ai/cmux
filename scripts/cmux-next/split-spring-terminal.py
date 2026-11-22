@@ -52,6 +52,11 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=drag-resize-load`: pane drags, split resizes and the live window resize under a 20-chat load, 3 runs each,
+# with a main-thread `sample` during each gesture's extra run (scripts/cmux-next/drag-resize-load-bench.py).
+if "--suite=drag-resize-load" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drag-resize-load-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=drag-resize-load"])
 # `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
 # (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
 if "--suite=memory-agents" in sys.argv:
