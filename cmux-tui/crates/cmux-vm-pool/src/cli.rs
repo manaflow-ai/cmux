@@ -450,6 +450,11 @@ pub async fn run(
     env: &dyn Fn(&str) -> Option<String>,
     out: &mut dyn std::io::Write,
 ) -> i32 {
+    if let [verb, rest @ ..] = words
+        && verb == "runner"
+    {
+        return crate::runner_cli::run(rest, env, out).await;
+    }
     let args = match parse(words) {
         Ok(args) => args,
         Err(message) => {
