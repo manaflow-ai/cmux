@@ -57,6 +57,26 @@ fn paths(changes: &[cmux_customize::Change]) -> Vec<(&str, ChangeKind, bool)> {
 }
 
 #[test]
+fn editor_citation_profile_applies_and_rolls_back() {
+    let home = Home::new();
+    let prior = r#"{"appearance":{"density":"cozy"}}"#;
+    home.write("cmux-next.json", prior);
+    let customize = home.customize();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/looks/claude-code/open-in-editor/profile.json");
+    let profile = customize.load_profile(file.to_str().unwrap()).unwrap();
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+    assert!(customize.status().unwrap().problems.is_empty());
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    let live: serde_json::Value =
+        serde_json::from_str(&home.read("cmux-next.json").unwrap()).unwrap();
+    assert_eq!(live["agentPane"]["links"]["openCitationsInEditor"], true);
+    assert_eq!(live["appearance"]["density"], "cozy");
+    customize.rollback(None, "cli", 3).unwrap();
+    assert_eq!(home.read("cmux-next.json").unwrap(), prior);
+}
+
+#[test]
 fn a_person_alone_edits_applies_and_rolls_back_and_forward() {
     let home = Home::new();
     home.write("cmux-next.json", COZY);

@@ -67,7 +67,7 @@ mod event_driven {
             std::thread::spawn(move || reap_on_exit(&state, pid))
         };
         let started = Instant::now();
-        SpawnedOwner { state: Arc::clone(&state), pid, ready: None }.terminate();
+        SpawnedOwner { state: Arc::clone(&state), pid, direct: true, ready: None }.terminate();
         reaper.join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(state.child.lock().unwrap().is_none());

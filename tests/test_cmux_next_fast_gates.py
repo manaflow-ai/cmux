@@ -1243,6 +1243,28 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"webviews checks"})
         self.assertIn("webviews checks: skipped", result.stdout)
 
+    def test_a_change_outside_the_ratchets_inputs_skips_the_crash_ratchet_only(self):
+        work, out = self.prepared()
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"docs/note.md": "note\n", "cmux-tui/README.md": "readme\n"}, "no ratchet input")
+        result = self.script(work, "run", "--base", before, "--web", "true", "--checks", "true")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"crash ratchet"})
+        self.assertIn("crash ratchet: skipped (no change under Packages", result.stdout)
+
+    def test_every_ratchet_input_runs_the_crash_ratchet(self):
+        module = load(SCRIPT)
+        work, _ = self.prepared()
+        for path in ("Packages/A/x.swift", "cmux-tui/crates/c/lib.rs", "scripts/cmux-next/crash-safety-baseline.json",
+                     "scripts/ci/crash_ratchet_compare.py"):
+            with self.subTest(path=path):
+                before = git(work, "rev-parse", "HEAD")
+                commit(work, {path: f"{path}\n"}, f"change {path}")
+                self.assertTrue(module.ratchet_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"Packages-notes.md": "x\n", "scripts/cmux-next-other/a.py": "x\n"}, "look-alike paths")
+        self.assertFalse(module.ratchet_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
+
     def test_run_refuses_a_base_that_is_not_a_commit(self):
         work, _ = self.prepared()
         result = self.script(work, "run", "--base", "0" * 40, "--web", "false")
