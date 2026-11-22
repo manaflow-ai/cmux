@@ -387,9 +387,11 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         rolling_summary: None,
         read_through: Default::default(),
         claude_unstored: false,
+        claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
         throwaway: false,
+        agent_behind_seq: None,
         hibernated_ms: 0,
         idle_launch: None,
         start_level: None,

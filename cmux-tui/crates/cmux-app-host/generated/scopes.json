@@ -421,6 +421,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.pause_all": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.rename": {
       "scope": "cloud:write",
       "class": "mutation"

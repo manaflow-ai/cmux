@@ -23,9 +23,21 @@ struct NewTabOpenFramesTests {
         return (window, try #require(controller.content?.focusedPane))
     }
 
+    /// Marks each New Tab page view that the tab store has now as one that the person used, so no tab takes its view
+    /// (`AgentTabStore.idlePage`: a New Tab tab that a pane shows takes the view of an untouched New Tab page that the
+    /// pane leaves or that no window shows, before the pool's spare and before a cold page). For a test of the pool's
+    /// path or of the cold path: its app can start on a New Tab page, and its New Tab key must not get that page's view.
+    static func useEachNewTabPage(_ services: AppServices) {
+        for view in services.agentTabs.views.values where view.model.newTab != nil { view.model.hostTouch.mark("the test's setup") }
+    }
+
     /// The next spare page is made once the open that took the parked one settled, never in the key's turn or the
     /// frames of its open.
-    @Test func cmdTMakesTheNextSpareOnlyAfterItsOpenSettled() async throws {
+    ///
+    /// `used` false, the second form (`NewTabHoldMovesItsPageTests.theIdlePage`): the pool has its page AND the pane
+    /// shows a New Tab page that the person did not touch. Want: the key's tab takes that page's view, the pool keeps
+    /// its page, and the pool makes no page in the 2 frames after the key.
+    @Test(arguments: [true, false]) func cmdTMakesTheNextSpareOnlyAfterItsOpenSettled(used: Bool) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-spare")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -57,6 +69,28 @@ struct NewTabOpenFramesTests {
             let spare = try #require(pool.spare?.view)
             let before = made.count
 
+            if !used {
+                let idle = try await NewTabHoldMovesItsPageTests.theIdlePage(of: pane, services)
+                let openings = pool.openings.count, left = pane.currentTabKey
+                NewTabPage.open(in: pane, seed: nil)
+                let key = NewTabHoldMovesItsPageTests.afterAKey(in: pane, left: left, services, openings: openings)
+                let keptInTheTurn = pool.spare?.view === spare
+                await NewTabPageAtItsFrameTests.frame(services)
+                await NewTabPageAtItsFrameTests.frame(services)
+                print("""
+                    NewTabOpenFramesTests: the second form, a filled pool and an idle page at one New Tab key: the new tab took the \
+                    idle page view: \(key.took === idle), the pool's page: \(key.took === spare); the open's record says `idle`: \
+                    \(key.record.map { String($0.idle) } ?? "no record"), `spare`: \(key.record.map { String($0.spare) } ?? "no record"); \
+                    the pool kept its page at the return of the key's call: \(keptInTheTurn), after 2 frames: \(pool.spare?.view === spare); \
+                    pages that the pool made in the key's turn and the 2 frames: \(made.count - before)
+                    """)
+                #expect(key.took === idle, "with a filled pool and an idle page, the new tab did not take the idle page view")
+                #expect(key.record?.idle == true && key.record?.spare == false, "the record of an open that took an idle page does not say `idle` and not `spare`")
+                #expect(keptInTheTurn && pool.spare?.view === spare, "the pool gave its page away at a key whose tab took an idle page view")
+                #expect(made.count == before, "the pool made \(made.count - before) pages at a key whose tab took an idle page view")
+                return
+            }
+            Self.useEachNewTabPage(services) // the pool's path: no idle page that the key's tab takes first
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
             // The open's frames (60 ms: 7 refreshes at 120 Hz, the films' drops came 50-150 ms after the key).

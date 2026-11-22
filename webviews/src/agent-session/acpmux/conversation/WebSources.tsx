@@ -45,7 +45,7 @@ function PageLink({ url, className, children }: { url: string; className: string
     <a
       href={url}
       className={className}
-      title={url}
+      aria-description={url}
       {...(readOnly
         ? { target: "_blank", rel: "noopener noreferrer" }
         : {
