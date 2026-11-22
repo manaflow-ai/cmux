@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the build's control socket")
 parser.add_argument("--fake-agent", required=True, help="path of acpmux's tests/fake_agent.py")
 parser.add_argument("--keys", type=int, default=60)
+parser.add_argument("--gap-ms", type=float, default=0, help="time between keys (a person types about 80 ms apart)")
 parser.add_argument("--expect", choices=["fixed", "base"], default="fixed")
 opts = parser.parse_args()
 failures = []
@@ -102,13 +103,23 @@ def main():
     pane_action(chat, "reset_typing")
     before = len(draft_sets(chat))
     start = time.monotonic()
-    routed = [rpc("debug.key", {"key": "space" if key == " " else key, "target": "page", "pane": chat}).get("handled_by")
-              for key in text[len(prior):]]
-    typing_s = time.monotonic() - start
+    routed = []
+    for key in text[len(prior):]:
+        routed.append(rpc("debug.key", {"key": "space" if key == " " else key, "target": "page", "pane": chat}).get("handled_by"))
+        if opts.gap_ms:
+            time.sleep(opts.gap_ms / 1000)  # test script: paces keys as a person types
+    sent_s = time.monotonic() - start
     check(routed == ["page"] * len(routed), f"every key reached the chat's page ({sorted(set(routed))})")
+    # `debug.key` returns before the page handles the key: under load the page types on after the
+    # last one is sent. The typing lasts until the composer holds every key.
+    composer = lambda: pane_action(chat, "typing_stats").get("composer_text") or ""
+    deadline = time.monotonic() + 30
+    while composer() != text and time.monotonic() < deadline:
+        time.sleep(0.05)  # test script: polls the page's composer
+    typing_s = time.monotonic() - start
+    held = composer() == text
     burst = draft_sets(chat)[before:]
     stats = pane_action(chat, "typing_stats")
-    held = wait(lambda: (stats_text := (pane_action(chat, "typing_stats").get("composer_text") or "")) == text and stats_text, 5)
     # Typing pauses: the waiting write goes (draftWriteLimits.typedIdleMs, 400 ms).
     wait(lambda: len(draft_sets(chat)) - before > len(burst), 3)
     time.sleep(1.0)  # test script: lets any late write land before counting
@@ -116,9 +127,10 @@ def main():
     last = after[-1] if after else {}
 
     summary = {key: stats.get(key) for key in stats if key not in ("composer_text", "native_posts", "samples")}
-    print(f"keys {len(routed)} in {typing_s:.2f} s; draft_set during burst {len(burst)}, after pause {len(after)}",
+    print(f"keys {len(routed)} sent in {sent_s:.2f} s, typed in {typing_s:.2f} s; draft_set during burst {len(burst)}, after pause {len(after)}",
           flush=True)
     print("typing_stats " + json.dumps(summary, default=str)[:600], flush=True)
+    print("draft_set gaps ms " + str([round(b["at"] - a["at"]) for a, b in zip(after, after[1:])]), flush=True)
     check(bool(held), f"the composer holds every key ({len(stats.get('composer_text') or '')}/{len(text)})")
     bound = 1 + math.ceil(typing_s)
     check(len(burst) <= bound and len(burst) < len(routed) / 4,

@@ -115,6 +115,10 @@ let draftDrain: Promise<void> | undefined;
 // the map holds at most one entry per open composer.
 const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, DraftWrite>();
+// Typed writes waiting for their pause (`writeTypedDraft`), by session: a drain already running
+// (the draft's first key, another chat's write) leaves them queued, or it would send every key
+// typed while acpmux answers. Any explicit flush (`flushPendingDraftWrites`, a quit) makes them due.
+const typedDraftsWaiting = new Set<string>();
 // The write sent to acpmux and not yet answered, by session: until acpmux says it holds it, its text
 // is newer than any draft a read returns, so a remount's read never merges the older draft into it.
 // An entry goes when its answer comes (or it fails and goes back in `pendingDraftWrites`).
@@ -248,7 +252,7 @@ async function flushDraftWrites(): Promise<void> {
       if (unansweredWrite?.action !== action) unansweredWrite = undefined;
       // A write that timed out may still land: anything newer waits for its answer (writeTimedOut).
       if (unansweredWrite) break;
-      const next = pendingDraftWrites.entries().next().value as [string, DraftWrite] | undefined;
+      const next = [...pendingDraftWrites].find(([id]) => !typedDraftsWaiting.has(id));
       if (!next) break;
       const [sessionId, write] = next;
       pendingDraftWrites.delete(sessionId);
@@ -279,6 +283,7 @@ async function flushDraftWrites(): Promise<void> {
 // each answer, and `flushingDraftWrites` clears in the same turn the loop sees it empty. So a write
 // either joins the running drain or starts a new one; none waits for a drain that already finished.
 function drainDraftWrites(): Promise<void> {
+  typedDraftsWaiting.clear();
   if (!flushingDraftWrites) draftDrain = flushDraftWrites();
   return draftDrain ?? Promise.resolve();
 }
@@ -382,6 +387,7 @@ export function writeTypedDraft(sessionId: string | undefined, text: string): vo
   if (!queueDraftWrite(sessionId, text)) return;
   // A cleared prompt goes at once: a send's clear must land before anything after it.
   if (!text || starts || draftWriteLimits.typedIdleMs <= 0) return flushPendingDraftWrites();
+  typedDraftsWaiting.add(sessionId);
   const now = Date.now();
   if (typedDraftTimer === undefined) typedDraftSince = now;
   else clearTimeout(typedDraftTimer);

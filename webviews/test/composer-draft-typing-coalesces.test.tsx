@@ -256,3 +256,35 @@ test("a person who types on without pausing still has acpmux catch up within the
     Object.assign(draftWriteLimits, limits);
   }
 });
+
+test("keys typed while acpmux answers the draft's first key wait for the pause too", async () => {
+  // Seen in the real app at 882953c1 (60 keys back to back): the first key's write started the drain,
+  // and the drain re-read the queue after each answer, so it sent every key typed meanwhile (56 writes).
+  const acpmux = daemon();
+  let answer: (() => void) | undefined;
+  await acpmux.connect();
+  const plain = page().cmuxAcpmuxActions!["chat.writeDraft"]!;
+  page().cmuxAcpmuxActions!["chat.writeDraft"] = async (params) => {
+    if (!answer && String(params.text) === "g") {
+      await new Promise<void>((resolve) => (answer = resolve));
+    }
+    return plain(params);
+  };
+  await render("typing-f");
+  await settle();
+  const before = acpmux.writes.length;
+  await type("g");
+  await until(() => answer !== undefined, "the first key's write on its way");
+  for (const key of "o home") await type(key);
+  await until(() => prompt() === "go home", "the typed text");
+  await act(async () => answer!());
+  await settle();
+  await settle();
+  // The first key landed; the rest wait for the pause instead of riding the running drain.
+  expect(acpmux.writes.slice(before)).toEqual([{ sessionId: "typing-f", text: "g" }]);
+  await until(() => acpmux.writes.length > before + 1, "the write once typing pauses");
+  expect(acpmux.writes.slice(before)).toEqual([
+    { sessionId: "typing-f", text: "g" },
+    { sessionId: "typing-f", text: "go home" },
+  ]);
+});
