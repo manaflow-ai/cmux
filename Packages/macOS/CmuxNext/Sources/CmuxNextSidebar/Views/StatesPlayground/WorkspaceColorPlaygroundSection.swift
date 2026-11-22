@@ -82,43 +82,43 @@ struct WorkspaceColorPlaygroundSection {
 
     private enum Strings {
         static var title: String {
-            String(localized: "sidebar.workspaceColorPlayground.title", defaultValue: "Workspace colors", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.title", defaultValue: "Workspace colors", bundle: .localizedModule)
         }
         static var standard: String {
-            String(localized: "sidebar.workspaceColorPlayground.standard", defaultValue: "Quiet pill (app)", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.standard", defaultValue: "Quiet pill (app)", bundle: .localizedModule)
         }
         static var stripe: String {
-            String(localized: "sidebar.workspaceColorPlayground.stripe", defaultValue: "Full stripe (before)", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.stripe", defaultValue: "Full stripe (before)", bundle: .localizedModule)
         }
         static var hairline: String {
-            String(localized: "sidebar.workspaceColorPlayground.hairline", defaultValue: "Hairline on the edge", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.hairline", defaultValue: "Hairline on the edge", bundle: .localizedModule)
         }
         static var mutedStripe: String {
-            String(localized: "sidebar.workspaceColorPlayground.mutedStripe", defaultValue: "Muted stripe", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.mutedStripe", defaultValue: "Muted stripe", bundle: .localizedModule)
         }
         static var tick: String {
-            String(localized: "sidebar.workspaceColorPlayground.tick", defaultValue: "Vivid tick, inset", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.tick", defaultValue: "Vivid tick, inset", bundle: .localizedModule)
         }
         static var wash: String {
-            String(localized: "sidebar.workspaceColorPlayground.wash", defaultValue: "Wash", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.wash", defaultValue: "Wash", bundle: .localizedModule)
         }
         static var washHairline: String {
-            String(localized: "sidebar.workspaceColorPlayground.washHairline", defaultValue: "Wash and hairline", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.washHairline", defaultValue: "Wash and hairline", bundle: .localizedModule)
         }
         static var titleTint: String {
-            String(localized: "sidebar.workspaceColorPlayground.titleTint", defaultValue: "Tinted title", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.titleTint", defaultValue: "Tinted title", bundle: .localizedModule)
         }
         static var pillTitleTint: String {
-            String(localized: "sidebar.workspaceColorPlayground.pillTitleTint", defaultValue: "Pill and tinted title", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.pillTitleTint", defaultValue: "Pill and tinted title", bundle: .localizedModule)
         }
         static var dot: String {
-            String(localized: "sidebar.workspaceColorPlayground.dot", defaultValue: "Dot before the name", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.dot", defaultValue: "Dot before the name", bundle: .localizedModule)
         }
         static var fill: String {
-            String(localized: "sidebar.workspaceColorPlayground.fill", defaultValue: "Filled row", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.fill", defaultValue: "Filled row", bundle: .localizedModule)
         }
         static var none: String {
-            String(localized: "sidebar.workspaceColorPlayground.none", defaultValue: "No color", bundle: .module)
+            String(localized: "sidebar.workspaceColorPlayground.none", defaultValue: "No color", bundle: .localizedModule)
         }
     }
 }

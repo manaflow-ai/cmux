@@ -542,10 +542,6 @@ final class MacScreenToolbarView: MacScreenThemedView {
             let fits = Self.textWidth(lines.full, font: MacScreenType.stats) + gap + Self.textWidth(name) <= headerRight - x
             let text = fits ? lines.full : lines.short
             if stats.stringValue != text { stats.stringValue = text }
-            let tip = fits ? nil : lines.full
-            if stats.toolTip != tip { stats.toolTip = tip }
-        } else if stats.toolTip != nil {
-            stats.toolTip = nil
         }
         // The name keeps its whole width up to half the header; the stats take the rest.
         let nameFloor = min(Self.textWidth(name), max(0, (headerRight - x) / 2))
