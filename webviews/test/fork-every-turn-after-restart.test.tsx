@@ -12,6 +12,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -65,6 +66,7 @@ afterEach(async () => {
   live = [];
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

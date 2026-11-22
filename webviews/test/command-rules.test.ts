@@ -131,7 +131,8 @@ describe("built-in rules: command shapes anyone runs", () => {
       "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script x.sh",
       "git rev-parse HEAD · cmux-ci run",
     ],
-    ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
+    // printf is quiet like echo (#48542): only the substitution's work is named.
+    ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD"],
     // No rule: the program and its main argument.
     ["cd ~/Projects/cmux && PORT=3000 bun run dev", "bun run dev"],
     [

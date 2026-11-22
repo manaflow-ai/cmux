@@ -1,3 +1,4 @@
+// l10n-allow-file: perf span and part names are the perf watch's wire words (perf_watch.rs), measurement like perf.ts.
 // The chat page's half of the live perf commentator (acpmux perf_watch.rs; Leo, 2026-11-18: "just
 // some sort of watcher that doesn't really affect anything, but it's just like, okay, it's timing
 // this, it's timing that"). The daemon judges every number against its budgets and writes the

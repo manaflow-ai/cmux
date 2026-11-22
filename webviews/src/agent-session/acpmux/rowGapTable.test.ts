@@ -77,7 +77,7 @@ reply           32      24       8      24      16      24      16      16      
 footer          32      24      24      24      24      24       8      24      24      32       8
 worked          32       0       0       0       0      16       0       0       0       0       0
 run             32      16       8      16       0       0       0       0       0      32       0
-peer            32      16       8      16       0       0       0       0       0      32       0
+peer            32      16       8      16       0       0       0       0       0      16       0
 bgTask          32      16       8      16       0       0       0       0       0      32       0
 group           32      16       8      16       0       0       0       0       0      32       0
 bgRun           32      16       8      16       0       0       0       0       0      16       0
@@ -97,10 +97,12 @@ test("the shipped gap table: every adjacent kind pair", () => {
 
 test("the replaced look had a flush header and a blank band under every line", () => {
   const before = under("before", gapTable);
-  for (const line of ["run", "peer", "bgTask", "group", "bgLine"]) {
-    expect(before[line]!.worked).toBe(0);
-    expect(before[line]!.bgRun).toBe(32);
-  }
+  for (const line of ["run", "peer", "bgTask", "group", "bgLine"]) expect(before[line]!.worked).toBe(0);
+  for (const line of ["run", "bgTask", "group", "bgLine"]) expect(before[line]!.bgRun).toBe(32);
+  // Another agent's line is the prompt of the turn under it, so that turn's first row opens nothing there in any
+  // look (#44818, model.ts opensBackgroundTurn): a run sits flush, a reply the run gap.
+  expect(before.peer!.bgRun).toBe(0);
+  expect(under("shipped", gapTable).peer!.bgReply).toBe(16);
   const shipped = under("shipped", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine", "bgRun"]) {
     expect(shipped[line]!.worked).toBe(16);

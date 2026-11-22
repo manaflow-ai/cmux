@@ -12,7 +12,7 @@
 //   why        each re-render's cause by component: the props that changed, `same props` (a new props object
 //              with equal values: a missing memo), the hook whose state changed, or a context.
 // Names come from the component's function name, so the page must be an unminified build
-// (`serveBenchPage(..., { unminified: true })`, or `minify: false` in a bench's own vite build); a minified
+// (serveBenchPage with `{ unminified: true }`, or `minify: false` in a bench's own vite build); a minified
 // build prints mangled names and the probe says so.
 //
 // One event's numbers: `await renderCountsReset(page)`, run the event, wait for it to settle, then

@@ -1,5 +1,6 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -8,6 +9,7 @@ const had = { window: "window" in scope, document: "document" in scope };
 scope.window = dom.window;
 scope.document = dom.window.document;
 afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const) {
     if (had[key]) scope[key] = saved[key];
     else delete scope[key];

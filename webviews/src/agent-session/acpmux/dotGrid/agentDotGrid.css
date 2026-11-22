@@ -1,5 +1,5 @@
 /* The agent dot grid (AgentDotGrid.tsx). Every state has its own shape, so none reads by color
-   alone and none depends on motion: running is a filled circle (it breathes), done a filled
+   alone and none depends on motion: running is a filled circle (still), done a filled
    rounded square, needs approval a thick ring, error a ring with a center dot, idle a thin ring.
    Every mark is drawn inside the dot's own box with borders and fills (no page-colored shadow),
    so it reads the same on a transparent pane. */
@@ -84,13 +84,8 @@ span.acpmux-dot-grid__dot {
 .acpmux-dot-grid__dot:focus-visible {
   box-shadow: 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus, var(--agent-text));
 }
-/* Running breathes on the house working loop (desktop.css WORKING-LOOK), so every running dot and
-   every working row breathe as one. */
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-dot-grid__dot[data-state="running"] {
-    animation: cmux-breathe var(--cmux-breath-period) var(--cmux-breath-ease) infinite;
-  }
-}
+/* Running does not breathe: a status dot says its state by colour and shape, never by fading
+   (Leo 2026-10-21: "we need to guarantee the breathing dot doesnt come back"; test/no-breathing-dots). */
 @media (prefers-reduced-motion: reduce) {
   .acpmux-dot-grid__dot {
     transition: none;

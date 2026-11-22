@@ -466,7 +466,7 @@
 /* Hover and on: the plain row's fills, over the glass (as specific as the rules above, after them). */
 /* chat-surface-allow: the default-off glass toolbar groups experiment (#47172), kept as tried until it ships */
 [data-glass-toolbar] .acpmux-header-tool:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--acpmux-glass-fill))}
-[data-glass-toolbar] .acpmux-glass-capsule .acpmux-header-tool:not(:disabled):hover{background:var(--ds-surface-inset)}
+[data-glass-toolbar] .acpmux-glass-capsule .acpmux-header-tool:not(:disabled):not([aria-pressed=true]):hover{background:var(--ds-surface-inset)}
 /* chat-surface-allow: the default-off glass toolbar groups experiment (#47172), kept as tried until it ships */
 [data-glass-toolbar] .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-glass-fill))}
 /* A button with a name or a keycap (the Keycaps and Labels arms, the search chip) grows to its text with even

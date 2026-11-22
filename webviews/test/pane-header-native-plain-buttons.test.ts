@@ -51,9 +51,10 @@ test("the pane header's native icon buttons are borderless with no resting plate
 test("the pane toolbar draws its buttons, toggled or lit, with ink and no plate", () => {
   const source = read(TOOLBAR);
   expect(plates(TOOLBAR, source)).toEqual([]);
-  // Lit (a zoomed pane's zoom button) and toggled (a native row tool whose panel is open) are ink. The bar
-  // has no "…" of its own any more (PaneToolbarView: user 2026-11-13, "get rid of these buttons").
+  // Lit (a zoomed pane's zoom button) and toggled (a native row tool whose panel is open) are ink. The "…"
+  // pane actions menu came back (0aa38a2a6f55; user 2026-11-16: "tabbar right side … is missing now like the
+  // one with pane actions") as an OverflowButton, which the test above holds to no plate.
   expect(source).toMatch(/item\.lit\s*\?\s*Palette\.litGlyph/);
   expect(source).toMatch(/item\.toggled\s*\?\s*Palette\.litGlyph/);
-  expect(source).not.toMatch(/\bmoreButton\b/);
+  expect(source).toMatch(/\bmoreButton\s*=\s*OverflowButton\(/);
 });

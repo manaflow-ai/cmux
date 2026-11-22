@@ -1,3 +1,4 @@
+// l10n-allow-file: the chat simulator's model run, a dev tool, not shipped UI.
 // The chat simulator's model run (sim/README.md): folds a scenario's records one at a time with the
 // pane's own reducer (AcpmuxDirectClient.replay, as session replay does), shapes each snapshot with
 // the pane's own turn view (turnViewFrom, built on the last, as App.tsx does) and places it with the

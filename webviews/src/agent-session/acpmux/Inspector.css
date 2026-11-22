@@ -341,8 +341,10 @@
   padding-left: 0;
 }
 
+/* The label column takes the row's leftover width and truncates only when the row is full. */
 .acpmux-inspector-perf-label {
-  max-width: 240px;
+  width: 100%;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);

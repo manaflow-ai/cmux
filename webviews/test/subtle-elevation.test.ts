@@ -97,8 +97,14 @@ const declarations = css.flatMap(({ file, text }) =>
 
 // The definitions of each custom property, across every sheet.
 const definitions = new Map<string, string[]>();
-for (const { property, value } of declarations) {
-  if (property.startsWith("--")) definitions.set(property, [...(definitions.get(property) ?? []), value]);
+// Each property's base definition: the first on a selector with no attribute condition, so a theme, state or
+// experiment arm (composerClimbs.css's `[data-shell-look]`, which sorts before composerStates.css) that
+// overrides a token is not read as the token's shipped value.
+const baseDefinitions = new Map<string, string>();
+for (const { property, value, selector } of declarations) {
+  if (!property.startsWith("--")) continue;
+  definitions.set(property, [...(definitions.get(property) ?? []), value]);
+  if (!selector.includes("[") && !baseDefinitions.has(property)) baseDefinitions.set(property, value);
 }
 
 // The drop layers (not inset) that blur, after following tokens down to their literals.
@@ -275,7 +281,8 @@ describe("one subtle elevation scale", () => {
       const [, name] = call;
       if ((ELEVATIONS as readonly string[]).includes(name)) return [name];
       if (seen.includes(name)) return [];
-      return (definitions.get(name) ?? []).slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
+      const base = baseDefinitions.get(name) ?? definitions.get(name)?.[0];
+      return base === undefined ? [] : steps(base, [...seen, name]);
     });
 
   for (const [file, selector, token] of surfaces) {

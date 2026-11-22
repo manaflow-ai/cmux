@@ -25,6 +25,7 @@ const TRUSTED = "~/code/cmux";
 const fresh = chat([]);
 const snapshot = { ...fresh, summary: { ...fresh.summary!, cwd: TRUSTED } };
 
+// gallery-capture: only the send plays await it; each play samples its own frames and decides the still.
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's

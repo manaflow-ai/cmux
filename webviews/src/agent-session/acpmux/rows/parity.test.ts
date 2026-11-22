@@ -108,6 +108,11 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "the turn's Retry is named by its prompt row's id",
   },
   {
+    field: "worked.foldedPrompt",
+    from: ["id"],
+    why: "a fold that folds its prompt (another agent's message) carries that prompt row whole, named by its id (and its turn, user.turnId)",
+  },
+  {
     field: "worked.workedRun",
     from: ["id"],
     why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",

@@ -10,7 +10,7 @@ import type { WorkingCounts } from "./workingForModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { importWithDom } from "../../../../test/support/importWithDom";
 
-// Loaded with a document in place: this file installs its own jsdom per test (import-order-lint).
+// Loaded with a document in place: this file installs its own jsdom per test.
 const [{ Thinking }, { WorkingCountsContext }] = await importWithDom(() =>
   Promise.all([import("./Thinking"), import("./workingForModel")]),
 );

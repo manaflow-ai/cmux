@@ -15,6 +15,7 @@
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { Button } from "./Button";
 import { cx } from "./cx";
 import { DismissButton } from "./DismissButton";
@@ -274,14 +275,9 @@ function NoticeCheckmark({ label, checked, onCheckedChange, hint }: NoticeCheck)
   );
 }
 
-/** The working mark: a ring on the shared spinner keyframes and clock (spinnerClock.ts). */
+/** The working mark: the one shared Spinner (test/one-spinner.test.ts), turning as loading does. */
 export function NoticeSpinner() {
-  return (
-    <svg className="ui-notice-mark ui-notice-spinner" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
-      <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+  return <Spinner size={14} className="ui-notice-mark ui-notice-spinner" loading />;
 }
 
 /** The kind's small mark: a ring for an error, a triangle for a warning, a dot for an ask, a check

@@ -8,6 +8,9 @@
 // highlighted; cmux#32687). #28962 removed the resting fill only. The keyboard focus ring stays. The same
 // states are checked in a real browser by chat-header-tab-row-surface.test.ts.
 // A declaration's `!important` only raises its priority: `background:none !important` is no fill.
+// Settings > Experiments > Glass toolbar groups (#47172, off by default, a taste prototype) draws the
+// header's tools as round glass buttons under `[data-glass-toolbar]`; that look is the experiment, so the
+// at-rest rule exempts it. Its hover pill still may not paint over an on toggle (the last test).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -72,7 +75,7 @@ function rules(): { file: string; selector: string; body: Map<string, string> }[
 test("no header tool draws a fill at rest, nor a border or shadow in any state", () => {
   const boxed: string[] = [];
   for (const { file, selector, body } of rules()) {
-    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part));
+    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part) && !part.startsWith("[data-glass-toolbar]"));
     if (tools.length === 0) continue;
     for (const [property, value] of body) {
       // A fill only in a lit state: every header-tool part of the rule names one.

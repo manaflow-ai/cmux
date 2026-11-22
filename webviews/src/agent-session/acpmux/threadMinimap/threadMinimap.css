@@ -725,7 +725,7 @@
   inset-inline-start: auto;
   inset-inline-end: 0;
 }
-.acpmux-minimap__rail:is([data-hovering], :focus-within, [data-show]) .acpmux-minimap__show,
+.acpmux-minimap__rail:is([data-hovering], :has(:focus-visible), [data-show]) .acpmux-minimap__show,
 .acpmux-minimap__show[data-popup-open] {
   opacity: 1;
   pointer-events: auto;

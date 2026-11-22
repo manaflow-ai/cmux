@@ -4,6 +4,7 @@
 // before/after split with both fixture pictures.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -153,12 +154,7 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-});
+afterAll(() => teardownDom(saved));
 
 async function renderCard(row: AcpmuxRow, shots: TurnShotsReader) {
   const { createRoot } = await import("react-dom/client");

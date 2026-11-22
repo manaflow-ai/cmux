@@ -8099,7 +8099,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* The keyboard shows the same group the pointer does, in the room it always keeps (G03): focus
    anywhere in the prompt (Tab onto Send now or a hidden button), or the transcript's roving row stop
    on its row, as a reply's and a turn footer's rows show on that focus. */
-.cv-user:focus-within .cv-user__queued-hover,
+.cv-user:has(:focus-visible) .cv-user__queued-hover,
 .acpmux-user:focus-visible .cv-user__queued-hover,
 .cv-user__queued-hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
   opacity: 1;

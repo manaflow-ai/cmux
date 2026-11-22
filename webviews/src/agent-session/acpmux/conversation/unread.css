@@ -8,7 +8,9 @@
 .cv-since,
 .acpmux-since-jump {
   --unread-accent: var(--cmux-app-accent, var(--agent-text));
-  --unread-on-accent: var(--cmux-app-on-accent, var(--agent-page-bg));
+  /* The opaque page tone: --agent-page-bg is clear in a see-through window, and the pill's label vanished in it
+     (test/button-ink-contrast.test.ts). */
+  --unread-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, var(--agent-page-bg)));
   --unread-accent-text: var(--cmux-app-accent-text, var(--unread-accent));
   --unread-wash: color-mix(in srgb, var(--agent-text) 6%, transparent);
   --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);

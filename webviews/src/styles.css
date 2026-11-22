@@ -1899,9 +1899,9 @@ svg[data-icon-fill] {
   opacity: 0;
   transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.file-header:is(:hover, :focus-within)
+.file-header:is(:hover, :has(:focus-visible))
   :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
-.file-header:is(:has([data-popup-open]), :focus-within)
+.file-header:is(:has([data-popup-open]), :has(:focus-visible))
   :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
   opacity: 1;
 }

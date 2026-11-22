@@ -9,7 +9,7 @@ import type { SurgeHold } from "./conversation/surgeHold";
 import { settleReact } from "../../../test/support/domTeardown";
 import { importWithDom } from "../../../test/support/importWithDom";
 
-// Loaded with a document in place (import-order-lint.test.ts): the DOM below installs per test.
+// Loaded with a document in place: the DOM below installs per test.
 const { SurgeHoldRow } = await importWithDom(() => import("./SurgeHoldRow"));
 
 let dom: JSDOM | undefined;

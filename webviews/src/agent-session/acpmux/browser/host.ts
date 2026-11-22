@@ -1,6 +1,7 @@
 // The listener serves the same pane as the app. It supplies the listener token in the
 // fragment so it never reaches the HTTP server. Only this origin can receive either proof.
 import { followBrowserTheme } from "../../guest/theme";
+import { translate } from "../i18n";
 import { setNativeHost } from "../native";
 import { installBrowserNavigation, type BrowserChatRoute } from "../../browser/routes";
 
@@ -44,8 +45,8 @@ export function installBrowserHost(): void {
     switch (method) {
       case "ready":
       case "handshake": {
-        if (!window.isSecureContext) throw new Error("Open cmux over HTTPS or on localhost to connect this browser.");
-        if (!token) throw new Error("Open the browser link from your cmux daemon to connect this tab.");
+        if (!window.isSecureContext) throw new Error(translate("browser.insecureContext"));
+        if (!token) throw new Error(translate("browser.missingToken"));
         const sessionId = new URL(location.href).searchParams.get("session") ?? undefined;
         return {
           protocolVersion: 1,
@@ -68,6 +69,7 @@ export function installBrowserHost(): void {
       case "cmux.page.heartbeat":
         return { rest: true };
       default:
+        // l10n-allow: names the RPC method a caller asked for, a caller's bug.
         throw new Error(`This browser does not support ${method}.`);
     }
   });

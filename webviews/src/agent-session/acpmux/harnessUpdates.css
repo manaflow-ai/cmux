@@ -75,4 +75,4 @@
 /* Beside Update all, a row's Update (or a failed row's Try Again) shows on the row's hover or focus
    only; it keeps its space, so nothing moves when it appears. A running update's spinner always shows. */
 .acpmux-harness-update-run[data-reveal] { opacity: 0; }
-.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal] { opacity: 1; }
+.acpmux-harness-update:is(:hover, :has(:focus-visible)) .acpmux-harness-update-run[data-reveal] { opacity: 1; }

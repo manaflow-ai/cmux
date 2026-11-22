@@ -7,7 +7,7 @@
 // process, so a file that imports src/ at the top and installs jsdom afterwards loads those modules
 // with no document, and every later file of the process gets the browser-less copy: popups that never
 // position, layout effects that never run (session-info-motion before
-// session-info-subagent-card-stays, #46384). import-order-lint.test.ts fails a file that does that.
+// session-info-subagent-card-stays, #46384).
 //
 //   const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
 //

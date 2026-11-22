@@ -37,6 +37,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
   })),
   {
+    file: "agent-session/acpmux/conversation/spinner.css",
+    keyframes: "cv-spinner-pip",
+    selector: ".cv-spinner--dots .cv-spinner__pip",
+    why: "the `dots` look of the working Spinner (#48573), three dots taking turns as a spinner, not a status dot; only the gallery's side by sides draw it (BackgroundSpinner.gallery.tsx), and Static and Reduce Motion hold it still",
+  },
+  {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
     selector: ".acpmux-mic",
