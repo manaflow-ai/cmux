@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "build": "4499374011501",
+  "notes": "notes/4499374011501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49834,
+      "title": "chief: skip subagent ids whose acpmux session name is taken",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46827,
+      "title": "CEF: turn off Chromium's code-sign clone; relaunch after a Chromium chat no longer waits 1.4 s before main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49183,
+      "title": "acpmux: an inbox notice that never went in leaves steer_withdrawn (send_burst base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46958,
+      "title": "Settings: each card loads with its section; Chief character art right-sized",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/46958/hv-e3017bfddfe6-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49626,
+      "title": "acpmux: say when a joined machine is in another team than its peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48817,
+      "title": "Run the NEXT agent pane and live chat list in a browser",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49736,
+      "title": "Agent badges tour: run a stand-in agent inline, not from a checkout path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49171,
+      "title": "Add session worktree look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49805,
+      "title": "CI: remove the repeated add-rust-environment-hash-key in cmux-tui-spec.yml",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48195,
+      "title": "acpmux: surge triage of held inbox messages through the small model",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49454,
+      "title": "Agent chat: keyboard focus on a queued prompt shows its actions",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49454/hv-f288707025f8-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 44570,
+      "title": "v2 row 11c: bounded drafts and presence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49362,
+      "title": "chat switch: an empty bookmark read keeps the shared empty marks",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49362/hv-a78d72b687ad-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 46734,
+      "title": "linux host: only run heals an old join record; a repeated pending sign-out keeps its first time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49776,
+      "title": "cmux-tui: deleted tokens, app values and commands leave no bytes on disk",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
