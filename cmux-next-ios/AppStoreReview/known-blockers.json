@@ -29,21 +29,6 @@
       "key": "uitest.failed|ipad|AppReviewGateUITests/testSignInHasNoDeadControls()",
       "finding": "AppReviewGateUITests.swift:86: XCTAssertTrue failed - dead controls on sign-in: sign-in: https://cmux.com/terms-of-service",
       "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testOnboardingHasAWayForwardWithoutAMac()",
-      "finding": "AppReviewGateUITests.swift:120: XCTAssertTrue failed - onboarding must end on Home without a Mac (pages seen: [\"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\"])",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testOnboardingHasNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:137: XCTAssertTrue failed - dead controls in onboarding: onboarding: setup.teams.personal; onboarding: 9:Manaflow; onboarding: 9:Build Fleet",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testSettingsHaveNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:251: XCTAssertTrue failed - dead controls in Settings: settings: settings.compactWorkspaceList; settings-bottom: 9:Demo at next launch, None",
-      "fix": "onboarding/settings/sign-in dead controls lane"
     }
   ]
 }

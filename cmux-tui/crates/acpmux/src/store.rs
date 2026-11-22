@@ -27,8 +27,10 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
 mod segment_starts;
+mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -1777,6 +1779,7 @@ pub struct LocalStore {
     kind_heads: kind_heads::KindHeads,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
+    segment_table: segment_table::SegmentTable,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1838,6 +1841,7 @@ impl LocalStore {
             parts: Default::default(),
             kind_heads: Default::default(),
             segment_starts: Default::default(),
+            segment_table: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -1864,7 +1868,7 @@ impl LocalStore {
     /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
     /// rehydrate may have put the log back since the first, and this one then answers false
     /// (review of #39141: an append went on in `000001` of a log that ran on past it).
-    fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segments(&self, id: &str) -> Result<SegmentList> {
         let (segments, cut_pending) = self.list_segments(id)?;
         if !cut_pending {
             return Ok(segments);
@@ -1880,7 +1884,7 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
-    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
+    fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
         let listed = self.listed_files(id)?;
         if listed.0.is_empty() {
             self.rehydrate(id)?;
@@ -1890,31 +1894,13 @@ impl LocalStore {
     }
 
     /// The segments on the disk now, never rehydrated.
-    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segment_files(&self, id: &str) -> Result<SegmentList> {
         Ok(self.listed_files(id)?.0)
     }
 
     /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let mut cut_pending = false;
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok((out, false));
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name == compact::CUT {
-                cut_pending = true;
-            } else if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok((out, cut_pending))
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+        self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
     fn list_entry(
@@ -2819,6 +2805,7 @@ impl Store for LocalStore {
         self.writers.lock_or_recover().open.remove(id);
         self.kind_heads.forget(id);
         self.segment_starts.forget(id);
+        self.segment_table.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
