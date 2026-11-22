@@ -50,6 +50,10 @@ public final class MacScreenPaneModel {
     var qualityReadoutOverride: MacScreenQualityReadout?
     /// Where the stream's rate and quality show, read live like ``viewerLook``.
     var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
+    /// The gallery's bar variant; nil reads Debug Settings.
+    var toolbarBarOverride: MacScreenToolbarBar?
+    /// How the floating bar arranges its controls, read live like ``viewerLook``.
+    var toolbarBar: MacScreenToolbarBar { toolbarBarOverride ?? MacScreenTunables.toolbarBar.value }
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session

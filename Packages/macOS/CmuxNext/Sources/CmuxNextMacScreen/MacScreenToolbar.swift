@@ -27,6 +27,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let refresh: MacScreenButton
     private let connect: MacScreenButton
     private let disconnect: MacScreenButton
+    /// Disconnect as a close glyph, for the glyphs bar (``MacScreenToolbarBar/icons``).
+    private let disconnectGlyph: MacScreenButton
     private let line = MacScreenFill(\.separator)
     /// Slots shown now (the stats and hint slots exist while their condition holds, whether or not they fit).
     private var statsSlot = false
@@ -45,6 +47,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var surfaceLook: MacScreenViewerLook?
     /// The pill layout (``MacScreenViewerStyle/ToolbarLayout/pill``): one row, the secondary controls in More.
     private var isPill: Bool { model.viewerLook.style.toolbarLayout == .pill }
+    /// How a floating bar arranges its controls (``MacScreenToolbarBar``); a docked toolbar or a pill keeps its own.
+    private var bar: MacScreenToolbarBar {
+        let style = model.viewerLook.style
+        return style.toolbarPlacement == .floating && style.toolbarLayout != .pill ? model.toolbarBar : .stacked
+    }
     /// Look A's auto-hide faded the toolbar out (``MacScreenViewerOverlay``): it stays hidden so clicks reach the picture.
     var autoHidden = false {
         didSet { syncHidden() }
@@ -92,10 +99,13 @@ final class MacScreenToolbarView: MacScreenThemedView {
         disconnect = MacScreenButton(L.t("macScreen.toolbar.disconnect", "Disconnect"), compact: true, id: "macScreen.disconnect") {
             actions.disconnect()
         }
+        disconnectGlyph = MacScreenButton(L.t("macScreen.toolbar.disconnect", "Disconnect"), role: .icon, symbol: "xmark",
+                                          id: "macScreen.disconnectGlyph") { actions.disconnect() }
+        disconnectGlyph.themedToolTip = L.t("macScreen.toolbar.disconnect", "Disconnect")
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
+        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, disconnectGlyph, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
@@ -220,6 +230,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
         hintSlot = model.capturesKeyboard && live
         controlsShown = model.showsSessionControls
         let pill = isPill
+        let bar = self.bar
+        segments.showsTitles = bar != .icons
+        // The controls-only bar shows no name: the status dot carries it.
+        setThemedTip(bar == .controls ? title : nil, on: dot)
         // A pill floats only over a live picture: every other state takes the pane with its own actions.
         syncHidden()
         access.isHidden = !controlsShown || scopeControl !== access
@@ -229,8 +243,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
         more.isHidden = !controlsShown
         if let session {
             // Quality chip readout (R2): the button says the rate while live, in attention when the stream strains.
-            let chip = model.qualityReadout == .chip && live ? session.stats.hostKbps : nil
-            quality.retitle(chip.map { MacScreenQualityReadout.rateText(kbps: $0) } ?? Self.qualityTitle(session.preferences.quality))
+            // A one-row bar never says "Auto": it says the rate while the host sends one, else the glyph alone.
+            let rated = bar == .row || bar == .controls || model.qualityReadout == .chip
+            let chip = rated && bar != .icons && live ? session.stats.hostKbps : nil
+            let idle = bar.oneRow ? "" : Self.qualityTitle(session.preferences.quality)
+            quality.retitle(chip.map { MacScreenQualityReadout.rateText(kbps: $0) } ?? idle)
             let ink: KeyPath<MacScreenColors, NSColor> = chip != nil && MacScreenQualityReadout.isStrained(session.stats) ? \.attention : \.secondary
             if quality.ink != ink { quality.ink = ink }
         }
@@ -239,20 +256,22 @@ final class MacScreenToolbarView: MacScreenThemedView {
         displayButton.isHidden = !controlsShown || displayCount <= 1 || pill
         quality.isHidden = !controlsShown
         let canSend = model.canSendKeys
-        sendKeys.isHidden = !controlsShown || pill
+        // A one-row bar keeps Send Keys and Refresh in More.
+        sendKeys.isHidden = !controlsShown || pill || bar.oneRow
         sendKeys.isEnabled = canSend
         sendKeys.ink = canSend ? \.secondary : \.tertiary
         setThemedTip(viewOnly
             ? L.t("macScreen.toolbar.sendKeysViewOnly", "Send Keys is off in a View Only session")
             : L.t("macScreen.toolbar.sendKeys", "Send Keys"), on: sendKeys)
-        refresh.isHidden = !controlsShown || pill
+        refresh.isHidden = !controlsShown || pill || bar.oneRow
         refresh.isEnabled = live
         let ended: Bool = switch session?.phase {
         case .ended?, .failed?: true
         default: false
         }
         connect.isHidden = !controlsShown || !ended
-        disconnect.isHidden = !controlsShown || ended
+        disconnect.isHidden = !controlsShown || ended || bar == .icons
+        disconnectGlyph.isHidden = !controlsShown || ended || bar != .icons
     }
 
     /// The labels, glyphs and buttons at the type scale's sizes, read here so a density, font size
@@ -270,7 +289,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         hintGlyph.resize(to: MacScreenType.caption)
         guard changed else { return }
         for button in [access, displayButton, quality, sendKeys, more] { button.reloadType() }
-        for button in [refresh, fullScreen, connect, disconnect] { button.reloadType() }
+        for button in [refresh, fullScreen, connect, disconnect, disconnectGlyph] { button.reloadType() }
     }
 
     /// Sets a tooltip only when it changes (the stats redraw this every second).
@@ -457,7 +476,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// The pane uses the same height for video, input and state-card geometry.
     func height(for width: CGFloat) -> CGFloat {
         let row = model.viewerLook.style.toolbarRowHeight ?? max((Metrics.space6 * 2), access.fittingSize.height + Metrics.space2)
-        guard controlsShown && width < expandedWidth && !isPill else { return row }
+        guard controlsShown && width < expandedWidth && !isPill && !bar.oneRow else { return row }
         let controls = arrangedControls(for: width)
         let available = max(0, width - Metrics.space3 * 2)
         var rows = 1
@@ -472,6 +491,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     var expandedWidth: CGFloat {
         if isPill { return pillWidth }
+        if bar.oneRow { return oneRowWidth }
         let controls = [scopeControl, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
         return controls.filter { $0 !== displayButton || model.displays.count > 1 }
             .reduce((Metrics.space6 * 2) * 8) { total, control in
@@ -485,6 +505,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let titles: [String]
         if control === access {
             titles = [L.t("macScreen.scope.view", "View Only"), L.t("macScreen.scope.full", "Full Control")]
+        } else if control === quality, bar.oneRow {
+            // A one-row bar's Quality is its glyph, or the rate in room for three digits so the bar never moves.
+            guard quality.hasTitle else { return ceil(quality.fittingSize.width) }
+            titles = ["000 Mbps"]
         } else if control === quality {
             titles = ScreenQuality.allCases.map(Self.qualityTitle)
         } else {
@@ -514,6 +538,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// width; below the full width the layout drops the codec and size first. A pill keeps ``expandedWidth``.
     var floatingWidth: CGFloat {
         guard !isPill else { return expandedWidth }
+        if bar.oneRow { return oneRowWidth }
         let gap = Metrics.space2
         let nameRoom = min(Self.textWidth(name), ceil(MacScreenType.body.pointSize * 16))
         let statsRoom = statsSlot ? (statsLines?.room ?? Self.textWidth(stats)) + gap : 0
@@ -524,6 +549,29 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return ceil(expandedWidth + max(0, header - allowance))
     }
 
+    /// A one-row bar's whole width: its header (none but the dot for the controls-only bar) and its controls, the
+    /// display picker while there is more than one display. The pane caps it at its own width; the layout folds the
+    /// display picker into More, then hides the icon, then truncates the name.
+    private var oneRowWidth: CGFloat {
+        let gap = Metrics.space2
+        var header = Metrics.space3 * 2 + Metrics.space2 + gap
+        if bar != .controls {
+            let nameRoom = min(Self.textWidth(name), ceil(MacScreenType.body.pointSize * 16))
+            let statsRoom = statsSlot ? (statsLines?.room ?? Self.textWidth(stats)) + gap : 0
+            let hintRoom = hintSlot ? hint.fittingSize.width + gap : 0
+            header += icon.intrinsicContentSize.width + gap + nameRoom + gap + statsRoom + hintRoom
+        }
+        let controls = oneRowControls.filter { $0 !== displayButton || model.displays.count > 1 }
+        return ceil(header + controls.reduce(0) { $0 + controlWidth($1) + gap })
+    }
+
+    /// A one-row bar's controls, every one it may show; Connect and Disconnect take turns in one place.
+    private var oneRowControls: [NSView] {
+        let ended = !connect.isHidden
+        let leave: NSView = ended ? connect : (bar == .icons ? disconnectGlyph : disconnect)
+        return [scopeControl, displayButton, quality, fullScreen, more, leave]
+    }
+
     /// The pill's controls: access (View Only shows as such), quality, More, Connect or Disconnect.
     private var pillControls: [NSView] { ([access, quality, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
 
@@ -531,6 +579,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
         if isPill {
             more.isHidden = !controlsShown
             return pillControls
+        }
+        if bar.oneRow {
+            sendKeys.isHidden = true
+            refresh.isHidden = true
+            more.isHidden = !controlsShown
+            // Too narrow for everything: the display picker goes to More first.
+            displayButton.isHidden = !controlsShown || model.displays.count <= 1 || width < oneRowWidth
+            return ([scopeControl, displayButton, quality, fullScreen, more, connect, disconnect, disconnectGlyph] as [NSView]).filter { !$0.isHidden }
         }
         let compact = controlsShown && width < expandedWidth - (Metrics.space6 * 2) * 4
         displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
@@ -548,7 +604,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let padding = Metrics.space3
         let rowHeight = model.viewerLook.style.toolbarRowHeight ?? max((Metrics.space6 * 2), access.fittingSize.height + gap)
         let pill = isPill
-        let stacked = !pill && controlsShown && bounds.width < expandedWidth
+        let bar = self.bar
+        let bare = bar == .controls
+        let stacked = !pill && !bar.oneRow && controlsShown && bounds.width < expandedWidth
         let compact = stacked && bounds.width < expandedWidth - (Metrics.space6 * 2) * 4
         if pill {
             let radius = Metrics.capsuleRadius(bounds.size)
@@ -569,7 +627,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
         dot.frame = CGRect(x: x, y: (rowHeight - Metrics.space2) / 2, width: Metrics.space2, height: Metrics.space2)
         x += Metrics.space2 + gap
-        icon.isHidden = compact
+        // A one-row bar too narrow for its whole width drops the icon before the name truncates.
+        icon.isHidden = compact || bare || (bar.oneRow && bounds.width < oneRowWidth)
         if !icon.isHidden { place(icon, width: icon.intrinsicContentSize.width, y: 0) }
         if let lines = statsLines {
             // The whole name and the rate come before the codec and size: the full line only when both fit.
@@ -580,13 +639,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
         // The name keeps its whole width up to half the header; the stats take the rest.
         let nameFloor = min(Self.textWidth(name), max(0, (headerRight - x) / 2))
         let statsWidth = min(Self.textWidth(stats), max(0, headerRight - x - nameFloor - gap))
-        stats.isHidden = !statsSlot
+        stats.isHidden = !statsSlot || bare
+        name.isHidden = bare
         let remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
         let hintWidth = hint.fittingSize.width
-        hint.isHidden = !hintSlot || remaining < Self.textWidth(name) + gap + hintWidth
+        hint.isHidden = !hintSlot || bare || remaining < Self.textWidth(name) + gap + hintWidth
         let nameWidth = max(0, remaining - (hint.isHidden ? 0 : hintWidth + gap))
-        place(name, width: nameWidth, y: 0)
-        if statsSlot { place(stats, width: statsWidth, y: 0) }
+        if !bare { place(name, width: nameWidth, y: 0) }
+        if statsSlot && !bare { place(stats, width: statsWidth, y: 0) }
         if !hint.isHidden { place(hint, width: hintWidth, y: 0) }
         // The release hint remains available on the access control at every width.
         access.themedToolTip = hintSlot ? hint.themedToolTip : access.accessibilityLabel()

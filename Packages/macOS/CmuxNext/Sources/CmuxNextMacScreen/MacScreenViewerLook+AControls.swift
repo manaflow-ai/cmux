@@ -119,6 +119,16 @@ final class MacScreenScopeSegments: NSView, MacScreenInked {
 
     override var isFlipped: Bool { true }
 
+    /// The segments' words (View, Control) beside their glyphs; off, each segment is its glyph, its word the tooltip.
+    var showsTitles = true {
+        didSet {
+            guard showsTitles != oldValue else { return }
+            for segment in segments { segment.showsTitle = showsTitles }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
     func select(_ scope: SessionScope) {
         selected = scope
         for segment in segments { segment.isSelected = segment.scope == scope }
@@ -155,6 +165,14 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
         didSet {
             guard isSelected != oldValue else { return }
             setAccessibilityValue(NSNumber(value: isSelected))
+            refresh()
+        }
+    }
+    /// The word beside the glyph; off, the word is the tooltip.
+    var showsTitle = true {
+        didSet {
+            guard showsTitle != oldValue else { return }
+            themedToolTip = showsTitle ? nil : text
             refresh()
         }
     }
@@ -201,6 +219,7 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
     override var intrinsicContentSize: NSSize {
         let title = attributedTitle.size()
         let glyph = image?.size.width ?? 0
+        guard showsTitle else { return NSSize(width: ceil(glyph + Metrics.space4 * 2), height: ceil(max(title.height, 16))) }
         return NSSize(width: ceil(title.width + glyph + Metrics.space2 + Metrics.space4 * 2), height: ceil(max(title.height, 16)))
     }
 
@@ -233,7 +252,8 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
         let font = MacScreenType.body
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: font.pointSize - 1, weight: .regular)
         contentTintColor = ink
-        attributedTitle = NSAttributedString(string: text, attributes: [.foregroundColor: ink, .font: font])
+        attributedTitle = NSAttributedString(string: showsTitle ? text : "", attributes: [.foregroundColor: ink, .font: font])
+        imagePosition = showsTitle ? .imageLeading : .imageOnly
         invalidateIntrinsicContentSize()
     }
 }
