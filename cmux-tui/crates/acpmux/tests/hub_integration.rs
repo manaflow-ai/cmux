@@ -1774,6 +1774,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
