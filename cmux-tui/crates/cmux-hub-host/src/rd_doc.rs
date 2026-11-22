@@ -17,6 +17,9 @@ pub struct RdDocument {
     pub display: Option<i64>,
     pub max_width: Option<u32>,
     pub max_fps: Option<u32>,
+    /// The screen-share profile the viewer asks for (`standard` or `ultra`, the person's
+    /// choice); the host runs standard when it is absent or unknown.
+    pub encode_profile: Option<String>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
 }
@@ -33,6 +36,9 @@ impl RdDocument {
         }
         if let Some(f) = self.max_fps {
             lines.push(format!("a=cmux-rd-max-fps:{f}"));
+        }
+        if let Some(p) = &self.encode_profile {
+            lines.push(format!("a=cmux-rd-encode-profile:{p}"));
         }
         if !self.displays.is_empty() {
             let sizes: Vec<String> =
@@ -62,6 +68,7 @@ impl RdDocument {
                 "cmux-rd-display" => doc.display = value.parse().ok(),
                 "cmux-rd-max-width" => doc.max_width = value.parse().ok(),
                 "cmux-rd-max-fps" => doc.max_fps = value.parse().ok(),
+                "cmux-rd-encode-profile" => doc.encode_profile = Some(value.to_owned()),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
                 "cmux-rd-displays" => {
                     doc.displays = value
@@ -182,9 +189,11 @@ mod tests {
             display: Some(1),
             max_width: Some(1920),
             max_fps: Some(60),
+            encode_profile: Some("ultra".into()),
             displays: vec![(2560, 1440)],
             current_display: Some(0),
         };
+        assert!(doc.text().contains("\r\na=cmux-rd-encode-profile:ultra\r\n"));
         let text = doc.text();
         assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
         assert_eq!(RdDocument::parse(&text), Some(doc));

@@ -288,6 +288,28 @@ extension AppearanceSettingsSchema {
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
             ),
             SettingDescriptor(
+                TwoToneSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.twoTone", "Two-Tone"),
+                help: SettingsText.keyed("settings.appearance.twoTone.help", "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."),
+                summary: SettingsText.keyed("settings.appearance.twoTone.summary", "A second tone for the sidebar and tab bar"),
+                kind: .choice([
+                    SettingChoice(TwoTone.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(TwoTone.auto.rawValue, SettingsText.keyed("settings.choice.twoTone.auto", "From Theme")),
+                    SettingChoice(TwoTone.inkSakura.rawValue, SettingsText.keyed("settings.choice.twoTone.inkSakura", "Ink & Sakura")),
+                    SettingChoice(TwoTone.charcoalRose.rawValue, SettingsText.keyed("settings.choice.twoTone.charcoalRose", "Charcoal & Rose")),
+                    SettingChoice(TwoTone.inkMagenta.rawValue, SettingsText.keyed("settings.choice.twoTone.inkMagenta", "Ink Blue & Magenta")),
+                    SettingChoice(TwoTone.creamForest.rawValue, SettingsText.keyed("settings.choice.twoTone.creamForest", "Cream & Forest")),
+                    SettingChoice(TwoTone.navySand.rawValue, SettingsText.keyed("settings.choice.twoTone.navySand", "Navy & Sand")),
+                    SettingChoice(TwoTone.boneOxblood.rawValue, SettingsText.keyed("settings.choice.twoTone.boneOxblood", "Bone & Oxblood")),
+                    SettingChoice(TwoTone.slateMatcha.rawValue, SettingsText.keyed("settings.choice.twoTone.slateMatcha", "Slate & Matcha")),
+                    SettingChoice(TwoTone.plumAmber.rawValue, SettingsText.keyed("settings.choice.twoTone.plumAmber", "Plum & Amber")),
+                ]),
+                default: .string(TwoToneSetting.fallback.rawValue),
+                keywords: ["two tone", "two-tone", "duotone", "tone", "pairing", "sidebar", "tab bar", "chrome", "color", "sakura", "pink", "magenta", "forest", "sand", "oxblood", "matcha", "amber", "palette"]
+            ),
+            SettingDescriptor(
                 CornerFlushSetting.configPath,
                 section: .appearance,
                 group: group,
