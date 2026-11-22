@@ -181,7 +181,7 @@ the pane keys, it takes the place of your own `keybindings.json` while it previe
 cmux customize use ~/.local/state/cmux/customize/recipes/leader.json
 ```
 
-Or ask: "give me tmux-style leader keys to split, zoom, resize and move panes"
+Or ask: "give me leader keys to split, zoom, resize and move panes"
 
 ## App looks
 

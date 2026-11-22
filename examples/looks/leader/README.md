@@ -1,6 +1,6 @@
 # Leader
 
-A keyboard mode for the window, the way tmux and Vim's Control-W work: press Command-J, let go,
+A keyboard mode for the window, the way a terminal multiplexer's prefix key works: press Command-J, let go,
 then one key. Command-J is cmux's own leader already (Command-J T opens the Quick Terminal,
 Command-J S a new chat), so the look takes no key a terminal, a chat or a page types. Hold
 Command to see the keys.

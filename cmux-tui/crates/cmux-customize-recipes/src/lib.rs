@@ -249,7 +249,7 @@ pub const RECIPES: &[Recipe] = &[
         name: "leader",
         title: "A keyboard mode on Command-J",
         group: Group::Keys,
-        ask: "give me tmux-style leader keys to split, zoom, resize and move panes",
+        ask: "give me leader keys to split, zoom, resize and move panes",
         profile: include_str!("../../../../examples/looks/leader/cmux-setup.json"),
         includes: LEADER,
     },
