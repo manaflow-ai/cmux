@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import Foundation
 
 /// How the app starts one `cmux-mobile-host` (cmux-next-ios/rust/README.md lists its
@@ -51,6 +52,9 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The surface source streams phone tabs' simulators too; off (no SimulatorKit), hostd streams
     /// Cloud desktops only and says no `surface-stream-v1` (`CMUX_MOBILE_SURFACE_SIMULATORS=0`).
     public var simulatorSurfaces = true
+    /// A tagged dev build's cloud data space: hostd sends it as `X-Cmux-Build-Space` on every mobile service
+    /// request and its signaling socket (`CMUX_MOBILE_BUILD_SPACE`). Nil (nightly, stable): no variable, no header.
+    public var buildSpace: CMUXBuildSpace?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -118,6 +122,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let agentTabHost, !agentTabHost.isEmpty { environment["CMUX_MOBILE_AGENT_TAB_HOST"] = agentTabHost }
         if let chiefSession, !chiefSession.isEmpty { environment["CMUX_MOBILE_CHIEF_SESSION"] = chiefSession }
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
+        if let buildSpace { environment["CMUX_MOBILE_BUILD_SPACE"] = buildSpace.headerValue }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
         if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }

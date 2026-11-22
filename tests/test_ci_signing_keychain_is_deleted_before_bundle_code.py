@@ -34,9 +34,9 @@ statically, so a reordered step fails in review and not on a release day:
    ephemeral runner labels. The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
    STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
-7. A job that holds a signing secret runs on an ephemeral runner (Blacksmith or
-   GitHub's hosted Linux; "blacksmith runners we can simply trust", Leo,
-   2026-10-24), never a reused machine. Its runs-on names either a literal
+7. A job that holds a signing secret runs on an ephemeral runner (Blacksmith,
+   GitHub's hosted Linux, or a one-job JIT VM in JIT_EPHEMERAL_LABELS; "blacksmith
+   runners we can simply trust", Leo, 2026-10-24), never a reused machine. Its runs-on names either a literal
    ephemeral label or one of EPHEMERAL_RUNNER_VARIABLES, whose fallback literal
    is ephemeral too. A test cannot read a variable's live value, so
    cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
@@ -98,8 +98,7 @@ CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keycha
 DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
-    r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
-    r"|scripts/ci/resume-stapled-app-notarization\.sh"
+    r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-stapled-app-notarization\.sh"
 )
 # The scripts DELETE names that delete the keychain themselves.
 SELF_DELETING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-helper-notarization.sh",
@@ -173,7 +172,7 @@ STEP_LEVEL_ONLY = {
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
-    r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
 
@@ -203,6 +202,18 @@ def secret_or_token(value: object) -> bool:
 # scripts/ci/signing_runner_variables.py; the check must name exactly it.
 EPHEMERAL_RUNNER_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
 EPHEMERAL_LABEL = signing_runner_variables.EPHEMERAL_LABEL
+# Literal labels that are ephemeral too: a one-job JIT GCE VM, deleted after its job, that only cmuxterm-hq
+# gha-runners serve and no PR job may name (tests/test_ci_nightly_labels_reserved.py). GitHub-hosted runners start
+# nothing in manaflow-ai (Leo, 2026-11-21 00:14Z: "the ci must flow"), so the nightly's secret-holding Linux jobs
+# take it on every attempt. Admitted as a runs-on literal only: an ephemeral-only variable still holds only
+# blacksmith-* or ubuntu-* (signing_runner_variables.allowed_value), and a persistent runner or a mini never matches.
+JIT_EPHEMERAL_LABELS = frozenset({"cmux-gcp-nightly-jit-x64"})
+
+
+def ephemeral_literal(label: str | None) -> bool:
+    """Whether a literal runs-on label names an ephemeral runner: EPHEMERAL_LABEL or a one-job JIT VM label."""
+    label = (label or "").strip()
+    return bool(EPHEMERAL_LABEL.match(label)) or label in JIT_EPHEMERAL_LABELS
 # vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to. GitHub reads
 # context and variable names without regard to case, so this does too.
 RUNNER_VARIABLE = re.compile(
@@ -349,10 +360,17 @@ PRESENCE_CONDITION = re.compile(
 
 
 def strip_literal_selectors(runs_on: str) -> str:
-    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral, and `vars.X != '' &&` presence tests
-    (PRESENCE_CONDITION), which give no label; anything else stays for the checks."""
-    stripped = LITERAL_SELECTOR.sub(
-        lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
+    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral, `vars.X == 'E' && 'J' ||` ones whose
+    compared value E is an ephemeral label and whose label J a one-job JIT VM (the nightly's hosted switch, now
+    routed to the JIT label), and `vars.X != '' &&` presence tests (PRESENCE_CONDITION), which give no label;
+    anything else stays for the checks."""
+    def dropped(m: re.Match) -> bool:
+        compared, label = m.group(2), m.group(3)
+        if compared == label:
+            return ephemeral_literal(label)
+        return label in JIT_EPHEMERAL_LABELS and bool(EPHEMERAL_LABEL.match(compared))
+
+    stripped = LITERAL_SELECTOR.sub(lambda m: "" if dropped(m) else m.group(0), runs_on)
     return PRESENCE_CONDITION.sub("", stripped)
 
 
@@ -443,7 +461,7 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
     runs_on = "\n".join(cells)
     picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
     picked_pool = re.search(re.escape(condition) + r"\s*&&\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on)
-    picked_ok = (picked and EPHEMERAL_LABEL.match(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
+    picked_ok = (picked and ephemeral_literal(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
     picked_at = picked.start() if picked else (picked_pool.start() if picked_pool else 0)
     if not picked_ok or ANY_VARS.search(runs_on[:picked_at]):
         problems.append(f"{name}: runs-on does not take a literal ephemeral label on `{condition}` before any variable")
@@ -1091,7 +1109,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         runs_on[match.end():]) and
                       re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
                     continue
-                elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
+                elif not (fallback and ephemeral_literal(fallback) and RUNS_ON_END.match(runs_on, match.end())):
                     failures.append(
                         f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
                         "last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`"
@@ -1177,12 +1195,6 @@ def check_scripts(failures: list[str]) -> None:
                 f"before the first smoke (create={create} delete={later_delete} smoke={first_smoke})"
             )
 
-    resume = read_lines("scripts/ci/resume-helper-notarization.sh", failures)
-    delete = index_of(resume, '"$SIGNING_KEYCHAIN_TOOL" delete')
-    continuation = index_of(resume, '"$STAPLED_TOOL"')
-    if not (0 <= delete < continuation):
-        failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
-
     stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
     # The package tool makes the keychain just before its signature
     # (CMUX_PACKAGE_CREATES_KEYCHAIN) and deletes it after; the wrapper deletes
@@ -1267,6 +1279,14 @@ def check_literal_selectors(failures: list[str]) -> None:
             "${{ 'blacksmith-32vcpu-ubuntu-2404' }}",
         "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
         "${{ vars.X == 'glaeda-std-xcode-26.6' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        # The nightly's hosted switch, routed to the one-job JIT VM: dropped.
+        "${{ vars.X == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || 'glaeda-trusted-next-signing' }}":
+            "${{ 'glaeda-trusted-next-signing' }}",
+        # A JIT label behind a persistent runner's name, or a persistent label behind an ephemeral one: kept.
+        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'ubuntu-24.04' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        # Any other cmux-gcp label (outside JIT_EPHEMERAL_LABELS) is not admitted as ephemeral.
+        "${{ vars.X == 'cmux-gcp-nightly-x64' && 'cmux-gcp-nightly-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
     }
     for runs_on, expected in cases.items():
         if strip_literal_selectors(runs_on) != (runs_on if expected is None else expected):
