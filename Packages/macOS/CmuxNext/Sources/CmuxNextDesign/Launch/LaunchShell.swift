@@ -50,10 +50,8 @@ public final class LaunchShell {
     /// Stage 0 for this launch, from the app's bundle id (its Application Support folder and
     /// Info.plist build); nil (an agent launch, a test window, an update relaunch behind) shows nothing.
     public static func atLaunch(bundleID: String?, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
-        guard let bundleID, let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return LaunchShell(prepared: nil, mark: mark)
-        }
-        let folder = support.appending(path: bundleID, directoryHint: .isDirectory)
+        guard let bundleID else { return LaunchShell(prepared: nil, mark: mark) }
+        let folder = NextSupport.applicationSupportDirectory().appending(path: bundleID, directoryHint: .isDirectory)
         // Labs > Show Window Shell at Launch (`labs.launchShellFirst`, off by default): one stat, no settings read.
         guard LaunchShellPaths.isOptedIn(support: folder) else { mark("launch_shell.off"); return LaunchShell(prepared: nil, mark: mark) }
         return prepare(support: folder,
