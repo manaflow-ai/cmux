@@ -427,6 +427,9 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// Where the app's workspaces are read for an enrolled browser's sidebar
+    /// (`_acpmux/browser_workspace_source_set`, memory only; `server/browser_workspaces.rs`).
+    pub(crate) browser_workspaces: crate::server::browser_workspaces::Sources,
     /// The agent and model the person's app picked last for a new chat
     /// (`_acpmux/new_chat_picks_set`, memory only), shown in
     /// `_acpmux/harnesses` as `lastPicks`.

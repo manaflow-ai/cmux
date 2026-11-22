@@ -437,7 +437,9 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
-                self = .attachDropped(kind, names: names)
+                // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
+                let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
+                self = .attachDropped(kind, names: names, gestureAt: gestureAt)
             } else {
                 self = .unsupported(method)
             }
