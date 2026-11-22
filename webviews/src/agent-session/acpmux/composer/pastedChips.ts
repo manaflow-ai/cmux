@@ -3,6 +3,7 @@
 import { type RefObject, useEffect, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
+import { holdFlag, setRef } from "../heldFlag";
 import type { MadeFile } from "./attachmentIntakeModel";
 import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
 import { remember } from "./pasteMarks";
@@ -76,18 +77,17 @@ export function usePastedChips(
     const chip = attachments.current.find((held) => held.id === id);
     if (chip?.kind !== "pasted" || chip.text === undefined) return;
     // Ahead of the render, so a paste of the same block at once makes it a chip again.
-    attachments.current = attachments.current.filter((held) => held.id !== id);
+    setRef(
+      attachments,
+      attachments.current.filter((held) => held.id !== id),
+    );
     setAttachments((current) => current.filter((held) => held.id !== id));
     field.current?.focus();
     // Its place in the text goes, and the caret with it, so its text goes in where the chip was
     // (composer/inlineAttachments.tsx), wherever the caret was before.
     field.current?.removeInline(id, true);
-    expanding.current = true;
-    try {
-      field.current?.pasteText(chip.text);
-    } finally {
-      expanding.current = false;
-    }
+    const { text } = chip;
+    holdFlag(expanding, true, () => field.current?.pasteText(text));
   };
   /// Sends chip `id`'s text as a file instead (Leo, 2026-11-07: "it just becomes this, like, .txt,
   /// kind of like an attachment"): the chip and its place in the prompt go, a Pasted text.txt comes.
@@ -101,7 +101,10 @@ export function usePastedChips(
     const inText =
       (field.current?.inlineIds()?.includes(id) ?? true) ||
       (field.current?.insertInline([id], false, "restore") ?? false);
-    attachments.current = attachments.current.filter((held) => held.id !== id);
+    setRef(
+      attachments,
+      attachments.current.filter((held) => held.id !== id),
+    );
     setAttachments((current) => current.filter((held) => held.id !== id));
     // The caret goes to where the chip was, so the file is placed there, wherever the caret was.
     field.current?.removeInline(id, true);
@@ -147,7 +150,7 @@ export function usePastedChips(
       }
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.
-      attachments.current = [...attachments.current, chip];
+      setRef(attachments, [...attachments.current, chip]);
       setAttachments((current) => [...current, chip]);
       return true;
     },

@@ -6,6 +6,8 @@
 import {
   cloneElement,
   useEffect,
+  useInsertionEffect,
+  useMemo,
   useRef,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
@@ -16,6 +18,7 @@ import { contextDescription } from "../../../ui/popupDescriptors";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
+import { useLatestHandler } from "../stableHandlers";
 import { SEND_ICONS, SEND_KEYS, SEND_LABELS, type SendChoice } from "./sendMenuModel";
 import { sendMenuLook } from "./sendMenuLook.experiment";
 import "./sendMenu.css";
@@ -23,6 +26,9 @@ import "./sendMenu.css";
 /** How long a press on Send is held before the menu opens instead of a send. */
 export const LONG_PRESS_MS = 500;
 
+/// Drawn again only when what it shows changes (its rows, Send itself), never on a key in the
+/// prompt: the composer passes the same `choices` and Send until the draft starts or empties, and
+/// `onChoose` and the press handlers are each one function for the menu's life.
 export function SendMenu({
   choices,
   onChoose,
@@ -36,14 +42,8 @@ export function SendMenu({
 }) {
   const t = useT();
   const look = experimentArm(sendMenuLook);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // A long press opened the menu: the click that ends that press is not a send.
-  const pressed = useRef(false);
-  const stopTimer = () => {
-    clearTimeout(timer.current);
-    timer.current = undefined;
-  };
-  useEffect(() => stopTimer, []);
+  const choose = useLatestHandler(onChoose);
+  const press = useLongPress(choices.length > 0);
   const items: ContextMenuItem[] = choices.map((choice) => {
     const label = t(SEND_LABELS[choice]);
     const { glyphs } = SEND_KEYS[choice];
@@ -69,7 +69,7 @@ export function SendMenu({
           )}
         </>
       ),
-      onSelect: () => onChoose(choice),
+      onSelect: () => choose(choice),
     };
   });
   const model = contextDescription(
@@ -80,41 +80,60 @@ export function SendMenu({
       ...(look === "icons" ? { icon: SEND_ICONS[choice] } : {}),
     })),
   );
-  const onPointerDown = (event: PointerEvent<Element>) => {
-    pressed.current = false;
-    stopTimer();
-    if (event.button !== 0 || items.length === 0) return;
-    const target = event.target as Element;
-    const at = { clientX: event.clientX, clientY: event.clientY };
-    timer.current = setTimeout(() => {
-      timer.current = undefined;
-      if (!target.isConnected) return;
-      pressed.current = true;
-      // The same path as a right-click at the pointer, so the menu opens where it is held.
-      target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...at }));
-    }, LONG_PRESS_MS);
-  };
-  const onClickCapture = (event: ReactMouseEvent<Element>) => {
-    const longPress = pressed.current;
-    pressed.current = false;
-    // A click from the keys (detail 0) never ends a press: Return or Space on Send sends.
-    if (!longPress || event.detail === 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
   return (
     // Send keeps its own place in the composer's action slot (Send right before the mic), as
     // before the menu: the menu and the press add handlers to it, no element around it.
     <ContextMenu asChild popupClassName="acpmux-send-menu-popup" items={items} selection="menu" native={{ model }}>
-      {cloneElement(children, {
-        onPointerDown,
-        onPointerUp: stopTimer,
-        onPointerLeave: stopTimer,
-        onPointerCancel: stopTimer,
-        onClickCapture,
-      })}
+      {cloneElement(children, press)}
     </ContextMenu>
   );
+}
+
+/// A long press on Send opens its menu: the same handlers for the menu's life, which read whether
+/// it has rows (`enabled`) as the last render left it.
+function useLongPress(enabled: boolean): Required<SendPress> {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // A long press opened the menu: the click that ends that press is not a send.
+  const pressed = useRef(false);
+  const live = useRef(enabled);
+  useInsertionEffect(() => {
+    live.current = enabled;
+  });
+  const press = useMemo(() => {
+    const stopTimer = () => {
+      clearTimeout(timer.current);
+      timer.current = undefined;
+    };
+    return {
+      onPointerDown: (event: PointerEvent<Element>) => {
+        pressed.current = false;
+        stopTimer();
+        if (event.button !== 0 || !live.current) return;
+        const target = event.target as Element;
+        const at = { clientX: event.clientX, clientY: event.clientY };
+        timer.current = setTimeout(() => {
+          timer.current = undefined;
+          if (!target.isConnected) return;
+          pressed.current = true;
+          // The same path as a right-click at the pointer, so the menu opens where it is held.
+          target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...at }));
+        }, LONG_PRESS_MS);
+      },
+      onPointerUp: stopTimer,
+      onPointerLeave: stopTimer,
+      onPointerCancel: stopTimer,
+      onClickCapture: (event: ReactMouseEvent<Element>) => {
+        const longPress = pressed.current;
+        pressed.current = false;
+        // A click from the keys (detail 0) never ends a press: Return or Space on Send sends.
+        if (!longPress || event.detail === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+    };
+  }, []);
+  useEffect(() => press.onPointerUp, [press]);
+  return press;
 }
 
 /** The press handlers SendMenu puts on Send. */
