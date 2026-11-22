@@ -1240,3 +1240,24 @@ fn an_image_row_out_of_line_names_its_size_in_its_head() {
     assert!(image["blob"]["bytes"].as_u64().unwrap() > 16 * 1024, "{image}");
     assert_eq!(image["body"], serde_json::json!({"h":160,"w":640}), "{image}");
 }
+
+/// The bench's row-store stand-in (webviews/bench/first-load-after-restart.bench.ts, `ROWS=1`):
+/// the first window a reload's `chat.rows.open` gets for a recorded chat, as the store makes it.
+/// Run by hand: `ACPMUX_BENCH_SOURCE=chat.ndjson ACPMUX_BENCH_WINDOW=out.json cargo test -p
+/// acpmux-core bench_first_window -- --ignored`.
+#[test]
+#[ignore = "bench helper, run by hand"]
+fn bench_first_window() {
+    let source = PathBuf::from(std::env::var_os("ACPMUX_BENCH_SOURCE").unwrap());
+    let out = PathBuf::from(std::env::var_os("ACPMUX_BENCH_WINDOW").unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::copy(&source, book.join("source.ndjson")).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "bench", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    fs::write(&out, frame.payload()).unwrap();
+}

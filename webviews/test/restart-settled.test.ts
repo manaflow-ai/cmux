@@ -53,7 +53,7 @@ describe("link model", () => {
 });
 
 const COMPOSER = { top: 680, height: 96 };
-const frame = (t: number, rows: { id: string; top: number }[], composer = COMPOSER): FrameRecord => ({
+const frame = (t: number, rows: { id: string; top: number; text?: string }[], composer = COMPOSER): FrameRecord => ({
   t,
   copyShown: false,
   rows,
@@ -118,6 +118,17 @@ describe("restart to settled", () => {
     expect(restartSettled(frames, classifyFrames(frames), 650)).toMatchObject({ goneRows: 2, goneFrames: 2 });
     expect(goneRows([frame(80, [{ id: "a", top: 100 }])])).toEqual({ rows: 0, frames: 0 });
     expect(goneRows([])).toEqual({ rows: 0, frames: 0 });
+  });
+
+  test("a row drawn under another id with the same words is the same row, not a gone one", () => {
+    // The copy draws v1's row ids; the row store's page draws the same rows as `row-N`.
+    const frames: FrameRecord[] = [
+      frame(80, [{ id: "evt-9", top: 100, text: "Answer" }]),
+      frame(700, [{ id: "row-9", top: 100, text: "Answer" }]),
+    ];
+    expect(goneRows(frames)).toEqual({ rows: 0, frames: 0 });
+    frames.unshift(frame(60, [{ id: "evt-8", top: 60, text: "Ran 4 commands" }]));
+    expect(goneRows(frames)).toEqual({ rows: 1, frames: 1 });
   });
 
   test("a composer that grew counts its growth; sub-pixel rounding counts nothing", () => {
