@@ -7,16 +7,13 @@ import CmuxNextDesign
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
 enum DaemonRecoveryStrings {
-    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Starting cmux…", bundle: .localizedModule) }
     static var serviceUnavailable: String {
         String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .localizedModule)
     }
     static var reinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .localizedModule) }
     static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .localizedModule) }
-    static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .localizedModule) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .localizedModule) }
     static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart Background Service", bundle: .localizedModule) }
-    static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting the background service…", bundle: .localizedModule) }
     static var failed: String {
         String(localized: "daemon.recovery.failed", defaultValue: "Couldn't restart the background service. Try again in a moment.", bundle: .localizedModule)
     }
@@ -50,10 +47,11 @@ enum DaemonRestart {
         Task { await recovery.restart() }
     }
 
-    /// What the restart shows while it runs or after it failed, or that the start failed on a
-    /// full disk (restore fuzz h2); nil otherwise.
+    /// What the person reads under the buttons: that the restart they pressed failed, or that the start
+    /// failed on a full disk (restore fuzz h2); nil otherwise. A restart that runs says nothing (its
+    /// buttons are off while it runs).
     static func status(_ recovery: DaemonRecovery) -> String? {
-        if recovery.isRestarting { return DaemonRecoveryStrings.restarting }
+        if recovery.isRestarting { return nil }
         if recovery.restartFailure != nil { return DaemonRecoveryStrings.failed }
         return recovery.startFailure?.isDiskFull == true ? DaemonRecoveryStrings.diskFull : nil
     }

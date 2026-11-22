@@ -5,9 +5,9 @@ import AppKit
 ///
 /// A new terminal view (a new tab, a split, a reopen, a workspace switch that makes its terminals
 /// again) gets "connected" at once, or "Restoring…" until its first replay. Neither builds or
-/// unhides a view: "Restoring…" and "Reconnecting…" wait out their reveal delay
-/// (``TerminalStatusBanner/revealDelay(for:stall:)``) with no view at all, and show only if they
-/// last. An unhide makes AppKit walk the window's views for cursor rects; with a hidden label held
+/// unhides a view: "Restoring…", "Starting…" and "Reconnecting…" wait out the shared bound
+/// (``TerminalStatusBanner/revealDelay(for:stall:)``, ``NoticeTiming/connectionQuiet``) with no view at
+/// all, the pane keeping its last frame, and show only if they last. An unhide makes AppKit walk the window's views for cursor rects; with a hidden label held
 /// at opacity 0 during the wait, that walk cost 12.5 ms of main thread a HEAVY workspace switch
 /// (12 new terminals, STATUS 8158) for labels that never appeared.
 @MainActor
@@ -154,6 +154,17 @@ final class TerminalStatusLabel {
         guard let pending = waiting, pending.generation == ended, let text = waitingText else { return }
         waiting = nil
         waitingText = nil
+        // A status whose later words are due by now (a pane still starting waits the same bound for both)
+        // says them, with Close, instead of a mark first.
+        if var pending = lasting, !isOverdue, clock.elapsed() >= pending.start + pending.delay {
+            pending.task?.cancel()
+            pending.task = nil
+            lasting = pending
+            isOverdue = true
+            showNow(pending.text, inBetween: false, fadeIn: true, closes: true)
+            didReveal()
+            return
+        }
         showNow(text, inBetween: waitingInBetween, fadeIn: true)
         armOverdue()
         didReveal()
