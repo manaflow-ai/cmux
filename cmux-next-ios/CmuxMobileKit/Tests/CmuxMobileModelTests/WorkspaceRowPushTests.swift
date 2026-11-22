@@ -28,8 +28,8 @@ import Testing
         for index in pushed.indices { pushed[index].isWorking = true }
         let count = changes(store) { store.updateWorkspaces(macID: "m", rows: pushed) }
         #expect(count == 1)
-        #expect(store.workspaces.prefix(8).allSatisfy(\.isWorking))
-        #expect(!store.workspaces.dropFirst(8).contains(where: \.isWorking))
+        #expect(store.workspaces.prefix(8).allSatisfy { $0.isWorking })
+        #expect(!store.workspaces.dropFirst(8).contains { $0.isWorking })
     }
 
     @Test func aPushThatChangesNothingIsNoChange() {
