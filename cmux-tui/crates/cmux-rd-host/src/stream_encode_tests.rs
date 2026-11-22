@@ -88,6 +88,12 @@ struct FakeCarrier {
 }
 
 impl Carrier for FakeCarrier {
+    fn drain_departures(&mut self, _out: &mut Vec<crate::carrier::DatagramDeparture>) {}
+
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         vec![self.ready.1.as_raw_fd()]
     }
@@ -119,11 +125,18 @@ impl Carrier for FakeCarrier {
             }
         }
         if self.seen.encode_returned.load(SeqCst) {
-            out.push(Incoming::Control(Control::Stop));
+            out.push(Incoming::Control(Box::new(Control::Stop)));
         }
         Ok(())
     }
     fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn send_datagram_frame(
+        &mut self,
+        _datagrams: Vec<Vec<u8>>,
+        _droppable: bool,
+    ) -> std::io::Result<()> {
         Ok(())
     }
     fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {

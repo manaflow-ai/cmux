@@ -4,7 +4,7 @@
 //! packetize with FEC, NACK history, recovery, exactly-once input) is the shared engine,
 //! cmux-rd-engine (rd change C7 step 2).
 
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming};
 use crate::clock::now_ns;
 use crate::cursor::CursorChannel;
 use crate::desktop::{Desktop, FrameSource};
@@ -19,7 +19,7 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{DatagramHeader, DatagramKind};
+use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -79,6 +79,11 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// Departure receipts drained from the carrier each pump (a reused buffer) and their
+    /// running totals for the stats line: what left the socket, not what was queued.
+    departures: Vec<DatagramDeparture>,
+    departed_datagrams: u64,
+    departed_bytes: u64,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -103,6 +108,17 @@ pub struct MediaSession {
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+/// Original video and FEC shards are one replaceable frame. Key, recovery,
+/// tile, repair, and unknown datagrams must stay protected.
+fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
+    !datagrams.is_empty()
+        && datagrams.iter().all(|datagram| {
+            let Ok((header, _)) = DatagramHeader::decode(datagram) else { return false };
+            matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+                && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
+        })
 }
 
 /// A frame shard or parity datagram: what the engine resends on a NACK or a tail-loss
@@ -283,6 +299,9 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            departures: Vec::new(),
+            departed_datagrams: 0,
+            departed_bytes: 0,
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -306,8 +325,23 @@ impl MediaSession {
         self.encoder.encoder_name()
     }
 
-    /// Runs until the viewer stops, the host stops the session, or the carrier fails.
+    /// Runs until the viewer stops, the host stops the session, or the carrier fails, then logs
+    /// what the clipboard channel refused. Returns why the session ended.
     pub fn run(
+        &mut self,
+        carrier: &mut dyn Carrier,
+        table: &mut SessionTable,
+        session: SessionId,
+        viewer: &Principal,
+    ) -> String {
+        let reason = self.run_until_end(carrier, table, session, viewer);
+        if let Some(line) = self.clipboard.as_ref().and_then(|c| c.counters().log_line()) {
+            eprintln!("{line}");
+        }
+        reason
+    }
+
+    fn run_until_end(
         &mut self,
         carrier: &mut dyn Carrier,
         table: &mut SessionTable,
@@ -386,30 +420,32 @@ impl MediaSession {
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {
-                    Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
-                    Incoming::Control(Control::Clipboard { seq, text, offset, total }) => {
-                        // Applied only in a control session; without the cap, ignored.
-                        let may_control = table.may_inject_input(session, viewer);
-                        if let Some(clipboard) = self.clipboard.as_mut() {
-                            let part = cmux_rd_proto::clipboard::ClipboardPart {
-                                seq,
-                                text,
-                                offset,
-                                total,
-                            };
-                            clipboard.on_part(part, may_control);
-                        }
-                    }
-                    Incoming::Control(control) => {
-                        let may_control = table.may_inject_input(session, viewer);
-                        if let Some(answer) =
-                            self.upstreams.on_control(&mut self.engine, &control, may_control)
-                        {
-                            if let Err(e) = carrier.send_control(&answer) {
-                                return format!("control write failed: {e}");
+                    Incoming::Control(control) => match *control {
+                        Control::Stop => return "stopped by viewer".into(),
+                        Control::Clipboard { seq, text, offset, total } => {
+                            // Applied only in a control session; without the cap, ignored.
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(clipboard) = self.clipboard.as_mut() {
+                                let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                    seq,
+                                    text,
+                                    offset,
+                                    total,
+                                };
+                                clipboard.on_part(part, may_control);
                             }
                         }
-                    }
+                        control => {
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(answer) =
+                                self.upstreams.on_control(&mut self.engine, &control, may_control)
+                            {
+                                if let Err(e) = carrier.send_control(&answer) {
+                                    return format!("control write failed: {e}");
+                                }
+                            }
+                        }
+                    },
                     Incoming::Datagram(datagram) => {
                         self.on_datagram(carrier, &datagram, table, session, viewer)
                     }
@@ -525,7 +561,17 @@ impl MediaSession {
 
     /// Hands the engine the frame the encode thread finished, if there is one, and sends its
     /// datagrams.
+    /// Drains the carrier's bounded departure receipts so they never overflow while a session
+    /// runs; the totals go out with the stats line.
+    fn take_departures(&mut self, carrier: &mut dyn Carrier) {
+        carrier.drain_departures(&mut self.departures);
+        self.departed_datagrams += self.departures.len() as u64;
+        self.departed_bytes += self.departures.iter().map(|d| d.wire_bytes as u64).sum::<u64>();
+        self.departures.clear();
+    }
+
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        self.take_departures(carrier);
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
         let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
@@ -564,10 +610,22 @@ impl MediaSession {
             }
             _ => None,
         };
-        let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
+
+        // LinkCarrier owns the bounded whole-frame queue. Do not put a second
+        // pacer queue in front of it: hand over the complete frame and let the
+        // link drain/replacement policy decide what can wait.
+        if carrier.media_queue_stats().is_some() {
+            let droppable = frame_is_droppable(&out.datagrams);
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
+                timing.frame_sent(line, now_us());
             }
+            return Ok(());
+        }
+
+        let Some(pacer) = self.pacer.as_mut() else {
+            let droppable = frame_is_droppable(&out.datagrams);
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
             }
@@ -743,6 +801,7 @@ impl MediaSession {
     }
 
     fn send_stats(&mut self, carrier: &mut dyn Carrier) {
+        self.take_departures(carrier);
         let now = now_ns();
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
         // Stats only while frames flow: an idle session sends nothing.
@@ -758,6 +817,7 @@ impl MediaSession {
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+        let queue = carrier.media_queue_stats();
         let stats = Control::Stats {
             kbps: self.encoder.kbps(),
             frames: stats.frames,
@@ -765,6 +825,23 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
+            queue_frames: queue.map(|stats| stats.queue_frames),
+            queue_datagrams: queue.map(|stats| stats.queue_datagrams),
+            queue_dropped_frames: queue.map(|stats| stats.dropped_frames),
+            queue_dropped_datagrams: queue.map(|stats| stats.dropped_datagrams),
+            queue_dropped_replaced_frames: queue.map(|stats| stats.dropped_replaced_frames),
+            queue_dropped_replaced_datagrams: queue.map(|stats| stats.dropped_replaced_datagrams),
+            queue_dropped_evicted_for_protected_frames: queue
+                .map(|stats| stats.dropped_evicted_for_protected_frames),
+            queue_dropped_evicted_for_protected_datagrams: queue
+                .map(|stats| stats.dropped_evicted_for_protected_datagrams),
+            queue_dropped_rejected_protected_frames: queue
+                .map(|stats| stats.dropped_rejected_protected_frames),
+            queue_dropped_rejected_protected_datagrams: queue
+                .map(|stats| stats.dropped_rejected_protected_datagrams),
+            departed_datagrams: Some(self.departed_datagrams),
+            departed_bytes: Some(self.departed_bytes),
+            departure_overflows: Some(carrier.departure_overflows()),
         };
         let _ = carrier.send_control(&stats);
     }

@@ -462,6 +462,19 @@ pub enum Command {
     /// `--json` with no filter is every session's full record.
     #[command(aliases = aliases::LS, after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
+    /// Archive chats: off the chat lists until unarchived; `ls --archived` lists them. One
+    /// archived already keeps its archive.
+    Archive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
+    /// Bring archived chats back to the lists. One that is not archived is left as it is.
+    Unarchive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
     Attach {
@@ -588,11 +601,21 @@ pub enum Command {
     Chats(crate::cli::chats::ChatsCmd),
     /// Read-only local branch board (Labs > Show Preview Features). Also `cmux board --json`.
     Board,
-    /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill,
-    /// background (Ctrl-B: move a chat's running work there).
-    #[command(subcommand, aliases = aliases::PROCESS)]
-    Process(crate::cli::process::ProcessCmd),
+    /// With no subcommand (`acpmux ps`): every process acpmux started on this machine and the
+    /// state it keeps, with each one's owner now, session, age and state (in-use, idle,
+    /// orphaned, unknown) and why, read from the processes' own marks and their hosts' locks.
+    /// Subcommands: background processes agents left running (dev servers, watchers): list,
+    /// show (everything one printed, live with --follow), kill, background (Ctrl-B).
+    #[command(aliases = aliases::PROCESS)]
+    Process(crate::cli::process::ProcessArgs),
+    /// End what acpmux proves is orphaned: processes an ended agent host left behind and lock
+    /// files nothing holds. A dry run unless --apply; refuses anything a live host or session
+    /// still references; every end is logged with its reason in `process-kills.jsonl`.
+    Gc {
+        /// End them (default: only list what would be ended, and what is refused and why).
+        #[arg(long)]
+        apply: bool,
+    },
     /// This machine's git worktrees, cleaned up after the agents that made
     /// them: list, clean (archive work only there, then remove), restore,
     /// archives.
