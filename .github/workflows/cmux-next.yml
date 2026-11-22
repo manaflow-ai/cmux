@@ -955,15 +955,15 @@ jobs:
             !/Packages/macOS/CmuxNext/**/*.xcstrings
             !/Packages/macOS/CmuxNext/**/*.avif
             !/Packages/macOS/CmuxNext/**/*.png
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        continue-on-error: true
+        run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
       # The crate graph also reads the base's copy of each changed file, which a blobless checkout lacks.
       # One batched fetch of just those blobs (git diff prefetches both sides) replaces one round trip each.
       - name: Fetch the base copies of the changed files
         if: github.event_name == 'pull_request'
         continue-on-error: true
         run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps/cloud workers/cmux-vm/cli Packages/macOS/CmuxNext ':(glob)Packages/*/*/Package.swift' vendor/stack-auth-swift-sdk-prerelease/Package.swift cmux.xcodeproj/project.pbxproj AGENTS.md > /dev/null
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        continue-on-error: true
-        run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
       - name: Classify pull request paths
         id: route
         env:
