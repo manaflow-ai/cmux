@@ -50,6 +50,10 @@ public final class MadeAheadOpenPanel {
     ///   call its handler, and a caller that waits on it would wait forever.
     public func panel() -> NSOpenPanel? { store.panel() }
 
+    /// Never hands `panel` out again (its sheet could not end, ``NSSavePanel/beginSheet(endingWith:completionHandler:stuck:)``);
+    /// the next click makes a new one.
+    public func discard(_ panel: NSOpenPanel) { store.discard(panel) }
+
     /// Makes the panel once the person has paused (no input for a second), so its cost never
     /// lands on a keystroke or the click itself. Bounded: after ten busy checks it waits for the
     /// click. A view that offers the picker calls this when it reaches a window.
