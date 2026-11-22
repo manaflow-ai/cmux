@@ -1381,7 +1381,8 @@
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  /* Behind the card's content, over its fill: the card isolates its own stacking context. */
+  z-index: var(--layer-backdrop);
   border-radius: inherit;
   background: radial-gradient(
     circle at 0% 0%,
