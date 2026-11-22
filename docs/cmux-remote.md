@@ -164,7 +164,7 @@ Every control exists in the command palette, the CLI and MCP:
 | Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
 | Ultra Connection Mode (`remote.ultra`: `off`, `auto` (the default) or `always`. Auto sends no repair data on a clean link and Reed-Solomon repair data from the first lost packet, within about one round trip, until the link is clean again; on a metered network the repair bytes stay within the data bytes. Always sends it on every datagram, about 2-3x the bytes. The peer agrees inside the tunnel to send it too, so both directions are protected; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultra always` | `settings_set` (refused: user-only) |
-| Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
+| Computer Use mode (`computerUse.mode`, default `fullAccess`; Computer Use always runs in the cmux Remote worker, [computer-use/README.md](computer-use/README.md)) | Settings → Computer Use | `cmux settings set computerUse.mode` | `settings_set` (refused: user-only) |
 
 The two stop paths are intentionally distinct. `cmux remote-host stop` routes
 through the app's canonical stop action when app transport is available, then

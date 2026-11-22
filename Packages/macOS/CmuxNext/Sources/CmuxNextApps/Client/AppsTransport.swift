@@ -20,6 +20,12 @@ public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case reloadFailed(app: String, reason: String)
     /// `apps-log {app, level, message, ts_ms}` (after `apps-logs` with follow).
     case log(app: String, level: String, message: String, date: Date?)
+    /// `apps-widgets-changed {revision, place}`: the person's widget layout of `place` changed (on
+    /// any client); read it again.
+    case widgetsChanged(revision: UInt64?, place: String?)
+    /// `apps-widget-health {mount_id, stale, reason?, retry_ms?}`: a widget's render threw (`stale`;
+    /// the supervisor mounts it again after `retry_ms`) or answered again (not stale).
+    case widgetHealth(mountID: String, stale: Bool, reason: String?, retryMilliseconds: Double?)
 }
 
 /// The app supervisor as the feature module sees it (capability `apps-v1`,
@@ -39,8 +45,16 @@ public protocol AppsTransport: AnyObject {
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// The composer's extension slash commands and mention providers (`apps.composer.list`).
     func composerPlaces() async throws(AppsTransportError) -> AppJSON
+    /// The extension mention items that match a query (`apps.composer.mentions {query, prefix?, limit?}`).
+    func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// One read-only App Store op (`apps-store {op}`, no arguments), the reply as the daemon wrote it.
     func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON
+    /// One App Store op with arguments (`apps-store {op, args}`), the reply as the daemon wrote it.
+    func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON
+    /// One App Store op with arguments and the caller's origin (`apps-store {op, args, origin}`): the
+    /// widget ops (`apps.widgets.*`). `user` goes out as `user` only on a connection the daemon
+    /// verified as the cmux app.
+    func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -76,8 +90,14 @@ extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// A read with no arguments is a read with an empty argument object.
+    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await storeCall(op, args: .object([:])) }
+
     /// A transport that serves no App Store reads answers each with an empty object.
-    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+    public func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+
+    /// A transport that serves no App Store ops with arguments answers each with an empty object.
+    public func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { .object([:]) }
 
     public func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         AppSessionInfoPanel.list(try await storeCall("apps.panels.list"))
@@ -86,4 +106,10 @@ extension AppsTransport {
     /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
     /// wrote it, `{commands, mentions}`.
     public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
+
+    /// The installed extensions' `@` items for a query, ranked by the daemon (`apps.composer.mentions`):
+    /// `{mentions: [{app, extension, prefix, id, label, detail?, insert}]}`.
+    public func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.composer.mentions", args: args)
+    }
 }

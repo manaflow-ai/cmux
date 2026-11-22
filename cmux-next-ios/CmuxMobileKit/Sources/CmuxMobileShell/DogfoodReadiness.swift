@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileAuth
 import CmuxMobileLive
+import CmuxMobileModel
 import Foundation
 import OSLog
 
@@ -48,6 +49,13 @@ struct DogfoodReadiness {
         let dev_tag: String
         let git_sha: String
         let api_base_url: String
+        /// The Cloud service this launch uses (`CloudBackendOverride.cloudService`): the tag's
+        /// `CMUX_NEXT_CLOUD_BACKEND` when the hand-off passed one (`review.sh --backend`), else the build's.
+        let cloud_backend: String
+        /// The cloud data space this build's requests carry (`X-Cmux-Build-Space`): `dev:<slug>` for a tagged
+        /// dev build, empty for the default space, `unusable` for a dev build with no usable tag. The hand-off
+        /// requires its tagged Mac's space (`handoff_receipt.py --build-space`).
+        let build_space: String
         let account_email: String
         let user_id: String
         let signed_in: Bool
@@ -67,15 +75,34 @@ struct DogfoodReadiness {
     let environment: [String: String]
     let bundleID: String
     let info: [String: Any]
+    let defaults: UserDefaults
+    /// The build space as the receipt names it (``Body/build_space``): the one the app's requests use.
+    let buildSpace: String
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main) {
-        self.init(environment: environment, bundleID: bundle.bundleIdentifier ?? "", info: bundle.infoDictionary ?? [:])
+    init(environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main, buildSpace: String = "") {
+        self.init(environment: environment, bundleID: bundle.bundleIdentifier ?? "", info: bundle.infoDictionary ?? [:],
+                  buildSpace: buildSpace)
     }
 
-    init(environment: [String: String], bundleID: String, info: [String: Any]) {
+    init(environment: [String: String], bundleID: String, info: [String: Any], defaults: UserDefaults = .standard,
+         buildSpace: String = "") {
         self.environment = environment
         self.bundleID = bundleID
         self.info = info
+        self.defaults = defaults
+        self.buildSpace = buildSpace
+    }
+
+    /// The receipt's build space for the app's own state: what `CMUX_BUILD_SPACE` children get.
+    @MainActor
+    init(auth: CmuxMobileAuthModel) {
+        self.init(buildSpace: auth.buildSpace.childEnvironmentValue ?? "")
+    }
+
+    /// The Cloud service this launch uses, as the receipt names it (DEBUG builds only write one).
+    var cloudBackend: String {
+        CloudBackendOverride.cloudService(environment: environment, infoValue: info["CmuxMobileCloudAPIBase"] as? String,
+                                          defaults: defaults, debug: true)?.url.absoluteString ?? ""
     }
 
     /// The launcher asked for a receipt.
@@ -90,9 +117,11 @@ struct DogfoodReadiness {
         return raw.hasPrefix(".") ? String(raw.dropFirst()) : raw
     }
 
-    /// `auto_login` when this launch carried the account's credentials, else `restored`.
+    /// `auto_login` when this launch carried the account's credentials or a session made elsewhere
+    /// (`CMUX_MOBILE_STACK_REFRESH_TOKEN`, a fleet step's `--sign-in agent` session), else `restored`.
     var sessionSource: String {
-        (environment["CMUX_MOBILE_STACK_EMAIL"] ?? "").isEmpty ? "restored" : "auto_login"
+        let injected = ["CMUX_MOBILE_STACK_EMAIL", "CMUX_MOBILE_STACK_REFRESH_TOKEN"]
+        return injected.contains { !(environment[$0] ?? "").isEmpty } ? "auto_login" : "restored"
     }
 
     /// The receipt for one moment of this launch. `macs` is the account's Macs from the service
@@ -110,6 +139,8 @@ struct DogfoodReadiness {
             dev_tag: devTag,
             git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
             api_base_url: apiBase.absoluteString,
+            cloud_backend: cloudBackend,
+            build_space: buildSpace,
             account_email: email.lowercased(),
             user_id: userID,
             signed_in: true,
@@ -129,6 +160,8 @@ struct DogfoodReadiness {
             dev_tag: devTag,
             git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
             api_base_url: apiBase?.absoluteString ?? "",
+            cloud_backend: cloudBackend,
+            build_space: buildSpace,
             account_email: "",
             user_id: "",
             signed_in: false,
@@ -157,7 +190,8 @@ struct DogfoodReadiness {
         let url = Self.url
         return Task { @MainActor in
             await Self.write(nil, to: url)  // an earlier launch's receipt never answers this one
-            let api = LiveAPI(baseURL: apiBase) { force in try await auth.serviceAccessToken(forceRefresh: force) }
+            // In the app's own space, as its Mac list is read (a dev build's tag space).
+            let api = LiveAPI(baseURL: apiBase, buildSpace: auth.buildSpace) { force in try await auth.serviceAccessToken(forceRefresh: force) }
             let clock = ContinuousClock()
             let deadline = clock.now + Self.window
             var last: Body?

@@ -191,12 +191,13 @@ export function renderBlocks(rfd: Pick<Rfd, "body" | "bodyLineOffset">): Block[]
 export function rfdRefs(text: string): number[] {
   const out = new Set<number>()
   for (const m of text.matchAll(/\bRFD[\s-]?0*(\d{1,4})\b/gi)) out.add(Number(m[1]))
-  for (const m of text.matchAll(/(?:^|\/)(\d{4})-[a-z0-9-]+\.md\b/g)) out.add(Number(m[1]))
+  for (const m of text.matchAll(/(?:^|\/)(\d{4})-(?!\d{2}-\d{2}-)[a-z0-9-]+\.md\b/g)) out.add(Number(m[1]))
   return [...out]
 }
 
-/** The RFD a link points at, by file name or `RFD N` text, else null. */
+/** The RFD a link points at, by file name or `RFD N` text, else null (a reading note's dated name is not an RFD). */
 export function rfdOfHref(href: string): number | null {
+  if (noteOfHref(href) !== null) return null
   const m = /(?:^|\/)(\d{4})-[a-z0-9-]+\.md(?:#.*)?$/.exec(href)
   return m ? Number(m[1]) : null
 }
@@ -270,36 +271,39 @@ const plain = (md: string) =>
 
 /** Every term must appear; the title weighs more than the body. Numbers match `RFD N`. */
 export function search(rfds: Rfd[], query: string): Hit[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const terms = termsOf(query)
   if (terms.length === 0) return []
   const hits: Hit[] = []
   for (const r of rfds) {
-    const title = `${pad(r.number)} ${r.number} ${r.title} ${r.authors.join(" ")} ${r.state}`.toLowerCase()
-    const text = plain(r.body)
-    const lower = text.toLowerCase()
-    let score = 0
-    let first = -1
-    let ok = true
-    for (const t of terms) {
-      const inTitle = title.includes(t)
-      const at = lower.indexOf(t)
-      if (!inTitle && at < 0) {
-        ok = false
-        break
-      }
-      score += (inTitle ? 10 : 0) + (at >= 0 ? 1 + Math.min(5, lower.split(t).length - 2) : 0)
-      if (at >= 0 && (first < 0 || at < first)) first = at
-    }
-    if (!ok) continue
-    let excerpt = ""
-    if (first >= 0) {
-      const t = terms.find((x) => lower.indexOf(x) === first) ?? terms[0]
-      const s = Math.max(0, first - 60)
-      excerpt = `${s > 0 ? "…" : ""}${text.slice(s, first)}«${text.slice(first, first + t.length)}»${text.slice(first + t.length, first + t.length + 90)}…`
-    }
-    hits.push({ number: r.number, score, excerpt })
+    const hit = scoreDoc(`${pad(r.number)} ${r.number} ${r.title} ${r.authors.join(" ")} ${r.state}`, r.body, terms)
+    if (hit) hits.push({ number: r.number, ...hit })
   }
   return hits.sort((a, b) => b.score - a.score || b.number - a.number)
+}
+
+const termsOf = (query: string) => query.toLowerCase().split(/\s+/).filter(Boolean)
+
+/** One document against the terms: null unless every term appears; the title weighs more than the body. */
+function scoreDoc(titleHay: string, body: string, terms: string[]): { score: number; excerpt: string } | null {
+  const title = titleHay.toLowerCase()
+  const text = plain(body)
+  const lower = text.toLowerCase()
+  let score = 0
+  let first = -1
+  for (const t of terms) {
+    const inTitle = title.includes(t)
+    const at = lower.indexOf(t)
+    if (!inTitle && at < 0) return null
+    score += (inTitle ? 10 : 0) + (at >= 0 ? 1 + Math.min(5, lower.split(t).length - 2) : 0)
+    if (at >= 0 && (first < 0 || at < first)) first = at
+  }
+  let excerpt = ""
+  if (first >= 0) {
+    const t = terms.find((x) => lower.indexOf(x) === first) ?? terms[0]
+    const s = Math.max(0, first - 60)
+    excerpt = `${s > 0 ? "…" : ""}${text.slice(s, first)}«${text.slice(first, first + t.length)}»${text.slice(first + t.length, first + t.length + 90)}…`
+  }
+  return { score, excerpt }
 }
 
 /** Jump-to: by number (`2`, `0002`) or title words, in list order. */
@@ -374,7 +378,7 @@ ${o.body?.trim() || (o.template ?? TEMPLATE_BODY).trim()}
 `
 }
 
-export type LinkKind = "discussion" | "recording" | "rfd" | "link"
+export type LinkKind = "discussion" | "recording" | "rfd" | "note" | "link"
 
 /** What a front matter link is, for the header: a pull request, a recording, another RFD or a link. */
 export function linkKind(url: string): { kind: LinkKind; label: string } {
@@ -383,6 +387,8 @@ export function linkKind(url: string): { kind: LinkKind; label: string } {
   if (/youtube\.com|youtu\.be|vimeo\.com|loom\.com|\.(mp4|mov|m4a|mp3|webm)(\?|$)|recording|episode|podcast/i.test(url)) return { kind: "recording", label: "Recording" }
   const n = rfdOfHref(url)
   if (n !== null) return { kind: "rfd", label: `RFD ${pad(n)}` }
+  const note = noteOfHref(url)
+  if (note !== null) return { kind: "note", label: `Reading note ${note.slice(0, 10)}` }
   const host = /^https?:\/\/([^/]+)/.exec(url)?.[1]
   return { kind: "link", label: host ? host.replace(/^www\./, "") : url.split("/").pop() || url }
 }
@@ -406,4 +412,228 @@ export const relTime = (iso: string, now = Date.now()) => {
   if (d === 1) return "yesterday"
   if (d < 30) return `${d} days ago`
   return new Date(t).toISOString().slice(0, 10)
+}
+
+// ---- Reading notes ------------------------------------------------------------------------
+// A reading note is `docs/reading/YYYY-MM-DD-slug.md` (the date it was read): what an article,
+// talk, thread or repo says, what we already do, what we take from it as of that day, and what we
+// did. Its front matter: state, source, source_author, published, read, read_by, shared_by, ask,
+// access, tags, links. `README.md` (the index) and `_template.md` are not notes.
+
+export const NOTE_STATES = ["read", "acting", "adopted", "rejected", "stale"] as const
+
+export interface NoteMeta {
+  /** The file name without `.md`: `2026-11-18-google-abfs`. */
+  id: string
+  path: string
+  sha: string
+  title: string
+  state: string
+  /** The article's URL. */
+  source: string
+  sourceAuthor: string
+  published: string
+  /** The day it was read (front matter `read`, else the file name's date): the list's order. */
+  read: string
+  readBy: string
+  sharedBy: string
+  /** The words it was shared with, verbatim. */
+  ask: string
+  access: string
+  tags: string[]
+  links: string[]
+  /** The open pull request that adds or changes it. */
+  pr?: { number: number; url: string; head: string; updatedAt: string }
+  /** On an open pull request: whether that pull request also adds its row to the index (README.md). */
+  indexed?: boolean
+}
+
+export interface Note extends NoteMeta {
+  body: string
+  bodyLineOffset: number
+}
+
+const NOTE_NAME = /^(\d{4}-\d{2}-\d{2})-([a-z0-9][a-z0-9-]*)\.md$/
+
+/** `2026-11-18-google-abfs.md` → {id, date, slug}; `README.md`, `_template.md` or anything else → null. */
+export function parseNoteName(name: string): { id: string; date: string; slug: string } | null {
+  const m = NOTE_NAME.exec(name)
+  return m ? { id: `${m[1]}-${m[2]}`, date: m[1], slug: m[2] } : null
+}
+
+/** The note a link points at (`2026-11-18-x.md`, `../reading/2026-11-18-x.md`, a GitHub blob URL), else null. */
+export function noteOfHref(href: string): string | null {
+  const m = /(?:^|\/)(\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*)\.md(?:#.*)?$/.exec(href)
+  return m ? m[1] : null
+}
+
+/** A front matter value as written: `"a" and later "b"` keeps its inner quotes. */
+function rawField(text: string, key: string): string {
+  const m = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(text.split(/\r?\n---\r?\n/)[0] ?? "")
+  if (!m) return ""
+  const v = m[1].trim()
+  const q = /^"(.*)"$/.exec(v) ?? /^'(.*)'$/.exec(v)
+  return q ? q[1] : v
+}
+
+export function toNote(path: string, sha: string, text: string): Note | null {
+  const name = parseNoteName(path.split("/").pop() ?? "")
+  if (!name) return null
+  const { data, body, lines } = parseFrontMatter(text)
+  const h = /^#\s+(.+)$/m.exec(body)
+  return {
+    id: name.id,
+    path,
+    sha,
+    title: h ? h[1].trim() : name.slug.replace(/-/g, " "),
+    state: asText(data.state).toLowerCase() || "read",
+    source: asText(data.source),
+    sourceAuthor: asText(data.source_author),
+    published: asText(data.published),
+    read: asText(data.read) || name.date,
+    readBy: asText(data.read_by),
+    sharedBy: asText(data.shared_by),
+    ask: rawField(text, "ask"),
+    access: asText(data.access),
+    tags: asList(data.tags).map((t) => t.toLowerCase()),
+    links: asList(data.links),
+    body,
+    bodyLineOffset: lines,
+  }
+}
+
+export const noteMeta = ({ body: _b, bodyLineOffset: _o, ...m }: Note): NoteMeta => m
+
+/** Newest read first; the same day, the newest pull request update, then the file name. */
+export function byRead(a: NoteMeta, b: NoteMeta): number {
+  const t = b.read.localeCompare(a.read)
+  if (t !== 0) return t
+  const p = (b.pr?.updatedAt ?? "").localeCompare(a.pr?.updatedAt ?? "")
+  return p !== 0 ? p : b.id.localeCompare(a.id)
+}
+
+export const hostOf = (url: string) => /^https?:\/\/([^/]+)/.exec(url)?.[1]?.replace(/^www\./, "") ?? ""
+
+export interface NoteHit {
+  id: string
+  score: number
+  excerpt: string
+}
+
+/** Full text over notes: title, tags, state, author and the source's host weigh more than the body. */
+export function searchNotes(notes: Note[], query: string): NoteHit[] {
+  const terms = termsOf(query)
+  if (terms.length === 0) return []
+  const hits: NoteHit[] = []
+  for (const n of notes) {
+    const hit = scoreDoc(`${n.read} ${n.title} ${n.tags.join(" ")} ${n.state} ${n.sourceAuthor} ${hostOf(n.source)}`, n.body, terms)
+    if (hit) hits.push({ id: n.id, ...hit })
+  }
+  return hits.sort((a, b) => b.score - a.score || b.id.localeCompare(a.id))
+}
+
+/** Jump-to over notes: by title words, date or tag, in list order. */
+export function jumpNotes(notes: NoteMeta[], query: string): NoteMeta[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return notes
+  return notes
+    .map((n) => {
+      const hay = `${n.title} ${n.read} ${n.tags.join(" ")}`.toLowerCase()
+      const score = n.title.toLowerCase().startsWith(q) ? 50 : q.split(/\s+/).every((w) => hay.includes(w)) ? 10 : 0
+      return { n, score }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.n)
+}
+
+/** Each tag and how many notes carry it, most used first. */
+export function tagCounts(notes: NoteMeta[]): Array<[string, number]> {
+  const c = new Map<string, number>()
+  for (const n of notes) for (const t of n.tags) c.set(t, (c.get(t) ?? 0) + 1)
+  return [...c].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+}
+
+/** The fallback when the repository has no `_template.md`: the four sections every note has. */
+export const NOTE_TEMPLATE_BODY = `## What it says
+
+## What we already do
+
+## What we take from it
+
+## What we did
+`
+
+/** `_template.md`'s body without its title and its how-to comment: a new note's sections. */
+export function noteTemplateBody(templateText: string | undefined): string {
+  if (!templateText) return NOTE_TEMPLATE_BODY
+  const body = parseFrontMatter(templateText)
+    .body.replace(/<!--[\s\S]*?-->\s*/g, "")
+    .replace(/^\s*#\s+[^\n]*\n/, "")
+    .trim()
+  return body ? `${body}\n` : NOTE_TEMPLATE_BODY
+}
+
+export interface NewNote {
+  title: string
+  state: string
+  source: string
+  sourceAuthor: string
+  published: string
+  read: string
+  readBy: string
+  sharedBy: string
+  ask: string
+  tags: string[]
+  body?: string
+  template?: string
+}
+
+const yamlText = (s: string) => (s === "" || /^[\w ./:@()-]*$/.test(s) ? s : `"${s.replace(/"/g, "'")}"`)
+
+/** A note's file: `_template.md`'s front matter fields, filled in, then the title and the sections. */
+export function newNoteText(o: NewNote): string {
+  return `---
+state: ${o.state || "read"}
+source: ${o.source}
+source_author: ${yamlText(o.sourceAuthor)}
+published: ${o.published}
+read: ${o.read}
+read_by: ${yamlText(o.readBy)}
+shared_by: ${yamlText(o.sharedBy)}
+ask: "${o.ask.replace(/\n/g, " ")}"
+access: internal
+tags: [${o.tags.join(", ")}]
+links: []
+---
+
+# ${o.title}
+
+${o.body?.trim() || (o.template ?? NOTE_TEMPLATE_BODY).trim()}
+`
+}
+
+export const noteFileName = (read: string, title: string) => `${read}-${slugify(title) || "untitled"}.md`
+
+/** The note's row in the index table (README.md): read, note, source, state, tags. */
+export function noteIndexRow(o: { read: string; title: string; file: string; sourceAuthor: string; source: string; state: string; tags: string[] }): string {
+  const org = /\(([^)]+)\)\s*$/.exec(o.sourceAuthor)?.[1] ?? o.sourceAuthor
+  const host = hostOf(o.source)
+  const label = [org, host].filter(Boolean).join(", ") || "—"
+  const cell = (s: string) => s.replace(/\|/g, "\\|")
+  return `| ${o.read} | [${cell(o.title)}](${o.file}) | ${cell(label)} | ${o.state} | ${o.tags.join(", ")} |`
+}
+
+/** The index with the row added at the top of its table (newest first); null when it has no table. */
+export function withIndexRow(readme: string, row: string): string | null {
+  const lines = readme.split("\n")
+  const sep = lines.findIndex((l, i) => /^\|\s*-{3,}/.test(l) && /\|\s*Read\s*\|/i.test(lines[i - 1] ?? ""))
+  if (sep < 0) return null
+  lines.splice(sep + 1, 0, row)
+  return lines.join("\n")
+}
+
+/** GitHub's new-file page with the note filled in, on `branch`. */
+export function newNoteFileUrl(repo: string, branch: string, dir: string, file: string, text: string): string {
+  return `https://github.com/${repo}/new/${encodeURIComponent(branch)}?filename=${encodeURIComponent(`${dir.replace(/\/$/, "")}/${file}`)}&value=${encodeURIComponent(text)}`
 }
