@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 656,
+  "count": 657,
   "sections": [
     {
       "id": "general",
@@ -1354,7 +1354,7 @@
           "help": "Off: this Mac stays available to your devices while cmux is quit.",
           "kind": "toggle",
           "default": false,
-          "group": "cmux Remote"
+          "group": "cmux Helper"
         },
         {
           "key": "remote.ultra",
@@ -1362,7 +1362,7 @@
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
           "kind": "choice",
           "default": "auto",
-          "group": "cmux Remote",
+          "group": "cmux Helper",
           "values": [
             "off",
             "auto",
@@ -3533,6 +3533,26 @@
           "values": [
             "oneColor",
             "subtleTone"
+          ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "title": "Two-Tone",
+          "help": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Panes",
+          "values": [
+            "off",
+            "auto",
+            "inkSakura",
+            "charcoalRose",
+            "inkMagenta",
+            "creamForest",
+            "navySand",
+            "boneOxblood",
+            "slateMatcha",
+            "plumAmber"
           ]
         },
         {
