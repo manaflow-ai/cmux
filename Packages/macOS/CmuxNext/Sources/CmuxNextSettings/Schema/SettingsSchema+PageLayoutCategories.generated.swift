@@ -10,7 +10,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
-        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
+        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, designSystemCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -279,6 +279,13 @@ extension SettingsPageLayout {
         id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
         groups: [],
         lead: [.contextMenus]
+    )
+
+    /// The design system extension views are drawn with (RFD 0009 slice 8): cmux's, then the active theme file's `design` key, then design.json beside the settings file, resolved in Rust and drawn by the SDK's own DesignSystemView, with each role cmux changed since the person's recorded base marked.
+    private static let designSystemCategory = CategorySpec(
+        id: "designSystem", title: SettingsText.keyed("settings.category.designSystem", "Design System"), symbol: "textformat.size",
+        groups: [],
+        lead: [.designSystem]
     )
 
     /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
