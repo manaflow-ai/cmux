@@ -758,7 +758,7 @@ final class AgentTabStore {
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
         // React-only New Tab). Chat panes keep it.
-        if model.newTab != nil { view.showsLoadingState = false }
+        if model.newTab != nil { view.showsLoadingState = false } else { model.whenPainted { [weak self] in self?.launchImages.pictures?.pagePainted() } } // a chat's first paint saves its picture (AgentLaunchPictures)
         pageChats.seed(view)
         wireAgentAvatars(model, view: view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
