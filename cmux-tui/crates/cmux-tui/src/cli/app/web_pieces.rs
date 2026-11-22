@@ -46,7 +46,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const ETAG_MAX: usize = 256;
 
 /// English like the JSON it documents: the app, not a person, runs this.
-pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly|drill-every-merge|drill-nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces refused --state <dir> --channel <channel> --key <key>\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the web update served now,\n--kept the keys of the older ones on disk, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. refused prints {\"refused\": bool, \"serial\": n}:\nwhether the switch file last taken in --state refuses the update --key; no network, no write. status prints\nthe state and the log; no network.";
+pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly|drill-every-merge|drill-nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces refused --state <dir> --channel <channel> --key <key>\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the web update served now,\n--kept the keys of the older ones on disk, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. refused prints {\"refused\": bool, \"serial\": n}:\nwhether the switch file last taken in --state refuses the update --key; no network, no write. On a drill-\nchannel refused and refused_active are always false (a drill never rolls back a real update); the\nfile's refusal is reported as drill_refused / drill_refused_active. status prints\nthe state and the log; no network.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Command {
@@ -277,6 +277,7 @@ pub(super) fn apply(
         input.insert("last".to_owned(), last.clone());
     }
     let mut reply = cmux_web_pieces::evaluate_with(&input, keys);
+    report_only(&command.channel, &mut reply);
     let taken = reply.get("taken").and_then(Value::as_bool).unwrap_or(false);
     if taken {
         state = State {
@@ -318,11 +319,38 @@ pub(super) fn refused(dir: &Path, channel: &str, key: &str) -> Value {
         input.insert("last".to_owned(), last.clone());
     }
     // No envelope is opened, so no key is needed.
-    let reply = cmux_web_pieces::evaluate_with(&input, &[]);
-    json!({
-        "refused": reply.get("refused_active").and_then(Value::as_bool).unwrap_or(false),
+    let mut reply = cmux_web_pieces::evaluate_with(&input, &[]);
+    report_only(channel, &mut reply);
+    let flag = |name: &str| reply.get(name).and_then(Value::as_bool).unwrap_or(false);
+    let mut out = json!({
+        "refused": flag("refused_active"),
         "serial": reply.get("serial").cloned().unwrap_or(Value::Null),
-    })
+    });
+    if is_drill(channel)
+        && let Some(out) = out.as_object_mut()
+    {
+        out.insert("drill_refused".to_owned(), json!(flag("drill_refused_active")));
+    }
+    out
+}
+
+fn is_drill(channel: &str) -> bool {
+    channel.starts_with("drill-")
+}
+
+/// A drill rehearses a switch on this Mac only, so it never rolls back or blocks a real update:
+/// on a `drill-` channel the file's refusal of the active update moves from `refused_active`
+/// (the app rolls back on it) to `drill_refused_active`, which is only reported. The pieces are
+/// still served as the file says: that switch is what a drill tries.
+fn report_only(channel: &str, reply: &mut Value) {
+    if !is_drill(channel) {
+        return;
+    }
+    if let Some(reply) = reply.as_object_mut() {
+        let refused = reply.get("refused_active").and_then(Value::as_bool).unwrap_or(false);
+        reply.insert("refused_active".to_owned(), json!(false));
+        reply.insert("drill_refused_active".to_owned(), json!(refused));
+    }
 }
 
 /// `{"state": the state file, "log": its last lines}`; an empty object and no lines for a

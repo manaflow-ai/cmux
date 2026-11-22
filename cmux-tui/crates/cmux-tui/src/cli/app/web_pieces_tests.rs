@@ -507,6 +507,43 @@ fn a_drill_channel_reads_its_own_file_only() {
 }
 
 #[test]
+fn a_drill_only_reports_a_refused_active_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let pair = pair(7);
+    let mut payload = file("drill-every-merge", 4, json!({}));
+    payload["refuse"] = json!([A]);
+    let drill = Fetched::Body(envelope(&pair, &payload), None);
+    // The drill's file refuses the active update A: reported, never a roll back.
+    let reply =
+        apply(&check(dir.path(), "drill-every-merge"), Some(drill), &keys(&pair), NOW).unwrap();
+    assert_eq!(reply["taken"], true, "{reply}");
+    assert_eq!(reply["refused_active"], false, "{reply}");
+    assert_eq!(reply["drill_refused_active"], true, "{reply}");
+    // Nor does the drill block taking it.
+    assert_eq!(
+        refused(dir.path(), "drill-every-merge", A),
+        json!({"refused": false, "serial": 4, "drill_refused": true})
+    );
+    assert_eq!(
+        refused(dir.path(), "drill-every-merge", B),
+        json!({"refused": false, "serial": 4, "drill_refused": false})
+    );
+    // The offline plan from the drill's state says the same.
+    let mut offline = check(dir.path(), "drill-every-merge");
+    offline.offline = true;
+    let reply = apply(&offline, None, &keys(&pair), NOW).unwrap();
+    assert_eq!(reply["refused_active"], false, "{reply}");
+    assert_eq!(reply["drill_refused_active"], true, "{reply}");
+
+    // The real channel's refusal still rolls back, with no drill field.
+    let real = tempfile::tempdir().unwrap();
+    let reply = apply(&check(real.path(), "every-merge"), Some(refusing(&pair, 4, &[A])), &keys(&pair), NOW)
+        .unwrap();
+    assert_eq!(reply["refused_active"], true, "{reply}");
+    assert!(reply.get("drill_refused_active").is_none(), "{reply}");
+}
+
+#[test]
 fn an_unwritable_state_folder_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let blocked = dir.path().join("a-file");

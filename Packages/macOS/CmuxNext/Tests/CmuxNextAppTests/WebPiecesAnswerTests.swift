@@ -10,11 +10,12 @@ import Testing
     static let pages = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 
     /// What `cmux app web-pieces check` prints (cmux-web-pieces `evaluate`, plus the CLI's own fields).
-    static func answer(paneServe: String, paneUpdate: String?, refusedActive: Bool = false) -> Data {
+    static func answer(paneServe: String, paneUpdate: String?, refusedActive: Bool = false, drillRefusedActive: Bool? = nil) -> Data {
         let update = paneUpdate.map { "\"\($0)\"" } ?? "null"
+        let drill = drillRefusedActive.map { "\"drill_refused_active\":\($0)," } ?? ""
         return Data("""
         a line the command printed before
-        {"taken":true,"refusal":null,"serial":7,"switches":{},"refuse":[],"refused_active":\(refusedActive),"fetch":{"status":200},"pieces":{"agent-pane":{"output":"\(pane)","update":\(update),"serve":"\(paneServe)","reason":"blank pane"},"pages":{"output":"\(pages)","update":"live1","serve":"live","reason":""}},"log":{"event":"web-pieces"}}
+        {"taken":true,"refusal":null,"serial":7,"switches":{},"refuse":[],"refused_active":\(refusedActive),\(drill)"fetch":{"status":200},"pieces":{"agent-pane":{"output":"\(pane)","update":\(update),"serve":"\(paneServe)","reason":"blank pane"},"pages":{"output":"\(pages)","update":"live1","serve":"live","reason":""}},"log":{"event":"web-pieces"}}
 
         """.utf8)
     }
@@ -99,18 +100,18 @@ import Testing
     @Test func theKeptPointersLastWhileAPieceIsSwitchedOut() async throws {
         let base = FileManager.default.temporaryDirectory.appending(path: "web-pieces-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: base) }
-        let store = WebUpdateStore(base: base)
         let pointer = WebUpdatePointer(channel: "every-merge", key: "old1", archive: "a.tar.gz", sha256: "", size: 0,
                                        outputs: "o", abi: 1, commit: "c", committedAt: 1, publishedAt: 1)
-        #expect(!(await WebUpdates.hasKept(store)))
-        await WebUpdates.keep([pointer], switched: true, in: store)
-        #expect(await WebUpdates.hasKept(store))
-        #expect(await WebUpdates.kept(store) == [pointer])
+        let kept = WebUpdates.keptFile
+        #expect(!(await WebUpdates.has(kept, in: base)))
+        await WebUpdates.keep([pointer], switched: true, in: base)
+        #expect(await WebUpdates.has(kept, in: base))
+        #expect(await WebUpdates.kept(in: base) == [pointer])
         // Switched to the bundle only: no pointer, but the next launch still asks.
-        await WebUpdates.keep([], switched: true, in: store)
-        #expect(await WebUpdates.hasKept(store))
-        #expect(await WebUpdates.kept(store).isEmpty)
-        await WebUpdates.keep([], in: store)
-        #expect(!(await WebUpdates.hasKept(store)))
+        await WebUpdates.keep([], switched: true, in: base)
+        #expect(await WebUpdates.has(kept, in: base))
+        #expect(await WebUpdates.kept(in: base).isEmpty)
+        await WebUpdates.keep([], in: base)
+        #expect(!(await WebUpdates.has(kept, in: base)))
     }
 }

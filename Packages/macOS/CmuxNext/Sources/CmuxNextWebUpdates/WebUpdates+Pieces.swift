@@ -18,6 +18,11 @@ import Foundation
 // A read that fails keeps what is served. The update a piece was switched back to is kept on
 // disk, with its signed pointer in `web-pieces-kept.json`, until the piece is live again, so a
 // later update never moves the piece onto the build it was switched away from.
+//
+// A drill (`updates.web.pieces.check` with `drill`) reads its own file into `pieces-drill/`: its
+// state, log and kept file live there, and the CLI only reports (`drill_refused_active`) the
+// active update its file refuses, so a drill never rolls back or blocks a real update. Ending it
+// serves what the channel's own state and kept file say again.
 
 /// The answer of `cmux app web-pieces check`: what each web piece is served from.
 nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
@@ -39,6 +44,9 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
     let pieces: [String: Piece]
     /// The switch file refuses the active update: the app rolls it back.
     let refusedActive: Bool
+    /// A drill's file refuses the active update: only reported (the CLI never sets
+    /// `refusedActive` for a drill).
+    let drillRefusedActive: Bool?
     let serial: Int?
     /// Why the newest file read was not taken (the last one taken still holds).
     let refusal: Refusal?
@@ -46,6 +54,7 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case pieces, serial, refusal
         case refusedActive = "refused_active"
+        case drillRefusedActive = "drill_refused_active"
     }
 
     /// The pieces not served from the active update.
@@ -69,7 +78,9 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
         }
         let taken: JSONValue = serial.map { JSONValue($0) } ?? .null
         let refused: JSONValue = refusal.map { .string($0.code) } ?? .null
-        return .object(["serial": taken, "refusal": refused, "switched": .object(out)])
+        var status: [String: JSONValue] = ["serial": taken, "refusal": refused, "switched": .object(out)]
+        if let drillRefusedActive { status["drill_refused_active"] = .bool(drillRefusedActive) }
+        return .object(status)
     }
 }
 
@@ -103,8 +114,11 @@ nonisolated struct VerifiedTrees: Equatable, Sendable {
 }
 
 extension WebUpdates {
-    /// The pointers of the updates switched-out pieces are served from, in the web updates folder.
+    /// The pointers of the updates switched-out pieces are served from, in the CLI's state folder
+    /// (``piecesPlace(_:_:drill:)``: the web updates folder, or `pieces-drill/` in a drill).
     nonisolated static let keptFile = "web-pieces-kept.json"
+    /// The CLI's state file (cmux-tui `web_pieces::STATE_FILE`): a switch file was taken here once.
+    nonisolated static let stateFile = "web-pieces.json"
 
     nonisolated struct Kept: Codable, Sendable {
         var pointers: [WebUpdatePointer]
@@ -133,10 +147,16 @@ extension WebUpdates {
     }
 
     /// At launch, before the first page loads: the pieces that were switched out when cmux last
-    /// ran stay out. Runs the CLI only when one was. Returns whether the switch file refuses the
-    /// kept update (the launch then serves the bundled web until the roll back is saved).
+    /// ran stay out, and a kept update the switch file refuses is not served. Runs the CLI only
+    /// when a piece was switched out, or when there is a kept update and a switch file was taken
+    /// once (only a taken file can refuse it). Returns whether the switch file refuses the kept
+    /// update (the launch then serves the bundled web until the roll back is saved).
     func restorePieces(_ updater: WebUpdater) async -> Bool {
-        guard let piecesCLI, await Self.hasKept(updater.store) else { return false }
+        guard let piecesCLI else { return false }
+        let base = updater.store.base
+        var ask = await Self.has(Self.keptFile, in: base)
+        if !ask, updater.state.active != nil { ask = await Self.has(Self.stateFile, in: base) }
+        guard ask else { return false }
         let refused = await readPiecesNow(updater, piecesCLI, offline: true, launch: true)
         if refused { readPieces(offline: true) }
         return refused
@@ -166,22 +186,22 @@ extension WebUpdates {
     func readPiecesNow(_ updater: WebUpdater, _ cli: @Sendable ([String]) async -> Data?,
                        offline: Bool, launch: Bool, rolledBack: Int = 0) async -> Bool {
         let channel = updater.channel, store = updater.store
+        let drill = piecesDrill
+        let (state, piecesChannel) = Self.piecesPlace(store, channel, drill: drill)
         guard channel != .off else {
             // Off serves the bundled web: nothing is switched.
             pieces = nil
-            await Self.keep([], in: store)
+            await Self.keep([], in: state)
             if WebBundleOverlay.shared.setSwitches([:]), !launch { await switchesChanged() }
             return false
         }
         let active = updater.state.active
         // The update a piece is served from now comes first, so the piece stays on it.
         var candidates: [WebUpdatePointer] = []
-        for pointer in await Self.kept(store) + [updater.state.previous].compactMap({ $0 })
+        for pointer in await Self.kept(in: state) + [updater.state.previous].compactMap({ $0 })
         where pointer.key != active?.key && !candidates.contains(where: { $0.key == pointer.key }) {
             candidates.append(pointer)
         }
-        let drill = piecesDrill
-        let (state, piecesChannel) = Self.piecesPlace(store, channel, drill: drill)
         var words = ["app", "web-pieces", "check", "--state", state.path, "--channel", piecesChannel]
         if let active { words += ["--active", active.key] }
         for pointer in candidates { words += ["--kept", pointer.key] }
@@ -200,7 +220,7 @@ extension WebUpdates {
         let (switched, used, verified) = await Self.resolve(answer, candidates, store, verified: verifiedTrees.held(for: keys))
         verifiedTrees.add(verified, for: keys)
         pieces = answer
-        await Self.keep(used, switched: !switched.isEmpty, in: store)
+        await Self.keep(used, switched: !switched.isEmpty, in: state)
         if WebBundleOverlay.shared.setSwitches(switched), !launch { await switchesChanged() }
         return false
     }
@@ -239,24 +259,25 @@ extension WebUpdates {
         return (switched, used, fresh)
     }
 
-    @concurrent nonisolated static func hasKept(_ store: WebUpdateStore) async -> Bool {
-        FileManager.checked.fileExists(atPath: store.base.appending(path: keptFile).path)
+    @concurrent nonisolated static func has(_ file: String, in folder: URL) async -> Bool {
+        FileManager.checked.fileExists(atPath: folder.appending(path: file).path)
     }
 
-    @concurrent nonisolated static func kept(_ store: WebUpdateStore) async -> [WebUpdatePointer] {
-        guard let data = try? Data(blockingContentsOf: store.base.appending(path: keptFile)) else { return [] }
+    /// The kept pointers in `folder` (the CLI's state folder).
+    @concurrent nonisolated static func kept(in folder: URL) async -> [WebUpdatePointer] {
+        guard let data = try? Data(blockingContentsOf: folder.appending(path: keptFile)) else { return [] }
         return (try? JSONDecoder().decode(Kept.self, from: data))?.pointers ?? []
     }
 
-    /// Keeps `pointers` while a piece is switched out; with none switched the file goes, and the
-    /// next launch runs no CLI.
-    @concurrent nonisolated static func keep(_ pointers: [WebUpdatePointer], switched: Bool = false, in store: WebUpdateStore) async {
-        let file = store.base.appending(path: keptFile)
+    /// Keeps `pointers` in `folder` (the CLI's state folder) while a piece is switched out; with
+    /// none switched the file goes.
+    @concurrent nonisolated static func keep(_ pointers: [WebUpdatePointer], switched: Bool = false, in folder: URL) async {
+        let file = folder.appending(path: keptFile)
         guard switched else {
             if FileManager.checked.fileExists(atPath: file.path) { try? FileManager.checked.removeItem(at: file) }
             return
         }
-        try? FileManager.checked.createDirectory(at: store.base, withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
         try? JSONEncoder().encode(Kept(pointers: pointers)).blockingWrite(to: file, options: .atomic)
     }
 }
