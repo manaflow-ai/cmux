@@ -1106,6 +1106,7 @@ CmuxNextAgentPane	struct	LocalRouterClient	0	PLATFORM	0	0	Packages/macOS/CmuxNex
 CmuxNextAgentPane	struct	NativeNewTabActions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabActions.swift	Native New Tab SwiftUI view and view-local state
 CmuxNextAgentPane	class	NativeNewTabHostingView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabHostingView.swift	Native New Tab SwiftUI view and view-local state
 CmuxNextAgentPane	func	firstTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabHostingView.swift	from class NativeNewTabHostingView:7: Native New Tab SwiftUI view and view-local state
+CmuxNextAgentPane	extension	NativeNewTabHostingView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabHostingView.swift	the shown native New Tab page under a view, for the New Tab key hold's field
 CmuxNextAgentPane	class	NativeNewTabModel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabModel.swift	from class NativeNewTabModel:13: Native New Tab SwiftUI view and view-local state
 CmuxNextAgentPane	struct	NativeNewTabRanker	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabRanker.swift	Ranks New Tab dropdown rows for typed text
 CmuxNextAgentPane	enum	NativeNewTabRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabRow.swift	Native New Tab SwiftUI view and view-local state
@@ -1791,7 +1792,6 @@ CmuxNextApp	extension	KeyRouter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextApp	extension	KeyRouter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+Hooks.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	KeyRouter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NativePaletteKeys.swift	native palette key routing
 CmuxNextApp	class	NewTabInputCoordinator	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NewTabInput.swift	from class NewTabInputCoordinator:20: new-tab key buffering, incoming page hold and replay
-CmuxNextApp	func	nativeNewTabHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NewTabInput.swift	from class NewTabInputCoordinator:20: new-tab key buffering, incoming page hold and replay
 CmuxNextApp	extension	KeyRouter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+PageFirstKeys.swift	page-first key offer routing
 CmuxNextApp	extension	KeyRouter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+PrimaryInputHistory.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	KeyRouter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+Resolution.swift	key candidate resolution: registry vs Ghostty, browser-only chords

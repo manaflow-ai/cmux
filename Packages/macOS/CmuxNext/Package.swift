@@ -105,7 +105,7 @@ import PackageDescription
 //     and the pane view; no daemon; the App supplies the workspace)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, cx-v9k2f, the sidebar's Priority view and its Chief item with its App Store card)
-//   CmuxNextApps -> Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
+//   CmuxNextApps -> Actions, Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window, chat widget host; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextFocus -> CCmuxAppFFI (the window focus machine: focus state view, events, effects,
@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 82e592de26bd72b55fc7e5fc4e421f92a3b5d3d87417eaf9170b3b2a39901656
+// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -645,6 +645,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteFetch",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
             ],
             resources: [
@@ -1686,6 +1687,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextApps",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextBrowserCore",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -1706,6 +1708,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextAppsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextApps",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -2867,9 +2870,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMobile",
                 "CmuxNextTestSupport",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
-                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
-                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2892,7 +2892,6 @@ let package = Package(
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
-        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
         // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
         .package(path: "../../Shared/CmuxAppAttest"),
@@ -2921,10 +2920,6 @@ let package = Package(
         // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
         // other dependencies; Apache-2.0).
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
-        // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
-        .package(path: "../../iOS/CmuxMobileRPC"),
-        // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
-        .package(path: "../../iOS/CmuxMobileSSH"),
     ],
     targets: packageTargets,
 )
