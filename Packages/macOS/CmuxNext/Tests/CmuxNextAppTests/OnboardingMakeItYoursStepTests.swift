@@ -192,7 +192,8 @@ import Testing
         source.apply(picked, from: opened)
         #expect(densities.set == ["spacious"], "density goes through the density action, which saves and applies it")
         #expect(source.pickedWorkStyle == .terminal)
-        await Self.until { settings.snapshot.windowBackground.material != nil }
+        // Material is written last; the opacity write before it may already set a linked material of its own.
+        await Self.until { settings.snapshot.windowBackground.material?.rawValue == "glass-clear" }
         let read = source.currentChoices()
         #expect(read.workStyle == .terminal)
         #expect(read.background == "hokusai-great-wave")

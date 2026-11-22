@@ -40,21 +40,30 @@ const OPACITY_STEP = 0.05;
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 
 /** Opacity, as Settings' row: a drag previews in the slider and is written once on release (the host
- * takes one write per click or key); an arrow key writes its step at once. */
+ * takes one write per click or key); an arrow key writes its step at once. A value sent shows until the
+ * host's state answers it, so the thumb never jumps back and two quick keys step twice. */
 function OpacitySlider({ value, label }: { value: number; label: string }) {
   const { store } = useOnboarding();
   const [drag, setDrag] = useState<number | null>(null);
+  // The value sent while the host still shows `base`.
+  const [sent, setSent] = useState<{ value: number; base: number } | null>(null);
   const dragging = useRef(false);
   const pending = useRef<number | null>(null);
-  const send = (next: number) => store.call("cmux.onboarding.makeItYours.opacity", { value: next });
+  const current = sent !== null && sent.base === value ? sent.value : value;
+  const send = (next: number) => {
+    if (next === current) return;
+    setSent({ value: next, base: value });
+    store.call("cmux.onboarding.makeItYours.opacity", { value: next });
+  };
   const release = () => {
+    if (!dragging.current) return;
     dragging.current = false;
     const next = pending.current;
     pending.current = null;
     setDrag(null);
-    if (next !== null && next !== value) send(next);
+    if (next !== null) send(next);
   };
-  const shown = drag ?? value;
+  const shown = drag ?? current;
   return (
     <div className="onb-make-adjust-row">
       <span className="onb-make-adjust-label" id="onb-make-opacity-label">
@@ -69,7 +78,6 @@ function OpacitySlider({ value, label }: { value: number; label: string }) {
         value={shown}
         aria-labelledby="onb-make-opacity-label"
         aria-valuetext={percent(shown)}
-        style={{ "--onb-make-fill": percent(shown) } as CSSProperties}
         onPointerDown={() => {
           dragging.current = true;
         }}
@@ -81,12 +89,12 @@ function OpacitySlider({ value, label }: { value: number; label: string }) {
             return;
           }
           // A key (or an assistive app's step): its own gesture, written now.
-          if (next !== value) send(next);
+          send(next);
         }}
         onPointerUp={release}
-        onBlur={() => {
-          if (dragging.current) release();
-        }}
+        onPointerCancel={release}
+        onLostPointerCapture={release}
+        onBlur={release}
       />
       <span className="onb-make-adjust-value" aria-hidden="true">
         {percent(shown)}
