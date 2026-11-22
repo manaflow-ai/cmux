@@ -141,8 +141,11 @@ class Harness:
                     raise
             return unittest.mock.Mock(returncode=0)
 
-        def check_call(args, **_):
+        def check_call(args, stdout=None, **_):
             fake.handle(list(args))
+            if list(args)[2:3] == ["bootstatus"] and stdout is None:
+                # The real bootstatus prints progress on stdout, which the workflow appends to $GITHUB_ENV.
+                print(f"Monitoring boot status for {args[3]}.")
             return 0
 
         out = io.StringIO()
