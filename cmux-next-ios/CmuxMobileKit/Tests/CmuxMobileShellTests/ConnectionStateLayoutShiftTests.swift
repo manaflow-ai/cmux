@@ -31,6 +31,8 @@ import UIKit
     /// Row frames, by index, reported by each row as it lays out.
     @MainActor final class Frames {
         var rows: [Int: CGRect] = [:]
+        /// The indicator's own frame, when one shows.
+        var indicator: CGRect?
     }
 
     struct Page: View {
@@ -45,6 +47,7 @@ import UIKit
                 page.safeAreaInset(edge: .top, spacing: 0) {
                     if let state {
                         ConnectionBanner(state, retry: {}).padding(.vertical, 8).frame(maxWidth: .infinity)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.indicator = $0 }
                     }
                 }
             } else {
@@ -71,9 +74,14 @@ import UIKit
     }
 
     @MainActor final class Harness {
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874)) // iPhone 17 Pro
+        let window: UIWindow
         let host = UIHostingController(rootView: AnyView(EmptyView()))
         init() {
+            // In the test host's window scene when it has one: a window with no scene gets no
+            // safe-area pass, so an inset banner read as moving nothing.
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874) // iPhone 17 Pro
             window.rootViewController = host
             window.makeKeyAndVisible()
         }
@@ -111,7 +119,7 @@ import UIKit
         for (name, state) in Self.states.dropFirst() {
             let shown = await harness.measure(state)
             let points = Self.shift(shown, from: base)
-            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows)")
+            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows; row 0 y \(base.rows[0]?.minY ?? -1) -> \(shown.rows[0]?.minY ?? -1); indicator \(shown.indicator.map { "\($0.height) pt high at y \($0.minY)" } ?? "unmeasured"); window scene \(harness.window.windowScene != nil))")
             #expect(points == 0, "\(name): the rows moved \(points) pt when it showed")
             // And back: the rows return to the same frames when it leaves.
             let back = await harness.measure(nil)
@@ -130,7 +138,7 @@ import UIKit
         for (name, state) in Self.states.dropFirst() {
             let shown = await harness.measure(state, legacy: true)
             let points = Self.shift(shown, from: base)
-            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows)")
+            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows; row 0 y \(base.rows[0]?.minY ?? -1) -> \(shown.rows[0]?.minY ?? -1); indicator \(shown.indicator.map { "\($0.height) pt high at y \($0.minY)" } ?? "unmeasured"); window scene \(harness.window.windowScene != nil))")
             #expect(points > 0 && points.isFinite, "\(name): the inset banner moved nothing, so the check would miss it")
         }
         print("ConnectionStateLayoutShift before: " + report.joined(separator: ", "))

@@ -16,7 +16,9 @@ import UIKit
 
     func measure(_ variant: TerminalChipPage.Variant, _ state: ConnectionChip.Content) async -> Frames {
         let frames = Frames()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874)) // iPhone 17 Pro
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874) // iPhone 17 Pro
         let host = UIHostingController(rootView: AnyView(
             TerminalChipPage(variant: variant, state: state,
                              onChipFrame: { frames.chip = $0 },
