@@ -1,10 +1,10 @@
 //! Part of the inbox (`inbox.rs`). The page rule: in a coordinator's chat (config `pageRule`,
-//! the coordinator list), another agent's message starts a turn only when it is a page. RFD 0039
-//! slice 1 (cmuxterm-hq docs/rfd/0039-coordinator-load.md). Leo, 2026-11-22 13:47Z: "i wonder if
-//! sometimes you have too much work/messages coming to you? ... the inbox/forum situation ...
-//! keep trying to improve stuff". In 24 h three coordinators ran 1,292 turns; 85% of the turns an
-//! agent's message started were status or FYI, and 273 were `[inbox]` notices carrying a
-//! `[blocker]`, at least 120 of them from programs repeating a standing alarm.
+//! the coordinator list), another agent's message starts a turn only when it is a page. RFD 0041
+//! slice 1 (cmuxterm-hq docs/rfd/0041-coordinator-load.md, hq#18716). Leo, 2026-11-22 13:47Z:
+//! "i wonder if sometimes you have too much work/messages coming to you? ... the inbox/forum
+//! situation ... keep trying to improve stuff". In 24 h three coordinators ran 1,292 turns; 85%
+//! of the turns an agent's message started were status or FYI, and 273 were `[inbox]` notices
+//! carrying a `[blocker]`, at least 120 of them from programs repeating a standing alarm.
 //!
 //! A page ([`Verdict::Page`]) is:
 //! - a message from the person, or tagged for the person (`[leo]`, `[taste]`, `[irreversible]`,
