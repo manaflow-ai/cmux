@@ -58,7 +58,8 @@ final class SettingsWindowService: InternalPageProvider {
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
     /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
-    /// Agents' Add panel), with no section or setting.
+    /// Agents' Add panel), with no section or setting. A setting that names a page-only place
+    /// (``SettingsPageAnchor``, Settings > Devices' join consent switches) opens that place's route.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices)
@@ -66,7 +67,10 @@ final class SettingsWindowService: InternalPageProvider {
         // task-owner: one read of this Mac's join status per opening (its consent switches)
         Task { [join = services.joinConsent] in await join.refresh() }
         var anchor: SettingsAnchor?
-        if let setting {
+        var pageRoute = pageRoute
+        if let setting, let place = SettingsPageAnchor(key: setting) {
+            pageRoute = place.route
+        } else if let setting {
             guard let found = SettingsAnchor(key: setting) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
             }

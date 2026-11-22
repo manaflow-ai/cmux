@@ -88,7 +88,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <BackdropsSlot focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
-  devices: () => <DevicesCard />,
+  devices: (focus) => <DevicesCard focus={focus} />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: (focus) => <DensityCard focus={focus} />,
   textSize: () => <TextSizeCard />,

@@ -7,6 +7,7 @@ import CmuxNextRemote
 import CmuxNextCompat
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextWakeups
 import Foundation
 import LocalAuthentication
@@ -111,6 +112,11 @@ extension JoinConsentModel {
                 panel = made
             }
             panel?.setShown(shown)
+        }
+        // The sheet's Settings…: Settings > Devices at the switch it asks about (SettingsPageAnchor), highlighted.
+        model.openSettings = { [weak services] surface in
+            guard let services, let place = SettingsPageAnchor.joinConsent(surface.rawValue) else { return }
+            try? services.settingsWindow.show(section: nil, setting: place.rawValue)
         }
         model.redraw = { [weak model] in
             guard let model, model.ask != nil else { return }
