@@ -9,6 +9,7 @@
   on one line. Calm mode, which opens no hover card, keeps a clipped name's tooltip. Nothing moves or redraws.
   Regression: `SidebarUsageWarningTests`, `SidebarIconMeaningTests`, `SidebarRowBadgeStackCapTests`,
   `SidebarStatusSimpleTests`, `CloudMachineCostTests`.
+- 2026-11-22 (lane/sidebar-row-hover-pin): Sidebar-Look: Leo, 2026-11-22: "in all cases, the hovered buttons should just replace the other ones." While a row's hover controls show (the ✕, the ⋮, the pin), every status mark in its trailing cluster hides in place: the unread dot or count, the status stack (the blue dot, the error mark), the spinner, the keycap, the tab count, the time, the muted mark, the presence dots; a pinned tile also hides its task count ("2/9"). Nothing moves. The usage warning (its tooltip), the audio button, the drive indicator, the tree fold, the pull request and roll-up chips beside the controls, and the Cloud mark after the name keep their place. Leo, same day: "the pin button also doesn't work still it doesnt do anything": the row's pin ran Pin Workspace on the window's selection; it runs on its own row (`closesRowOnly`), the same pin a drag into Pinned makes. Regression: `SidebarHoverReplacesMarksTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
@@ -2653,6 +2654,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
+  draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
+  answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
+  answers with the pinned pill (`hoverCardAnchor`), scrolling only a list row into view. Regression:
+  `PinnedRowHoverCardTests.aPinnedRowIsFoundOnScreen`.
+  Sidebar-Look: the entire pin lifecycle is weird as shit.
 
 - 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
   super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
