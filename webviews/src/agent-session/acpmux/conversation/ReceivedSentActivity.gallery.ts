@@ -48,7 +48,7 @@ const notice = (name: string, title: string, minutes: number): AcpmuxRow =>
       kind: "notice",
       notice: { sender: name, severity: "info", title },
       message: { name, sessionId: name, text: title, raw: title },
-    },
+    } as unknown as AcpmuxRow["incoming"],
   } as Partial<AcpmuxRow>);
 
 const before = (): AcpmuxRow[] => [
