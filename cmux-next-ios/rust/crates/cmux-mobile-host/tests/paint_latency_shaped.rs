@@ -430,13 +430,13 @@ struct StreamFrame {
 
 /// The path selector on a link: today's stream (a link channel through cmux-fault's `Shaper`)
 /// and the datagrams (through its `UdpShaper`) side by side, the same profile on both. The
-/// driver is `viewport_sync::run_selected`: probes while idle for a warmup (so the selector
-/// has judged the link), then the redraws, each on the path it is on. A redraw's latency is
+/// driver is `viewport_sync::run_selected`: probes while idle for a 1 s warmup (the selector
+/// must have judged even lossy-10's link within it), then the redraws, each on the path it is on. A redraw's latency is
 /// its write to the phone's receive (stream) or to the phone holding its state (datagram), as
 /// in the two runs above. The phone's paint report carries the path of each frame.
 async fn run_selected(profile: &str, load: &Load, every: Duration) -> SelectedRow {
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
-    let warmup = Duration::from_millis(4 * link_profile.rtt_ms + 2 * link_profile.jitter_ms + 300);
+    let warmup = Duration::from_secs(1);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let tcp_shaper =
         Shaper::start(listener.local_addr().unwrap(), link_profile.clone(), 7, &Trace::new()).await.unwrap();
@@ -712,8 +712,10 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
             // Slower than today's stream: its p95 above the stream run's by more than 1 ms
             // (two runs of the same path differ by about that).
             let slower = selected.p95_ms > wire.p95_ms + 1.0;
+            // The first switch to the datagrams, ms after the driver started (none: never).
+            let first_switch = selected.switches.iter().find(|(_, to)| *to == "datagram").map(|(at, _)| *at);
             println!(
-                "SELECTED-ROW {name}{profile}: selected p50 {:.1} p95 {:.1} | path {} (switches: {}; warmup {} ms) | frames {} stream / {} datagram | phone receive to grid ready p50 {:.2} p95 {:.2} | stream p95 {:.1} datagram p95 {:.1} | one-way {one_way} | slower than stream: {} | p95 <= 2x one-way: {}",
+                "SELECTED-ROW {name}{profile}: selected p50 {:.1} p95 {:.1} | path {} (switches: {}; warmup {} ms) | frames {} stream / {} datagram | phone receive to grid ready p50 {:.2} p95 {:.2} | stream p95 {:.1} datagram p95 {:.1} | one-way {one_way} | slower than stream: {} | p95 <= 2x one-way: {} | switched within 1 s: {}",
                 selected.p50_ms,
                 selected.p95_ms,
                 selected.path,
@@ -727,6 +729,11 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
                 datagram.p95_ms,
                 if slower { "yes" } else { "no" },
                 if selected.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
+                match first_switch {
+                    Some(at) if at <= 1000.0 => "yes",
+                    Some(_) => "no",
+                    None => "never switched",
+                },
             );
             assert!(
                 selected.jsonl.contains("\"transports\""),
@@ -745,5 +752,72 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
             _ => 35.0,
         };
         assert!(wire.p50_ms + 2.0 >= nominal, "{profile}: the wire is at least the one-way delay");
+    }
+}
+
+/// Host CPU per redraw by grid, the screen's capture and the diff's encode into datagrams, under
+/// duress: every core but one spinning (a busy machine) while a load replays as fast as it
+/// comes (high-rate streaming), the phone's acks four redraws behind (a round trip on lte), so
+/// each diff spans what a real one does. One `ENCODE-ROW` per grid and load.
+#[test]
+#[ignore = "a measurement: --ignored --nocapture prints ENCODE-ROW"]
+fn host_capture_and_encode_per_redraw_by_grid_on_a_busy_machine() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let stop = Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let spinners: Vec<_> = (0..cores.saturating_sub(1).max(1))
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut x = 1_u64;
+                while !stop.load(Ordering::Relaxed) {
+                    x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    std::hint::black_box(x);
+                }
+            })
+        })
+        .collect();
+    let config = Config { initial_rate: 8_000_000.0, ..Config::default() };
+    for (cols, rows) in [(44_u16, 40_u16), (120, 40)] {
+        let loads: [fn() -> Load; 2] = [synthetic, claude_code_scroll];
+        for make in loads {
+            let load = make();
+            let name = if load.name.is_empty() { "synthetic" } else { load.name.trim() };
+            let mut sync = ViewportSync::new(cols, rows, UDP_MAX_DATAGRAM, config.clone(), Instant::now());
+            sync.record_captures();
+            let mut phone = SyncReceiver::new();
+            let mut acks: std::collections::VecDeque<(usize, Vec<u8>)> = Default::default();
+            let start = Instant::now();
+            for (i, read) in load.reads.iter().enumerate() {
+                let now = start + Duration::from_millis(16 * i as u64);
+                sync.feed(read);
+                for datagram in sync.poll(now) {
+                    if let Some(ack) = phone.on_datagram(&datagram) {
+                        acks.push_back((i + 4, ack));
+                    }
+                }
+                while acks.front().is_some_and(|(due, _)| *due <= i) {
+                    let (_, ack) = acks.pop_front().unwrap();
+                    sync.on_datagram(&ack, now);
+                }
+            }
+            let captures = sync.captures();
+            let sent: Vec<_> = captures.iter().filter(|capture| !capture.encode.is_zero()).collect();
+            let (capture_p50, capture_p95) = p50_p95(captures.iter().map(|c| ms(c.capture)).collect());
+            let (encode_p50, encode_p95) = p50_p95(sent.iter().map(|c| ms(c.encode)).collect());
+            let (total_p50, total_p95) = p50_p95(sent.iter().map(|c| ms(c.capture + c.encode)).collect());
+            println!(
+                "ENCODE-ROW {cols}x{rows} {name}: capture p50 {capture_p50:.3} p95 {capture_p95:.3} | encode p50 {encode_p50:.3} p95 {encode_p95:.3} | total p50 {total_p50:.3} p95 {total_p95:.3} ms | redraws {} captures {} sent {} | {} cores spinning | total p95 under 1 ms: {}",
+                load.reads.len(),
+                captures.len(),
+                sent.len(),
+                cores.saturating_sub(1).max(1),
+                if total_p95 < 1.0 { "yes" } else { "no" },
+            );
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
     }
 }

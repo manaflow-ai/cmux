@@ -24,6 +24,7 @@
 //! typical redraw of a few rows fits one datagram.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use crate::style::{Color, Style};
 use crate::terminal::{Cell, NARROW, Row, SPACER_HEAD, Terminal, WIDE, WIDE_TAIL};
@@ -38,16 +39,17 @@ pub const KIND_ACK: u8 = 2;
 const VERSION: u8 = 2;
 /// The most states sent and not yet acked that the sender keeps (to diff
 /// from once acked). Acks trail by a round trip, so at 60 Hz this covers
-/// about 17 s of them. Kept as keyframe encodings (a few KB each).
+/// about 17 s of them. Kept as the states themselves (shared, never
+/// re-encoded: a keyframe encode per state cost the host milliseconds).
 pub const SENT_RING: usize = 1024;
-/// The most bytes of encoded states the sender keeps.
-pub const SENT_RING_BYTES: usize = 16 << 20;
+/// The most bytes of states the sender keeps (see [`ScreenState::footprint`]).
+pub const SENT_RING_BYTES: usize = 64 << 20;
 /// The most states the receiver keeps to apply a diff from: every state
 /// newer than the newest base seen (the sender diffs from what it saw
-/// acked, a round trip behind), as keyframe encodings.
+/// acked, a round trip behind), as the states themselves.
 pub const HELD_RING: usize = 512;
-/// The most bytes of encoded states the receiver keeps.
-pub const HELD_RING_BYTES: usize = 8 << 20;
+/// The most bytes of states the receiver keeps (see [`ScreenState::footprint`]).
+pub const HELD_RING_BYTES: usize = 32 << 20;
 /// Seqs the receiver reassembles fragments for at once.
 pub const PARTIALS: usize = 4;
 /// The most fragments one diff may have (a sanity bound for the receiver).
@@ -232,6 +234,13 @@ impl ScreenState {
             return None;
         }
         self.cells.get(usize::from(row) * usize::from(self.cols) + usize::from(col))
+    }
+
+    /// About how many bytes the state holds in memory (what the rings count).
+    pub fn footprint(&self) -> usize {
+        std::mem::size_of::<ScreenState>()
+            + self.cells.len() * std::mem::size_of::<SyncCell>()
+            + self.cells.iter().map(|c| c.text.len() + c.style.link.len()).sum::<usize>()
     }
 
     /// The cells of one row.
@@ -466,34 +475,36 @@ const T_TAIL_TEXT: u8 = 0x07;
 /// A compact payload turning `base` (None: nothing held) into `latest`.
 /// A base of another grid is ignored (the payload starts from a blank screen).
 pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
+    let mut out = Vec::new();
+    diff_into(base, latest, &mut out);
+    out
+}
+
+/// [`diff`] into `out` (cleared first), so a sender reuses one buffer. Only the changed spans
+/// are written; the base is read in place (a scroll's moved rows are not copied).
+pub fn diff_into(base: Option<&ScreenState>, latest: &ScreenState, out: &mut Vec<u8>) {
+    out.clear();
     let base = base.filter(|b| b.cols == latest.cols && b.rows == latest.rows);
-    let blank;
-    let (from, from_blank) = match base {
-        Some(b) => (b, false),
-        None => {
-            blank = ScreenState::blank(latest.cols, latest.rows);
-            (&blank, true)
-        }
-    };
+    let from_blank = base.is_none();
     let cols = usize::from(latest.cols);
     // Rows the base has elsewhere (a scroll): copied, not resent.
-    let moves = if from_blank { Vec::new() } else { row_moves(from, latest) };
-    let moved;
-    let from = if moves.is_empty() {
-        from
-    } else {
-        let mut m = from.clone();
-        for &(dst, src) in &moves {
-            let (d, s) = (usize::from(dst) * cols, usize::from(src) * cols);
-            m.cells[d..d + cols].clone_from_slice(&from.cells[s..s + cols]);
+    let moves = base.map(|b| row_moves(b, latest)).unwrap_or_default();
+    // The base row each latest row is compared with (after the moves), with
+    // no copy of the base: None is a blank row.
+    let mut source: Vec<Option<u16>> = (0..latest.rows).map(|y| base.map(|_| y)).collect();
+    for &(dst, src) in &moves {
+        if let Some(slot) = source.get_mut(usize::from(dst)) {
+            *slot = Some(src);
         }
-        moved = m;
-        &moved
-    };
+    }
+    let blank_row = vec![SyncCell::default(); cols];
     // Changed spans: (row, first col, end col).
     let mut spans = Vec::new();
     for y in 0..latest.rows {
-        let a = from.row(y);
+        let a = match (base, source.get(usize::from(y)).copied().flatten()) {
+            (Some(b), Some(src)) => b.row(src),
+            _ => &blank_row[..],
+        };
         let b = latest.row(y);
         let Some(first) = (0..cols).find(|&x| a.get(x) != b.get(x)) else { continue };
         let last = (0..cols).rev().find(|&x| a.get(x) != b.get(x)).unwrap_or(first);
@@ -511,7 +522,7 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
         }
     }
 
-    let mut out = Vec::with_capacity(64 + spans.len() * 32);
+    out.reserve(64 + spans.len() * 32);
     out.push(VERSION);
     let mut flags = 0;
     if from_blank {
@@ -524,16 +535,16 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
         flags |= FLAG_ALTERNATE;
     }
     out.push(flags);
-    put_varint(&mut out, u64::from(latest.cols));
-    put_varint(&mut out, u64::from(latest.rows));
-    put_varint(&mut out, u64::from(latest.cursor.0));
-    put_varint(&mut out, u64::from(latest.cursor.1));
+    put_varint(out, u64::from(latest.cols));
+    put_varint(out, u64::from(latest.rows));
+    put_varint(out, u64::from(latest.cursor.0));
+    put_varint(out, u64::from(latest.cursor.1));
     out.push(latest.cursor_shape);
-    put_varint(&mut out, u64::from(latest.modes));
+    put_varint(out, u64::from(latest.modes));
     out.extend_from_slice(&latest.digest().to_le_bytes());
-    put_varint(&mut out, table.len() as u64);
+    put_varint(out, table.len() as u64);
     for style in &table {
-        put_style(&mut out, style);
+        put_style(out, style);
     }
     // Moves as runs: (rows skipped, first base row, rows).
     let mut runs: Vec<(u16, u16, u16)> = Vec::new();
@@ -543,21 +554,21 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
             _ => runs.push((dst, src, 1)),
         }
     }
-    put_varint(&mut out, runs.len() as u64);
+    put_varint(out, runs.len() as u64);
     let mut next_row = 0u64;
     for &(dst, src, n) in &runs {
-        put_varint(&mut out, u64::from(dst) - next_row);
+        put_varint(out, u64::from(dst) - next_row);
         next_row = u64::from(dst) + u64::from(n);
-        put_varint(&mut out, u64::from(src));
-        put_varint(&mut out, u64::from(n));
+        put_varint(out, u64::from(src));
+        put_varint(out, u64::from(n));
     }
-    put_varint(&mut out, spans.len() as u64);
+    put_varint(out, spans.len() as u64);
     let mut next_row = 0u64;
     for &(y, a, b) in &spans {
-        put_varint(&mut out, u64::from(y) - next_row);
+        put_varint(out, u64::from(y) - next_row);
         next_row = u64::from(y) + 1;
-        put_varint(&mut out, a as u64);
-        put_varint(&mut out, (b - a) as u64);
+        put_varint(out, a as u64);
+        put_varint(out, (b - a) as u64);
         let cells = latest.row(y).get(a..b).unwrap_or_default();
         let mut style = 0u64;
         let mut i = 0;
@@ -565,11 +576,11 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
             let id = index.get(&cell.style).copied().unwrap_or(0);
             if id != style {
                 out.push(T_STYLE);
-                put_varint(&mut out, id);
+                put_varint(out, id);
                 style = id;
             }
             let start = out.len();
-            put_cell(&mut out, cell);
+            put_cell(out, cell);
             let token = out.len() - start;
             let mut same = 1;
             while cells.get(i + same) == Some(cell) {
@@ -579,17 +590,16 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
             if more > 0 {
                 if more * token > 1 + varint_len(more as u64) {
                     out.push(T_REPEAT);
-                    put_varint(&mut out, more as u64);
+                    put_varint(out, more as u64);
                 } else {
                     for _ in 0..more {
-                        put_cell(&mut out, cell);
+                        put_cell(out, cell);
                     }
                 }
             }
             i += same;
         }
     }
-    out
 }
 
 /// (latest row, base row) for every changed, non-blank row of `latest` that
@@ -1127,15 +1137,17 @@ fn new_epoch() -> u32 {
 pub struct SyncSender {
     max_datagram: usize,
     epoch: u32,
-    latest: Option<ScreenState>,
+    latest: Option<Arc<ScreenState>>,
     latest_seq: u64,
-    /// States sent and not yet acked, oldest first, as keyframe encodings.
-    sent: VecDeque<(u64, Vec<u8>)>,
+    /// States sent and not yet acked, oldest first, with their footprints.
+    sent: VecDeque<(u64, Arc<ScreenState>, usize)>,
     sent_bytes: usize,
     acked_seq: u64,
-    acked: Option<ScreenState>,
+    acked: Option<Arc<ScreenState>>,
     /// The datagrams for (latest seq, acked seq), resent as they are.
     cache: Option<(u64, u64, Vec<Vec<u8>>)>,
+    /// The diff's buffer, reused.
+    scratch: Vec<u8>,
     last_payload_len: usize,
     datagrams_sent: u64,
     bytes_sent: u64,
@@ -1158,6 +1170,7 @@ impl SyncSender {
             acked_seq: 0,
             acked: None,
             cache: None,
+            scratch: Vec::new(),
             last_payload_len: 0,
             datagrams_sent: 0,
             bytes_sent: 0,
@@ -1171,8 +1184,8 @@ impl SyncSender {
     /// A new screen; bumps the seq only if it differs from the latest.
     /// Returns the latest seq.
     pub fn update(&mut self, latest: ScreenState) -> u64 {
-        if self.latest.as_ref() != Some(&latest) {
-            self.latest = Some(latest);
+        if self.latest.as_deref() != Some(&latest) {
+            self.latest = Some(Arc::new(latest));
             self.latest_seq += 1;
         }
         self.latest_seq
@@ -1198,20 +1211,20 @@ impl SyncSender {
         {
             return datagrams.clone();
         }
-        let base = if self.acked_seq == 0 { None } else { self.acked.as_ref() };
-        let payload = diff(base, latest);
-        self.last_payload_len = payload.len();
+        let base = if self.acked_seq == 0 { None } else { self.acked.as_deref() };
+        diff_into(base, latest, &mut self.scratch);
+        self.last_payload_len = self.scratch.len();
         let datagrams =
-            fragment(&payload, self.max_datagram, self.epoch, self.latest_seq, self.acked_seq);
+            fragment(&self.scratch, self.max_datagram, self.epoch, self.latest_seq, self.acked_seq);
         if self.sent.back().map(|s| s.0) != Some(self.latest_seq) {
-            let keyframe = if base.is_none() { payload } else { diff(None, latest) };
-            self.sent_bytes += keyframe.len();
-            self.sent.push_back((self.latest_seq, keyframe));
+            let footprint = latest.footprint();
+            self.sent_bytes += footprint;
+            self.sent.push_back((self.latest_seq, Arc::clone(latest), footprint));
             while self.sent.len() > SENT_RING
                 || (self.sent_bytes > SENT_RING_BYTES && self.sent.len() > 1)
             {
-                if let Some((_, k)) = self.sent.pop_front() {
-                    self.sent_bytes -= k.len();
+                if let Some((_, _, bytes)) = self.sent.pop_front() {
+                    self.sent_bytes -= bytes;
                 }
             }
         }
@@ -1239,23 +1252,21 @@ impl SyncSender {
         }
         let state = if seq == self.latest_seq {
             // The phone holds the latest: kept or not.
-            for (_, k) in self.sent.drain(..) {
-                self.sent_bytes -= k.len();
-            }
+            self.sent.clear();
+            self.sent_bytes = 0;
             self.latest.clone()
         } else {
             match self.sent.iter().position(|s| s.0 == seq) {
                 Some(i) => {
-                    for (_, k) in self.sent.drain(..i) {
-                        self.sent_bytes -= k.len();
-                    }
-                    let (_, keyframe) = self.sent.pop_front().unwrap_or_default();
-                    self.sent_bytes -= keyframe.len();
-                    apply(None, &keyframe).ok()
+                    self.sent.drain(..i);
+                    self.sent.pop_front().map(|(_, state, _)| state)
                 }
                 None => None,
             }
         };
+        if state.is_some() {
+            self.sent_bytes = self.sent.iter().map(|s| s.2).sum();
+        }
         match state {
             Some(state) => {
                 self.acked_seq = seq;
@@ -1272,9 +1283,9 @@ impl SyncSender {
         if let Some(state) = self.acked.take()
             && self.sent.front().is_none_or(|s| s.0 > self.acked_seq)
         {
-            let keyframe = diff(None, &state);
-            self.sent_bytes += keyframe.len();
-            self.sent.push_front((self.acked_seq, keyframe));
+            let footprint = state.footprint();
+            self.sent_bytes += footprint;
+            self.sent.push_front((self.acked_seq, state, footprint));
         }
         self.acked_seq = 0;
     }
@@ -1328,15 +1339,13 @@ pub struct SyncReceiver {
     epoch: Option<u32>,
     seq: u64,
     /// The state held (seq `seq`).
-    current: Option<ScreenState>,
-    /// States a diff may be based on, oldest first, as keyframe encodings:
+    current: Option<Arc<ScreenState>>,
+    /// States a diff may be based on, oldest first, with their footprints:
     /// every one applied since the newest base seen (the held one too).
-    held: VecDeque<(u64, Vec<u8>)>,
+    held: VecDeque<(u64, Arc<ScreenState>, usize)>,
     held_bytes: usize,
     /// The newest nonzero base of an applied diff; older states are dropped.
     floor: u64,
-    /// The last older state decoded to apply a diff from.
-    base_cache: Option<(u64, ScreenState)>,
     partials: Vec<Partial>,
 }
 
@@ -1370,16 +1379,12 @@ impl SyncReceiver {
         let result = if h.base == 0 {
             apply(None, &payload)
         } else if h.base == self.seq {
-            apply(self.current.as_ref(), &payload)
+            apply(self.current.as_deref(), &payload)
         } else {
-            if self.base_cache.as_ref().map(|c| c.0) != Some(h.base) {
-                let Some(keyframe) = self.held.iter().find(|s| s.0 == h.base).map(|s| &s.1) else {
-                    return ack(held_seq);
-                };
-                let Ok(state) = apply(None, keyframe) else { return ack(held_seq) };
-                self.base_cache = Some((h.base, state));
-            }
-            apply(self.base_cache.as_ref().map(|c| &c.1), &payload)
+            let Some(base) = self.held.iter().find(|s| s.0 == h.base).map(|s| &*s.1) else {
+                return ack(held_seq);
+            };
+            apply(Some(base), &payload)
         };
         let Ok(state) = result else { return ack(held_seq) };
         if !same_epoch {
@@ -1387,25 +1392,22 @@ impl SyncReceiver {
             self.held.clear();
             self.held_bytes = 0;
             self.floor = 0;
-            self.base_cache = None;
         }
         self.seq = h.seq;
-        let keyframe = if h.base == 0 { payload.into_owned() } else { diff(None, &state) };
-        self.current = Some(state);
-        self.held_bytes += keyframe.len();
-        self.held.push_back((h.seq, keyframe));
+        let state = Arc::new(state);
+        let footprint = state.footprint();
+        self.current = Some(Arc::clone(&state));
+        self.held_bytes += footprint;
+        self.held.push_back((h.seq, state, footprint));
         self.floor = self.floor.max(h.base);
         while self.held.len() > 1
             && (self.held.front().is_some_and(|s| s.0 < self.floor)
                 || self.held.len() > HELD_RING
                 || self.held_bytes > HELD_RING_BYTES)
         {
-            if let Some((_, k)) = self.held.pop_front() {
-                self.held_bytes -= k.len();
+            if let Some((_, _, bytes)) = self.held.pop_front() {
+                self.held_bytes -= bytes;
             }
-        }
-        if self.base_cache.as_ref().is_some_and(|c| c.0 < self.floor) {
-            self.base_cache = None;
         }
         let (epoch, seq) = (h.epoch, self.seq);
         self.partials.retain(|p| p.epoch != epoch || p.seq > seq);
@@ -1475,7 +1477,7 @@ impl SyncReceiver {
 
     /// The state held (None before the first keyframe).
     pub fn screen(&self) -> Option<&ScreenState> {
-        self.current.as_ref()
+        self.current.as_deref()
     }
 
     /// The seq held (0: nothing).

@@ -189,16 +189,16 @@ impl Path {
 /// as soon as the datagrams would, with nothing to capture or diff.
 #[derive(Clone, Debug)]
 pub struct SelectorConfig {
-    /// Datagrams when the round-trip loss is above this.
-    pub loss_above: f64,
-    /// Datagrams when the smoothed round trip is above this.
+    /// Datagrams after this many sends lost (each one a retransmit the stream would wait on).
+    pub losses: usize,
+    /// Datagrams once `slow_samples` round trips in a row are longer than this. A send still
+    /// unacked past it counts as one: on a long link the switch need not wait out a round trip.
     pub srtt_above: Duration,
-    /// Back to the stream only below both of these, for `hold` (the hysteresis).
-    pub loss_below: f64,
+    pub slow_samples: u64,
+    /// Back to the stream only after `hold` with no send lost and the smoothed round trip below
+    /// this (the hysteresis).
     pub srtt_below: Duration,
     pub hold: Duration,
-    /// Round trips measured before a long one switches.
-    pub min_samples: u64,
     /// While nothing else goes, a small datagram every `probe` keeps the round trip and loss
     /// measured.
     pub probe: Duration,
@@ -207,15 +207,30 @@ pub struct SelectorConfig {
 impl Default for SelectorConfig {
     fn default() -> Self {
         Self {
-            loss_above: 0.005,
+            losses: 2,
             srtt_above: Duration::from_millis(20),
-            loss_below: 0.0025,
+            slow_samples: 3,
             srtt_below: Duration::from_millis(15),
-            hold: Duration::from_secs(2),
-            min_samples: 3,
+            hold: Duration::from_secs(5),
             probe: Duration::from_millis(100),
         }
     }
+}
+
+/// What the selector judges a link by, at one moment.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Evidence {
+    /// The smoothed round trip (None before the first ack).
+    pub srtt: Option<Duration>,
+    /// Round trips in a row longer than [`SelectorConfig::srtt_above`], each send still unacked
+    /// past it included.
+    pub slow: u64,
+    /// Sends lost since the selector last switched.
+    pub losses: usize,
+    /// When the last send was found lost.
+    pub last_loss: Option<Instant>,
+    /// The round-trip loss over the last settled sends (for the log).
+    pub loss: Option<f64>,
 }
 
 /// One path switch: when, to which path, and the measurements that made it.
@@ -223,8 +238,7 @@ impl Default for SelectorConfig {
 pub struct Switch {
     pub at: Instant,
     pub to: Path,
-    pub srtt: Duration,
-    pub loss: Option<f64>,
+    pub evidence: Evidence,
 }
 
 /// Per link, the stream or the datagrams, from the round trip and loss the datagram side
@@ -255,19 +269,20 @@ impl PathSelector {
         &self.config
     }
 
-    /// The link's numbers now (`samples` round trips measured so far, `loss` once enough
-    /// sends settled). Returns the new path when it switches, and logs one line.
-    pub fn observe(&mut self, srtt: Duration, samples: u64, loss: Option<f64>, now: Instant) -> Option<Path> {
+    /// The link's numbers now. Returns the new path when it switches, and logs one line.
+    pub fn observe(&mut self, evidence: Evidence, now: Instant) -> Option<Path> {
         let config = &self.config;
         let next = match self.path {
             Path::Stream => {
-                let slow = samples >= config.min_samples && srtt > config.srtt_above;
-                let lossy = loss.is_some_and(|loss| loss > config.loss_above);
+                let slow = evidence.slow >= config.slow_samples;
+                let lossy = evidence.losses >= config.losses;
                 (slow || lossy).then_some(Path::Datagram)
             }
             Path::Datagram => {
-                let good = srtt < config.srtt_below && loss.is_some_and(|loss| loss < config.loss_below);
-                if good {
+                let fast = evidence.srtt.is_some_and(|srtt| srtt < config.srtt_below);
+                let clean =
+                    evidence.last_loss.is_none_or(|at| now.saturating_duration_since(at) >= config.hold);
+                if fast && clean {
                     let since = *self.good_since.get_or_insert(now);
                     (now.saturating_duration_since(since) >= config.hold).then_some(Path::Stream)
                 } else {
@@ -278,11 +293,13 @@ impl PathSelector {
         }?;
         self.path = next;
         self.good_since = None;
-        self.switches.push(Switch { at: now, to: next, srtt, loss });
+        self.switches.push(Switch { at: now, to: next, evidence });
         tracing::info!(
             to = next.name(),
-            srtt_ms = srtt.as_secs_f64() * 1000.0,
-            loss = loss.map_or_else(|| "-".to_owned(), |loss| format!("{:.4}", loss)),
+            srtt_ms = evidence.srtt.map_or(-1.0, |srtt| srtt.as_secs_f64() * 1000.0),
+            slow = evidence.slow,
+            losses = evidence.losses,
+            loss = evidence.loss.map_or_else(|| "-".to_owned(), |loss| format!("{:.4}", loss)),
             "viewport sync path switch"
         );
         Some(next)
@@ -321,7 +338,15 @@ pub struct ViewportSync {
     lost: usize,
     srtt: Option<Duration>,
     rttvar: Duration,
-    rtt_samples: u64,
+    /// Round trips in a row (one per send) longer than the selector's `srtt_above`, and the
+    /// send time of the last one counted.
+    slow_run: u64,
+    slow_at: Option<Instant>,
+    /// Sends lost since the selector last switched, and when the last one was.
+    losses: usize,
+    last_loss: Option<Instant>,
+    /// The pacer's last look saw a queue (a cut needs two in a row).
+    queued: bool,
     /// Round trip samples, for the floor (all of the last 10 s) and its recent value.
     samples: VecDeque<(Instant, Duration)>,
     /// (ack time, bytes sent up to the acked datagram): what reached the phone, over time.
@@ -371,7 +396,11 @@ impl ViewportSync {
             lost: 0,
             srtt: None,
             rttvar: Duration::ZERO,
-            rtt_samples: 0,
+            slow_run: 0,
+            slow_at: None,
+            losses: 0,
+            last_loss: None,
+            queued: false,
             samples: VecDeque::new(),
             delivered: VecDeque::new(),
             last_adjust: None,
@@ -516,15 +545,17 @@ impl ViewportSync {
         self.last_send = Some(now);
         while self.flights.len() > MAX_FLIGHTS {
             if let Some(flight) = self.flights.pop_front() {
-                self.settled_one(flight.acked);
+                self.settled_one(flight.acked, now);
             }
         }
     }
 
-    fn settled_one(&mut self, acked: bool) {
+    fn settled_one(&mut self, acked: bool, now: Instant) {
         self.outcomes.push_back(acked);
         if !acked {
             self.lost += 1;
+            self.losses += 1;
+            self.last_loss = Some(now);
         }
         while self.outcomes.len() > LOSS_WINDOW {
             if self.outcomes.pop_front() == Some(false) {
@@ -534,24 +565,52 @@ impl ViewportSync {
     }
 
     /// Flights acked, or unacked past the loss timeout, leave for the loss count.
+    /// (No round trip measured yet: long enough for the slowest link's first ack.)
     fn settle(&mut self, now: Instant) {
         let timeout = match self.srtt {
             Some(srtt) => (srtt * 2).max(srtt + self.rttvar * 4),
-            None => Duration::from_secs(1),
+            None => Duration::from_secs(3),
         } + Duration::from_millis(100);
         while let Some(front) = self.flights.front().copied() {
             if !front.acked && now < front.at + timeout {
                 break;
             }
             self.flights.pop_front();
-            self.settled_one(front.acked);
+            self.settled_one(front.acked, now);
         }
     }
 
     fn select(&mut self, now: Instant) {
-        let (Some(srtt), loss, samples) = (self.srtt, self.loss(), self.rtt_samples) else { return };
         let Some(selector) = &mut self.selector else { return };
-        if let Some(path) = selector.observe(srtt, samples, loss, now) {
+        let above = selector.config().srtt_above;
+        // Sends (one per launch time) still unacked past `above`: each a round trip longer than it.
+        let mut pending = 0;
+        let mut last_at = None;
+        for flight in self.flights.iter().rev() {
+            if flight.acked {
+                // Acked after older unacked ones: those were lost or reordered, not slow.
+                break;
+            }
+            if now.saturating_duration_since(flight.at) > above && last_at != Some(flight.at) {
+                pending += 1;
+                last_at = Some(flight.at);
+            }
+        }
+        let evidence = Evidence {
+            srtt: self.srtt,
+            slow: self.slow_run + pending,
+            losses: self.losses,
+            last_loss: self.last_loss,
+            loss: (self.outcomes.len() >= LOSS_MIN_SETTLED)
+                .then(|| self.lost as f64 / self.outcomes.len() as f64),
+        };
+        if self.last_loss.is_some_and(|at| now.saturating_duration_since(at) >= selector.config().hold) {
+            // Losses count toward a switch only while they keep coming.
+            self.losses = 0;
+        }
+        let evidence = Evidence { losses: self.losses, ..evidence };
+        if let Some(path) = selector.observe(evidence, now) {
+            self.losses = 0;
             self.switched = Some(path);
             if path == Path::Datagram {
                 // The phone's state is behind by everything the stream carried.
@@ -665,7 +724,15 @@ impl ViewportSync {
             while self.delivered.len() > MAX_SAMPLES {
                 self.delivered.pop_front();
             }
-            self.sample(now.saturating_duration_since(at), now);
+            let rtt = now.saturating_duration_since(at);
+            // One per send: a diff's fragments went together and say the same.
+            if self.slow_at != Some(at) {
+                let above =
+                    self.selector.as_ref().map_or(Duration::MAX, |selector| selector.config().srtt_above);
+                self.slow_run = if rtt > above { self.slow_run + 1 } else { 0 };
+                self.slow_at = Some(at);
+            }
+            self.sample(rtt, now);
         }
         self.settle(now);
         self.select(now);
@@ -683,7 +750,6 @@ impl ViewportSync {
                 self.srtt = Some(srtt.mul_f64(0.875) + rtt.mul_f64(0.125));
             }
         }
-        self.rtt_samples += 1;
         self.samples.push_back((now, rtt));
         while self.samples.len() > MAX_SAMPLES
             || self.samples.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) > FLOOR_WINDOW)
@@ -705,16 +771,21 @@ impl ViewportSync {
         Some(last_bytes.saturating_sub(first_bytes) as f64 / elapsed.as_secs_f64())
     }
 
-    /// The rate follows the link's delay, never its loss, at most once a round trip: a recent
-    /// round-trip minimum risen above the floor by more than the jitter's spread is a queue
-    /// (down to under what was delivered); a held-back screen at the floor is headroom.
+    /// The rate follows the link's delay, never its loss, at most once a round trip. A queue
+    /// lifts every round trip: the recent minimum above the 10 s floor and the recent median
+    /// above the 10 s median, both by more than the jitter's spread (jitter alone strays one of
+    /// them now and then, not both twice running). Two looks in a row with a queue cut the rate
+    /// (to under what was delivered, at most by half); a held-back screen with none is headroom.
     fn adjust(&mut self, now: Instant) {
         let Some(srtt) = self.srtt else { return };
         let period = srtt.max(Duration::from_millis(50));
         if self.last_adjust.is_some_and(|last| now < last + period) {
             return;
         }
-        let Some(floor) = self.samples.iter().map(|(_, rtt)| *rtt).min() else { return };
+        if self.samples.len() < 2 * MIN_RECENT {
+            return;
+        }
+        let mut long: Vec<Duration> = self.samples.iter().map(|(_, rtt)| *rtt).collect();
         let window = (srtt / 2).max(Duration::from_millis(500));
         let mut recent: Vec<Duration> = self
             .samples
@@ -723,24 +794,31 @@ impl ViewportSync {
             .map(|(_, rtt)| *rtt)
             .collect();
         if recent.len() < MIN_RECENT {
-            return;
+            // A slow sender: its last few round trips, however long they took to come.
+            recent = self.samples.iter().rev().take(MIN_RECENT).map(|(_, rtt)| *rtt).collect();
         }
+        long.sort_unstable();
         recent.sort_unstable();
-        let low = recent[0];
-        let spread = recent[recent.len() / 2].saturating_sub(low);
-        let threshold = Duration::from_millis(25).max(floor / 4).max(spread);
-        let queue = low.saturating_sub(floor);
+        let floor = long[0];
+        let spread = long[long.len() * 3 / 4].saturating_sub(long[long.len() / 4]);
+        let threshold = Duration::from_millis(25).max(floor / 4).max(spread / 2);
+        let lifted = recent[0]
+            .saturating_sub(floor)
+            .min(recent[recent.len() / 2].saturating_sub(long[long.len() / 2]));
+        let queued = lifted > threshold;
+        let again = queued && self.queued;
+        self.queued = queued;
+        self.last_adjust = Some(now);
         let rate = self.pacer.rate();
-        let next = if queue > threshold {
+        let next = if again {
             let delivered = self.delivery_rate(now, srtt.max(Duration::from_millis(250)));
-            delivered.map_or(rate * 0.7, |delivered| (delivered * 0.75).min(rate * 0.85))
-        } else if self.limited && queue <= threshold / 2 {
+            delivered.map_or(rate * 0.7, |delivered| (delivered * 0.75).min(rate * 0.85)).max(rate * 0.5)
+        } else if !queued && self.limited && lifted <= threshold / 2 {
             rate * 1.25
         } else {
             return;
         };
         self.pacer.set_rate(next.clamp(self.config.min_rate, self.config.max_rate), now);
-        self.last_adjust = Some(now);
         self.limited = false;
     }
 }
@@ -1173,7 +1251,7 @@ mod tests {
         assert_eq!(sync.take_switch(), Some(Path::Datagram));
         let switch = sync.switches()[0];
         assert!(switch.at < start + Duration::from_millis(600), "{:?}", switch.at - start);
-        assert!(switch.srtt > Duration::from_millis(20));
+        assert!(switch.evidence.slow >= 3, "{:?}", switch.evidence);
         // The link gets fast: back to the stream only after the hold, once.
         link.delay = Duration::from_millis(1);
         let mut phone_link = link;
@@ -1183,6 +1261,20 @@ mod tests {
         assert_eq!(switches.len(), 2, "{switches:?}");
         assert!(switches[1].at >= now + SelectorConfig::default().hold);
         assert!(later > switches[1].at);
+    }
+
+    #[test]
+    fn viewport_sync_selector_switches_within_a_second_on_lossy_10() {
+        let start = Instant::now();
+        let mut sync = driver(start);
+        sync.select_path(SelectorConfig::default());
+        // lossy-10: 500 ms each way, 300 ms of jitter, 10% loss each way. No ack comes back for
+        // a second; the sends still unacked past 20 ms say the round trip is long.
+        let mut link = FakeLink::new(Duration::from_millis(500), Duration::from_millis(300), 0.10);
+        drive_fake(&mut sync, &mut link, start, 2);
+        let switch = sync.switches().first().copied().expect("a switch");
+        assert_eq!(switch.to, Path::Datagram);
+        assert!(switch.at - start <= Duration::from_secs(1), "{:?}", switch.at - start);
     }
 
     #[test]
