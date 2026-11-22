@@ -13,6 +13,7 @@
 // when the watch starts late. A frame here is a frame of the page's script, not a frame on the screen.
 
 import { chatSnapshotReport } from "./chatSnapshot/live";
+import { relaunchWatchReport } from "./relaunchWatch";
 
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
@@ -225,6 +226,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     shifts,
     appeared,
     scroll_jumps: scrollJumps,
+    // What redid itself on the read chat since the bundle started (relaunchWatch.ts), or null with no launch harness.
+    relaunch: relaunchWatchReport(),
   };
 }
 
