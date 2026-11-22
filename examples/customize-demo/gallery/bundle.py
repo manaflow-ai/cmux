@@ -13,6 +13,10 @@ A preview carries settings and files only: a setup's cmux-next.json `actions` an
 lists come with `cmux setup install`, not with a preview. The bundle keeps them under
 "x-setup" so the demo can say so; `cmux customize use` ignores unknown top-level keys.
 
+A look that sets a setting this cmux's schema does not have yet waits in WAITING, with the PR
+that adds it: it has no bundle until schemas/settings/settings-schema.json has the key, and then
+`--check` fails until it is bundled, so it joins the demo the day its PR lands.
+
 `--check` exits 1 while a bundle is stale or a look has no bundle.
 """
 import json
@@ -23,6 +27,15 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 EXAMPLES = HERE.parent.parent
 STYLE_SURFACES = ("agent-pane", "markdown", "diff", "picker", "fileViewer")
+SCHEMA = EXAMPLES.parent / "schemas" / "settings" / "settings-schema.json"
+# Bundle name -> (the PR that adds the setting, the setting).
+WAITING = {"starter-thinking-dots.json": ("cmux#47525", "agentPane.display.thinking.glyph")}
+
+
+def waiting() -> dict[str, tuple[str, str]]:
+    """The WAITING looks whose setting this checkout's schema still lacks."""
+    schema = SCHEMA.read_text() if SCHEMA.is_file() else ""
+    return {name: why for name, why in WAITING.items() if f'"{why[1]}"' not in schema}
 
 
 def strip_jsonc(text: str) -> str:
@@ -130,6 +143,8 @@ def sources() -> dict[str, pathlib.Path]:
             out["-".join(profile.parent.relative_to(looks).parts) + ".json"] = profile.parent
     for setup in sorted((EXAMPLES / "gallery").glob("*/cmux-setup.json")):
         out[f"starter-{setup.parent.name}.json"] = setup.parent
+    for name in waiting():
+        out.pop(name, None)
     return out
 
 

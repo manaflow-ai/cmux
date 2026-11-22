@@ -12,7 +12,7 @@ and one command puts your own setup back.
 examples/customize-demo/demo.sh --nightly --only looks/claude.json  # one look; Enter reverts
 examples/customize-demo/demo.sh            # every setup in order, Enter for the next
 examples/customize-demo/demo.sh --auto 12  # 12 s each, no keys (for a recording)
-examples/customize-demo/demo.sh --nightly --auto 8  # all 75 looks in installed NIGHTLY, then revert
+examples/customize-demo/demo.sh --nightly --auto 8  # all 76 looks in installed NIGHTLY, then revert
 examples/customize-demo/demo.sh --list     # the order
 examples/customize-demo/demo.sh reset      # your setup back
 ```
@@ -109,6 +109,7 @@ and `demo.sh` names what install would add.
 | `gallery/hush.json` | [looks/hush](../looks/hush) | yes | Calm assistant-browser look |
 | `gallery/kerf.json` | [looks/kerf](../looks/kerf) | yes | Fast native editor look |
 | `gallery/linen.json` | [looks/linen](../looks/linen) | yes | Consumer chat app look |
+| `gallery/paper.json` | [looks/paper](../looks/paper) | yes | Paper whole look |
 | `gallery/prism.json` | [looks/prism](../looks/prism) | yes | Vertical-tab browser look |
 | `gallery/rex-activity.json` | [looks/rex/activity](../looks/rex/activity) | yes | Activity view |
 | `gallery/rex-appearance.json` | [looks/rex/appearance](../looks/rex/appearance) | yes | Three palettes, sidebar groups |
@@ -127,7 +128,7 @@ and `demo.sh` names what install would add.
 | `gallery/starter-chat-style.json` | [gallery/chat-style](../gallery/chat-style) | yes | Chat and Markdown type |
 | `gallery/starter-sidebar-view.json` | [gallery/sidebar-view](../gallery/sidebar-view) | yes | A hover card view |
 | `gallery/starter-theme-file.json` | [gallery/theme-file](../gallery/theme-file) | yes | The smallest theme file |
-| `gallery/starter-thinking-dots.json` | [gallery/thinking-dots](../gallery/thinking-dots) | yes | Thinking dots particles |
+| `gallery/studio.json` | [looks/studio](../looks/studio) | yes | Studio whole look: Studio, Studio Light, Studio Ember |
 | `gallery/tachyon.json` | [looks/tachyon](../looks/tachyon) | yes | Block-terminal look |
 | `gallery/tandem.json` | [looks/tandem](../looks/tandem) | yes | Agent-workspace look |
 | `showcase/cockpit.json` | [customize-showcase/cockpit](../customize-showcase/cockpit) | yes | Mission control, original |
@@ -140,12 +141,17 @@ and `demo.sh` names what install would add.
 | `showcase/right-handed.json` | [customize-showcase/right-handed](../customize-showcase/right-handed) | yes | The window mirrored |
 | `showcase/tiling.json` | [customize-showcase/tiling](../customize-showcase/tiling) | yes | Scrolling tiling, original |
 
+Not a step yet: [gallery/thinking-dots](../gallery/thinking-dots) sets
+`agentPane.display.thinking.glyph`, which cmux#47525 adds to the settings schema; until then a
+preview refuses it. `gallery/bundle.py` holds it in `WAITING`, and `--check` fails once the schema
+has the key until it is bundled, so it joins the demo when cmux#47525 lands.
+
 Not a step: [examples/extensions](../extensions) are store apps (`cmux app install`), not profiles;
 the widgets look above shows the clock, weather, usage and PR views they offer.
 
 Recorded in NIGHTLY, look by look: [VIDEO.md](VIDEO.md).
 
-There are 75 profiles in the recording order. `check.py` fails if a look is missing from the
+There are 76 profiles in the recording order. `check.py` fails if a look is missing from the
 demo, a bundle is stale, a profile has no declared feature surface, a density token is not in the
 Density Playground's catalog, a demo look leaves its sidebar, top right buttons or Session Info at
 the defaults, or Claude, Codex, studio, hosts and Material share a tabs and sidebar shape:

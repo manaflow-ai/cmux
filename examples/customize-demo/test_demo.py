@@ -85,7 +85,7 @@ class DemoTests(unittest.TestCase):
         result, calls = self.run_demo("--auto", "0")
         self.assertEqual(result.returncode, 0, result.stderr)
         actions = [call for call in calls if call[:2] == ["action", "run"]]
-        self.assertEqual(actions, [["action", "run", "newTab.page", "--focus"]] * 14)
+        self.assertEqual(actions, [["action", "run", "newTab.page", "--focus"]] * (len(STEPS) + 1))
 
     def test_per_look_video_states(self):
         with tempfile.TemporaryDirectory() as folder:
