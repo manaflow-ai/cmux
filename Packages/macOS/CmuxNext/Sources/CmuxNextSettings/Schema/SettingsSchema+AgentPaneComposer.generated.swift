@@ -32,6 +32,15 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.sessionWorktrees`.
+    public nonisolated static let sessionWorktreesPath = ["agentPane", "sessionWorktrees"]
+    public nonisolated static let sessionWorktreesDefault: AgentPaneSessionWorktrees = .off
+    /// `agentPane.composerLook`: The composer's look in every chat (agentPane.composerLook; composerLook.ts): auto is the app's own composer; studio (opt-in) lays the model, effort and access chips inside the box with an attach paperclip and a round accent Send on the right, as a coding studio's composer does (composerLook.css data-composer-variant). The New Tab page always draws its own. Leo: "the composer doesn't even look remotely similar".
+    public nonisolated static let composerLookPath = ["agentPane", "composerLook"]
+    public nonisolated static let composerLookDefault: AgentPaneComposerLook = .auto
+    /// `agentPane.emptyChatComposerPosition`: Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer="center"]).
+    public nonisolated static let emptyChatComposerPositionPath = ["agentPane", "emptyChatComposerPosition"]
+    public nonisolated static let emptyChatComposerPositionDefault: AgentPaneEmptyChatComposerPosition = .bottom
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -55,7 +64,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.composerRing", "Composer Ring"),
-                help: SettingsText.keyed("settings.agentPane.composerRing.help", "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."),
+                help: SettingsText.keyed("settings.agentPane.composerRing.help", "What the ring at the end of the composer shows."),
                 kind: .choice([
                     SettingChoice(AgentPaneComposerRing.context.rawValue, SettingsText.keyed("settings.choice.composerRingContext", "Context")),
                     SettingChoice(AgentPaneComposerRing.planUsage.rawValue, SettingsText.keyed("settings.choice.composerRingPlanUsage", "Plan Usage")),
@@ -78,7 +87,6 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.dictationSource", "Dictate With"),
-                help: SettingsText.keyed("settings.agentPane.dictationSource.help", "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."),
                 kind: .choice([
                     SettingChoice(AgentPaneDictationSource.cmux.rawValue, SettingsText.keyed("settings.choice.dictationSourceCmux", "cmux")),
                     SettingChoice(AgentPaneDictationSource.macos.rawValue, SettingsText.keyed("settings.choice.dictationSourceMacos", "macOS Dictation")),
@@ -96,7 +104,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.dictationShortcut", "Dictation App Shortcut"),
-                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help", "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."),
+                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help", "The shortcut sent to your dictation app. Empty uses the app's default."),
                 kind: .text,
                 default: .string(AgentPaneComposerSetting.dictationShortcutDefault),
                 keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
@@ -116,7 +124,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
-                help: SettingsText.keyed("settings.agentPane.attachmentView.help", "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."),
+                help: SettingsText.keyed("settings.agentPane.attachmentView.help", "How pictures and files show in the composer and in sent messages."),
                 kind: .choice([
                     SettingChoice(AgentPaneAttachmentView.inline.rawValue, SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
                     SettingChoice(AgentPaneAttachmentView.strip.rawValue, SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
@@ -150,13 +158,53 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.newChatsIn", "Start New Chats In"),
-                help: SettingsText.keyed("settings.agentPane.newChatsIn.help", "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."),
+                help: SettingsText.keyed("settings.agentPane.newChatsIn.help", "Cloud copies your project to your Cloud machine. A chat's composer can change it."),
                 kind: .choice([
                     SettingChoice(AgentPaneNewChatPlace.local.rawValue, SettingsText.keyed("settings.choice.newChatsInLocal", "This Mac")),
                     SettingChoice(AgentPaneNewChatPlace.cloud.rawValue, SettingsText.keyed("settings.choice.newChatsInCloud", "Cloud")),
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.sessionWorktreesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.sessionWorktrees", "Session Worktrees"),
+                help: SettingsText.keyed("settings.agentPane.sessionWorktrees.help", "Choose where to keep worktrees for local chats and forks."),
+                kind: .choice([
+                    SettingChoice(AgentPaneSessionWorktrees.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(AgentPaneSessionWorktrees.shared.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesShared", "Shared Worktree Folder")),
+                    SettingChoice(AgentPaneSessionWorktrees.project.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesProject", "Inside Project")),
+                ]),
+                default: .string(AgentPaneComposerSetting.sessionWorktreesDefault.rawValue),
+                keywords: ["git", "worktree", "fork", "folder"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.composerLookPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.composerLook", "Composer Look"),
+                help: SettingsText.keyed("settings.agentPane.composerLook.help", "Where the mode, model and effort sit: under the box or inside it."),
+                kind: .choice([
+                    SettingChoice(AgentPaneComposerLook.auto.rawValue, SettingsText.keyed("settings.choice.composerLookAuto", "Automatic")),
+                    SettingChoice(AgentPaneComposerLook.studio.rawValue, "Studio"),
+                ]),
+                default: .string(AgentPaneComposerSetting.composerLookDefault.rawValue),
+                keywords: ["composer", "look", "style", "studio", "message box", "model", "mode", "effort", "agent"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.emptyChatComposerPositionPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.emptyChatComposerPosition", "Empty Chat Message Box"),
+                help: SettingsText.keyed("settings.agentPane.emptyChatComposerPosition.help", "Where the message box sits in a chat with no messages yet."),
+                kind: .choice([
+                    SettingChoice(AgentPaneEmptyChatComposerPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                    SettingChoice(AgentPaneEmptyChatComposerPosition.center.rawValue, SettingsText.keyed("settings.choice.emptyChatComposerCenter", "Center")),
+                ]),
+                default: .string(AgentPaneComposerSetting.emptyChatComposerPositionDefault.rawValue),
+                keywords: ["composer", "message box", "empty", "new chat", "center", "centered", "middle", "bottom", "position", "agent"]
             ),
         ]
     }

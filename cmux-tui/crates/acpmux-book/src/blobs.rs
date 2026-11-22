@@ -58,6 +58,24 @@ impl Body {
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
+
+    /// The offset, in the stored JSON [`Blobs::write_body`] writes, of the end of `text`'s
+    /// content: where its closing quote is. [`Body::len`] when the body has no `text`.
+    pub fn fixed(&self) -> u64 {
+        // `{`, then each field as `"key":value` with `,` between fields; text adds its quotes.
+        let mut at = 1u64;
+        for (index, (key, value)) in self.fields.iter().enumerate() {
+            if index != 0 {
+                at = at.saturating_add(1);
+            }
+            at = at.saturating_add(key.len() as u64 + 3);
+            if key == "text" {
+                return at.saturating_add(1).saturating_add(value_len(value));
+            }
+            at = at.saturating_add(value_len(value));
+        }
+        self.len()
+    }
 }
 
 pub struct Blobs {
@@ -66,8 +84,8 @@ pub struct Blobs {
     stopped: bool,
 }
 
-/// The maximum bytes returned by one body range read.
-pub const MAX_BLOB_READ: usize = 256 * 1024;
+/// The maximum bytes returned by one body range read: the log's one bound.
+pub use crate::log::MAX_BLOB_READ;
 
 /// A range of the open body's stored JSON at one content generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +94,8 @@ pub struct OpenBlobRange {
     pub end: u64,
     pub total: u64,
     pub generation: u64,
+    /// [`Body::fixed`] of the body read: where `text`'s closing quote is, or `total`.
+    pub fixed: u64,
 }
 
 impl Blobs {
@@ -281,7 +301,7 @@ impl Blobs {
             }
         }
         range.bytes(b"}")?;
-        Ok(OpenBlobRange { start, end, total, generation: body.generation })
+        Ok(OpenBlobRange { start, end, total, generation: body.generation, fixed: body.fixed() })
     }
 
     /// The caller syncs raw first. A small final body stays inline even if it once spilled.

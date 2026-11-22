@@ -4,8 +4,21 @@ public import Foundation
 /// other than ids decode leniently: a missing or differently typed optional
 /// field is nil, so a newer server never breaks an older app.
 
+/// A device's platform. `linux` is a Linux desktop that hosts its screen
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views. `windows` is a Windows
+/// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios
+    case macos, ios, linux, windows
+
+    /// Whether this Mac can view a screen this platform hosts: a Mac or a Linux desktop, never an iPhone.
+    /// A Windows PC is listed but not viewed yet. Settings > Devices and the sidebar's screen actions ask
+    /// this, and the switch is exhaustive, so a new platform says here whether the Mac views it.
+    public var hostsScreenThisMacViews: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios, .windows: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.
@@ -36,6 +49,17 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
+    }
+
+    /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
+    /// with no platform is not offered.
+    public var hostsScreenThisMacViews: Bool { platform?.hostsScreenThisMacViews ?? false }
+
+    /// Known screen destinations (Macs and Linux desktops), including hosts whose user has yet to allow sharing.
+    /// Lowercase device IDs are stable identity keys; display names never participate.
+    public static func macScreenAvailability(in devices: [HubDevice]) -> [String: Bool] {
+        Dictionary(devices.filter(\.hostsScreenThisMacViews).map { ($0.id.lowercased(), $0.online) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     /// The signing key's display fingerprint, when the key is valid.

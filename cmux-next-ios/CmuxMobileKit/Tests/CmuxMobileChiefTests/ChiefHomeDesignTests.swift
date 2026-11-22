@@ -100,28 +100,19 @@ import SwiftUI
 }
 
 @Suite @MainActor struct ChiefSessionHomeStateTests {
-    /// SPEC 1.6: Needs You and the pin's preview follow the outbox.
-    @Test func outboxMeansChiefWaitsOnYou() {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: file))
+    /// SPEC 1.6: a new Chief with nothing in it doesn't need you.
+    @Test func emptyChiefDoesNotWaitOnYou() {
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         #expect(!session.needsYou)
         #expect(!session.isWaitingOnYou)
-        session.send(ConversationComposeMessage(text: "status?"))
-        #expect(session.needsYou)
-        #expect(session.isWaitingOnYou)
-        session.discardOutbox()
-        #expect(!session.needsYou)
-        // F6: waiting on you (a question not yet seen) counts as Needs You,
-        // as the pin's bubble shows it; covered with the mock below.
         #expect(session.avatar == "C")
     }
 
     #if DEBUG
     /// F6: Chief's unseen question shows on the pin and counts as Needs You.
     @Test func unseenQuestionIsNeedsYou() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
         let preferences = ChiefPreferences(defaults: try #require(UserDefaults(suiteName: "chief-seen-\(UUID().uuidString)")))
-        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
+        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences)
         try await waitUntil("Chief's first message") { session.lastMessage != nil }
         #expect(session.isWaitingOnYou)
         #expect(session.needsYou)
@@ -129,7 +120,7 @@ import SwiftUI
         #expect(!session.isWaitingOnYou)
         // QA 2026-10-27: after a relaunch the question seen before stays seen
         // (the marker was in memory only, so every old question came back).
-        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
+        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences)
         try await waitUntil("Chief's first message after a relaunch") { relaunched.lastMessage != nil }
         #expect(!relaunched.isWaitingOnYou)
     }

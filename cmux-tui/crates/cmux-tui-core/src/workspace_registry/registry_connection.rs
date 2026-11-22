@@ -76,12 +76,6 @@ pub(crate) struct RegistryConnection {
     connection: Arc<ReentrantMutex<Connection>>,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
-    /// The journal writer, once it runs (see `registry_intent`).
-    pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
-    /// Indeterminate registry commits still owed to state (cx-g1fa.3).
-    pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
-    /// The length of `unsettled`, written under its mutex, for a reader that takes no lock.
-    pub(super) unsettled_held: std::sync::atomic::AtomicUsize,
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
@@ -157,6 +151,7 @@ pub(crate) fn note_state_lock(acquired: bool) {
 }
 
 /// True while the current thread holds the mux state lock.
+#[cfg(test)]
 pub(crate) fn current_thread_holds_state() -> bool {
     STATE_HOLDS.with(Cell::get) > 0
 }
@@ -331,9 +326,6 @@ impl RegistryConnection {
             readers,
             point_reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
-            intent_sink: std::sync::OnceLock::new(),
-            unsettled: std::sync::Mutex::default(),
-            unsettled_held: std::sync::atomic::AtomicUsize::new(0),
             durability,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
@@ -463,8 +455,7 @@ impl RegistryConnection {
     }
 
     /// True while this thread holds the connection lock (a pin or a guard).
-    /// A thread that holds it must not wait for a journal writer receipt:
-    /// the writer needs this lock to commit.
+    #[cfg(test)]
     pub(crate) fn is_held_by_current_thread(&self) -> bool {
         self.connection.is_owned_by_current_thread()
     }
@@ -497,7 +488,9 @@ impl RegistryConnection {
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 
-    #[cfg(test)]
+    /// One try, for work that must not wait for the connection: `None`
+    /// while another thread holds it. A try waits for nothing, so its rank
+    /// is recorded and not checked.
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })

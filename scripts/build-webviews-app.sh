@@ -105,7 +105,8 @@ mkdir -p "$OUT_DIR"
   bun install --frozen-lockfile
   if [ -n "$REPORT_DIR" ]; then
     mkdir -p "$REPORT_DIR"
-    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" build_app
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" \
+      CMUX_ARTIFACT_RUNTIME_METAFILE="$REPORT_DIR/webviews-artifact-runtime.json" build_app
   else
     CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
   fi

@@ -33,7 +33,8 @@ const CLIENT_WORDS: [&str; 15] = [
 ];
 
 /// A short ASCII word that passed one of the grammars below: the only text a record holds.
-#[derive(Clone, Copy)]
+/// Two labels are equal when their words are: the bytes after `len` are always 0.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Label {
     len: u8,
     bytes: [u8; LABEL_BYTES],
@@ -103,6 +104,12 @@ impl Label {
     /// A client's own name or kind (`set-client-info`), only when it is one of `CLIENT_WORDS`.
     pub(crate) fn client(text: &str) -> Option<Self> {
         CLIENT_WORDS.contains(&text).then(|| Self::copied(text.as_bytes()))
+    }
+
+    /// The kind word of a connection whose kind is the session's journal plugin
+    /// (`ClientKind::Plugin`): the daemon's own word, not a text of the client.
+    pub(crate) fn plugin() -> Option<Self> {
+        Self::token("plugin")
     }
 
     /// The 16 hex digits that end a session folder's name (`<name>-<hash>`). The name before them

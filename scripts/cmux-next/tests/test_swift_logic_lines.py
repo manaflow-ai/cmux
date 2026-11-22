@@ -8,9 +8,12 @@ moved to another Swift module or renamed counts again, a file moved inside its m
 working tree; an unlisted declaration of a reviewed generator's output (GENERATORS: its path and its header) counts 0,
 a spoofed header or a generated-looking name does not; an extension of `[T]` is a declaration; a line never counts
 twice;
-the table's invalid and missing rows are reported.
+the table's invalid and missing rows are reported. swift-logic-delta.py (SwiftLogicDeltaTests) reports a change's
+row, module and declaration deltas between two revisions, and exits 0 when the count grows; its --status line and
+swift-logic-pr-status.py (SwiftLogicPrStatusTests: the pull request status line, against the merge base, fetched
+from a file:// origin) say "not counted" and exit 0 when they cannot count.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the script:
   python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py
 """
 
@@ -50,6 +53,7 @@ def load(name: str, path: Path):
 
 
 logic = load("cmux_next_swift_logic_lines_under_test", SCRIPTS / "swift-logic-lines.py")
+logic_delta = load("cmux_next_swift_logic_delta_under_test", SCRIPTS / "swift-logic-delta.py")
 
 
 class Repo(unittest.TestCase):
@@ -344,6 +348,40 @@ class LogicLinesTests(Repo):
                          {"Kit": {"swift_logic_lines": 2}, "CmuxNextCore": {"swift_logic_lines": 2 + 3}})
         self.assertEqual((data["unlisted"]["in_table_modules"], data["unlisted"]["other_modules"]), (3, 2))
 
+    def test_a_package_only_test_targets_reach_is_out_of_the_scope(self):
+        # CmuxNextMobileTests named the old iOS app's packages (CmuxMobileRPC and what it pulls in), which the app
+        # never links: v2 counted them. A package a non-test target also names stays, and so does one no target names.
+        manifest = ('// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "CmuxNext", '
+                    'dependencies: [.package(path: "../../Shared/Kit"), .package(path: "../../iOS/Phone"), '
+                    '.package(path: "../../Shared/Both"), .package(path: "../../Shared/Declared")], targets: ['
+                    '.target(name: "CmuxNextCore", dependencies: [.product(name: "Kit", package: "Kit"), '
+                    '.product(name: "Both", package: "Both")]), '
+                    '.testTarget(name: "CmuxNextCoreTests", dependencies: ["CmuxNextCore", '
+                    '.product(name: "Phone", package: "Phone"), .product(name: "Both", package: "Both")])])\n')
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest)
+        for name, deps in (("Kit", ""), ("Both", ""), ("Declared", ""),
+                           ("Phone", 'dependencies: [.package(path: "../Deeper")], ')):
+            folder = "iOS" if name == "Phone" else "Shared"
+            self.write(f"Packages/{folder}/{name}/Package.swift",
+                       f'// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "{name}", '
+                       f'{deps}targets: [.target(name: "{name}"' + (', dependencies: [.product(name: "Deeper", '
+                       'package: "Deeper")]' if name == "Phone" else "") + ')])\n')
+            self.write(f"Packages/{folder}/{name}/Sources/{name}/{name}.swift", f"struct {name} {{\n}}\n")
+        self.write("Packages/iOS/Deeper/Package.swift",
+                   '// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "Deeper", '
+                   'targets: [.target(name: "Deeper")])\n')
+        self.write("Packages/iOS/Deeper/Sources/Deeper/Deeper.swift", "struct Deeper {\n}\n")
+        self.write(f"{SRC}/CmuxNextCore/Core.swift", "struct Core {\n}\n")
+        self.table()
+        self.commit()
+        self.assertEqual(sorted(self.packages()), ["Both", "CmuxNextCore", "Declared", "Kit"])
+        # The same package named by a non-test target too is linked: it comes back with its own dependencies.
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest.replace(
+            '.product(name: "Both", package: "Both")]), ', '.product(name: "Both", package: "Both"), '
+            '.product(name: "Phone", package: "Phone")]), '))
+        self.commit()
+        self.assertEqual(sorted(self.packages()), ["Both", "CmuxNextCore", "Declared", "Deeper", "Kit", "Phone"])
+
     def test_invalid_and_duplicate_table_rows_never_lower_the_count(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
         self.write(f"{SRC}/CmuxNextDomain/Wire.swift", "struct Wire {\n}\n")  # 2
@@ -371,6 +409,141 @@ class LogicLinesTests(Repo):
         data = self.count()
         self.assertEqual(data["rows"]["swift_logic_lines"], 10, "a table of another header lists nothing")
         self.assertEqual(data["table_rows_invalid"], 1)
+
+
+class SwiftLogicDeltaTests(Repo):
+    def delta(self, base, head="HEAD", *extra):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(logic_delta.main(["--repo", str(self.repo), "--base", base, "--head", head, *extra]), 0)
+        return out.getvalue()
+
+    def test_a_change_reports_its_row_module_and_declaration_deltas(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
+        self.write(f"{SRC}/CmuxNextDomain/Gone.swift", "struct Gone {\n    let a = 1\n}\n")  # 3
+        self.write(f"{SRC}/CmuxNextCore/Wire.swift", "struct Wire {\n    let a = 1\n}\n")  # 3
+        self.table(("CmuxNextCore", "struct", "Wire", 0, "MIRROR", 0, 100, f"{SRC}/CmuxNextCore/Wire.swift", "dto"))
+        base = self.commit("base")
+        # Store grows by 2, Gone goes (-3), Wire grows by 1 mirror line, a new extension adds 4 (a name with a `:`).
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift",
+                   "final class Store {\n    var n = 0\n    var m = 0\n    var o = 0\n}\n")
+        (self.repo / SRC / "CmuxNextDomain" / "Gone.swift").unlink()
+        self.write(f"{SRC}/CmuxNextCore/Wire.swift", "struct Wire {\n    let a = 1\n    let b = 2\n}\n")
+        self.write(f"{SRC}/CmuxNextCore/Dict.swift",
+                   "extension [String: Int] {\n    var x: Int { 1 }\n    var y: Int { 2 }\n}\n")
+        head = self.commit("head")
+        data = json.loads(self.delta(base, head, "--json"))
+        self.assertEqual((data["base"], data["head"]), (base, head))
+        self.assertEqual(data["rows"], {"swift_logic_lines": {"base": 6, "head": 9, "delta": 3},
+                                        "mirror_lines": {"base": 3, "head": 4, "delta": 1}})
+        self.assertEqual(data["packages"], {"CmuxNextCore": {"swift_logic_lines": 4, "mirror_lines": 1},
+                                            "CmuxNextDomain": {"swift_logic_lines": -1}})
+        self.assertEqual([(a["row"], a["path"], a["line"], a["declaration"], a["lines"]) for a in data["added"]], [
+            ("swift_logic_lines", f"{SRC}/CmuxNextCore/Dict.swift", 1, "extension [String:Int] #0", 4),
+            ("swift_logic_lines", f"{SRC}/CmuxNextDomain/Store.swift", 1, "class Store #0", 2),
+            ("mirror_lines", f"{SRC}/CmuxNextCore/Wire.swift", 1, "struct Wire #0", 1),
+        ])
+        self.assertEqual(data["removed_lines"], {"swift_logic_lines": 3, "mirror_lines": 0})
+        text = self.delta(base, head, "--top", "1")
+        self.assertIn("| swift_logic_lines | 6 | 9 | +3 |", text)
+        self.assertIn("| CmuxNextDomain | -1 | +0 |", text)
+        self.assertIn(f"- `{SRC}/CmuxNextCore/Dict.swift:1` extension [String:Int] #0: +4 swift_logic_lines", text)
+        self.assertNotIn("Store.swift:1", text, "--top 1 lists one declaration")
+
+    def test_no_swift_change_reports_zero_and_no_declarations(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        base = self.commit("base")
+        self.write("README", "changed\n")
+        data = json.loads(self.delta(base, self.commit("docs"), "--json"))
+        self.assertEqual(data["rows"]["swift_logic_lines"], {"base": 3, "head": 3, "delta": 0})
+        self.assertEqual((data["packages"], data["added"]), ({}, []))
+
+    def test_status_is_one_line_with_the_largest_declarations_and_the_rest_collapsed(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
+        base = self.commit("base")
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift",
+                   "final class Store {\n    var n = 0\n    var m = 0\n}\n")  # +1
+        self.write(f"{SRC}/CmuxNextCore/Wire.swift", "struct Wire {\n    let a = 1\n    let b = 2\n}\n")  # +4
+        head = self.commit("head")
+        text = self.delta(base, head, "--status")
+        line, rest = text.split("\n", 1)
+        self.assertEqual(line, f"Swift logic + mirror: **+5 lines** (swift_logic +5, mirror +0) "
+                               f"against the merge base `{base[:7]}`; "
+                               "largest: `Wire.swift:1` struct Wire (+4), `Store.swift:1` class Store (+1)")
+        self.assertTrue(rest.startswith("<details><summary>"), rest)
+        self.assertIn("| CmuxNextCore | +4 | +0 |", rest)
+        self.assertIn(f"- `{SRC}/CmuxNextDomain/Store.swift:1` class Store #0: +1 swift_logic_lines", rest)
+        self.assertTrue(rest.rstrip().endswith("</details>"), rest)
+        self.assertNotIn("### Swift logic delta", text, "the heading is the line itself")
+
+    def test_status_of_a_shrink_says_minus_and_lists_no_largest(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        base = self.commit("base")
+        (self.repo / SRC / "CmuxNextDomain" / "Store.swift").unlink()
+        line = self.delta(base, self.commit("cut"), "--status").split("\n", 1)[0]
+        self.assertEqual(line, f"Swift logic + mirror: **-3 lines** (swift_logic -3, mirror +0) "
+                               f"against the merge base `{base[:7]}`")
+
+    def test_status_says_not_counted_and_exits_0_when_it_cannot_count(self):
+        self.commit("base")
+        text = self.delta("0" * 40, "HEAD", "--status")
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
+        self.assertEqual(text.count("\n"), 1)
+        with self.assertRaises(Exception), contextlib.redirect_stdout(io.StringIO()):
+            logic_delta.main(["--repo", str(self.repo), "--base", "0" * 40, "--head", "HEAD"])
+
+
+pr_status = load("cmux_next_swift_logic_pr_status_under_test", SCRIPTS / "swift-logic-pr-status.py")
+
+
+class SwiftLogicPrStatusTests(Repo):
+    """swift-logic-pr-status.py against a file:// origin: it fetches the merge base and the head itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        self.fork = self.commit("fork point")
+        self.url = self.repo.as_uri()
+
+    def run_status(self, head):
+        work = Path(self.tmp.name) / f"work-{head[:7]}"
+        out = Path(self.tmp.name) / f"out-{head[:7]}.md"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pr_status.main(["--url", self.url, "--base-ref", "feat-cmux-next", "--head", head,
+                                             "--work", str(work), "--out", str(out)]), 0)
+        return out.read_text(), work
+
+    def branch(self, name):
+        self.git("checkout", "--quiet", "-b", name, self.fork)
+
+    def test_a_swift_change_is_counted_against_the_merge_base_not_the_base_tip(self):
+        self.branch("pr")
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift",
+                   "final class Store {\n    var n = 0\n    var m = 0\n}\n")  # +1
+        head = self.commit("pr")
+        # The base branch moves on after the fork with a large addition the pull request must not be charged for.
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{SRC}/CmuxNextCore/Big.swift", "struct Big {\n" + "    let a = 1\n" * 50 + "}\n")
+        self.commit("base moves on")
+        text, work = self.run_status(head)
+        self.assertTrue(text.startswith(
+            f"Swift logic + mirror: **+1 lines** (swift_logic +1, mirror +0) against the merge base `{self.fork[:7]}`; "
+            "largest: `Store.swift:1` class Store (+1)"), text)
+        self.assertNotIn("Big.swift", text)
+        caches = list((work / "objects.git" / "cmux-arch-counts").glob("facts-*.sqlite"))
+        self.assertTrue(caches, "the facts cache is where the workflow's actions/cache keeps it")
+
+    def test_no_swift_file_changed_leaves_the_section_empty(self):
+        self.branch("docs")
+        self.write("README", "docs only\n")
+        text, _ = self.run_status(self.commit("docs"))
+        self.assertEqual(text, "")
+
+    def test_a_head_it_cannot_fetch_is_not_counted_and_exits_0(self):
+        text, _ = self.run_status("1" * 40)
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
 
 
 if __name__ == "__main__":

@@ -13,10 +13,14 @@
 //! - The first change this daemon sees decides with no history: signed out leaves as `previous`
 //!   (the app's account before, if it knew one; else acpmux leaves as the accounts it recorded),
 //!   and signed in only enrolls (an enroll that finds the last person's sign-in join finishes
-//!   that leave itself). The same person again changes nothing.
+//!   that leave itself). The same person again changes nothing, unless that person's enroll is
+//!   not done: a report with no access token (signing in publishes the person before its token
+//!   can be read), or an enroll the hub did not answer twice. Then the same person with a token
+//!   enrolls (after the work queued before it); none goes twice for one sign-in once one answered.
 //!
-//! The app sends a change again when its acpmux connection comes back, so a daemon that restarted
-//! before it took one still gets it.
+//! The app sends the signed-in person again whenever its acpmux connection comes back, taken or
+//! not: a daemon that restarted lost the enroll it took (the token is never on disk), and the
+//! resend, with a token, enrolls again. A daemon that did not restart changes nothing.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -72,6 +76,14 @@ struct State {
     /// Whether a change was seen since this daemon started.
     decided: bool,
     current: Option<String>,
+    /// Counts the changes of the signed-in person: one sign-in's enrolls carry its number.
+    session: u64,
+    /// The sign-in whose enroll got an answer (anything but `Unavailable`): no enroll goes again
+    /// for it. Any other sign-in's enroll is not done yet.
+    enrolled: Option<u64>,
+    /// The sign-in whose enroll with a token is queued or running: the same person again, with a
+    /// token, waits for it rather than queueing another.
+    in_flight: Option<u64>,
     /// The last change's work: done once it holds true (or its task is gone).
     last: Option<watch::Receiver<bool>>,
 }
@@ -99,8 +111,31 @@ impl Follow {
         Self { state: Mutex::new(State::default()), changed: Notify::new(), retry_wait }
     }
 
-    fn is_current(&self, user: &str) -> bool {
-        self.state.lock_or_recover().current.as_deref() == Some(user)
+    /// Whether sign-in `session` is still the signed-in person's and its enroll is not done.
+    fn needs_enroll(&self, session: u64) -> bool {
+        let state = self.state.lock_or_recover();
+        state.session == session && state.current.is_some() && state.enrolled != Some(session)
+    }
+
+    /// Whether sign-in `session`'s enroll got an answer.
+    fn enrolled(&self, session: u64) -> bool {
+        self.state.lock_or_recover().enrolled == Some(session)
+    }
+
+    /// Sign-in `session`'s enroll got an answer.
+    fn enroll_done(&self, session: u64) {
+        let mut state = self.state.lock_or_recover();
+        if state.session == session {
+            state.enrolled = Some(session);
+        }
+    }
+
+    /// Sign-in `session`'s queued enroll ended, answered or not.
+    fn enroll_ended(&self, session: u64) {
+        let mut state = self.state.lock_or_recover();
+        if state.in_flight == Some(session) {
+            state.in_flight = None;
+        }
     }
 
     /// Waits for every change so far (tests).
@@ -119,10 +154,25 @@ impl Follow {
         change: Change,
     ) -> Accepted {
         let Change { user_id, previous, access } = change;
-        let (leave, leaving, before, done) = {
+        let (leave, leaving, before, done, session) = {
             let mut state = self.state.lock_or_recover();
             if state.decided && state.current == user_id {
-                return Accepted { recorded: None, leave: false, enroll: false };
+                // The same person again: only an enroll not done yet goes, now with a token.
+                let session = state.session;
+                let (Some(user), Some(access)) = (user_id, access) else {
+                    return Accepted { recorded: None, leave: false, enroll: false };
+                };
+                if state.enrolled == Some(session) || state.in_flight == Some(session) {
+                    return Accepted { recorded: None, leave: false, enroll: false };
+                }
+                state.in_flight = Some(session);
+                let (done, watching) = watch::channel(false);
+                let before = state.last.replace(watching);
+                drop(state);
+                // An enroll waiting to retry goes now, with this token queued behind it.
+                self.changed.notify_waiters();
+                self.spawn_enroll(scope, port, before, done, session, None, user, access);
+                return Accepted { recorded: None, leave: false, enroll: true };
             }
             let leave = if state.decided { state.current.is_some() } else { user_id.is_none() };
             let leaving = if state.decided {
@@ -132,9 +182,11 @@ impl Follow {
             };
             state.decided = true;
             state.current = user_id.clone();
+            state.session += 1;
+            state.in_flight = (user_id.is_some() && access.is_some()).then_some(state.session);
             let (done, watching) = watch::channel(false);
             let before = state.last.replace(watching);
-            (leave, leaving, before, done)
+            (leave, leaving, before, done, state.session)
         };
         // An enroll waiting to retry for the last person stops waiting.
         self.changed.notify_waiters();
@@ -143,44 +195,80 @@ impl Follow {
             None => None,
         };
         let enroll = user_id.is_some() && access.is_some();
+        let leave_asked = leave;
+        let leave = leave.then_some(leaving);
+        match (user_id, access) {
+            (Some(user), Some(access)) => {
+                self.spawn_enroll(scope, port, before, done, session, leave, user, access);
+            }
+            _ => {
+                // At most one leave, bounded by the hub client's deadlines; ends with it, or
+                // with the daemon's scope.
+                let _task = scope.spawn_named("machine-signed-in", async move {
+                    ended(before).await;
+                    if let Some(leaving) = leave {
+                        port.leave(leaving).await;
+                    }
+                    let _ = done.send(true);
+                });
+            }
+        }
+        Accepted { recorded, leave: leave_asked, enroll }
+    }
+
+    /// Queues, after `before`: the `leave` (the account it names), then sign-in `session`'s enroll
+    /// for `user`, unless that enroll is done by then.
+    fn spawn_enroll(
+        self: &Arc<Self>,
+        scope: &cmux_scope::Scope,
+        port: Arc<dyn Port>,
+        before: Option<watch::Receiver<bool>>,
+        done: watch::Sender<bool>,
+        session: u64,
+        leave: Option<Option<String>>,
+        user: String,
+        access: Zeroizing<String>,
+    ) {
         let follow = Arc::clone(self);
         // At most one leave and two enrolls, each bounded by the hub client's deadlines, and one
         // retry wait; ends with them, or with the daemon's scope.
         let _task = scope.spawn_named("machine-signed-in", async move {
             ended(before).await;
-            if leave {
+            if let Some(leaving) = leave {
                 port.leave(leaving).await;
             }
-            if let (Some(user), Some(access)) = (user_id, access) {
-                follow.enroll(port.as_ref(), user, access).await;
-            }
+            follow.enroll(port.as_ref(), session, user, access).await;
+            follow.enroll_ended(session);
             let _ = done.send(true);
         });
-        Accepted { recorded, leave, enroll }
     }
 
-    /// The enroll for `user`, once more after [`RETRY_WAIT`] when the hub did not answer, while
-    /// `user` is still signed in.
-    async fn enroll(&self, port: &dyn Port, user: String, access: Zeroizing<String>) {
+    /// Sign-in `session`'s enroll for `user` unless one was answered, once more after
+    /// [`RETRY_WAIT`] when the hub did not answer, while it is still the signed-in person's.
+    async fn enroll(&self, port: &dyn Port, session: u64, user: String, access: Zeroizing<String>) {
         for attempt in 0..2 {
             if attempt > 0 {
                 let changed = self.changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                if !self.is_current(&user) {
+                if !self.needs_enroll(session) {
                     return;
                 }
                 tokio::select! {
                     () = tokio::time::sleep(self.retry_wait) => {}
                     () = &mut changed => {}
                 }
-                if !self.is_current(&user) {
+                if !self.needs_enroll(session) {
                     return;
                 }
+            }
+            if self.enrolled(session) {
+                return;
             }
             let outcome = port.enroll(user.clone(), access.clone()).await;
             tracing::info!(?outcome, "sign-in enroll");
             if outcome != EnrollOutcome::Unavailable {
+                self.enroll_done(session);
                 return;
             }
         }
@@ -196,11 +284,12 @@ struct Daemon {
 impl Port for Daemon {
     fn record(&self, account: String) -> Boxed<'_, bool> {
         Box::pin(async move {
-            let recorded = crate::cli::cloud_join::record_leave_intent(&account).await;
+            // Signed out now: this change is the newest the app sent.
+            let recorded = crate::cli::cloud_join::record_leave_intent(&account, None).await;
             if let Err(e) = &recorded {
                 tracing::info!("sign-out: the account was not recorded: {e:#}");
             }
-            recorded.is_ok()
+            recorded.is_ok_and(|recorded| recorded)
         })
     }
 

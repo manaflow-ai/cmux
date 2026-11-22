@@ -3,7 +3,12 @@
 //!
 //! Windows, pages and resumes return [`RowRef`] ranges after checking each record's header
 //! and CRC. Closed folds parse only their group row's visible ranges; hidden rows are skipped.
-//! [`Log::fill`] reads the checked ranges for the caller to copy into its frame.
+//! A window or page carries its rows' text from the one read that checked them
+//! ([`Window::bytes`]); [`Log::fill`] reads checked ranges for other callers.
+//!
+//! One read does at most one search of `folds.idx`, then steps to neighbouring entries as its
+//! walk moves; rows between two folds cost no read of the index. A page of turns
+//! ([`Log::read_turns`]) reads only the group rows `folds.idx` lists.
 //!
 //! Windows and pages hold at most [`MAX_ROWS`] visible rows. The record-byte bounds are
 //! [`MAX_FRAME_BYTES`] for a window or resume and [`MAX_PAGE_BYTES`] for a page.
@@ -11,6 +16,7 @@
 use super::index::Entry;
 use super::record::{Check, HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
 use super::{Error, Log, RawRange, SEQ_STRIDE};
+use crate::folds::{Entry as FoldEntry, Folds};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -104,6 +110,10 @@ pub struct Window {
     /// Rows whose headers or CRCs were refused. They count in the window's bounds,
     /// but are holes in its rows.
     pub refused: Vec<u64>,
+    /// The rows' texts, from the read that checked their records: `at[i]` is where the text of
+    /// `rows[i]` lies in `bytes`. Other record bytes (headers, CRCs) may lie between texts.
+    pub bytes: Vec<u8>,
+    pub at: Vec<Range<usize>>,
 }
 
 /// What a cursor missed, in change order.
@@ -126,7 +136,16 @@ pub struct Since {
 pub enum ResumeSize {
     Within(u64),
     Over,
+    /// A header on the way to the record after the cursor is not the next record's (or the log
+    /// ends first): the resume would stop at it, so its size is not known. The caller sends a
+    /// window and rebuilds the book, as for a record a read refused.
+    Damaged,
 }
+
+/// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
+/// none when its index entry is missing or its record is refused: a hole that keeps its place
+/// and its row slot.
+type TurnRead = (RowRef, Vec<u8>);
 
 /// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
@@ -154,6 +173,12 @@ impl Span {
         (other.seg == self.seg && joined.hi.saturating_sub(joined.lo) <= SPAN_BYTES)
             .then_some(joined)
     }
+
+    /// [`Span::with`] when `row`'s record starts where this span ends, so a read of the joined
+    /// span holds no other record's bytes.
+    fn followed_by(self, row: &RowRef) -> Option<Span> {
+        if Span::of(row).lo == self.hi { self.with(row) } else { None }
+    }
 }
 
 /// What a walk may still take.
@@ -168,24 +193,79 @@ struct Budget {
 
 /// Per-request fold state shared by all directions of a window walk.
 struct FoldRead<'a> {
-    index: Option<&'a crate::folds::Folds>,
+    index: Option<&'a Folds>,
     open: &'a [u64],
     ranges: BTreeMap<u64, Vec<(u64, u64)>>,
-    /// Exact group records already checked while reading their visible ranges. The sole
-    /// writer cannot change them during this request, so validation need not read them twice.
-    validated: BTreeMap<u64, RowRef>,
-    hint: Option<crate::folds::Entry>,
+    /// Exact group records already checked while reading their visible ranges, with their
+    /// text. The sole writer cannot change them during this request, so neither validation
+    /// nor the reply reads them twice.
+    validated: BTreeMap<u64, (RowRef, Vec<u8>)>,
+    /// Where the walk is in `folds.idx`; `None` until the request's one search.
+    cursor: Option<FoldCursor>,
+}
+
+/// Two neighbouring entries of `folds.idx`: the rows from `below.group` up to (not including)
+/// `above.group` are in `below`'s fold or in the gap after it, so they need no index read.
+#[derive(Clone, Copy)]
+struct FoldCursor {
+    /// The position of `above`; `below` is the entry just before it.
+    above_at: u64,
+    /// `None` before the first entry.
+    below: Option<FoldEntry>,
+    /// `None` after the last entry.
+    above: Option<FoldEntry>,
 }
 
 impl<'a> FoldRead<'a> {
-    fn new(index: Option<&'a crate::folds::Folds>, open: &'a [u64]) -> Self {
-        Self { index, open, ranges: BTreeMap::new(), validated: BTreeMap::new(), hint: None }
+    fn new(index: Option<&'a Folds>, open: &'a [u64]) -> Self {
+        Self { index, open, ranges: BTreeMap::new(), validated: BTreeMap::new(), cursor: None }
+    }
+
+    /// The closed fold holding `row_id`, if any. The first call searches the index; later
+    /// calls step from the cursor to neighbouring entries, one 16-byte read each, and a row
+    /// in the gap the cursor spans reads nothing.
+    fn locate(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
+        let Some(index) = self.index else { return Ok(None) };
+        let mut cursor = match self.cursor {
+            Some(cursor) => cursor,
+            None => {
+                let (above_at, below) = match index.search(row_id)? {
+                    Some((position, entry)) => (position.saturating_add(1), Some(entry)),
+                    None => (0, None),
+                };
+                FoldCursor { above_at, below, above: index.entry_at(above_at)? }
+            }
+        };
+        loop {
+            if let Some(below) = cursor.below
+                && row_id < below.group
+            {
+                cursor.above = Some(below);
+                cursor.above_at = cursor.above_at.saturating_sub(1);
+                cursor.below = match cursor.above_at.checked_sub(1) {
+                    Some(position) => index.entry_at(position)?,
+                    None => None,
+                };
+                continue;
+            }
+            if let Some(above) = cursor.above
+                && row_id >= above.group
+            {
+                cursor.below = Some(above);
+                cursor.above_at = cursor.above_at.saturating_add(1);
+                cursor.above = index.entry_at(cursor.above_at)?;
+                continue;
+            }
+            break;
+        }
+        self.cursor = Some(cursor);
+        Ok(cursor.below.filter(|fold| row_id <= fold.last))
     }
 }
 
 impl Log {
     /// The single size bound used by every read entry point.
-    pub(crate) fn bound(requested: usize, cap: usize) -> usize {
+    pub fn bound(requested: usize, cap: usize) -> usize {
         requested.min(cap)
     }
 
@@ -256,14 +336,7 @@ impl Log {
         up: bool,
         folds: &mut FoldRead<'_>,
     ) -> Result<Option<(bool, Option<u64>)>, Error> {
-        let fold = if folds.hint.is_some_and(|fold| (fold.group..=fold.last).contains(&row_id)) {
-            folds.hint
-        } else {
-            let found = folds.index.map_or(Ok(None), |index| index.containing(row_id))?;
-            folds.hint = found;
-            found
-        };
-        let Some(fold) = fold else { return Ok(None) };
+        let Some(fold) = folds.locate(row_id)? else { return Ok(None) };
         if folds.open.contains(&fold.group) || row_id == fold.group {
             return Ok(Some((true, None)));
         }
@@ -301,13 +374,15 @@ impl Log {
     fn fold_out_ranges(
         &mut self,
         group: u64,
-        validated: &mut BTreeMap<u64, RowRef>,
+        validated: &mut BTreeMap<u64, (RowRef, Vec<u8>)>,
     ) -> Result<Vec<(u64, u64)>, Error> {
         let Some(entry) = self.entry(group) else { return Ok(Vec::new()) };
         let row = RowRef::of(group, 0, &entry);
         let Some(bytes) = self.read_row_bytes(&row)? else { return Ok(Vec::new()) };
-        validated.insert(group, row);
-        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else { return Ok(Vec::new()) };
+        let parsed = serde_json::from_slice::<Value>(&bytes);
+        // The reply carries this text; it is not read again.
+        validated.insert(group, (row, bytes));
+        let Ok(value) = parsed else { return Ok(Vec::new()) };
         let Some(out) =
             value.get("body").and_then(|body| body.get("out")).and_then(Value::as_array)
         else {
@@ -324,11 +399,10 @@ impl Log {
             .collect())
     }
 
+    /// Moves an anchor in a closed fold's hidden rows to its group. Its search positions the
+    /// request's fold cursor, so the walk after it does not search again.
     fn normalize_anchor(&mut self, id: u64, folds: &mut FoldRead<'_>) -> Result<u64, Error> {
-        let Some(fold) = folds.index.map_or(Ok(None), |index| index.containing(id))? else {
-            return Ok(id);
-        };
-        folds.hint = Some(fold);
+        let Some(fold) = folds.locate(id)? else { return Ok(id) };
         if folds.open.contains(&fold.group) || id == fold.group {
             return Ok(id);
         }
@@ -376,8 +450,10 @@ impl Log {
         Ok(self.read_row_bytes(row)?.is_some())
     }
 
+    /// Checks every record of the reply in one read of its rows, which also gives the reply's
+    /// text ([`Window::bytes`]). Group rows checked while reading their fold are not read
+    /// again: their text is kept from that read. Refused rows leave `rows`.
     fn refuse_rows(&mut self, window: &mut Window, folds: &FoldRead<'_>) -> Result<(), Error> {
-        let mut bytes = Vec::new();
         let mut ranges = Vec::new();
         let unchecked;
         let rows = if folds.validated.is_empty() {
@@ -387,13 +463,31 @@ impl Log {
                 .rows
                 .iter()
                 .copied()
-                .filter(|row| folds.validated.get(&row.row_id) != Some(row))
+                .filter(|row| {
+                    folds.validated.get(&row.row_id).map(|(checked, _)| checked) != Some(row)
+                })
                 .collect::<Vec<_>>();
             unchecked.as_slice()
         };
-        self.fill_checked(rows, &mut bytes, &mut ranges, &mut window.refused)?;
+        self.fill_records(rows, &mut window.bytes, &mut ranges, &mut window.refused)?;
         let refused: std::collections::BTreeSet<_> = window.refused.iter().copied().collect();
         window.rows.retain(|row| !refused.contains(&row.row_id));
+        // `ranges` holds the texts of the rows read, in order, without the refused ones.
+        let mut filled = ranges.into_iter();
+        window.at.clear();
+        window.at.reserve(window.rows.len());
+        for row in &window.rows {
+            let kept = folds.validated.get(&row.row_id).filter(|(checked, _)| checked == row);
+            let range = match kept {
+                Some((_, text)) => {
+                    let start = window.bytes.len();
+                    window.bytes.extend_from_slice(text);
+                    start..window.bytes.len()
+                }
+                None => filled.next().ok_or(Error::Corrupt("a checked row has no text"))?,
+            };
+            window.at.push(range);
+        }
         Ok(())
     }
 
@@ -407,6 +501,8 @@ impl Log {
             has_before: self.min_row != 0 && lo > self.min_row,
             has_after: hi < self.max_row,
             refused: Vec::new(),
+            bytes: Vec::new(),
+            at: Vec::new(),
         }
     }
 
@@ -430,7 +526,7 @@ impl Log {
         anchor: Anchor,
         rows: usize,
         max_bytes: usize,
-        folds: Option<&crate::folds::Folds>,
+        folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
         if self.broken {
@@ -477,8 +573,15 @@ impl Log {
                 };
                 let kept_rows = budget.rows / 2;
                 let mut after = Vec::new();
+                // Each walk resumes the fold cursor where its rows are, not where the last
+                // walk ended, so turning back costs no steps over the rows already walked.
+                let at_anchor = fold_read.cursor;
                 let mut hi =
                     self.walk(start, true, &mut ahead, &mut after, &mut fold_read, None)?;
+                let at_hi = fold_read.cursor;
+                if at_anchor.is_some() {
+                    fold_read.cursor = at_anchor;
+                }
                 budget = Budget {
                     rows: kept_rows.saturating_add(ahead.rows),
                     bytes: ahead.bytes,
@@ -491,6 +594,9 @@ impl Log {
                 if budget.rows != 0 && budget.bytes != 0 {
                     let next = hi.map_or(start, |hi| hi.saturating_add(1));
                     budget.first_free = false;
+                    if at_hi.is_some() {
+                        fold_read.cursor = at_hi;
+                    }
                     hi = self
                         .walk(next, true, &mut budget, &mut after, &mut fold_read, None)?
                         .or(hi);
@@ -518,7 +624,7 @@ impl Log {
         edge: Edge,
         max_bytes: usize,
         fold: Option<u64>,
-        folds: Option<&crate::folds::Folds>,
+        folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
         if self.broken {
@@ -559,13 +665,14 @@ impl Log {
         edge: Edge,
         max_bytes: usize,
         group: u64,
-        folds: Option<&crate::folds::Folds>,
+        folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
-        let Some(fold) = folds
-            .map_or(Ok(None), |index| index.containing(group))?
-            .filter(|entry| entry.group == group)
-        else {
+        let mut opened = open_folds.to_vec();
+        opened.push(group);
+        let mut fold_read = FoldRead::new(folds, &opened);
+        // The request's one search; the walk inside the fold reads no other entry.
+        let Some(fold) = fold_read.locate(group)?.filter(|entry| entry.group == group) else {
             return Err(Error::InvalidInput("fold is not in folds.idx"));
         };
         let (start, up) = match edge {
@@ -581,9 +688,6 @@ impl Log {
             one_read: folds.is_none(),
         };
         let mut rows = Vec::new();
-        let mut opened = open_folds.to_vec();
-        opened.push(group);
-        let mut fold_read = FoldRead::new(folds, &opened);
         let edge = self.walk(
             start,
             up,
@@ -605,22 +709,119 @@ impl Log {
             has_after: nonempty && hi < fold.last,
             rows,
             refused: Vec::new(),
+            bytes: Vec::new(),
+            at: Vec::new(),
         };
         self.refuse_rows(&mut result, &fold_read)?;
         Ok(result)
     }
 
-    /// Measures the bytes a resume starts from, without reading a record. Cursors in the
-    /// same sparse block share an upper bound; a span across three segments is always over.
+    /// A page of turns: the group rows `folds.idx` lists just before or just after a row, one a
+    /// settled turn, nearest the anchor first to be taken. Each is carried as a window carries
+    /// a closed fold's group row, its record checked. No other row of a fold and no row between
+    /// folds is read. At most `max_bytes` of records ([`MAX_PAGE_BYTES`] at most) and
+    /// [`MAX_ROWS`] rows, always one when one exists; `has_before` and `has_after` say whether
+    /// `folds.idx` lists more on each side. The fold that holds the anchor is before it (unless
+    /// the anchor is its group row), never on both sides. The open turn's group row is not
+    /// settled, so `folds.idx` does not list it.
+    ///
+    /// One search of `folds.idx`, then one step to a neighbouring entry, one `rows.idx` lookup
+    /// and one read a group row: the cost of a page, at any number of turns or length of turn.
+    pub fn read_turns(
+        &mut self,
+        edge: Edge,
+        max_bytes: usize,
+        folds: &Folds,
+    ) -> Result<Window, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
+        let count = folds.count();
+        let (id, up) = match edge {
+            Edge::Before(id) => (id, false),
+            Edge::After(id) => (id, true),
+        };
+        // `first_after` is the position of the first entry whose group is after the anchor.
+        // Before it, an entry whose group is the anchor itself is on neither side.
+        let (first_after, before_end) = match folds.search(id)? {
+            Some((position, entry)) => {
+                let after = position.saturating_add(1);
+                (after, if entry.group == id { position } else { after })
+            }
+            None => (0, 0),
+        };
+        let mut next =
+            if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
+        let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
+        let mut taken: Vec<(u64, Option<TurnRead>)> = Vec::new();
+        while let Some(at) = next
+            && taken.len() < MAX_ROWS
+        {
+            let Some(fold) = folds.entry_at(at)? else { break };
+            let read = match self.entry(fold.group) {
+                Some(entry) => {
+                    let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
+                    if len > bytes_left && !taken.is_empty() {
+                        break;
+                    }
+                    bytes_left = bytes_left.saturating_sub(len);
+                    let row = RowRef::of(fold.group, 0, &entry);
+                    self.read_row_bytes(&row)?.map(|text| (row, text))
+                }
+                None => None,
+            };
+            taken.push((fold.group, read));
+            next = if up {
+                Some(at.saturating_add(1)).filter(|at| *at < count)
+            } else {
+                at.checked_sub(1)
+            };
+        }
+        let (has_before, has_after) = if up {
+            (first_after > 0, next.is_some())
+        } else {
+            (next.is_some(), before_end < count)
+        };
+        if !up {
+            taken.reverse();
+        }
+        let mut result = Window {
+            lo: taken.first().map_or(id, |(group, _)| *group),
+            hi: taken.last().map_or(id, |(group, _)| *group),
+            has_before,
+            has_after,
+            ..Window::default()
+        };
+        for (group, read) in taken {
+            match read {
+                Some((row, text)) => {
+                    let start = result.bytes.len();
+                    result.bytes.extend_from_slice(&text);
+                    result.at.push(start..result.bytes.len());
+                    result.rows.push(row);
+                }
+                None => result.refused.push(group),
+            }
+        }
+        Ok(result)
+    }
+
+    /// Measures the bytes a resume reads, from the record after `cursor` to the end, without
+    /// reading a record's text: the records between `seq.idx`'s entry and the cursor cost a
+    /// header read each ([`Log::since_start`]). A span across three segments is always over.
     /// At most one closed segment's metadata is read. The actor uses a 1 MiB cap.
-    pub fn resume_size(&self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
+    pub fn resume_size(&mut self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if cursor >= self.last_seq {
             return Ok(ResumeSize::Within(0));
         }
-        let (seg, offset) = self.resume_start(cursor)?;
+        // A header that is not the next record's: the resume reads up to it and stops, so
+        // its size is not known here, and the book is damaged.
+        let Some((seg, offset)) = self.since_start(cursor)? else {
+            return Ok(ResumeSize::Damaged);
+        };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),
             Some(1) => {
@@ -652,10 +853,50 @@ impl Log {
         }
     }
 
+    /// Where the record after `cursor` starts: from `seq.idx`'s entry at or before the cursor,
+    /// one read of a header (40 bytes) a record, at most 255, so neither a resume nor its
+    /// measure reads or counts the records before its cursor, whatever their size. `None`
+    /// when a header on the way is not the next record's or the log ends first.
+    fn since_start(&mut self, cursor: u64) -> Result<Option<(u32, u64)>, Error> {
+        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
+        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut head = [0u8; HEADER_LEN];
+        while expected <= cursor {
+            let read = match self.read_segment(seg, offset, &mut head) {
+                Ok(read) => read,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+            if read == 0 {
+                // The end of a segment: the next record starts the next one.
+                if seg >= self.tail.seg {
+                    return Ok(None);
+                }
+                seg = seg.saturating_add(1);
+                offset = super::SEGMENT_HEADER_LEN;
+                continue;
+            }
+            let Some(header) = head.get(..read).and_then(Header::parse) else {
+                return Ok(None);
+            };
+            if header.seq != expected {
+                return Ok(None);
+            }
+            expected = expected.saturating_add(1);
+            offset = offset.saturating_add(header.record_len() as u64);
+        }
+        Ok(Some((seg, offset)))
+    }
+
     /// The records after `cursor`, in change order: at most `max_bytes` of record bytes
     /// ([`MAX_FRAME_BYTES`] at most), always at least one when one exists. Starts at the
-    /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
-    /// records before it), never the book. A cursor at or past the last seq gets nothing.
+    /// record after the cursor ([`Log::since_start`]), so it reads what was missed, never the
+    /// book. A cursor at or past the last seq gets nothing.
+    /// Bytes alone bound a resume: it has no row count cap ([`MAX_ROWS`] bounds windows and
+    /// pages only).
     pub fn since(&mut self, cursor: u64, max_bytes: usize) -> Result<Since, Error> {
         if self.broken {
             return Err(Error::Stopped);
@@ -669,10 +910,12 @@ impl Log {
         if cursor >= self.last_seq {
             return Ok(since);
         }
-        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
-        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let Some((mut seg, mut offset)) = self.since_start(cursor)? else {
+            since.stopped_on_refusal = true;
+            return Ok(since);
+        };
         let mut left = Self::bound(max_bytes, MAX_FRAME_BYTES) as u64;
-        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut expected = cursor.saturating_add(1);
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
             let read = match self.read_segment(seg, offset, &mut chunk) {
@@ -755,7 +998,8 @@ impl Log {
     /// Reads the row texts of `rows` out of the segments. `buf` (cleared first) receives the
     /// segment bytes and `at[i]` is where row `i`'s text lies in it; the caller copies those
     /// slices into its frame. Neighbouring records in one segment share a read; folded pages
-    /// can require several bounded spans. Returns the reads made.
+    /// can require several bounded spans. Returns the reads made. A window or page already
+    /// carries its rows' text ([`Window::bytes`]); this is for rows from elsewhere.
     ///
     /// Each row's record header is checked against the row asked for, so an index entry that
     /// does not match its record is [`Error::CorruptRow`], never another row's text.
@@ -816,45 +1060,109 @@ impl Log {
             }
             let (run, after) = rest.split_at_checked(count).unwrap_or((rest, &[]));
             rest = after;
-            let base = buf.len();
-            let len = usize::try_from(span.hi.saturating_sub(span.lo)).unwrap_or(usize::MAX);
-            buf.resize(base.saturating_add(len), 0);
-            let read = match buf.get_mut(base..) {
-                Some(space) => match self.read_segment(span.seg, span.lo, space) {
-                    Ok(read) => read,
-                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => 0,
-                    Err(error) => return Err(error),
-                },
-                None => 0,
-            };
+            let base = self.read_span(span, buf)?;
             reads = reads.saturating_add(1);
-            buf.truncate(base.saturating_add(read));
             for row in run {
-                let header_at = usize::try_from(
-                    u64::from(row.off).saturating_sub(HEADER_LEN_U64).saturating_sub(span.lo),
-                )
-                .unwrap_or(usize::MAX)
-                .saturating_add(base);
-                let record_end = header_at.checked_add(HEADER_LEN + row.len as usize + 4);
-                let checked =
-                    record_end.and_then(|end| buf.get(header_at..end)).map(super::record::check);
-                let same = checked.is_some_and(|check| {
-                    let Check::Whole(header) = check else { return false };
-                    header.row_id == row.row_id
-                        && header.rev == row.rev
-                        && header.len == row.len
-                        && (row.seq == 0 || row.seq == header.seq)
-                        && (header.raw_len == 0
-                            || (header.raw_file != 0 && header.raw_file <= self.raw_files))
-                });
-                if !same {
-                    refused.push(row.row_id);
-                    continue;
+                match self.checked_text(buf, base, span.lo, row) {
+                    Some(text) => at.push(text),
+                    None => refused.push(row.row_id),
                 }
-                let text = header_at.saturating_add(HEADER_LEN);
-                at.push(text..text.saturating_add(row.len as usize));
             }
         }
         Ok(reads)
+    }
+
+    /// [`Log::fill_checked`] for a reply's own rows: a read covers only records that lie back
+    /// to back in a segment, in whatever row order they were written, so it holds no other
+    /// record's bytes (a closed fold's hidden rows, a row's old revision). The reply's bytes
+    /// read are its records' bytes. `at` and `refused` are in input order.
+    fn fill_records(
+        &mut self,
+        rows: &[RowRef],
+        buf: &mut Vec<u8>,
+        at: &mut Vec<Range<usize>>,
+        refused: &mut Vec<u64>,
+    ) -> Result<u32, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
+        buf.clear();
+        at.clear();
+        refused.clear();
+        let readable = |row: &RowRef| {
+            row.len != 0
+                && row.len as usize <= crate::row::MAX_ROW_TEXT
+                && row.off >= HEADER_LEN_U32
+        };
+        let mut texts: Vec<Option<Range<usize>>> = vec![None; rows.len()];
+        let mut order: Vec<(usize, &RowRef)> =
+            rows.iter().enumerate().filter(|(_, row)| readable(row)).collect();
+        order.sort_by_key(|(_, row)| (row.seg, row.off));
+        let mut reads = 0u32;
+        let mut rest = order.as_slice();
+        while let Some((_, first)) = rest.first() {
+            let mut span = Span::of(first);
+            let mut count = 1usize;
+            while let Some(joined) = rest.get(count).and_then(|(_, row)| span.followed_by(row)) {
+                span = joined;
+                count = count.saturating_add(1);
+            }
+            let (run, after) = rest.split_at_checked(count).unwrap_or((rest, &[]));
+            rest = after;
+            let base = self.read_span(span, buf)?;
+            reads = reads.saturating_add(1);
+            for (index, row) in run {
+                if let Some(slot) = texts.get_mut(*index) {
+                    *slot = self.checked_text(buf, base, span.lo, row);
+                }
+            }
+        }
+        for (row, text) in rows.iter().zip(texts) {
+            match text {
+                Some(text) => at.push(text),
+                None => refused.push(row.row_id),
+            }
+        }
+        Ok(reads)
+    }
+
+    /// Appends a span's segment bytes to `buf` and returns where they start. A missing
+    /// segment or a short read leaves fewer bytes, which refuses the records they lack.
+    fn read_span(&mut self, span: Span, buf: &mut Vec<u8>) -> Result<usize, Error> {
+        let base = buf.len();
+        let len = usize::try_from(span.hi.saturating_sub(span.lo)).unwrap_or(usize::MAX);
+        buf.resize(base.saturating_add(len), 0);
+        let read = match buf.get_mut(base..) {
+            Some(space) => match self.read_segment(span.seg, span.lo, space) {
+                Ok(read) => read,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => 0,
+                Err(error) => return Err(error),
+            },
+            None => 0,
+        };
+        buf.truncate(base.saturating_add(read));
+        Ok(base)
+    }
+
+    /// Where `row`'s text lies in `buf`, whose byte `base` holds segment offset `lo`, when its
+    /// record there is whole (header and CRC) and is the record asked for.
+    fn checked_text(&self, buf: &[u8], base: usize, lo: u64, row: &RowRef) -> Option<Range<usize>> {
+        let header_at =
+            usize::try_from(u64::from(row.off).saturating_sub(HEADER_LEN_U64).saturating_sub(lo))
+                .unwrap_or(usize::MAX)
+                .saturating_add(base);
+        let record_end = header_at.checked_add(HEADER_LEN + row.len as usize + 4);
+        let checked = record_end.and_then(|end| buf.get(header_at..end)).map(super::record::check);
+        let same = checked.is_some_and(|check| {
+            let Check::Whole(header) = check else { return false };
+            header.row_id == row.row_id
+                && header.rev == row.rev
+                && header.len == row.len
+                && (row.seq == 0 || row.seq == header.seq)
+                && (header.raw_len == 0
+                    || (header.raw_file != 0 && header.raw_file <= self.raw_files))
+        });
+        let text = header_at.saturating_add(HEADER_LEN);
+        same.then_some(text..text.saturating_add(row.len as usize))
     }
 }

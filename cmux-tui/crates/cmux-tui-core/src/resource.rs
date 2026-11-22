@@ -194,6 +194,8 @@ pub enum ResourceOperation {
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
+    #[serde(rename = "git.fingerprint")]
+    GitFingerprint,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.push")]
@@ -468,6 +470,8 @@ pub enum ResourceOperation {
     KeybindingsRemove,
     #[serde(rename = "keybindings.reset")]
     KeybindingsReset,
+    #[serde(rename = "language_packs.ensure")]
+    LanguagePacksEnsure,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -644,6 +648,10 @@ pub enum ResourceOperation {
     CloudOwnerHarnessLoginCopy,
     #[serde(rename = "cloud.owner.github_app")]
     CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.github_repos")]
+    CloudOwnerGithubRepos,
+    #[serde(rename = "cloud.owner.github_connect")]
+    CloudOwnerGithubConnect,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]

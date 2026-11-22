@@ -174,7 +174,10 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
-_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
+# fixtures quote a run that printed tests/test_cmux_next_route.py, which made
+# every helper that test names route to every area).
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
 # Files where `#` starts a comment. Outside scripts/, actions and tests/, one
 # that names a helper only in a comment does not run it (a Cargo.toml's note on
 # the release strip routed that strip script to every lane, #42338).
@@ -199,11 +202,13 @@ _NON_RUNNING_FILES = frozenset({
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
+    ".github/ios-review-gate-devices.json",
     ".github/labels.json",
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
@@ -321,7 +326,8 @@ def is_unowned_ci_helper(path: str) -> bool:
 
 
 # Script sources ci_helper_areas() can trace through the tree by name.
-_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+# .ps1: a Windows job's PowerShell script (#42833 added .github/scripts/cmux-rd-motion.ps1 unplaced).
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".ps1")
 
 
 def is_walkable_script(path: str) -> bool:
@@ -910,7 +916,11 @@ def ci_helper_areas(
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
@@ -1650,7 +1660,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1702,7 +1712,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(

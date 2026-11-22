@@ -35,6 +35,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+#[path = "host_self_update_rd.rs"]
+pub(super) mod rd;
+use rd::{RdOutcome, RdPaths};
+
 /// Where CI publishes the cmux-tui builds: public, no credentials.
 const FILES: &str = "https://files.cmux.com/cmux-tui";
 
@@ -47,7 +51,7 @@ pub(super) const ROLLED_BACK: &str = "rolled-back";
 
 /// A channel file as CI writes it.
 #[derive(Debug, Deserialize)]
-pub(super) struct Channel {
+pub(crate) struct Channel {
     /// The tree whose folder (`cmux-tui/tree/<key>/`) holds the binaries.
     pub(super) key: String,
     /// The channel commit the tree was tested for. The binaries may report an
@@ -59,7 +63,7 @@ pub(super) struct Channel {
 
 impl Channel {
     /// A channel file's contents, its key and commit full lowercase hashes.
-    pub(super) fn parse(body: &[u8]) -> Result<Channel> {
+    pub(crate) fn parse(body: &[u8]) -> Result<Channel> {
         let channel: Channel =
             serde_json::from_slice(body).context("the channel file is not a channel")?;
         if !lower_hex(&channel.key, 40) {
@@ -72,7 +76,7 @@ impl Channel {
     }
 
     /// The sha256 of the acpmux build for `target`.
-    pub(super) fn sha256_for(&self, target: &str) -> Result<&str> {
+    pub(crate) fn sha256_for(&self, target: &str) -> Result<&str> {
         let name = format!("cmux-tui-acpmux-{target}");
         let sha = self
             .binaries
@@ -84,7 +88,7 @@ impl Channel {
         Ok(sha)
     }
 
-    fn binary_url(&self, target: &str) -> String {
+    pub(crate) fn binary_url(&self, target: &str) -> String {
         format!("{FILES}/tree/{}/cmux-tui-acpmux-{target}", self.key)
     }
 }
@@ -95,7 +99,7 @@ fn lower_hex(text: &str, len: usize) -> bool {
 }
 
 /// The URL of a channel's file; a channel is lowercase letters, digits and `-`.
-pub(super) fn channel_url(channel: &str) -> Result<String> {
+pub(crate) fn channel_url(channel: &str) -> Result<String> {
     let plain = !channel.is_empty()
         && channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if !plain {
@@ -169,10 +173,13 @@ pub(super) struct Paths {
     pub(super) unit: PathBuf,
     /// This host's release target, as `acpmux-<target>` names it.
     pub(super) target: &'static str,
+    /// cmux-rd, the screen host's program, kept on the channel's build too
+    /// (`host_self_update_rd.rs`); None leaves it alone.
+    pub(super) rd: Option<RdPaths>,
 }
 
 impl Paths {
-    fn here() -> Result<Paths> {
+    fn here(now: bool) -> Result<Paths> {
         let target =
             local_target().ok_or_else(|| anyhow!("no acpmux build runs on this platform"))?;
         let user = dirs::home_dir().ok_or_else(|| anyhow!("this user has no home folder"))?;
@@ -180,6 +187,7 @@ impl Paths {
         Ok(Paths {
             installed: user.join(".local/bin/acpmux"),
             off: home.join(NO_AUTO_UPDATE),
+            rd: RdPaths::here(&user, &home, target, now),
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             unit: user.join(OWN_UNIT),
@@ -195,8 +203,8 @@ pub(super) enum Prepared {
     /// Another update holds the host's update lock.
     Locked,
     /// The channel's binary (of this commit) was rolled back here before;
-    /// it is not tried again.
-    RolledBackBefore(String),
+    /// it is not tried again. What happened to cmux-rd.
+    RolledBackBefore(String, RdOutcome),
     Ready(Plan),
 }
 
@@ -205,6 +213,8 @@ pub(super) struct Plan {
     pub(super) commit: String,
     pub(super) sha256: String,
     pub(super) step: Step,
+    /// What happened to cmux-rd ([`rd::refresh`]), before acpmux's step.
+    pub(super) rd: RdOutcome,
     /// `update/<sha256>/`, holding the checked `acpmux-<target>`.
     dir: PathBuf,
     /// The host's update lease, held until the plan is dropped.
@@ -242,6 +252,12 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         .map_err(|e| anyhow!("reading the {channel} channel ({url}): {e}"))?;
     let feed = Channel::parse(&body).with_context(|| format!("the {channel} channel ({url})"))?;
     let sha = feed.sha256_for(paths.target)?.to_owned();
+    // cmux-rd first: a restart of acpmux below never waits on it, and its
+    // outcome never fails acpmux's update.
+    let rd = match &paths.rd {
+        Some(rd_paths) => rd::refresh(rd_paths, fetch, &feed, std::time::SystemTime::now()).await,
+        None => RdOutcome::NotJoined,
+    };
     let downloads = paths.home.join("update");
     prune(&downloads, &sha);
     let installed = std::fs::read(&paths.installed).ok();
@@ -252,11 +268,11 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
             Step::Current(embedded_build(&bytes))
         }
         _ if downloads.join(&sha).join(ROLLED_BACK).is_file() => {
-            return Ok(Prepared::RolledBackBefore(feed.commit));
+            return Ok(Prepared::RolledBackBefore(feed.commit, rd));
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
-    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, dir, lease }))
+    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, rd, dir, lease }))
 }
 
 /// Whether `unit` is acpmux's own `acpmux.service` ([`is_own_unit`]): a regular
@@ -338,8 +354,17 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so.
-pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
+/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// daemon an update restarted within the host's restart window (this timer's
+/// or a `host update` from another machine: one stamp on the host) is left
+/// alone, and nothing is installed: the first run after the window brings
+/// the newest build.
+pub(super) fn apply(
+    remote: &dyn Remote,
+    plan: &Plan,
+    target: &'static str,
+    now: bool,
+) -> PeerUpdate {
     let (dir, installed) = match &plan.step {
         Step::Current(build) => (&plan.dir, build.as_deref()),
         Step::Install(dir) => (dir, None),
@@ -348,7 +373,11 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        // The channel names the build this host runs (an older one too, when
+        // it pulls a bad build back); only pushes from elsewhere are refused.
+        allow_downgrade: true,
         caller: None,
+        now,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
@@ -436,13 +465,13 @@ impl Remote for LocalRemote {
 /// Exits 1 when the row failed. The channel decides: a build pushed by hand
 /// with `host update` is replaced by the channel's at the next run, unless
 /// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
+pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
-    let paths = Paths::here()?;
+    let paths = Paths::here(now)?;
     let plan = match prepare(&paths, &HttpsFetch, channel).await? {
         Prepared::Off => {
             let why = format!(
@@ -455,15 +484,16 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
             let why = "another update of this host is running (a host update, or this timer)";
             return skipped(channel, "locked", why, json_out);
         }
-        Prepared::RolledBackBefore(commit) => {
+        Prepared::RolledBackBefore(commit, rd) => {
             let why = format!(
                 "the {channel} build of commit {commit} was rolled back on this host before; waiting for a newer one"
             );
+            print_rd(&rd, json_out);
             return skipped(channel, "rolledBack", &why, json_out);
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target);
+    let up = apply(&LocalRemote, &plan, paths.target, now);
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({
@@ -471,17 +501,28 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
             "commit": plan.commit,
             "sha256": plan.sha256,
             "updated": [up.to_json(&name, LocalRemote.host())],
+            "cmuxRd": plan.rd.json(),
         }));
-    } else if up.outcome.failed() {
-        eprintln!("{name} (local): {}", up.line());
     } else {
-        println!("{name} (local): {}", up.line());
+        if up.outcome.failed() {
+            eprintln!("{name} (local): {}", up.line());
+        } else {
+            println!("{name} (local): {}", up.line());
+        }
+        print_rd(&plan.rd, false);
     }
     if up.outcome.failed() {
         // crash-allow: the row above is the whole output; exit 1 is the documented failure code, as in `host update`
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// cmux-rd's line, when there is one to print (`--json` carries it as `cmuxRd`).
+fn print_rd(rd: &RdOutcome, json_out: bool) {
+    if !json_out && let Some(line) = rd.line() {
+        println!("{line}");
+    }
 }
 
 fn skipped(channel: &str, why: &str, message: &str, json_out: bool) -> Result<()> {

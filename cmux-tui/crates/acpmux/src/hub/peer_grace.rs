@@ -143,6 +143,9 @@ impl Hub {
                 }
             };
             let Some((peer, generation, notice)) = incoming else { break };
+            if let Some(bytes) = notice.list_bytes() {
+                crate::gauges::peer_lists().taken(bytes);
+            }
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };

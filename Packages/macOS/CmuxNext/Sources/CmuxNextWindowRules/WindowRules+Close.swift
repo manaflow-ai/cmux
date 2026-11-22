@@ -81,13 +81,22 @@ extension WindowRules {
         }
 
         /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal (with
-        /// `warnAgent`; `agents` lists them whatever the setting says), or a
-        /// read terminal whose shell reported a running command (OSC 133 C, `commandSinceMs`). Such a close keeps its tabs
-        /// in place through the read and the question, and they leave only on Close (a tab that left, then came back with
-        /// the question, read as closed). A shell at its prompt or without integration is not known: only the read can
-        /// tell, so that close still takes its tabs out in the key's turn (SL-3, #31875).
+        /// `warnAgent`; `agents` lists them whatever the setting says), or a read terminal known to run a program in front
+        /// (``runsKnownProgram(_:)``). Such a close keeps its tabs in place through the read and the question, and they
+        /// leave only on Close (a tab that left, then came back with the question, read as closed). A shell at its prompt
+        /// or without integration is not known: only the read can tell, so that close still takes its tabs out in the
+        /// key's turn (SL-3, #31875).
         @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
-            warnings.warnAgent && !agents.isEmpty || others.contains { tabs.indices.contains($0) && tabs[$0].commandSinceMs != nil }
+            warnings.warnAgent && !agents.isEmpty || others.contains { tabs.indices.contains($0) && Self.runsKnownProgram(tabs[$0]) }
+        }
+
+        /// A terminal known to run a program in front: its shell reported a running command (OSC 133 C,
+        /// `commandSinceMs`), or an agent reports from it (hooks: `agent`, idle between turns too but not `done`, its
+        /// session's end; OSC 7501 `programStatus`) while no prompt shows. An agent launched as the terminal's program (cmux's agent
+        /// terminals, a resumed session) has no shell to report a command; a shell back at its prompt after its agent
+        /// quit shows the prompt.
+        @MainActor public static func runsKnownProgram(_ tab: TabModel) -> Bool {
+            tab.commandSinceMs != nil || tab.promptSinceMs == nil && (tab.agent.map { $0.state != .done } ?? false || !tab.programStatus.isEmpty)
         }
     }
 

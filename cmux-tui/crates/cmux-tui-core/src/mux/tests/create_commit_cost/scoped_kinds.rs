@@ -2,7 +2,8 @@
 //! (`changed_state_projection_locked`, `commit_ordinary_surface_projection`): a move of a
 //! column, a column dock, the row heights, a tab drag, a tab pin, a screen pin, a view that an
 //! adoption or a browser placed, a move of a pane in its workspace, and a new workspace through
-//! the effect path.
+//! the effect path. The views of one terminal that an adoption placed are a case of their own:
+//! one terminal can have a view in 2 or more workspaces, and the commit states each of them.
 //!
 //! THE COUNT, for each kind, after a lost fold (as after a daemon start, before the parts end):
 //! the commit runs no full projection, and its record states no workspace value and no tab of a
@@ -23,6 +24,7 @@ use super::super::workspaces::assert_journal_states_the_session;
 use super::super::*;
 use super::lost_fold_journal::{
     changes_after, full_projections, lose_the_fold, tab_ids, workspace_at, workspace_ids,
+    workspaces_stated,
 };
 use crate::model::{ColumnDock, DockEdge, DockMode};
 use crate::mux::column_move::ColumnMoveDirection;
@@ -213,6 +215,111 @@ fn the_commit_of_a_placed_view_states_its_own_workspace_and_no_other() {
     );
     assert_journal_states_the_session(mux);
     layout.mux.shutdown();
+}
+
+/// The host id of the terminal that `session_in` seeded in the workspace at `from`, after a
+/// request placed one more view of it in the active pane of each workspace of `into`
+/// (`terminal.project`).
+fn placed_in_workspaces(mux: &Arc<Mux>, from: usize, into: &[usize]) -> String {
+    let host = format!("00000000000040008000{:012x}", from + 1);
+    let terminal = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(&host)
+        .unwrap()
+        .expect("the seeded terminal has a public id");
+    for index in into {
+        let pane = mux.with_state(|state| state.workspaces[*index].screens[0].active_pane);
+        mux.resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(terminal.to_string()),
+                ..Mux::ordinary_resource_selectors()
+            },
+            mux.ordinary_pane_selectors(pane).unwrap(),
+            usize::MAX,
+            None,
+            None,
+            &WorkspaceMutation::daemon_local("test-one-more-view"),
+        )
+        .unwrap();
+    }
+    host
+}
+
+/// The public ids of the workspaces that show a view of the terminal `host` of a host.
+fn workspaces_that_show(mux: &Mux, host: &str) -> BTreeSet<String> {
+    mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .filter(|surface| {
+                let identity = surface.terminal_host_identity();
+                identity.is_some_and(|identity| identity.terminal_id == host)
+            })
+            .filter_map(|surface| state.pane_of(surface.id))
+            .filter_map(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string())
+            .collect()
+    })
+}
+
+/// The commit of the views of a terminal that an adoption placed
+/// (`commit_placed_terminal_projection`), for a terminal with a view in 2 workspaces: the
+/// record states both, with no full projection. A scope of one view (the first that the
+/// surface map gives) leaves the other workspace to a later commit. The focus is in a third
+/// workspace, and a fourth one shows no view: the record does not state it.
+#[test]
+fn the_commit_of_a_placed_terminal_states_each_workspace_that_shows_it() {
+    let mux = session_in(test_mux(), 4);
+    let host = placed_in_workspaces(&mux, 2, &[3]);
+    let ids = workspace_ids(&mux);
+    assert_eq!(
+        workspaces_that_show(&mux, &host),
+        BTreeSet::from([ids[2].clone(), ids[3].clone()]),
+        "the fixture: 2 workspaces show the terminal"
+    );
+
+    lose_the_fold(&mux);
+    let (revision, full) =
+        (mux.with_state(|state| state.resource_revision), full_projections(&mux));
+    mux.commit_placed_terminal_projection("test.terminal.placed", &host).unwrap();
+    assert_eq!(full_projections(&mux), full, "the commit ran a full projection");
+    let changes = changes_after(&mux, revision);
+    assert_states_the_workspace(&changes, &ids[2], "the commit of a placed terminal");
+    assert_states_the_workspace(&changes, &ids[3], "the commit of a placed terminal");
+    assert!(
+        !changes.contains(&("upsert".into(), "workspace".into(), ids[0].clone())),
+        "the record states a workspace that shows no view of the terminal: {changes:?}"
+    );
+    assert_journal_states_the_session(&mux);
+    mux.shutdown();
+}
+
+/// The limit of that scope. 8 workspaces that show the terminal are each stated by a scoped
+/// commit; with a 9th the commit takes the full projection (`CHANGED_WORKSPACES_MAX`).
+#[test]
+fn the_commit_of_a_placed_terminal_is_scoped_to_8_workspaces_and_full_above() {
+    let mux = session_in(test_mux(), 10);
+    let host = placed_in_workspaces(&mux, 0, &[1, 2, 3, 4, 5, 6, 7]);
+    let ids = workspace_ids(&mux);
+    assert_eq!(workspaces_that_show(&mux, &host).len(), 8, "the fixture: 8 workspaces");
+
+    lose_the_fold(&mux);
+    let (revision, full) =
+        (mux.with_state(|state| state.resource_revision), full_projections(&mux));
+    mux.commit_placed_terminal_projection("test.terminal.placed-8", &host).unwrap();
+    assert_eq!(full_projections(&mux), full, "8 workspaces took the full projection");
+    let changes = changes_after(&mux, revision);
+    assert_eq!(workspaces_stated(&changes, &ids[..8]), 8, "{changes:?}");
+
+    placed_in_workspaces(&mux, 0, &[8]);
+    assert_eq!(workspaces_that_show(&mux, &host).len(), 9, "the fixture: 9 workspaces");
+    let full = full_projections(&mux);
+    mux.commit_placed_terminal_projection("test.terminal.placed-9", &host).unwrap();
+    assert_eq!(full_projections(&mux), full + 1, "9 workspaces took a scoped projection");
+    assert_journal_states_the_session(&mux);
+    mux.shutdown();
 }
 
 /// One resource request, as a client sends it: its result.

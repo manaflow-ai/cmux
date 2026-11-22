@@ -1,5 +1,8 @@
 // cmux-web-test-timeout: 600
-// Jump to latest stands on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
+// Jump to latest stands at the composer card's end edge (jumpPlace.experiment.ts `end`, the default;
+// Leo, 2026-11-21, of the disc on the tucked hat's "^ 3" pill: "didn't we say we wanted to move these
+// to the side or smth?"), a fixed gap from the card's end at every width and state, in every frame
+// Session Info slides. Before that it stood on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
 // button is still not centered with the composer yet"). The button took the stage's middle (left:
 // 50%) while the composer sits in the column between --cv-inset and --cv-inset-end: once Session Info
 // pushes the column left (a wide pane), or the computer use preview takes the column's end, the
@@ -15,6 +18,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, sessionInfoPushAlways } from "./support/papercutChat";
+import { SESSION_INFO_SHOWN, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -30,7 +35,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     }
   }
   if (browsers.size === 0) {
-    describe.skip("jump to latest centered on the composer", () => test("browsers", () => {}));
+    describe.skip("jump to latest at the composer's end", () => test("browsers", () => {}));
     return;
   }
 
@@ -48,21 +53,34 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   });
 
   type SessionInfo = "closed" | "open" | "push";
-  type State = { info: SessionInfo; look?: "codex"; scrollbar?: boolean; computerUse?: boolean };
+  type State = { info: SessionInfo; scrollbar?: boolean; computerUse?: boolean };
 
-  /// The button's and the composer card's horizontal centers, as drawn.
+  /// The button's and the composer card's end edges, as drawn.
   const centers = (page: Page) =>
-    page.evaluate(() => {
-      const center = (selector: string) => {
-        const box = document.querySelector(selector)?.getBoundingClientRect();
-        return box ? (box.left + box.right) / 2 : Number.NaN;
-      };
-      return {
-        button: center(".acpmux-jump-latest"),
-        composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-        shown: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
-      };
-    });
+    page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const center = (selector: string) =>
+          document.querySelector(selector)?.getBoundingClientRect().right ?? Number.NaN;
+        const box = document
+          .querySelector(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box")
+          ?.getBoundingClientRect();
+        const main = document.querySelector(".acpmux-main")!;
+        // The column's end: where the card ends when it fits (--cv-inset-end, from the pane's right).
+        const columnEnd =
+          main.getBoundingClientRect().right -
+          (Number.parseFloat(getComputedStyle(document.querySelector(".acpmux-composer")!).paddingRight) || 0);
+        const button = document.querySelector(JUMP_LATEST)?.getBoundingClientRect();
+        return {
+          button: center(JUMP_LATEST),
+          buttonLeft: button?.left ?? Number.NaN,
+          composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+          composerMiddle: box ? box.left + box.width / 2 : Number.NaN,
+          overflows: box ? box.right > columnEnd + 0.5 : false,
+          shown: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
+        };
+      },
+      { JUMP_LATEST },
+    );
 
   /// Resolves once no finite animation or transition runs and two more frames have painted.
   const settle = (page: Page) =>
@@ -81,8 +99,8 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       });
     });
 
-  const panel = (page: Page) => page.locator('aside.acpmux-session-info[data-presence="shown"]');
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const panel = (page: Page) => page.locator(SESSION_INFO_SHOWN);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   /// Session Info offered (Debug Settings `agent.sessionInfo`), then open or closed.
   const sessionInfo = async (page: Page, open: boolean) => {
     await page.evaluate(() =>
@@ -97,9 +115,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   };
 
   const open = async (width: number, state: State) => {
-    const page = await pane!.open({ width, height: 700 }, async (page) => {
-      if (state.look) await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), state.look);
-    });
+    const page = await pane!.open({ width, height: 700 });
     if (state.info === "push") await sessionInfoPushAlways(page);
     if (state.info !== "closed") await sessionInfo(page, true);
     if (state.scrollbar)
@@ -115,7 +131,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
     });
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor({ timeout: 10_000 });
+    await page.locator(JUMP_LATEST_SHOWN).waitFor({ timeout: 10_000 });
     await settle(page);
     return page;
   };
@@ -127,14 +143,14 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     { info: "push" },
     { info: "closed", scrollbar: true },
     { info: "push", scrollbar: true },
-    { info: "push", look: "codex" },
     { info: "closed", computerUse: true },
   ];
 
   for (const name of browsers.keys())
-    test(`${name}: Jump to latest's center is the composer's at every width and state`, async () => {
+    test(`${name}: Jump to latest keeps one gap from the composer's end at every width and state`, async () => {
       browser = browsers.get(name)!;
       const off: string[] = [];
+      let gap: number | undefined;
       for (const width of widths)
         for (const state of states) {
           const page = await open(width, state);
@@ -142,8 +158,21 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
             const seen = await centers(page);
             const label = `${width}px ${JSON.stringify(state)}`;
             expect(seen.shown, label).toBe(true);
-            if (!(Math.abs(seen.button - seen.composer) <= 0.5))
-              off.push(`${label}: button ${seen.button}, composer ${seen.composer}`);
+            if (seen.overflows) {
+              // A pane too narrow for the card beside the computer use preview: the card runs past its
+              // column's end (a min width of its own), and the stack keeps to the column. It still
+              // stands inside the card's end half, clear of the middle the hat's pill takes.
+              if (!(seen.button <= seen.composer && seen.buttonLeft > seen.composerMiddle))
+                off.push(
+                  `${label}: card overflows; button ${seen.buttonLeft}-${seen.button}, ` +
+                    `card middle ${seen.composerMiddle}, end ${seen.composer}`,
+                );
+              continue;
+            }
+            // Inside the card's end edge, by the same gap everywhere.
+            gap ??= seen.composer - seen.button;
+            if (!(gap >= 0 && Math.abs(seen.composer - seen.button - gap) <= 0.5))
+              off.push(`${label}: button end ${seen.button}, composer end ${seen.composer}, gap ${gap}`);
           } finally {
             await page.close();
           }
@@ -160,23 +189,23 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
         // Push always makes it slide the column, the motion this case reads.
         await sessionInfoPushAlways(page);
         await page.emulateMedia({ reducedMotion: "no-preference" });
-        await page.evaluate(() => {
-          const holder = window as unknown as { __centered?: number[][] };
-          const frames: number[][] = [];
-          holder.__centered = frames;
-          const center = (selector: string) => {
-            const box = document.querySelector(selector)!.getBoundingClientRect();
-            return (box.left + box.right) / 2;
-          };
-          window.cmuxAfterPaint(() => {
-            if (holder.__centered !== frames) return false;
-            frames.push([
-              center(".acpmux-jump-latest"),
-              center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-            ]);
-            return true;
-          });
-        });
+        await page.evaluate(
+          ({ JUMP_LATEST }) => {
+            const holder = window as unknown as { __centered?: number[][] };
+            const frames: number[][] = [];
+            holder.__centered = frames;
+            const center = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().right;
+            window.cmuxAfterPaint(() => {
+              if (holder.__centered !== frames) return false;
+              frames.push([
+                center(JUMP_LATEST),
+                center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+              ]);
+              return true;
+            });
+          },
+          { JUMP_LATEST },
+        );
         await sessionInfo(page, true);
         await settle(page);
         await sessionInfo(page, false);
@@ -187,10 +216,12 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
           holder.__centered = undefined;
           return frames;
         });
-        // The composer moved (the panel pushed it), and the button stood on its center in every frame.
+        // The composer moved (the panel pushed it), and the button kept its gap from the card's end in
+        // every frame.
         const composers = frames.map(([, composer]) => composer!);
         expect(Math.max(...composers) - Math.min(...composers)).toBeGreaterThan(50);
-        const worst = Math.max(...frames.map(([button, composer]) => Math.abs(button! - composer!)));
+        const gap = frames[0]![1]! - frames[0]![0]!;
+        const worst = Math.max(...frames.map(([button, composer]) => Math.abs(composer! - button! - gap)));
         expect(worst).toBeLessThanOrEqual(0.5);
       } finally {
         await page.close();

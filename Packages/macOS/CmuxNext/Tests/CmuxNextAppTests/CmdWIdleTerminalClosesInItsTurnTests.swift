@@ -381,6 +381,34 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// Aziz, 2026-11-14: "when closing a terminal with an agent i still get an alert with the tab half closed". An agent
+    /// terminal reports no shell command (its agent runs as the terminal's program, or no integration marks it): the
+    /// agent's own report (`report-agent`, here idle between turns) says a program runs in front, so the tab stays, selected,
+    /// through the read and the question.
+    @Test func cmdWOnATerminalWithAnIdleAgentKeepsTheTabUntilTheAnswer() async throws {
+        try await Self.withFocusedTerminal(before: 1) { t in
+            try await Self.input("sleep 600\r", t) // no OSC 133 marks: the harness's /bin/sh reports no command
+            try await Self.waitRunning("sleep", t)
+            _ = try await t.connection.request(ReportAgentRequest(surface: t.tab.surface, state: .idle))
+            try await PinnedPageTests.until({ t.tab.agent != nil }, report: { "the agent's report never reached the store" })
+            #expect(t.tab.commandSinceMs == nil && t.tab.promptSinceMs == nil, "the shell reported a command or a prompt")
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ hold.held == 1 }, report: { "the close did not read" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the agent's tab left the strip before its question")
+            #expect(t.pane.stripModel.selectedID?.rawValue == t.tab.id, "the pane showed another tab before the question")
+            hold.release()
+            try await PinnedPageTests.until({ Self.question(t) != nil }, report: { "no close question" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab is not in its strip while its question shows")
+            #expect(CmuxDialogCenter.shared.press(try #require(Self.question(t)).id, button: DestructiveConfirmation.confirmID))
+            try await PinnedPageTests.until({ !t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id) }, report: { "Close did not close the tab" })
+        }
+    }
+
     // MARK: Fixture
 
     /// A new terminal tab at the end of `t`'s pane, once its strip lists it.

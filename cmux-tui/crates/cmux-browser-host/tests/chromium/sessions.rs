@@ -610,3 +610,83 @@ fn permissions_open_new_tabs_in_a_private_granted_store() {
     );
     assert_eq!(page(&p, &proxied, "() => Notification.permission"), "granted");
 }
+
+/// Leo, 2026-11-14: "separate the health of the overall process from the
+/// falliability of crash prone bits". The profile's shared browser crashing
+/// costs its sessions nothing: the host relaunches it and reopens the open
+/// tabs of the profile's store at their URLs under the ids the sessions
+/// know, and the next session of the profile gets the same browser.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_crashed_shared_browser_comes_back_with_its_tabs() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource, browser_for};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    browsers.lock().unwrap().insert("agent".into(), source.clone());
+    let s = headless_session(&source, &browsers, "s");
+    let ids: Vec<String> = ["one", "two"]
+        .iter()
+        .map(|text| {
+            let url = format!("data:text/html,<title>{text}</title><p>{text}</p>");
+            let id = s.call("tabs.open", &json!({"url": url})).unwrap()["targetId"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            s.call("tab.keep", &json!({"targetId": id})).unwrap();
+            id
+        })
+        .collect();
+    let url_of = |tabs: &Value, id: &str| -> String {
+        tabs.as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["targetId"] == id)
+            .and_then(|tab| tab["url"].as_str())
+            .unwrap_or_else(|| panic!("tab {id} is gone: {tabs}"))
+            .to_owned()
+    };
+    let before = s.call("tabs.list", &json!({})).unwrap();
+    let pid = source.browser_pid().expect("the browser's pid");
+    let killed = Instant::now();
+    // SAFETY: kill(2) of the Chromium this test launched, by its own pid.
+    assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);
+    while source.is_open() {
+        assert!(killed.elapsed() < Duration::from_secs(10), "the browser never closed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let after = s.call("tabs.list", &json!({})).expect("tabs.list after the crash");
+    eprintln!("perf: kill to tabs back {} ms", killed.elapsed().as_millis());
+    assert_ne!(source.browser_pid(), Some(pid), "the browser was not relaunched");
+    assert_eq!(after.as_array().map(Vec::len), Some(2), "{after}");
+    for (id, text) in ids.iter().zip(["one", "two"]) {
+        assert_eq!(url_of(&after, id), url_of(&before, id));
+        // The reopened tab answers at commit (as tabs.open does); its page
+        // loads after.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let info = s.call("tab.info", &json!({"targetId": id})).expect("tab.info");
+            if info["title"] == text {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the reopened tab never loaded: {info}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let read = s
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": id, "world": "agent",
+                    "source": "() => document.querySelector('p').textContent"}),
+            )
+            .expect("a read after the crash");
+        assert_eq!(read, text);
+    }
+    // The next session of the profile gets the same browser, tabs and all.
+    let again = browser_for(&browsers, "agent", || panic!("a second browser was launched"))
+        .expect("the profile's browser");
+    assert!(Arc::ptr_eq(&again, &source));
+}

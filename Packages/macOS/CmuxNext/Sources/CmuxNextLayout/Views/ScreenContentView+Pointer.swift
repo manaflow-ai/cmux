@@ -76,7 +76,14 @@ final class ScreenDividerPointer: NSResponder {
         // Where it entered or left, the windows over the pointer may differ: the window server is asked again.
         if windowsChanged { screen.context.invalidateHoverTopmost() }
         ScreenDividers(screen: screen).refreshHover(event: event)
-        follow(event, in: screen, left: left)
+        // On an overlay that takes the mouse (a toast), the pointer has left the content under it: no moves, no
+        // cursor, no link hover there.
+        follow(event, in: screen, left: left || Self.overlayTakesMouse(at: event.locationInWindow, in: screen))
+    }
+
+    /// Whether an overlay of the screen's window takes the mouse at `windowPoint` (it covers the screen there).
+    private static func overlayTakesMouse(at windowPoint: NSPoint, in screen: NSView) -> Bool {
+        screen.window.map { WindowOverlayHost.overlayTakesMouse(in: $0, atWindowPoint: windowPoint) } ?? false
     }
 
     /// The pane content under the pointer hears it come in, move and leave, and shows its cursor unless a divider shows
@@ -158,6 +165,8 @@ final class ScreenDividerPointer: NSResponder {
         NSCursor.arrow.set()
         guard let window = screen.window, let content = window.contentView else { return }
         let point = event?.locationInWindow ?? pointer ?? window.mouseLocationOutsideOfEventStream
+        // Under an overlay that takes the mouse the arrow stays: the view under it shows no cursor there.
+        guard !Self.overlayTakesMouse(at: point, in: screen) else { return }
         guard let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point), hit !== screen,
               !(hit is DividerHandleView) else { return }
         if let content = contentTarget, hit === content || hit.isDescendant(of: content),

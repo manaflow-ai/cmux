@@ -146,7 +146,7 @@ struct SubagentGroupCard: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel("\(agent.name), \(agent.state.label)")
                 .accessibilityHint("Opens its transcript")
             }
@@ -197,7 +197,7 @@ struct SubagentsScreen: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
         .listStyle(.plain)
@@ -451,7 +451,7 @@ struct CheckpointsScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(restoring != nil)
     }
 
@@ -532,7 +532,7 @@ struct HandoffScreen: View {
                                 .frame(minHeight: 48)
                                 .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressFill)
                             .disabled(target.unavailableReason != nil)
                             .opacity(target.unavailableReason == nil ? 1 : 0.5)
                         }
@@ -782,7 +782,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,

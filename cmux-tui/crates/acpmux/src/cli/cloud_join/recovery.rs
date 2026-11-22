@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-const FILE: &str = "machine-join.pending.json";
+use crate::machine_record::recovery::FILE;
 #[derive(Serialize, Deserialize)]
 struct Pending {
     version: u8,
@@ -36,6 +36,10 @@ struct Pending {
     /// pasted join line's, and on an older build's: that record names no account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     owner: Option<String>,
+    /// The person named this machine (`machine join --name`): the record it completes is
+    /// `named` (`MachineCredential::named`). False on an older build's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    named: bool,
 }
 
 /// What began a join made by signing in: its `joined_by`, and the account that minted its token.
@@ -113,16 +117,6 @@ pub(super) fn retire_sign_in_pending_at(
     sync_ancestors(home)
 }
 
-/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
-/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
-/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
-/// was copied (`home_copy_state`).
-pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
-    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
-    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
-    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
-}
-
 pub(super) fn pending_origin() -> Result<Option<String>> {
     Ok(read()?.map(|pending| pending.hub))
 }
@@ -147,7 +141,7 @@ fn read() -> Result<Option<Pending>> {
         || !valid
         || origin(Some(p.hub.clone())).ok().as_deref() != Some(&p.hub)
         || !valid_name(&p.name)
-        || !matches!(p.platform.as_str(), "macos" | "linux")
+        || !matches!(p.platform.as_str(), "macos" | "linux" | "windows")
     {
         return Err(store_error().into());
     }
@@ -207,9 +201,54 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
     let _ = crate::home_fs::remove_file(temp); // only the file this call created
     result
 }
-#[cfg(not(unix))]
-pub(super) fn write_durable(_: &Path, _: &[u8], _: bool) -> Result<()> {
-    Err(store_error().into())
+/// The same write on Windows: an owner-only temporary file (`owner_only::create_new`), flushed
+/// and closed, then renamed over the destination (`replace`) or hard-linked to it (a destination
+/// that appeared meanwhile fails the link, as `create_new` would). NTFS journals the folder's
+/// names, and a folder handle cannot be flushed there, so no ancestor is synced.
+#[cfg(windows)]
+pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    let parent = path.parent().ok_or_else(store_error)?;
+    crate::config::private_state_dir(parent)?;
+    let check = || -> Result<()> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => {
+                anyhow::ensure!(replace, "pending already exists");
+                crate::config::private_state_file(path)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    };
+    check()?;
+    let temp = parent.join(format!(".machine-join-{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = crate::config::private_state_create_new(&temp)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        // Closed first: Windows renames no file that is still open without delete sharing.
+        drop(file);
+        check()?;
+        if replace {
+            crate::home_fs::rename(&temp, path)?;
+        } else {
+            crate::home_fs::hard_link(&temp, path)?;
+        }
+        Ok(())
+    })();
+    let _ = crate::home_fs::remove_file(&temp); // only the file this call created
+    result
+}
+
+/// The `platform` a join proposes: the hub's `macos`, `linux` or `windows`.
+pub(super) fn this_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "linux"
+    }
 }
 
 fn valid_name(name: &str) -> bool {
@@ -223,6 +262,10 @@ fn valid_name(name: &str) -> bool {
 // Sync every ancestor, including newly created custom state roots. A leaf
 // directory fsync alone does not make that directory's own name durable.
 pub(super) fn sync_ancestors(dir: &Path) -> Result<()> {
+    // Windows opens no folder as a file to flush it; NTFS journals the names (`write_durable`).
+    if cfg!(windows) {
+        return Ok(());
+    }
     sync_ancestors_with(dir, |path| {
         std::fs::File::open(path)?.sync_all()?;
         Ok(())
@@ -318,6 +361,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
         joined_by: None,
         capabilities: None,
         cloned_on: None,
+        named: p.named,
     })))
 }
 
@@ -326,8 +370,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
 /// the account that minted it; the hub's `userId`, when it names one, only has to agree. A
 /// sign-in's join with no account is recorded under none (never under the hub's alone).
 fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCredential> {
-    let sign_in = p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN);
-    let user_id = if sign_in {
+    let user_id = if by_sign_in(p) {
         if let (Some(owner), Some(redeemed)) = (p.owner.as_deref(), probed.user_id.as_deref())
             && owner != redeemed
         {
@@ -345,6 +388,11 @@ fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCr
     })
 }
 
+/// Whether `p` is a sign-in's join (`enroll.rs`), for the consent marker.
+fn by_sign_in(p: &Pending) -> bool {
+    p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN)
+}
+
 fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
     let record = &completed_record(p, record)?;
     // The record replaced here may be the only evidence that this home is a copy whose node
@@ -352,11 +400,10 @@ fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<(
     if let Some(old) = load().map_err(|_| store_error())? {
         let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
     }
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(p))).map_err(|_| store_error())?;
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
-    let sign_in = p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN);
-    relay_for_join_at(&crate::config::Config::path(), &p.hub, sign_in)
+    relay_for_join_at(&crate::config::Config::path(), &p.hub, by_sign_in(p))
         .map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
@@ -417,6 +464,7 @@ async fn replacement_proof(mut old: MachineCredential) -> Result<Option<MachineC
 fn new_pending(
     hub: String,
     name: String,
+    named: bool,
     prior: Option<MachineCredential>,
     overwrite: bool,
     joined_by: Option<String>,
@@ -436,8 +484,8 @@ fn new_pending(
         ),
         hub,
         name,
-        hostname: crate::pairing::machine_name(),
-        platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
+        hostname: crate::pairing::host_label(),
+        platform: this_platform().to_owned(),
         wg_public_key: leave::node_key_for_join_at(&state_dir())
             .map_err(|_| store_error())?
             .public_key_b64(),
@@ -446,6 +494,7 @@ fn new_pending(
         joined_by,
         capabilities: Some(machine_capabilities()),
         owner,
+        named,
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
     write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
@@ -489,7 +538,7 @@ pub(super) async fn join(
                 // Definitive revocation makes the proposal unusable. Only an
                 // explicit replacement with fresh stdin may replace this proof.
                 // If this was a replacement, its old final is already retired.
-                new_pending(p.hub, p.name, None, true, p.joined_by, p.owner)?
+                new_pending(p.hub, p.name, p.named, None, true, p.joined_by, p.owner)?
             }
             Probe::Revoked => return Err(error(3, "revoked: run machine add again")),
             Probe::Unknown => p,
@@ -506,6 +555,8 @@ pub(super) async fn join(
             return Err(error(2, "join token must be provided on stdin"));
         }
         let hub = origin(hub).map_err(|_| error(2, "hub origin is malformed"))?;
+        // Named by the person (`--name`), not a sign-in's own name for it (`enroll_name`).
+        let named = name.is_some() && began.is_none();
         let name = local_name(name);
         if !valid_name(&name) {
             return Err(error(2, "machine name is malformed"));
@@ -530,6 +581,7 @@ pub(super) async fn join(
         new_pending(
             hub,
             name,
+            named,
             prior,
             false,
             began.as_ref().map(|began| began.joined_by.to_owned()),
@@ -540,7 +592,7 @@ pub(super) async fn join(
     pending.capabilities.get_or_insert_with(machine_capabilities);
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(&pending))).map_err(|_| store_error())?;
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
         "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key,
         "capabilities":pending.capabilities});
@@ -597,6 +649,7 @@ mod tests {
             joined_by: joined_by.map(str::to_owned),
             capabilities,
             owner: joined_by.map(|_| "user_me".to_owned()),
+            named: false,
         }
     }
 

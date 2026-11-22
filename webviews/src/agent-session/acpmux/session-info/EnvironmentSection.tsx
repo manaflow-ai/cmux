@@ -26,6 +26,8 @@ import "../../../ui/controls.css";
 import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
 import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
 import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
+import { SCREEN_SHARING_LABELS, screenSharingKind, useScreenSharing } from "./screenSharing";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -106,6 +108,7 @@ export function EnvironmentSection({
   onOpenChanges,
   projectLook = "name",
   remoteControlIcon = REMOTE_CONTROL_ICON,
+  screenSharingLook = "row",
 }: {
   summary?: Summary;
   machineName?: string;
@@ -128,8 +131,14 @@ export function EnvironmentSection({
   onOpenChanges?: () => void;
   projectLook?: ProjectRowLook;
   remoteControlIcon?: string;
+  /** Where the Share / View screen action sits. Shipped `row`: its own row right under the machine.
+   *  Gallery alternatives: `trailing`, a text link at the machine row's end after its kind word;
+   *  `grouped`, its own row beside Remote Control, after the folder, branch and Changes. */
+  screenSharingLook?: "row" | "trailing" | "grouped";
 }) {
   const t = useT();
+  const machine = chatMachine(summary, machineName, peerKinds, place);
+  const screenSharing = useScreenSharing(summary?.sessionId, screenSharingKind(machine));
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -138,7 +147,6 @@ export function EnvironmentSection({
   const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
-  const machine = chatMachine(summary, machineName, peerKinds, place);
   const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
@@ -191,6 +199,21 @@ export function EnvironmentSection({
       live = false;
     };
   }, [canUseCloudRepositories, cloudSession]);
+  // The action's own row (`row`, `grouped`) and a refusal under it, on the label column.
+  const screenSharingRows = (
+    <>
+      {screenSharing.run && screenSharing.kind && screenSharingLook !== "trailing" && (
+        <Row icon="remote.display" onClick={screenSharing.run}>
+          <span className="acpmux-session-info-row__name">{t(SCREEN_SHARING_LABELS[screenSharing.kind])}</span>
+        </Row>
+      )}
+      {screenSharing.note && (
+        <li className="acpmux-session-info-note acpmux-session-info-note--label" role="alert">
+          {screenSharing.note}
+        </li>
+      )}
+    </>
+  );
   return (
     <ul className="acpmux-session-info-list" data-section="environment">
       <li className="acpmux-session-info-row" data-machine={machine.kind}>
@@ -216,7 +239,17 @@ export function EnvironmentSection({
             {t(saved ? "artifact.saved" : "sessionInfo.environment.save")}
           </button>
         )}
+        {screenSharing.run && screenSharing.kind && screenSharingLook === "trailing" && (
+          <button
+            type="button"
+            className="acpmux-session-info-link acpmux-session-info-row__end"
+            onClick={screenSharing.run}
+          >
+            {t(SCREEN_SHARING_LABELS[screenSharing.kind])}
+          </button>
+        )}
       </li>
+      {screenSharingLook !== "grouped" && screenSharingRows}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
@@ -302,19 +335,24 @@ export function EnvironmentSection({
           </span>
         </Row>
       )}
+      {screenSharingLook === "grouped" && screenSharingRows}
       {remoteControl && (
         <li className="acpmux-session-info-row">
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
-          <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
-            <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
-            <Switch
-              className="acpmux-session-info-switch__input"
-              size="md"
-              aria-label={t("sessionInfo.environment.remoteControl")}
-              checked={remoteControl.on}
-              onCheckedChange={remoteControl.set}
-            />
-          </label>
+          <WithFacts facts={[{ value: t("sessionInfo.environment.remoteControl.help") }]}>
+            {(facts) => (
+              <label {...facts} className="acpmux-session-info-switch">
+                <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
+                <Switch
+                  className="acpmux-session-info-switch__input"
+                  size="md"
+                  aria-label={t("sessionInfo.environment.remoteControl")}
+                  checked={remoteControl.on}
+                  onCheckedChange={remoteControl.set}
+                />
+              </label>
+            )}
+          </WithFacts>
         </li>
       )}
     </ul>
