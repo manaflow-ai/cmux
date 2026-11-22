@@ -146,9 +146,10 @@ import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
+import { Spinner } from "../conversation/icons";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
-import { earlierPlanHead, planHead } from "./subagentTrayModel";
+import { earlierPlanHead, planHead, planHeadMark } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
 
@@ -192,6 +193,7 @@ export const SubagentTray = memo(function SubagentTray({
   plan,
   planEarlier = false,
   planKept = false,
+  turnSince,
   onTuck,
   tuckSide = "middle",
   onHold,
@@ -247,6 +249,8 @@ export const SubagentTray = memo(function SubagentTray({
   /// `plan` is the chat's task list shown between turns (chatTaskList.ts `hatPlanOf`): nothing in it
   /// spins and the header's mark is not lit, as no turn works on it now.
   planKept?: boolean;
+  /// When the chat's running turn started, Unix ms: a plan-only header counts its time (cmux#51039).
+  turnSince?: number;
   /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
   /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
   /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
@@ -537,6 +541,18 @@ export const SubagentTray = memo(function SubagentTray({
   const [runStart, setRunStart] = useState<number | undefined>(undefined);
   const since = runSince(runStart, items);
   if (since !== runStart) setRunStart(since);
+  // A plan longer than the hat's rows scrolls in place; the step at work is kept in view as the list
+  // moves on, so the person never has to hunt for it (cmux#51039). Only the plan's own box scrolls.
+  const planBox = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = planBox.current;
+    const step = box?.querySelector<HTMLElement>('.cv-plan__item[data-status="in_progress"]');
+    if (!box || !step || box.scrollHeight <= box.clientHeight) return;
+    const shown = box.getBoundingClientRect();
+    const at = step.getBoundingClientRect();
+    if (at.top < shown.top) box.scrollTop += at.top - shown.top;
+    else if (at.bottom > shown.bottom) box.scrollTop += at.bottom - shown.bottom;
+  }, [plan, open]);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
@@ -609,6 +625,9 @@ export const SubagentTray = memo(function SubagentTray({
   // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
   // plan the head keeps the work's ring.
   const planOnly = Boolean(planText) && !workText;
+  // While the turn runs, a plan-only header spins and counts the turn's time (cmux#51039).
+  const planMark = planOnly ? planHeadMark({ working, turnSince }) : undefined;
+  const headSince = since ?? planMark?.since;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -843,18 +862,22 @@ export const SubagentTray = memo(function SubagentTray({
             // (desktop.css --grid-tray-text) instead of jumping to the inset.
             <span
               className="acpmux-lineage__icon"
-              data-state={planOnly ? "done" : runs ? "running" : "done"}
+              data-state={planOnly ? (planMark?.spins ? "running" : "done") : runs ? "running" : "done"}
               // A plan-only header draws the Plan mode mark over its rows' status column (Lucas, 2026-11-14:
               // "we should either have an icon (ideally) or align it"). Else an empty stack keeps the slot
               // blank, never the ring.
               data-blank={(!planOnly && (head === "bare" || head === "stack")) || undefined}
               aria-hidden="true"
             >
-              <Icon
-                name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
-                size={ROW_ICON}
-                row
-              />
+              {planMark?.spins ? (
+                <Spinner size={ROW_ICON} loading />
+              ) : (
+                <Icon
+                  name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
+                  size={ROW_ICON}
+                  row
+                />
+              )}
             </span>
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
@@ -924,8 +947,8 @@ export const SubagentTray = memo(function SubagentTray({
               )}
             </span>
           ) : // The clock is the time element itself, so a range over it holds only its text.
-          since !== undefined ? (
-            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={since} />
+          headSince !== undefined ? (
+            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={headSince} />
           ) : (
             <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
@@ -968,7 +991,7 @@ export const SubagentTray = memo(function SubagentTray({
         >
           {/* The plan's checklist over what runs, the turn's own work first. */}
           {planned && (
-            <div className="acpmux-running-tray__plan">
+            <div ref={planBox} className="acpmux-running-tray__plan">
               <PlanList entries={plan} earlier={planEarlier} still={planKept} />
             </div>
           )}

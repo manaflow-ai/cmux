@@ -545,12 +545,14 @@ button.cv-subagent > :last-child {
 }
 /* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
    the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
-   own inside the tray's glass. Past five steps it scrolls in place, as the lines do. In a short pane
-   it gives up height alongside the lines, so neither one is pushed out of the clipped tray. */
+   own inside the tray's glass. Up to eight steps show whole (a sixth step hid under five rows with no
+   sign it was there, cmux#51039); past that it scrolls in place with the step at work kept in view
+   (SubagentTray.tsx `planBox`). In a short pane it gives up height alongside the lines, so neither
+   one is pushed out of the clipped tray. */
 .acpmux-running-tray__plan {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: calc(5 * var(--ui-row-height, 28px));
+  max-height: calc(8 * var(--ui-row-height, 28px));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
