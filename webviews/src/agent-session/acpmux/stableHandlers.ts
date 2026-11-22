@@ -75,7 +75,27 @@ export function usePropChurn(name: string, props: object, enabled: boolean, coun
               )
               .join(" ")}`;
           }
-          ((globalThis as any).__churnLog ??= []).push(`${key}.${member} ${brief(a)} -> ${brief(b)}${first}`);
+          const path = (x: any, y: any, at: string, depth: number): string => {
+            if (Object.is(x, y)) return "";
+            if (depth > 6 || typeof x !== "object" || typeof y !== "object" || !x || !y)
+              return `${at}=${brief(x)}|${brief(y)}`;
+            const px = Object.getPrototypeOf(x),
+              py = Object.getPrototypeOf(y);
+            if (px !== py) return `${at}:proto`;
+            if (px !== Object.prototype && px !== Array.prototype && px !== null)
+              return `${at}:class ${x.constructor?.name}`;
+            const ks = new Set([...Object.keys(x), ...Object.keys(y)]);
+            for (const k of ks) {
+              if (!(k in x) || !(k in y))
+                return `${at}.${k}:missing(${k in x}/${k in y}) ${brief(x[k])}|${brief(y[k])}`;
+              const d = path(x[k], y[k], `${at}.${k}`, depth + 1);
+              if (d) return d;
+            }
+            return "";
+          };
+          ((globalThis as any).__churnLog ??= []).push(
+            `${key}.${member} ${brief(a)} -> ${brief(b)} diff ${path(a, b, "", 0) || "none"}`,
+          );
         }
   }
 }
