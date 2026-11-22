@@ -192,14 +192,8 @@ struct PageFactory {
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
             unsupported: { AgentHarnessStrings.unsupported },
-            // A sign-in's page opens beside the window in this app's browser; focus stays (`workspace.open_url`).
-            openSignInPage: { [weak services] url in
-                guard let connection = services?.machines.local.connection else { return }
-                try? await WorkspaceOpenURLClient(connection).openOnHome(url.absoluteString)
-            }
-        )
-        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys,
-                                                                                                 signIn: harnesses)
+            openSignInPage: WorkspaceOpenURLClient.homeOpener { [weak services] in services?.machines.local.connection })
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
