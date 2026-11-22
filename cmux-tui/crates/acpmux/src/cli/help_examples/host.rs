@@ -47,6 +47,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine chat-pick",
+        &[
+            (
+                "See where a new chat on Auto would start, and why",
+                "acpmux machine chat-pick --cwd .",
+            ),
+            (
+                "Weigh a chat that needs macOS and a long build, with Cloud on",
+                "acpmux machine chat-pick --cwd . --needs macos,build --cloud",
+            ),
+            (
+                "Weigh it with the folder projected, not copied",
+                "acpmux machine chat-pick --cwd . --cloud --projected",
+            ),
+            (
+                "Ask whether Auto would move a running chat now",
+                r#"acpmux machine chat-pick --cwd . --running '{"place":"local","home":"local"}'"#,
+            ),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (

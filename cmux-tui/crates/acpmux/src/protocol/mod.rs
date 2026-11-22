@@ -513,6 +513,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
+        untyped("_acpmux/place_chat", Request),
+        untyped("_acpmux/place_chat_event", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         keyed::<params::PeerReconnectParams>("_acpmux/peer_reconnect", Request),
