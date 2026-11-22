@@ -5,13 +5,13 @@ import { config as proxyConfig } from "../proxy";
 import { GET } from "../app/api/apple-app-site-association/route";
 
 describe("apple-app-site-association", () => {
-  test("names the cmux iOS app for the agent link page", async () => {
+  test("names the App Store and TestFlight cmux iOS apps for the agent link page", async () => {
     const response = GET();
     expect(response.headers.get("content-type")).toContain("application/json");
     const body = await response.json();
     expect(body.applinks.details).toEqual([
       {
-        appIDs: ["7WLXT3NR37.dev.cmux.app.internal"],
+        appIDs: ["7WLXT3NR37.com.cmux.app", "7WLXT3NR37.dev.cmux.app.internal"],
         components: [{ "/": "/deeplink/agent" }, { "/": "/*/deeplink/agent" }],
       },
     ]);

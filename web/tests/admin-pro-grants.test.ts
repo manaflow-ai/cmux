@@ -7,10 +7,14 @@ import {
 } from "../services/account/deletionLock";
 import { AccountMetadataUserUnavailableError } from "../services/account/metadataMutation";
 import {
+  ADMIN_TEAM_SEARCH_MAX_PAGES,
+  ADMIN_TEAM_SEARCH_PAGE_SIZE,
   AdminGrantConflictError,
+  AdminGrantSlotMismatchError,
   AdminInvalidEmailError,
   AdminTeamNotFoundError,
   AdminUserNotFoundError,
+  adminTeamRow,
   adminUserRow,
   applyPendingEmailGrants,
   createPendingEmailGrant,
@@ -20,6 +24,7 @@ import {
   isPlausibleEmail,
   listPendingEmailGrants,
   revokePendingEmailGrant,
+  isProbeTeamName,
   searchAdminTeams,
   searchAdminUsers,
   setManualPlanGrant,
@@ -31,6 +36,7 @@ import {
   type AdminStackUser,
 } from "../services/admin/proGrants";
 import type { StripeBillingStatus } from "../services/billing/pro";
+import { billingPlanIdFromMetadata } from "../services/billing/teamResolution";
 
 type FakeUser = AdminStackUser & {
   readonly updates: Array<{ clientReadOnlyMetadata?: unknown; serverMetadata?: unknown }>;
@@ -130,6 +136,21 @@ function fakeApp(
   };
 }
 
+/** A Stack directory that pages like Stack: oldest first, `limit` per call, an opaque cursor. */
+function pagedApp(teams: readonly AdminStackTeam[]): AdminStackApp {
+  const base = fakeApp([], teams);
+  return {
+    ...base,
+    async listTeams(options) {
+      const query = (options.query ?? "").toLowerCase();
+      const matching = teams.filter((team) => team.id === query || team.displayName.toLowerCase().includes(query));
+      const start = options.cursor ? Number(options.cursor) : 0;
+      const end = start + (options.limit ?? 100);
+      return Object.assign(matching.slice(start, end), { nextCursor: end < matching.length ? String(end) : null });
+    },
+  };
+}
+
 const noStripe: StripeBillingStatus = {
   customerId: null,
   subscriptionStatus: null,
@@ -172,6 +193,13 @@ describe("isAdminGrantablePlanId", () => {
     expect(isAdminGrantablePlanId("free")).toBe(false);
     expect(isAdminGrantablePlanId("")).toBe(false);
     expect(isAdminGrantablePlanId(null)).toBe(false);
+  });
+
+  test("accepts the cmux NEXT Cloud plans as themselves", () => {
+    expect(isAdminGrantablePlanId("next_pro")).toBe(true);
+    expect(isAdminGrantablePlanId("next_max")).toBe(true);
+    expect(isAdminGrantablePlanId("NEXT_PRO")).toBe(false);
+    expect(isAdminGrantablePlanId("next")).toBe(false);
   });
 });
 
@@ -272,6 +300,47 @@ describe("setManualPlanGrant", () => {
     expect(row.lastGrant?.plan).toBe("pro");
   });
 
+  test("grants a cmux NEXT plan as itself without granting classic Pro", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { other: 1 } });
+    const app = fakeApp([target]);
+    const row = await setManualPlanGrant({
+      targetUserId: "u1",
+      plan: "next_max",
+      admin,
+      app,
+      now: () => new Date("2026-11-17T10:00:00.000Z"),
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+    });
+    // Mirrored into cmuxVmPlan while the classic slot is empty, for readers that only know that key.
+    expect(target.clientReadOnlyMetadata).toEqual({ other: 1, cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
+    expect(row.manualPlanId).toBeNull();
+    expect(row.nextManualPlanId).toBe("next_max");
+    expect(row.lastGrant).toBeNull();
+    expect(row.lastNextGrant?.plan).toBe("next_max");
+    expect(row.isPro).toBe(false);
+  });
+
+  test("removing a legacy cmux NEXT grant clears it and keeps a classic Stripe mirror", async () => {
+    const target = fakeUser({
+      id: "u1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxPlan: "pro" },
+    });
+    const app = fakeApp([target]);
+    const row = await setManualPlanGrant({
+      targetUserId: "u1",
+      plan: null,
+      slot: "next",
+      admin,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => activeStripe,
+    });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxPlan: "pro" });
+    expect(row.manualPlanId).toBeNull();
+    expect(row.isPro).toBe(true);
+  });
+
   test("removing the grant deletes cmuxVmPlan and reconciles cmuxPlan from Stripe", async () => {
     const target = fakeUser({
       id: "u1",
@@ -368,11 +437,163 @@ describe("setManualPlanGrant", () => {
   });
 });
 
+describe("classic and cmux NEXT grant slots", () => {
+  async function write(target: FakeUser, input: Partial<SetManualPlanGrantInput> & Pick<SetManualPlanGrantInput, "plan">, grantsDb?: AdminGrantsDb) {
+    const app = fakeApp([target]);
+    return await setManualPlanGrant({
+      targetUserId: target.id,
+      admin,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+      now: () => new Date("2026-11-17T10:00:00.000Z"),
+      grantsDb,
+      ...input,
+    });
+  }
+  const classicAudit = { plan: "pro", byUserId: "admin-2", byEmail: null, at: "2026-09-02T00:00:00.000Z" };
+
+  test("granting NEXT keeps the classic grant and its audit record", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "pro" }, serverMetadata: { cmuxAdminPlanGrant: classicAudit } });
+    const row = await write(target, { plan: "next_max" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_max" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminPlanGrant).toEqual(classicAudit);
+    expect(row).toMatchObject({ isPro: true, manualPlanId: "pro", nextManualPlanId: "next_max" });
+    expect(row.lastGrant?.plan).toBe("pro");
+    expect(row.lastNextGrant).toMatchObject({ plan: "next_max", byUserId: "admin-1" });
+  });
+
+  test("removing NEXT keeps the classic grant", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "pro", cmuxNextVmPlan: "next_pro" }, serverMetadata: { cmuxAdminPlanGrant: classicAudit } });
+    const row = await write(target, { plan: null, slot: "next" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminPlanGrant).toEqual(classicAudit);
+    expect(row).toMatchObject({ manualPlanId: "pro", nextManualPlanId: null });
+    expect(row.lastNextGrant).toMatchObject({ plan: null });
+  });
+
+  test("granting and removing classic keeps the NEXT grant", async () => {
+    const nextAudit = { plan: "next_pro", byUserId: "admin-2", byEmail: null, at: "2026-09-02T00:00:00.000Z" };
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxNextVmPlan: "next_pro" }, serverMetadata: { cmuxAdminNextPlanGrant: nextAudit } });
+    let row = await write(target, { plan: "max" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "max" });
+    expect(row).toMatchObject({ manualPlanId: "max", nextManualPlanId: "next_pro" });
+    row = await write(target, { plan: null });
+    // The classic removal restores the NEXT mirror instead of leaving cmuxVmPlan absent.
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminNextPlanGrant).toEqual(nextAudit);
+    expect(row).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
+  });
+
+  test("a legacy NEXT id in cmuxVmPlan moves to the NEXT slot on a classic write", async () => {
+    const legacyAudit = { plan: "next_pro", byUserId: "admin-2", byEmail: null, at: "2026-09-02T00:00:00.000Z", pendingGrantId: "g7" };
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro" }, serverMetadata: { cmuxAdminPlanGrant: legacyAudit } });
+    // Before the write the legacy grant already reads as the NEXT grant, not the classic one.
+    expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro", lastGrant: null });
+    expect(adminUserRow(target, noStripe).lastNextGrant).toMatchObject({ plan: "next_pro", pendingGrantId: "g7" });
+    const row = await write(target, { plan: "pro" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_pro" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminNextPlanGrant).toEqual(legacyAudit);
+    expect(row).toMatchObject({ manualPlanId: "pro", nextManualPlanId: "next_pro" });
+    expect(row.lastGrant?.plan).toBe("pro");
+    expect(row.lastNextGrant?.pendingGrantId).toBe("g7");
+
+    // A classic removal on a legacy record keeps the NEXT grant too.
+    const other = fakeUser({ id: "u2", clientReadOnlyMetadata: { cmuxVmPlan: "next_max" } });
+    await write(other, { plan: null });
+    expect(other.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
+  });
+
+  test("a NEXT write on a legacy record keeps the mirror, and a change updates both keys", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro" } });
+    await write(target, { plan: "next_pro" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro" });
+    await write(target, { plan: "next_max" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
+    await write(target, { plan: null, slot: "next" });
+    expect(target.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("a NEXT write never mirrors over a classic grant or restriction", async () => {
+    for (const classic of ["pro", "free", "enterprise"]) {
+      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: classic } });
+      await write(target, { plan: "next_pro" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: classic, cmuxNextVmPlan: "next_pro" });
+      await write(target, { plan: null, slot: "next" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: classic });
+    }
+  });
+
+  test("a NEXT write never overwrites an empty, whitespace or non-string classic key, which the billing plan reader keeps as a restriction", async () => {
+    for (const blank of ["", "   ", 0]) {
+      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: blank } });
+      await write(target, { plan: "next_pro" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: blank, cmuxNextVmPlan: "next_pro" });
+      expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
+      // The billing plan reader still hides a subscription behind that value; a mirrored NEXT id would have exposed it.
+      expect(billingPlanIdFromMetadata({ cmuxVmPlan: blank, cmuxNextVmPlan: "next_pro", cmuxPlan: "pro" })).toBeNull();
+      expect(billingPlanIdFromMetadata({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro", cmuxPlan: "pro" })).toBe("pro");
+    }
+  });
+
+  test("when the keys disagree the new key wins and the next write repairs the mirror", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" } });
+    expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_max" });
+    await write(target, { plan: null });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
+    const again = fakeUser({ id: "u2", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" } });
+    await write(again, { plan: "next_max" });
+    expect(again.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
+  });
+
+  test("slot next with a classic plan is refused without writing", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxNextVmPlan: "next_pro" } });
+    await expect(write(target, { plan: "pro", slot: "next" })).rejects.toBeInstanceOf(AdminGrantSlotMismatchError);
+    expect(target.updates).toEqual([]);
+    // A NEXT plan goes to the NEXT slot even when slot says classic.
+    await write(target, { plan: "next_max", slot: "classic" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
+  });
+
+  test("a garbage cmuxNextVmPlan is no grant and no restriction", () => {
+    const row = adminUserRow(fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "pro", cmuxNextVmPlan: "free" } }), noStripe);
+    expect(row).toMatchObject({ isPro: true, manualPlanId: "pro", nextManualPlanId: null });
+  });
+
+  test("a direct NEXT grant supersedes only pending NEXT grants for the email", async () => {
+    const rows: GrantRow[] = [];
+    const grantsDb = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "u1@example.com", plan: "pro", admin, db: grantsDb });
+    const target = fakeUser({ id: "u1" });
+    await write(target, { plan: "next_pro" }, grantsDb);
+    expect(rows[0]?.revokedAt).toBeNull();
+    await write(target, { plan: "founders" }, grantsDb);
+    expect(rows[0]?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  test("team rows report both slots and a team grant keeps the NEXT grant", async () => {
+    const team = fakeTeam({ id: "t1", clientReadOnlyMetadata: { cmuxVmPlan: "next_max" } });
+    expect(adminTeamRow(team, noStripe, 1)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_max", isTeam: false });
+    const app = fakeApp([], [team]);
+    const row = await setTeamManualPlanGrant({
+      teamId: "t1",
+      plan: "team",
+      admin,
+      app,
+      withFreshTeam: async (_teamId, operation) => await operation(team, lease),
+      hasActiveTeamSubscription: async () => false,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(team.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "team", cmuxNextVmPlan: "next_max" });
+    expect(row).toMatchObject({ isTeam: true, manualPlanId: "team", nextManualPlanId: "next_max" });
+  });
+});
+
 describe("teams", () => {
   test("a team whose member list fails to load reports an unknown count", async () => {
     const broken = fakeTeam({ id: "tb", displayName: "Broken" });
     (broken as unknown as { listUsers: () => Promise<never> }).listUsers = async () => { throw new Error("provider down"); };
-    const rows = await searchAdminTeams("broken", { app: fakeApp([], [broken]), stripeBillingStatus: async () => noStripe });
+    const { teams: rows } = await searchAdminTeams("broken", { app: fakeApp([], [broken]), stripeBillingStatus: async () => noStripe });
     expect(rows[0]?.memberCount).toBeNull();
   });
 
@@ -382,7 +603,7 @@ describe("teams", () => {
       fakeTeam({ id: "t2", displayName: "Acme Labs", members: 1 }),
       fakeTeam({ id: "t3", displayName: "Other" }),
     ]);
-    const rows = await searchAdminTeams("acme", {
+    const { teams: rows } = await searchAdminTeams("acme", {
       app,
       stripeBillingStatus: async (teamId) => (teamId === "t2" ? activeStripe : noStripe),
     });
@@ -390,6 +611,69 @@ describe("teams", () => {
       ["t1", true, "team", 3],
       ["t2", true, null, 1],
     ]);
+  });
+
+  test("a probe's empty personal team is a test team; a real team or a probe name with members is not", () => {
+    for (const name of [
+      "cmux prod smoke's Team",
+      "cmux staging smoke's Team",
+      "cmux prod team check's Team",
+      "cmux prod freestyle rpc smoke's Team",
+      "cmux prod stress 3's Team",
+      "cmux prod startup bench's Team",
+      "cmux dogfood's Team",
+      "cmux Iroh production gate's Team",
+    ]) expect(isProbeTeamName(name)).toBe(true);
+    for (const name of ["cmux", "cmux Team", "cmux prod", "Acme smoke's Team", "my cmux prod smoke's Team"]) {
+      expect(isProbeTeamName(name)).toBe(false);
+    }
+  });
+
+  // Leo, 2026-11-09: the company team "cmux" was missing from "Teams (25)":
+  // the first Stack page for "cmux" was all empty probe teams, oldest first.
+  test("searchAdminTeams hides empty probe teams and pages past them to the real team", async () => {
+    const probes = Array.from({ length: 60 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod smoke's Team" }));
+    const company = fakeTeam({ id: "company", displayName: "cmux", members: 12 });
+    const live = fakeTeam({ id: "live-probe", displayName: "cmux prod smoke's Team", members: 1 });
+    const app = pagedApp([...probes, live, company]);
+    const { teams, nextCursor, hiddenTestTeams } = await searchAdminTeams("cmux", {
+      app,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(teams.map((team) => [team.id, team.isTestTeam])).toEqual([["live-probe", false], ["company", false]]);
+    expect(hiddenTestTeams).toBe(60);
+    expect(nextCursor).toBeNull();
+  });
+
+  test("searchAdminTeams shows test teams when asked and hands back a cursor for the next page", async () => {
+    const probes = Array.from({ length: 30 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod stress 3's Team" }));
+    const company = fakeTeam({ id: "company", displayName: "cmux", members: 12 });
+    const app = pagedApp([...probes, company]);
+    const first = await searchAdminTeams("cmux", { app, includeTestTeams: true, stripeBillingStatus: async () => noStripe });
+    expect(first.teams).toHaveLength(25);
+    expect(first.teams.every((team) => team.isTestTeam)).toBe(true);
+    expect(first.hiddenTestTeams).toBe(0);
+    expect(first.nextCursor).toBe("25");
+    const second = await searchAdminTeams("cmux", {
+      app,
+      includeTestTeams: true,
+      cursor: first.nextCursor!,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(second.teams.map((team) => team.id)).toEqual(["probe-25", "probe-26", "probe-27", "probe-28", "probe-29", "company"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  test("searchAdminTeams stops after its page budget and returns where to resume", async () => {
+    const probes = Array.from({ length: 1000 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod smoke's Team" }));
+    const app = pagedApp([...probes, fakeTeam({ id: "company", displayName: "cmux", members: 12 })]);
+    const page = await searchAdminTeams("cmux", { app, stripeBillingStatus: async () => noStripe });
+    expect(page.teams).toEqual([]);
+    expect(page.hiddenTestTeams).toBe(ADMIN_TEAM_SEARCH_MAX_PAGES * ADMIN_TEAM_SEARCH_PAGE_SIZE);
+    expect(page.nextCursor).toBe(String(ADMIN_TEAM_SEARCH_MAX_PAGES * ADMIN_TEAM_SEARCH_PAGE_SIZE));
   });
 
   function directTeamMutation(app: AdminStackApp) {
@@ -703,6 +987,74 @@ describe("pending email grants", () => {
     expect(rows.find((row) => row.email === "other@example.com")?.appliedAt).toBeNull();
     // Second sign-in finds nothing open.
     expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);
+  });
+
+  test("applyPendingEmailGrants applies a pending cmux NEXT grant", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "next@example.com", plan: "next_pro", admin, db });
+    const grants: { plan: unknown }[] = [];
+    const applied = await applyPendingEmailGrants(
+      { id: "u7", primaryEmail: "next@example.com" },
+      { db, grant: async (input) => { grants.push(input); return undefined; } },
+    );
+    expect(applied).toBe(1);
+    expect(grants.map((grant) => grant.plan)).toEqual(["next_pro"]);
+    expect(rows[0]?.appliedUserId).toBe("u7");
+  });
+
+  test("a pending cmux NEXT grant on an account without a classic grant writes the mirror too", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "solo@example.com", plan: "next_max", admin, db });
+    const target = fakeUser({ id: "u8", primaryEmail: "solo@example.com" });
+    const app = fakeApp([target]);
+    const grant = (input: SetManualPlanGrantInput) => setManualPlanGrant({
+      ...input,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(await applyPendingEmailGrants({ id: "u8", primaryEmail: "solo@example.com" }, { db, grant })).toBe(1);
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
+    // Unwinding it clears both keys.
+    rows[0]!.appliedAt = null;
+    rows[0]!.appliedUserId = "u8";
+    await revokePendingEmailGrant({ grantId: "g1", db, grant });
+    expect(target.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("a pending cmux NEXT grant lands in the NEXT slot beside a classic grant", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "next_pro", admin, db });
+    const target = fakeUser({
+      id: "u9",
+      primaryEmail: "pat@example.com",
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "founders", byUserId: "admin-2", byEmail: null, at: "2026-09-03T00:00:00.000Z" } },
+    });
+    const app = fakeApp([target]);
+    const grant = (input: SetManualPlanGrantInput) => setManualPlanGrant({
+      ...input,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+    });
+    // The classic audit record is newer than the pending row; only the NEXT
+    // slot's record may block it.
+    const applied = await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant });
+    expect(applied).toBe(1);
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "founders", cmuxNextVmPlan: "next_pro" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminPlanGrant).toMatchObject({ plan: "founders" });
+    expect((target.serverMetadata as Record<string, unknown>).cmuxAdminNextPlanGrant).toMatchObject({ plan: "next_pro", pendingGrantId: "g1" });
+    expect(rows[0]?.appliedAt).toBeInstanceOf(Date);
+
+    // Revoking the applied-but-claimed path unwinds only the NEXT slot.
+    rows[0]!.appliedAt = null;
+    rows[0]!.appliedUserId = "u9";
+    await revokePendingEmailGrant({ grantId: "g1", db, grant });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "founders" });
   });
 
   test("applyPendingEmailGrants never applies a row revoked before the claim, and releases the claim on failure", async () => {
