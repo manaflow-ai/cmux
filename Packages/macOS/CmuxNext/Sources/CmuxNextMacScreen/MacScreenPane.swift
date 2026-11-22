@@ -48,6 +48,14 @@ public final class MacScreenPaneModel {
         get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
         set { viewerLookOverride = newValue }
     }
+    /// A readout fixed for this pane (the gallery draws each); nil follows Debug Settings `macScreen.qualityReadout`.
+    var qualityReadoutOverride: MacScreenQualityReadout?
+    /// Where the stream's rate and quality show, read live like ``viewerLook``.
+    var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
+    /// The gallery's bar variant; nil reads Debug Settings.
+    var toolbarBarOverride: MacScreenToolbarBar?
+    /// How the floating bar arranges its controls, read live like ``viewerLook``.
+    var toolbarBar: MacScreenToolbarBar { toolbarBarOverride ?? MacScreenTunables.toolbarBar.value }
     /// The toolbar's Record button: this stream copied into an MP4 as it arrives.
     public let recording = MacScreenRecording()
 
