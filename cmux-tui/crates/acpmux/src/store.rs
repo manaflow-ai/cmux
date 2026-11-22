@@ -467,6 +467,13 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The agent of the unstored conversation (`claude_unstored`) did work in a turn that did
+    /// not end Ok: it said something, thought or called a tool (`Hub::unstored_turn_worked`). Only
+    /// such a conversation is kept awake (`idle.rs`) and refused by `stop --if-idle`; one whose
+    /// turns only ever got agent errors (a 503, an exhausted account) wakes as the same fresh
+    /// conversation with its transcript restored either way (cmux#48917).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored_work: bool,
     /// Its creator asked every start of its agent to wait on the harness rather than a wall
     /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
     /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
@@ -479,6 +486,13 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The journal seq the agent's own session ends at, when the journal went past it without
+    /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
+    /// to a fresh machine from an older disk). The agent resumes its own older session, so its
+    /// next prompt carries the turns after this seq (`hub/transcript.rs` `missed_turns`), and the
+    /// mark goes. Saved with the meta: the agent's file and this mark are on one disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_behind_seq: Option<u64>,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -488,6 +502,12 @@ pub struct SessionMeta {
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
+    /// The level (`agent_host::HOST_LEVEL`) at which this daemon's build started the chat's live
+    /// host, by that host's incarnation (`hub/host_level.rs` `note_start_level`): what the start
+    /// asked of the agent (whether it suggests next prompts) is decided there, by the daemon, not
+    /// by the host's binary. None: an older daemon started it, or none yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_level: Option<StartLevel>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -714,6 +734,13 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// `SessionMeta::start_level`: the level a daemon started host `incarnation` at.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StartLevel {
+    pub incarnation: String,
+    pub level: u32,
 }
 
 /// Who created a session (`hub/created_by.rs`), the shape cmux-tui's
@@ -1005,6 +1032,13 @@ impl SessionMeta {
 
     /// The Claude store this session's harness reads when it spawns on a
     /// profile with `env`.
+    /// A Claude chat whose conversation is not stored (`claude_unstored`) and whose agent did
+    /// work in it (`claude_unstored_work`): hibernating or stopping it would lose that work's
+    /// context, so `idle.rs` keeps it awake and `stop --if-idle` refuses it (`unstored`).
+    pub fn keeps_unstored_awake(&self) -> bool {
+        self.claude_unstored && self.claude_unstored_work && self.turn_count > 0
+    }
+
     pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
         let mut env = env.clone();
         self.apply_chat_store(&mut env);
@@ -2455,6 +2489,7 @@ impl Store for LocalStore {
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
     /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
     /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    /// Only the copies from the segment that holds `after + 1` on (`scan_kinds_past`).
     fn scan_kinds_after(
         &self,
         id: &str,

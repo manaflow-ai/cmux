@@ -179,7 +179,7 @@ export function SharedLinksList({
         }
         if (layout === "compact") {
           return (
-            <div className="row" data-shared-link={row.id} key={row.id} title={sharedLinkDetail(row, now)}>
+            <div className="row" data-shared-link={row.id} key={row.id} aria-description={sharedLinkDetail(row, now)}>
               <div className="row-main">
                 <span className="row-label">
                   <span className="row-title">{chat}</span>
