@@ -2118,6 +2118,7 @@ impl Hub {
             auto_resume: Default::default(),
             rate_hold: Default::default(),
             rate_note: Default::default(),
+            resume_at_reset: Default::default(),
             turn_lock: Mutex::new(()),
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
