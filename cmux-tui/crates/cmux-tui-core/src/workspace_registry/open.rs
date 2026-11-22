@@ -704,6 +704,7 @@ impl WorkspaceRegistry {
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
+            idle_stop_fence: None,
         })
     }
 
