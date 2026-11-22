@@ -67,12 +67,9 @@ fn brief_value(value: &Value, field: usize, cut: &mut usize) -> Value {
 
 /// Which array of rows this answer is: the thread list, or one thread's messages.
 fn rows_key(answer: &Value) -> Option<&'static str> {
-    for key in ["threads", "messages"] {
-        if answer.get(key).and_then(Value::as_array).is_some() {
-            return Some(key);
-        }
-    }
-    None
+    ["threads", "messages"]
+        .into_iter()
+        .find(|&key| answer.get(key).and_then(Value::as_array).is_some())
 }
 
 /// A thread row that says it has unread messages: kept before the quiet ones, because the one
