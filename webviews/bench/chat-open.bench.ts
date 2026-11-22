@@ -827,7 +827,7 @@ try {
       // Each idle stretch of 2 ms or more, as start+length from the attach: where the page waited.
       const gaps: string[] = [];
       let gapFrom = -1;
-      const runs: { task: string; at: number; ms: number }[] = [];
+      const runs: { task: string; at: number; ms: number; parts: Map<string, number> }[] = [];
       const byOuter = new Map<string, number>();
       const byFileSelf = new Map<string, number>();
       profile.samples.forEach((id, index) => {
@@ -864,9 +864,12 @@ try {
         }
         const task = phase ? `React ${phase}` : outer || name(node.callFrame);
         const last = runs.at(-1);
-        if (last && last.task === task && clockAt - delta - (last.at + last.ms) < 1) last.ms = clockAt - last.at;
-        else runs.push({ task, at: clockAt - delta, ms: delta });
         const under = `${phase || "other"}: ${outer || name(node.callFrame)}`;
+        let run = last;
+        if (last && last.task === task && clockAt - delta - (last.at + last.ms) < 1) last.ms = clockAt - last.at;
+        else runs.push((run = { task, at: clockAt - delta, ms: delta, parts: new Map() }));
+        const part = phase === "render" ? outer || name(node.callFrame) : name(node.callFrame);
+        run!.parts.set(part, (run!.parts.get(part) ?? 0) + delta);
         byOuter.set(under, (byOuter.get(under) ?? 0) + delta);
         const file = name(node.callFrame).split(" ").pop()!.replace(/:\d+$/, "");
         byFileSelf.set(file, (byFileSelf.get(file) ?? 0) + delta);
@@ -883,8 +886,13 @@ try {
         `attach to latest in the profiled load: attach answered at ${from.toFixed(0)} ms, latest in the page at ${to.toFixed(0)} ms (${(to - from).toFixed(0)} ms): busy ${busy.toFixed(0)} ms, idle ${idle.toFixed(0)} ms`,
       );
       console.log("  task timeline (ms after the attach, ms, React phase or outermost page function):");
-      for (const run of runs.filter((each) => each.ms >= 1))
+      for (const run of runs.filter((each) => each.ms >= 1)) {
         console.log(`  ${(run.at - from).toFixed(1)}\t${run.ms.toFixed(1)}\t${run.task.slice(0, 140)}`);
+        // A long run's largest parts (in a render, the component; otherwise the function with the self time).
+        if (run.ms >= 5)
+          for (const [part, ms] of [...run.parts].sort((a, b) => b[1] - a[1]).slice(0, 4))
+            if (ms >= 1) console.log(`  \t\t  ${ms.toFixed(1)}\t${part.slice(0, 130)}`);
+      }
       console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);
       console.log("  by phase and outermost page function (in a render, the component) (ms):");
       for (const [key, ms] of [...byOuter].sort((a, b) => b[1] - a[1]).slice(0, 40))
