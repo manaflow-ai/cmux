@@ -2222,13 +2222,8 @@ function afterPaint(run: () => void): () => void {
   return stop;
 }
 
-/// "New since you looked" from acpmux's `lastReturn` (`{since, turns}`, `hub/seen.rs`), when it has one.
-function returnOf(sessionId: string, value: unknown): (Omit<AcpmuxSince, "key"> & { sessionId: string }) | undefined {
-  const back = value as { since?: unknown; turns?: unknown } | null | undefined;
-  return typeof back?.since === "number" && typeof back.turns === "number" && back.turns > 0
-    ? { sessionId, seq: back.since, turns: back.turns }
-    : undefined;
-}
+/// "New since you looked" comes only from the daemon's persisted unread cursor.
+/// A missing cursor is the never-focused state and must stay empty on first open.
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
 /// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
@@ -2646,6 +2641,29 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
+  }
+
+  /// The newest event that made or wrote row `id`: what having it on screen saw through. Rows the
+  /// page made itself (no event) and unknown rows answer undefined.
+  seqOf(id: string): number | undefined {
+    const first = this.order.get(id);
+    if (first === undefined || this.local.has(id) || id === SINCE_DIVIDER) return undefined;
+    return Math.max(Math.floor(first), this.lastWrite.get(id) ?? -1);
+  }
+
+  /// How many turns the agent wrote after the person's seen cursor `seq` (acpmux `readThrough`):
+  /// the ended turns, or 1 for a reply still going on past it; 0 when nothing new came. One pass,
+  /// made only when the person comes back, never per record.
+  turnsAfter(seq: number): number {
+    let turns = 0;
+    let writing = false;
+    for (const [id, row] of this) {
+      const through = this.seqOf(id);
+      if (through === undefined || through <= seq) continue;
+      if (row.kind === "turnSummary") turns += 1;
+      else if (row.kind === "assistant" || row.kind === "activity") writing = true;
+    }
+    return turns || (writing ? 1 : 0);
   }
 
   /// Where "New since you looked" goes for a person who had seen through the event at `seq`: right
@@ -3967,6 +3985,15 @@ export class AcpmuxDirectClient {
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
   private shownToAcpmux?: { sessionId: string; visible: boolean };
+  /// The person's seen cursor on the chat (acpmux `readThrough`, `hub/seen.rs`): the attach reply's,
+  /// then each `_acpmux/seen` answer's. `null`: they never had a row of it on screen. The divider
+  /// goes after it when they come back, and only then (`markSeen`).
+  private cursor?: { sessionId: string; seq: number | null };
+  /// The newest row seq the transcript last had on screen, sent or held back while the reader was
+  /// away: their return sends it (`seenOnReturn`), as the view did not move to say it again.
+  private onScreen?: { sessionId: string; seq: number };
+  /// The seen write in flight or last sent: a repeat of it or of less sends nothing.
+  private sentSeen?: { sessionId: string; seq: number };
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
@@ -6752,23 +6779,104 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Selecting a session is seeing it, including an unread flag acpmux sent, and so is coming back
-  /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
-  /// left it or stepped away put "New since you looked" after what they had seen; it stays until
-  /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
+  /// Record the newest row that was on screen in the transcript (the strict viewport, no overscan):
+  /// `rows` are those rows, and each one's seq is the newest event that made or wrote it. Sent only
+  /// while the page shows and the person attends (`readerHere`), forward only and deduplicated, so a
+  /// refocus, an inactive app or an unchanged view writes nothing.
+  markSeenRows(sessionId: string, rows: readonly { id: string; seq?: number }[]): void {
+    let seq = -1;
+    for (const row of rows) {
+      const through = Math.max(typeof row.seq === "number" ? row.seq : -1, this.rows.seqOf(row.id) ?? -1);
+      if (through > seq) seq = through;
+    }
+    if (seq >= 0) this.markSeenThrough(sessionId, seq);
+  }
+
+  markSeenThrough(sessionId: string, seq: number): void {
+    if (!Number.isFinite(seq) || seq < 0) return;
+    const kept = this.onScreen;
+    if (kept?.sessionId !== sessionId || kept.seq < seq) this.onScreen = { sessionId, seq };
+    if (!pageShown() || !readerHere()) return;
+    const cursor = this.cursor;
+    if (cursor?.sessionId === sessionId && cursor.seq !== null && cursor.seq >= seq) return;
+    const previous = this.sentSeen;
+    if (previous?.sessionId === sessionId && previous.seq >= seq) return;
+    this.sentSeen = { sessionId, seq };
+    const generation = this.selectionGeneration;
+    this.viewSync = this.viewSync.then(async () => {
+      await this.attaching;
+      if (
+        generation !== this.selectionGeneration ||
+        this.closed ||
+        !pageShown() ||
+        !readerHere() ||
+        this.selectedSessionId !== sessionId
+      ) {
+        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+        return;
+      }
+      await this.typed("_acpmux/seen", { sessionId, seq }).then(
+        (done) => {
+          const through = typeof done?.readThrough === "number" ? done.readThrough : seq;
+          const now = this.cursor;
+          if (this.selectedSessionId !== sessionId) return;
+          if (now?.sessionId !== sessionId || now.seq === null || now.seq < through)
+            this.cursor = { sessionId, seq: through };
+        },
+        () => {
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+        },
+      );
+    });
+  }
+
+  /// The reader came back (the page shows again, or they moved after stepping away): what the
+  /// transcript held on screen meanwhile is seen now, though the view did not move to say so.
+  private seenOnReturn(sessionId: string): void {
+    const kept = this.onScreen;
+    if (kept?.sessionId === sessionId) this.markSeenThrough(sessionId, kept.seq);
+  }
+
+  /// The attach reply's `readThrough` for `sessionId`: the cursor the divider reads. An older acpmux
+  /// that sends none leaves it unknown, and no divider is drawn.
+  private takeCursor(sessionId: string, result: { readThrough?: unknown } | undefined): void {
+    const through = result?.readThrough;
+    if (typeof through !== "number" && through !== null) return;
+    const now = this.cursor;
+    // A seen write answered before this reply may be ahead of it: the cursor never moves back here.
+    if (now?.sessionId === sessionId && typeof now.seq === "number" && (through === null || now.seq > through)) return;
+    this.cursor = { sessionId, seq: through };
+    // The open's return: rows after the cursor are what came while the person was away.
+    if (this.selectedSessionId === sessionId && pageShown()) this.markSeen(sessionId);
+  }
+
+  /// Selecting a session is seeing it, and so is coming back to it by hand after stepping away
+  /// (`attentionChanged`) or showing its page again. "New since you looked" goes after the person's
+  /// seen cursor (acpmux `readThrough`, the newest row they had on screen while they attended),
+  /// over the turns written after it. None when nothing came after it, and none for a chat they
+  /// never had on screen (Leo, 2026-11-22: "if you've never focused on a thing and you go in, it's
+  /// fine"). It stays until the next return moves it or another chat is selected.
   private markSeen(sessionId: string, inPlace = false): void {
-    const listed = this.sessions.find((session) => session.sessionId === sessionId);
-    const turns = listed?.unreadTurns;
-    const seq = listed?.seenSeq;
-    if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
-      this.since = { sessionId, seq, turns, ...(inPlace && { inPlace: true as const }) };
-      this.placeSince();
-    } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
+    const kept = this.cursor?.sessionId === sessionId ? this.cursor.seq : undefined;
+    // A seen write still out is the cursor too: its rows were on screen while the person attended.
+    const sent = this.sentSeen?.sessionId === sessionId ? this.sentSeen.seq : undefined;
+    const cursor = typeof kept === "number" && sent !== undefined ? Math.max(kept, sent) : kept;
+    const turns = typeof cursor === "number" ? this.rows.turnsAfter(cursor) : 0;
+    if (typeof cursor === "number" && turns > 0) {
+      const drawn = this.since;
+      // The same return seen again (a second focus event) keeps its line and its recap.
+      if (!(drawn?.sessionId === sessionId && drawn.seq === cursor && drawn.turns === turns))
+        this.since = { sessionId, seq: cursor, turns, ...(inPlace && { inPlace: true as const }) };
+    } else if (this.since?.sessionId !== sessionId || typeof cursor === "number" || cursor === null) {
+      this.since = undefined;
+    }
+    this.placeSince();
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
         ? { ...session, unread: false, unreadTurns: 0 }
         : session,
     );
+    this.seenOnReturn(sessionId);
   }
 
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
@@ -6780,11 +6888,8 @@ export class AcpmuxDirectClient {
   /// divider is placed again even when its mark did not change.
   private sinceStale = false;
   private placeSince(): void {
-    // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
-    // return on the chat while the person stays (`lastReturn`).
-    const selected = this.selectedSessionId;
-    if (selected && this.since?.sessionId !== selected && this.summary?.sessionId === selected)
-      this.since = returnOf(selected, this.summary.lastReturn);
+    // A chat with no daemon cursor has no cutover. The summary's lastReturn is a
+    // transport/reconnect detail, not evidence that new rows arrived after focus.
     const since = this.since;
     if (!since || since.sessionId !== this.selectedSessionId) {
       if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);
@@ -8090,6 +8195,7 @@ export class AcpmuxDirectClient {
           Number(result?.lastSeq) || 0;
       this.commands = commandsFromUpdate(this.summary.availableCommands) ?? this.commands;
       this.attachedGeneration = generation;
+      this.takeCursor(sessionId, result);
       if (!sent.reads) this.startAttachReads(sessionId);
       return [];
     }
@@ -8314,6 +8420,7 @@ export class AcpmuxDirectClient {
     if (!forward && result?.hasMore === false && !(append && page.some((event) => event.seq < (this.firstSeq ?? 0))))
       this.historyExhausted = true;
     this.attachedGeneration = generation;
+    this.takeCursor(sessionId, result);
     const pageEnd = page.length > 0 ? Math.max(...page.map((event) => event.seq)) : undefined;
     // Attached while the host leaves the stream out (`hiddenHole`): the chat is whole through the attach's page.
     if (this.hostHidden && this.hiddenHole?.generation !== generation)
