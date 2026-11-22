@@ -170,7 +170,7 @@ pub struct Terminal {
 /// Bytes one scrollback row holds: the row and its cells (8 bytes each;
 /// trailing empty cells are dropped).
 pub fn row_bytes(row: &Row) -> usize {
-    std::mem::size_of::<Row>() + row.cells.len() * std::mem::size_of::<Cell>()
+    size_of::<Row>() + row.cells.len() * size_of::<Cell>()
 }
 
 impl Terminal {
