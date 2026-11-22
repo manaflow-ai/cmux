@@ -5,7 +5,7 @@
 //! once. A refusal of the hub's own still fails. While the hub fails, one post probes it per
 //! window (`mesh_gate.rs`), so an overloaded hub is not hammered by every queued send.
 //!
-//! Before (2026-11-22 21:13Z, gcp-agent-lane-5): "Not sent to gcp-agent-lane-6/event-driven-agents:
+//! Before (2026-11-22 21:13Z): "Not sent to HOST/NAME:
 //! the mesh hub did not take it: the hub answered 503 mesh.unavailable ... 0 of 2 sent."
 
 use super::*;
