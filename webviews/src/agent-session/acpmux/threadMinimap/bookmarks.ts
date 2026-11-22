@@ -6,8 +6,8 @@
 // replaced by acpmux's answer and by the `bookmarks` record another pane's change logs.
 import { useEffect, useSyncExternalStore } from "react";
 
-/// The mux record acpmux logs when a session's marks change; the pane attaches with it.
-export const BOOKMARKS_KIND = "bookmarks";
+/// The mux record acpmux logs when a session's marks change; the pane attaches with it (attachParams.ts).
+export { BOOKMARKS_KIND } from "../attachParams";
 /// The key of the marks this pane kept in localStorage before acpmux kept them.
 export const STORAGE_KEY = "cmux.agentPane.threadBookmarks.v1";
 

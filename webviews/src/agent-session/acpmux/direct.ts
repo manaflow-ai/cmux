@@ -118,10 +118,12 @@ import {
   SETTLED_ATTACH_CAPABILITY,
   USAGE_KIND,
   attachedDetail,
+  OPEN_PAGE_BYTES,
   forwardAttachRefused,
   plainAttach,
   settledAttachFailed,
 } from "./attachParams";
+import { initializeParams } from "./initializeParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource } from "./rows/chatSource";
 import { holdAttach, holdReads } from "./rows/holdKinds";
@@ -342,19 +344,7 @@ export function newSessionHost(
   return cwd ? { cwd, peer } : noProject || peer ? { peer } : { ...host, peer };
 }
 
-/// The page's `initialize` params. The app's relay checks them against its params rule
-/// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
-/// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
-  return {
-    protocolVersion: 1,
-    clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-    clientCapabilities: {},
-    // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
-    // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-    _meta: { acpmux: { peerRowBatches: true } },
-  };
-}
+export { initializeParams } from "./initializeParams";
 
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
@@ -549,11 +539,11 @@ const startsTurn = (event: EventRecord) =>
 const sentByChief = (msg: { promptId?: unknown }) =>
   typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
 
-/// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
+/// Page size caps acpmux applies (maxBytes): opening a chat (`OPEN_PAGE_BYTES`, attachParams.ts), then each
+/// older page as the reader scrolls up.
 /// An older page was 400 records and 256 KiB: a page of a tool-heavy chat was a few turns, so a
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
 /// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
-const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
 const OLDER_PAGE_RECORDS = 2000;

@@ -4,8 +4,18 @@
 // meanwhile (Leo, 2026-11-22: "get that gui agent chat sped up to be nearly as fast as the terminal
 // coming back"). The bundle takes each answer once (native.ts `postNative` takes the `ready`,
 // bridgeSocket.ts the open), only within `EARLY_OPEN_FRESH_MS` of the ask; past that, or for any
-// other ask, it asks the host itself as before. An open nobody took is closed. Shared by the boot
-// script and the bundle, so it imports nothing.
+// other ask, it asks the host itself as before. An open nobody took is closed.
+//
+// On that socket the boot script also sends the chat's first requests, the bundle's own frames
+// (`initialize`, then the chat's attach and its draft read, as direct.ts `askEarly` sends them), and
+// keeps every frame that comes back (`EarlyWire`); the bundle's socket takes them (earlyWire.ts):
+// each request of the bundle that is the same frame as one sent here is answered by that answer
+// instead of going out again (Leo, 2026-11-22: "where the fuck is the cached thing + delta + simply
+// showing the rendered appearance and the bare interactivity or whatever and then gradually loading
+// the rest in but still doing that asap"). Shared by the boot script and the bundle, so it imports
+// only modules that import nothing (attachParams.ts, initializeParams.ts).
+import { HOLD_ATTACH_CAPABILITY, OPEN_PAGE_BYTES, SETTLED_ATTACH_CAPABILITY, plainAttach } from "../attachParams";
+import { initializeParams } from "../initializeParams";
 
 /// The global the boot script sets: the early asks and whether the bundle took them.
 export const EARLY_OPEN_GLOBAL = "__cmuxEarlyOpen";
@@ -29,6 +39,8 @@ export type EarlyOpen = {
   openAt?: number;
   readyTaken?: boolean;
   openTaken?: boolean;
+  /// The requests sent on the open's socket and what came back, once the open answered.
+  wire?: EarlyWire;
   /// The clock `at` and `openAt` are on (`performance.now()`; a test's own).
   now: () => number;
 };
@@ -87,6 +99,10 @@ export function askEarlyOpen(now: () => number = () => performance.now()): void 
     );
     early.open = open;
     early.openAt = now();
+    const ready = reply.ok ? (reply.value as Record<string, unknown> | null) : null;
+    void open.then((connection) => {
+      if (connection !== undefined && !early.openTaken) early.wire = startWire(connection, ready ?? {}, now);
+    });
     // An open the bundle never took is closed once it can no longer take it: the host's connection
     // never runs on with no page to read it.
     void open.then((connection) => {
@@ -125,4 +141,109 @@ export function takeEarlyOpen(): Promise<number | undefined> | undefined {
     return undefined;
   early.openTaken = true;
   return early.open;
+}
+
+/// A host push for one connection (bridgeSocket.ts `TransportEvent`).
+export type EarlyEvent = {
+  connection: number;
+  frames?: string[];
+  closed?: { code: number; reason: string; error?: string };
+};
+
+/// One request the boot script sent: its JSON-RPC id, method, params as JSON, and when.
+export type EarlyAsk = { id: number; method: string; params: string; at: number };
+
+/// The boot script's requests on the early socket and every push for it, in order, until the bundle
+/// takes them with the open (`takeEarlyWire`); nothing more is sent once it did.
+export type EarlyWire = {
+  connection: number;
+  asks: EarlyAsk[];
+  inbox: EarlyEvent[];
+  /// The chat the early attach is of (its `_acpmux/event` records ride the attach).
+  session?: string;
+  taken?: boolean;
+  now: () => number;
+};
+
+/// JSON-RPC ids of the boot's requests, far from the bundle's (direct.ts counts from 1).
+export const EARLY_RPC_ID = 2_000_000_000;
+/// The receiver the boot script installs as `window.cmuxAcpmuxTransport` until the bundle's own.
+export const EARLY_RECEIVER = "early";
+
+/// Sends `initialize` on the early socket and, once it answers, the chat's attach and its draft
+/// read: the frames the bundle's client sends first (direct.ts `open`, `askEarly`).
+function startWire(connection: number, ready: Record<string, unknown>, now: () => number): EarlyWire | undefined {
+  const w = self as unknown as { cmuxAcpmuxTransport?: { receive(event: EarlyEvent): void; [EARLY_RECEIVER]?: true } };
+  // A page whose transport receiver is up already is the bundle's: it asks its own.
+  if (w.cmuxAcpmuxTransport) return undefined;
+  const wire: EarlyWire = { connection, asks: [], inbox: [], now };
+  let sends = 0;
+  const send = (requests: { method: string; params: Record<string, unknown> }[]) => {
+    if (wire.taken || !requests.length) return;
+    const frames = requests.map(({ method, params }) => {
+      const id = EARLY_RPC_ID + wire.asks.length;
+      wire.asks.push({ id, method, params: JSON.stringify(params), at: now() });
+      return JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    });
+    sends += 1;
+    void call("transport.send", { connection, frames }, EARLY_CALL_ID + 2 + sends).catch(() => undefined);
+  };
+  const sessionId = typeof ready.sessionId === "string" && ready.sessionId ? ready.sessionId : undefined;
+  // A new chat, an adopt and a chat named by no id open no chat on the handshake: only `initialize`.
+  const opensChat = sessionId !== undefined && !ready.newSession && (ready.adopt === undefined || ready.adopt === null);
+  let answered = false;
+  w.cmuxAcpmuxTransport = {
+    [EARLY_RECEIVER]: true,
+    receive(event: EarlyEvent) {
+      if (!event || event.connection !== connection) return;
+      wire.inbox.push(event);
+      if (answered || wire.taken || !opensChat) return;
+      for (const frame of event.frames ?? []) {
+        let reply: { id?: unknown; result?: { _meta?: { acpmux?: { capabilities?: unknown; origin?: unknown } } } };
+        try {
+          reply = JSON.parse(frame);
+        } catch {
+          continue;
+        }
+        if (reply?.id !== EARLY_RPC_ID) continue;
+        answered = true;
+        const meta = reply.result?._meta?.acpmux;
+        // A failed handshake sends nothing more: the bundle's own handles it.
+        if (!reply.result) return;
+        const capabilities = Array.isArray(meta?.capabilities) ? meta.capabilities.map(String) : [];
+        const requests: { method: string; params: Record<string, unknown> }[] = [];
+        // An acpmux with the row store's hold asks the app's switch before its attach (direct.ts
+        // `sendAttachAfterSwitch`), whose answer picks the hold or the plain page: neither is known
+        // here, so only the draft read goes. Every other one sends the plain attach the bundle sends.
+        if (!capabilities.includes(HOLD_ATTACH_CAPABILITY)) {
+          wire.session = sessionId;
+          requests.push({
+            method: "_acpmux/attach",
+            params: plainAttach(sessionId!, {
+              settled: capabilities.includes(SETTLED_ATTACH_CAPABILITY),
+              // direct.ts `readerHere`: the page shows; the reader counts as here until two idle minutes pass.
+              visible: typeof document === "undefined" || document.visibilityState !== "hidden",
+              local: meta?.origin === "local",
+              maxBytes: OPEN_PAGE_BYTES,
+            }) as unknown as Record<string, unknown>,
+          });
+        }
+        requests.push({ method: "_acpmux/draft_get", params: { sessionId } });
+        send(requests);
+        return;
+      }
+    },
+  };
+  send([{ method: "initialize", params: initializeParams() }]);
+  return wire;
+}
+
+/// The early socket's requests and pushes, for the bundle's socket that took its open
+/// (`takeEarlyOpen`), once: the boot script sends nothing more after it.
+export function takeEarlyWire(): EarlyWire | undefined {
+  const early = (self as unknown as Record<string, EarlyOpen | undefined>)[EARLY_OPEN_GLOBAL];
+  const wire = early?.wire;
+  if (!wire || wire.taken) return undefined;
+  wire.taken = true;
+  return wire;
 }
