@@ -84,7 +84,7 @@ const READ_PAGE_BYTES: u64 = 40 * 1024;
 const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 
 /// How long a read waits for its answer. The hub expires an unanswered read after a minute.
-const READ_WAIT: Duration = Duration::from_secs(50);
+pub(crate) const READ_WAIT: Duration = Duration::from_secs(50);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
 // timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
@@ -393,7 +393,8 @@ const READ_ROUNDS: usize = 2;
 
 /// One read message to `HOST/KEY` through the hub, and the receiver's answer text. Each hub call
 /// is tried again on a failure that passes (`mesh_retry`), and a read whose receipt the hub let
-/// go of is sent again once, all within `READ_WAIT`.
+/// go of is sent again once, all within `READ_WAIT`: no try runs past it, and nothing is sent
+/// again once it has passed.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
@@ -405,6 +406,10 @@ async fn ask(
     loop {
         match ask_once(mesh, host, key, body.clone(), deadline).await {
             Ok(text) => return Ok(text),
+            // A read sent again once its wait has run out is one no one waits for.
+            Err(Asked::Gone(_)) if tokio::time::Instant::now() >= deadline => {
+                return Err(unanswered(host));
+            }
             Err(Asked::Gone(e)) if round < READ_ROUNDS => {
                 tracing::debug!(host, error = %e, "the hub let go of a read's receipt; asking again");
                 round += 1;
@@ -429,7 +434,14 @@ async fn ask_once(
     body: String,
     deadline: tokio::time::Instant,
 ) -> Result<String, Asked> {
-    let failed = |e| Asked::Failed(hub_error(host, key, e));
+    // A failure once the read's wait has run out (a try it cut short among them) is no answer.
+    let failed = |e| {
+        Asked::Failed(if tokio::time::Instant::now() >= deadline {
+            unanswered(host)
+        } else {
+            hub_error(host, key, e)
+        })
+    };
     let message = OutMessage {
         to: recipient(host, key),
         from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
@@ -440,8 +452,9 @@ async fn ask_once(
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
     // One idempotency key for every try, so a send the hub took before a lost answer is one read.
-    let mut receipt =
-        crate::mesh_retry::retry(true, || mesh.send(&message)).await.map_err(failed)?;
+    let mut receipt = crate::mesh_retry::retry_within(true, deadline, || mesh.send(&message))
+        .await
+        .map_err(failed)?;
     loop {
         match receipt.state.as_str() {
             "delivered" => break,
@@ -461,11 +474,14 @@ async fn ask_once(
             return Err(Asked::Failed(unanswered(host)));
         }
         let id = receipt.message_id.clone();
-        receipt = crate::mesh_retry::retry(false, || mesh.answer(&id, left.min(ANSWER_WAIT)))
-            .await
-            .map_err(|e| {
-                if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
-            })?;
+        // Each try waits only as long as is left of the read's wait.
+        let call = || {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            mesh.answer(&id, left.min(ANSWER_WAIT))
+        };
+        receipt = crate::mesh_retry::retry_within(false, deadline, call).await.map_err(|e| {
+            if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
+        })?;
     }
     receipt.result.ok_or_else(|| {
         Asked::Failed(RpcError::internal(format!(

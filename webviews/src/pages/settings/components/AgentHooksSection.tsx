@@ -86,7 +86,12 @@ function HookRow({
               </span>
             )}
           </div>
-          <div className="row-help selectable font-mono" id={commandId} data-hook-command="" title={hook.file}>
+          <div
+            className="row-help selectable font-mono"
+            id={commandId}
+            data-hook-command=""
+            aria-description={hook.file}
+          >
             {hook.command}
           </div>
           <div className="row-help">{tags.join(" · ")}</div>

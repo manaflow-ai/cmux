@@ -26,8 +26,8 @@ a pull request runs:
     (test/support/) or webviews script (webviews/scripts/) counts as a source here: the tests that import it.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
-Every feat-cmux-next push still runs all N shards over every file: a red a skipped shard would have caught shows on
-the base's next push (cmux-next-web.yml) and its base-red tracking.
+Every feat-cmux-next post-merge batch still runs all N shards over every file: a red a skipped shard would have
+caught shows on the base's next batch run (cmux-next-post-merge.yml, suite `web`) and its base-red tracking.
 
 Any error picks every shard: the pick may only ever run more.
 
