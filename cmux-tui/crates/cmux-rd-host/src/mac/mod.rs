@@ -68,6 +68,32 @@ pub struct MacFrames {
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    let (desktop, frames) = open_halves(cfg, cursor_metadata)?;
+    Ok((Box::new(desktop), Box::new(frames)))
+}
+
+/// One `open_steps` line in CMUX_RD_TIMING_LOG (when set): how long each step of opening the
+/// desktop took, in µs. `content` is the shareable-content request, `stream` the stream's
+/// start up to its answer, `encoder` what is left of the encoder session after that (it is made
+/// beside them), `first_frame` the wait after it.
+fn log_open_steps(begin_ns: u64, content_ns: u64, started_ns: u64, encoder_ns: u64, ready_ns: u64) {
+    use std::io::Write;
+    let Some(path) = std::env::var_os("CMUX_RD_TIMING_LOG") else { return };
+    let us = |from: u64, to: u64| to.saturating_sub(from) / 1000;
+    let line = serde_json::json!({ "open_steps": {
+        "content_us": us(begin_ns, content_ns),
+        "stream_us": us(content_ns, started_ns),
+        "encoder_us": us(started_ns, encoder_ns),
+        "first_frame_us": us(encoder_ns, ready_ns),
+    }});
+    if let Ok(mut out) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(out, "{line}");
+    }
+}
+
+/// [`open`]'s halves as their own types, which are `Send`: `desktop::open_ahead` opens them
+/// on another thread.
+pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, MacFrames)> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -76,17 +102,39 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
-    let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
-    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    let begin_ns = crate::clock::now_ns();
+    let make_encoder = move |(width, height): (u32, u32)| {
+        VideoToolbox::new(
+            width,
+            height,
+            encoder_fps(width, height, cfg.max_fps),
+            cfg.start_kbps,
+            cfg.profile == "baseline",
+        )
+    };
+    // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
+    // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request
+    // and the stream start (about 80 ms), not after them.
+    let (capture, early) = std::thread::scope(|scope| {
+        let early = capture::expected_size(&cfg.display, cfg.max_width)
+            .map(|size| (size, scope.spawn(move || make_encoder(size))));
+        let capture =
+            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata);
+        let early = early.map(|(size, thread)| (size, thread.join()));
+        (capture, early)
+    });
+    let capture = capture?;
+    let started_ns = crate::clock::now_ns();
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
+    let encoder = match early {
+        Some((size, Ok(encoder))) if size == (width, height) => encoder?,
+        // A guess that missed (a display change between the two reads) or a panicked thread:
+        // make it again at the stream's size.
+        _ => make_encoder((width, height))?,
+    };
+    let encoder_ns = crate::clock::now_ns();
+    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    log_open_steps(begin_ns, capture.content_ns(), started_ns, encoder_ns, crate::clock::now_ns());
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
@@ -102,7 +150,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     };
     let cursor =
         cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
-    Ok((Box::new(MacDesktop { capture, injector, cursor }), Box::new(frames)))
+    Ok((MacDesktop { capture, injector, cursor }, frames))
 }
 
 impl Desktop for MacDesktop {

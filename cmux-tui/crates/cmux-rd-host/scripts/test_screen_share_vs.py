@@ -419,5 +419,49 @@ class RfbLeg(unittest.TestCase):
             b.close()
 
 
+class FirstFrameBreakdown(unittest.TestCase):
+    """connect -> first frame, split with the host's timing log (µs on the host clock; the
+    viewer's clock is the same here, offset 0)."""
+
+    def split(self, opened, arrived_us):
+        rec = {"first_frame_times": {"start_ns": 0, "capture_us": 5_000_000,
+                                     "complete_ns": 5_020_000_000, "decoded_ns": 5_040_000_000}}
+        frame = {"release_us": 5_000_000, "arrived_us": arrived_us, "encoded_us": 5_010_000,
+                 "sent_us": 5_015_000, "encoded_bytes": 100, "idr": True}
+        return vs.Orchestrator.first_frame_breakdown(None, rec, [opened, frame], 0)
+
+    def test_a_desktop_opened_at_start_splits_as_before(self):
+        b = self.split({"open_us": 4_000_000, "desktop_ready_us": 4_900_000}, 4_950_000)
+        self.assertEqual((b["capture_start"], b["first_capture"], b["gate"]), (900.0, 50.0, 50.0))
+        self.assertIsNone(b["ahead_open"])
+
+    def test_a_desktop_opened_before_start_counts_its_frame_from_desktop_ready(self):
+        # Opened ahead (2.0 -> 3.0 s), its newest frame arrived at 3.5 s, Start at 4.0 s.
+        b = self.split({"open_us": 4_000_000, "desktop_ready_us": 4_000_200,
+                        "ahead_open_us": 2_000_000, "ahead_ready_us": 3_000_000}, 3_500_000)
+        self.assertEqual(b["capture_start"], 0.2)
+        self.assertEqual(b["first_capture"], 0.0)
+        # The parts after open add up to release - open; none is negative.
+        self.assertAlmostEqual(b["capture_start"] + b["first_capture"] + b["gate"], 1000.0)
+        self.assertEqual(b["ahead_open"], 1000.0)
+
+    def test_the_open_steps_come_from_the_newest_open_steps_line(self):
+        rec = {"first_frame_times": {"start_ns": 0, "capture_us": 5_000_000,
+                                     "complete_ns": 5_020_000_000, "decoded_ns": 5_040_000_000}}
+        frame = {"release_us": 5_000_000, "arrived_us": 4_950_000, "encoded_us": 5_010_000,
+                 "sent_us": 5_015_000, "encoded_bytes": 100, "idr": True}
+        dropped = {"open_steps": {"content_us": 1, "stream_us": 1, "encoder_us": 1,
+                                  "first_frame_us": 1}}
+        served = {"open_steps": {"content_us": 40_000, "stream_us": 60_000, "encoder_us": 30_000,
+                                 "first_frame_us": 0}}
+        opened = {"open_us": 4_000_000, "desktop_ready_us": 4_900_000}
+        b = vs.Orchestrator.first_frame_breakdown(None, rec, [dropped, served, opened, frame], 0)
+        self.assertEqual((b["open_content"], b["open_stream"], b["open_encoder"],
+                          b["open_first_frame"]), (40.0, 60.0, 30.0, 0.0))
+        # A host that logs no steps leaves them null.
+        b = self.split(opened, 4_950_000)
+        self.assertIsNone(b["open_content"])
+
+
 if __name__ == "__main__":
     unittest.main()
