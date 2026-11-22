@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { HostRecoveringLine, HostWaitingLine } from "./HostError";
 import { HOST_ERROR_DEADLINE_MS, hostRecoveryLine } from "./hostRetry";
 
-const text = (markup: string) => markup.replace(/<[^>]+>/g, "");
+const text = (markup: string) => markup.replace(/<[^>]+>/g, "").replaceAll("&#x27;", "'");
 
 test("Reconnecting… stays until the waiting line replaces it: no second draws neither", () => {
   // The drop at 0; the first handshake, whose wait the waiting line counts, starts 1.2 s later.
