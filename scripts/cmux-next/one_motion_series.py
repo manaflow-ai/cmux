@@ -34,7 +34,10 @@ def series(samples):
             add(f"pane {pane} content", t, row[PANE_CONTENT])
         for index, row in enumerate(sample.get("terminal") or []):
             if isinstance(row, list) and len(row) >= 4:
-                add(f"terminal {index}", t, row[0:4])
+                # A row with its surface's id (its 16th value) is that surface's in every tick, wherever it moves and
+                # whichever terminals show beside it; an older trace's rows go by their place in the list.
+                key = row[15] if len(row) >= 16 and isinstance(row[15], str) else index
+                add(f"terminal {key}", t, row[0:4])
         for index, row in enumerate(sample.get("page") or []):
             if isinstance(row, list) and len(row) >= 7 and row[2] != -1:
                 add(f"page {index}", t, [row[6], row[2], row[3]])  # the page window's x, width, height
