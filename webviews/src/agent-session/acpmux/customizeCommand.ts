@@ -93,11 +93,12 @@ export function newChatRunsElsewhere(pick: {
   started?: boolean;
   /// A started chat on another machine of the person's (the chat's `summary.peer`).
   peer?: boolean;
-  mode?: "persistent" | "sandboxed" | "cloud" | undefined;
+  mode?: "persistent" | "sandboxed" | "cloud" | "auto" | undefined;
   machine?: boolean;
   environmentKind?: string | undefined;
 }): boolean {
   if (pick.started) return Boolean(pick.peer);
-  if (pick.mode === "cloud" || pick.mode === "sandboxed") return true;
+  // Auto (Auto Chat Placement) has not said where yet: it may well be another machine or Cloud.
+  if (pick.mode === "cloud" || pick.mode === "sandboxed" || pick.mode === "auto") return true;
   return Boolean(pick.machine) || (pick.environmentKind !== undefined && pick.environmentKind !== "local");
 }

@@ -316,6 +316,8 @@ export interface AcpmuxRequests {
   "_acpmux/host_notice": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/move_targets": { params: MoveTargetsParams; result: unknown };
+  "_acpmux/place_chat": { params: unknown; result: unknown };
+  "_acpmux/place_chat_event": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: PeerReconnectParams; result: unknown };
@@ -722,6 +724,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/host_notice", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/move_targets", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/place_chat", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/place_chat_event", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: true },

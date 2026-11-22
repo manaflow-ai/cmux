@@ -32,6 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.autoChatPlacement`: Off by default: a new chat's place picker offers Auto, which asks acpmux where the chat starts (_acpmux/place_chat, design/auto-chat-placement.md) and shows the verdict, folder travel included. Off, the picker is as before. Leo, 2026-11-18: "how about the moving back and forth between local and cloud/remote chats? tbh in conjunction with the projection fs type thing, i think we can do lots of interesting stuff".
+    public nonisolated static let autoChatPlacementPath = ["agentPane", "autoChatPlacement"]
+    public nonisolated static let autoChatPlacementDefault = false
     /// `agentPane.sessionWorktrees`.
     public nonisolated static let sessionWorktreesPath = ["agentPane", "sessionWorktrees"]
     public nonisolated static let sessionWorktreesDefault: AgentPaneSessionWorktrees = .off
@@ -159,6 +162,16 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.autoChatPlacementPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.autoChatPlacement", "Auto Chat Placement"),
+                help: SettingsText.keyed("settings.agentPane.autoChatPlacement.help", "Adds Auto to a new chat's place picker: cmux picks This Mac, a joined machine or Cloud on the first send and says how the folder gets there."),
+                kind: .toggle,
+                default: .bool(AgentPaneComposerSetting.autoChatPlacementDefault),
+                keywords: ["auto", "placement", "new chat", "cloud", "machine", "remote", "this mac", "move", "folder"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.sessionWorktreesPath,

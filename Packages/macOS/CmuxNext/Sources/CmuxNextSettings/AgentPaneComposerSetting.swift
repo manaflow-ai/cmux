@@ -41,6 +41,10 @@ import CmuxNextDesign
 /// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
+/// `autoChatPlacement`: off by default. On, a new chat's place picker offers Auto, which asks acpmux
+/// where the chat starts (`_acpmux/place_chat`, design/auto-chat-placement.md) and shows its
+/// verdict, how the folder travels included. Off, the picker is as before. The page decides
+/// (autoPlace.ts); this only carries the value.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -59,6 +63,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
     public var sessionWorktrees = Self.sessionWorktreesDefault
     public var newChatsIn = Self.newChatsInDefault
+    public var autoChatPlacement = Self.autoChatPlacementDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -68,7 +73,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, autoChatPlacement, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -82,6 +87,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
             "sessionWorktrees": .string(sessionWorktrees.rawValue),
             "newChatsIn": .string(newChatsIn.rawValue),
+            "autoChatPlacement": .bool(autoChatPlacement),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -154,6 +160,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
             if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
+            if descriptor.path == autoChatPlacementPath { setting.autoChatPlacement = flag }
         }
         return setting
     }
