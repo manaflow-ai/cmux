@@ -26,7 +26,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import type { Browser } from "playwright";
+import type { Browser, Page } from "playwright";
 import { fuzzSpec, SPLITS, type FuzzSpec } from "../test/browser/fold-fuzz.scenario";
 import { openRecorder, recordLook } from "./fold-variants-record";
 
@@ -253,22 +253,29 @@ function median(values: number[]) {
   return sorted[Math.floor(sorted.length / 2)]!;
 }
 
-/** Plays one seed with one look in a fresh page, and returns its frames. */
-async function playSeed(browser: Browser, port: number, look: string, seed: number): Promise<FuzzRun> {
+type FoldWindow = { __fold: { run(look: string, name: string): Promise<unknown>; size(w: number, h: number): void } };
+
+/** A page of the recorder's harness, kept for many seeds: loading it is the slow part, not playing one. */
+async function openPage(browser: Browser, port: number) {
+  const page = await browser.newPage({ viewport: SPLITS.full, deviceScaleFactor: 1 });
+  page.on("pageerror", (error) => console.error(`page: ${error.message}`));
+  await page.goto(`http://127.0.0.1:${port}${PAGE}`, { timeout: 60_000 });
+  await page.waitForFunction(() => "__fold" in window, undefined, { timeout: 60_000 });
+  return page;
+}
+
+/** Plays one seed with one look on `page` at the seed's split size, and returns its frames. */
+async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun> {
   const { width, height } = SPLITS[fuzzSpec(seed).split];
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-  try {
-    page.on("pageerror", (error) => console.error(`seed ${seed} ${look}: ${error.message}`));
-    await page.goto(`http://127.0.0.1:${port}${PAGE}?width=${width}&height=${height}`, { timeout: 180_000 });
-    await page.waitForFunction(() => "__fold" in window, undefined, { timeout: 120_000 });
-    return (await page.evaluate(
-      ([look, name]) =>
-        (window as unknown as { __fold: { run(look: string, name: string): Promise<unknown> } }).__fold.run(look, name),
-      [look, `fuzz:${seed}`] as const,
-    )) as FuzzRun;
-  } finally {
-    await page.close();
-  }
+  await page.setViewportSize({ width, height });
+  return (await page.evaluate(
+    ([look, name, width, height]) => {
+      const fold = (window as unknown as FoldWindow).__fold;
+      fold.size(width, height);
+      return fold.run(look, name);
+    },
+    [look, `fuzz:${seed}`, width, height] as const,
+  )) as FuzzRun;
 }
 
 type Result = { seed: number; look: string; spec: FuzzSpec; numbers: FuzzNumbers; replayed?: boolean };
@@ -286,35 +293,43 @@ async function fuzz(
   const results: Result[] = [];
   const queue = looks.flatMap((look) => seeds.map((seed) => ({ look, seed })));
   const total = queue.length;
-  const one = async ({ look, seed }: { look: string; seed: number }, again = false) => {
+  /** A worker's page, opened on its first seed and opened again after a failure. */
+  type Slot = { page?: Page };
+  const pageOf = async (slot: Slot) => (slot.page ??= await openPage(browser, port).catch(() => openPage(browser, port)));
+  const one = async ({ look, seed }: { look: string; seed: number }, slot: Slot, again = false) => {
     const file = keepSamples && path.join(keepSamples, `${look}-${seed}.samples.json`);
     // `--resume`: a run already on disk is read, not played (and the numbers come from today's analysis).
     if (file && resume && !again && existsSync(file))
       return analyze(JSON.parse(readFileSync(file, "utf8")), fuzzSpec(seed));
-    const run = await playSeed(browser, port, look, seed).catch((error: unknown) => {
+    const run = await playSeed(await pageOf(slot), look, seed).catch(async (error: unknown) => {
       console.error(`seed ${seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
-      return playSeed(browser, port, look, seed);
+      // A fresh page: the old one may be the trouble.
+      await slot.page?.close().catch(() => {});
+      slot.page = undefined;
+      return playSeed(await pageOf(slot), look, seed);
     });
     if (file) writeFileSync(file, JSON.stringify(run));
     return analyze(run, fuzzSpec(seed));
   };
+  const slots: Slot[] = Array.from({ length: jobs }, () => ({}));
   let done = 0;
-  const worker = async () => {
+  const worker = async (slot: Slot) => {
     for (let item = queue.shift(); item; item = queue.shift()) {
-      const numbers = await one(item).catch((error: unknown) => ({ error: String(error) }) as FuzzNumbers);
+      const numbers = await one(item, slot).catch((error: unknown) => ({ error: String(error) }) as FuzzNumbers);
       results.push({ ...item, spec: fuzzSpec(item.seed), numbers });
       done += 1;
       if (done % 25 === 0 || done === total) console.log(`${done}/${total}`);
     }
   };
-  await Promise.all(Array.from({ length: jobs }, worker));
+  await Promise.all(slots.map(worker));
   // Late frames: the machine, not the fold. Play those again with nothing else running.
   const lateRuns = results.filter((result) => !ok(result.numbers) || result.numbers.lateFrames > 0.05);
   if (lateRuns.length) console.log(`${lateRuns.length} runs with late frames or errors: again, one at a time`);
   for (const result of lateRuns) {
-    result.numbers = await one(result, true).catch((error: unknown) => ({ error: String(error) }) as FuzzNumbers);
+    result.numbers = await one(result, slots[0]!, true).catch((error: unknown) => ({ error: String(error) }) as FuzzNumbers);
     result.replayed = true;
   }
+  await Promise.all(slots.map((slot) => slot.page?.close().catch(() => {})));
   return results.sort((a, b) => a.look.localeCompare(b.look) || a.seed - b.seed);
 }
 

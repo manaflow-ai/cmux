@@ -404,4 +404,8 @@ Object.assign(root.style, {
   flexDirection: "column",
 });
 createRoot(root).render(<Pane />);
-Object.assign(window, { __fold: { run, sampleFrame } });
+/// Resizes the pane in place (the fold fuzzer reuses one page across seeds and split sizes).
+function size(width: number, height: number) {
+  Object.assign(root.style, { width: `${width}px`, height: `${height}px` });
+}
+Object.assign(window, { __fold: { run, sampleFrame, size } });
