@@ -417,6 +417,16 @@ final class TerminalDemoDriver {
         result += " replayedRows(sentBefore/neverSent)=\(sentRows)/\(neverRows)"
             + " replayedKB(sentBefore/neverSent)=\(tally.map(\.sentBytes).reduce(0, +) / 1024)/\(tally.map(\.neverBytes).reduce(0, +) / 1024)"
             + " linkMs=\(session.linkMs.suffix(session.historyFetches - fetches).map(String.init).joined(separator: ","))"
+            + " localFeedKB=\(session.localFeeds.reduce(0, +) / 1024)"
+        // A whole scroll back (screen to line 1) at 12k and 100k rows, by each
+        // arm's fetch plan: KB over the link and fetches, before/after.
+        let chunk = Int(spec.split(separator: " ").dropFirst().first ?? "") ?? 2_000
+        for total in [12_000, 100_000] {
+            let before = MockPagedHistory.scrollBack(total: total, chunk: chunk, screen: 40, after: false)
+            let after = MockPagedHistory.scrollBack(total: total, chunk: chunk, screen: 40, after: true)
+            result += " scrollBack\(total / 1_000)k(KB before/after)=\(before.bytes / 1024)/\(after.bytes / 1024)"
+                + " scrollBack\(total / 1_000)kFetches=\(before.fetches)/\(after.fetches)"
+        }
         model.demoNote = "tuipan-paged done " + result
         mark(model.demoNote)
         mark("state " + controller.debugState)

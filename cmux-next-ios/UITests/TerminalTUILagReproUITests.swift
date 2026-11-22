@@ -37,7 +37,22 @@ final class TerminalTUILagReproUITests: XCTestCase {
         try pan(profile: "lossy-3@1", spec: "12000 2000 70 80 12000 300 3")
     }
 
-    @MainActor private func pan(profile: String, spec: String) throws {
+    // After: the same pans with the phone keeping the rows it was
+    // delivered (Rust `TerminalDeliveredHistory`), each fetch carrying only
+    // the rows above them (`claudepaged ... after`). Same step, same worker.
+    @MainActor func testPagedPanOverGoodWifiKeepingDelivered() throws {
+        try pan(profile: "good-wifi@1", spec: "12000 2000 2 80 40000 0 0 after", arm: "after")
+    }
+
+    @MainActor func testPagedPanOverLTEKeepingDelivered() throws {
+        try pan(profile: "lte@1", spec: "12000 2000 70 80 12000 0 0.5 after", arm: "after")
+    }
+
+    @MainActor func testPagedPanOverLossy3KeepingDelivered() throws {
+        try pan(profile: "lossy-3@1", spec: "12000 2000 70 80 12000 300 3 after", arm: "after")
+    }
+
+    @MainActor private func pan(profile: String, spec: String, arm: String = "before") throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -79,12 +94,12 @@ final class TerminalTUILagReproUITests: XCTestCase {
         }
         // The readout as a text attachment: a UI test's print never reaches
         // the step's exported logs, its attachments do.
-        let numbers = XCTAttachment(string: "tui-lag-repro profile=\(profile) \(demo) drags=\(drags)\n")
-        numbers.name = "tui-lag-repro-paged-\(profile)"
+        let numbers = XCTAttachment(string: "tui-lag-repro profile=\(profile) arm=\(arm) \(demo) drags=\(drags)\n")
+        numbers.name = "tui-lag-repro-paged-\(profile)-\(arm)"
         numbers.lifetime = .keepAlways
         add(numbers)
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "tui-lag-repro-paged-\(profile)-end"
+        shot.name = "tui-lag-repro-paged-\(profile)-\(arm)-end"
         shot.lifetime = .keepAlways
         add(shot)
         XCTAssertTrue(demo.hasPrefix("tuipan-paged done"), "the phase finished: \(demo)")
