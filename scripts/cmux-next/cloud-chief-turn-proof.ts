@@ -57,16 +57,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   mkdirSync(outDir, { recursive: true });
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL;
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD;
-  const token = (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
+  // An Anthropic API key when the repository has one (run 45016176371: the shared Claude Code token was at its weekly
+  // limit), else the Claude Code token. One of them only: the host takes the first of turn_credential.rs NAMES.
+  const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
+  const credName = apiKey ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN";
+  const token = apiKey || (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
   if (!email || !password) throw new Error("no agent test account: CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD");
-  if (!token) throw new Error("no CLAUDE_CODE_OAUTH_TOKEN");
+  if (!token) throw new Error("no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN");
   // `<base36 start time>-<run>`: the sweep below reads the time back.
   const runId = (argValue("--run", argv) ?? "local").replace(/[^a-z0-9]/gi, "").toLowerCase();
   const tag = `${Date.now().toString(36)}-${runId}`;
   const J = new Journey(backend, outDir, { tag });
   J.secrets.push(password, token);
   const say = (line: string) => console.log(scrub(line, J.secrets));
-  const report: Record<string, unknown> = { backend: backend.name, tag, runs: [] as RunResult[] };
+  const report: Record<string, unknown> = { backend: backend.name, tag, credential: credName, runs: [] as RunResult[] };
   const api = new Api(backend.api);
   let machine: string | null = null;
   const remove = async (id: string) => {
@@ -158,14 +162,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // directory of the exec user's, as the journey's login copy (cloud-journey.ts); the driver deletes it.
       const login = `${DIR}/private/${label}.login.env`;
       await run(`mkdir -p ${DIR}/private && chmod 700 ${DIR}/private`);
-      await writeFile(login, Buffer.from(`CLAUDE_CODE_OAUTH_TOKEN=${token}\n`), 0o644);
+      // The driver's --login-env reads only a Claude Code token; the file is also sourced into the driver's environment
+      // (the host inherits it), so an API key reaches the host without ever being on a command line.
+      await writeFile(login, Buffer.from(`${credName}=${token}\n`), 0o644);
       const optIn = label === "proof" ? "--env OPTCHAT_CHIEF_TURN_CREDENTIALS=1" : "";
       const out = `${DIR}/${label}`;
       // In the foreground, inside one exec: a machine with no exec in flight stops on its own (run 45007797355
       // stopped 3 min into a background driver polled every 10 s: 409 vm_not_running; cloud-journey.ts 43983037186).
       let done = false;
       try {
-        const d = await run(`export PATH="$HOME/.local/bin:$PATH"; timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
+        const d = await run(`export PATH="$HOME/.local/bin:$PATH"; set -a; . ${login}; set +a; timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
           `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 ${optIn} ` +
           `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`, 290_000);
         done = /driver_exit=0\b/.test(d.stdout);

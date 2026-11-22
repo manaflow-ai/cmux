@@ -68,6 +68,7 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: bun scripts/cmux-next/cloud-chief-turn-proof.ts --backend staging --bundle "$RUNNER_TEMP/chief.tgz" --run "${GITHUB_RUN_ID}x${GITHUB_RUN_ATTEMPT}" --out "$RUNNER_TEMP/chief-proof"
       - name: Summary
         if: always()
