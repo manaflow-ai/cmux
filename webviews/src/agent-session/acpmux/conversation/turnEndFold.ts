@@ -119,6 +119,22 @@ export type TurnEndFold = {
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
+const heightOf = (node: HTMLElement) => node.offsetHeight;
+
+/// What the fold's passes cost, counted for tests and benches (turn-end-fold-restyle.browser.test.ts):
+/// passes run, rows and copies each pass read, the events that asked for a pass (a row placed again,
+/// the view's scroll) and the passes that ran in a frame that had already run one.
+export const turnEndFoldPerf = {
+  passes: 0,
+  rowsRead: 0,
+  mostRowsRead: 0,
+  mutationEvents: 0,
+  scrollEvents: 0,
+  sameFramePasses: 0,
+};
+export function resetTurnEndFoldPerf(): void {
+  for (const key of Object.keys(turnEndFoldPerf) as (keyof typeof turnEndFoldPerf)[]) turnEndFoldPerf[key] = 0;
+}
 
 /// Reads the rows `thread` draws now, before `after` replaces them: undefined when the fold would
 /// not show (no motion, or the running turn's line is not drawn, the turn's end out of view).
@@ -512,6 +528,14 @@ export function playTurnEnd(
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
     // and copy's text draws (`coverClip`).
     const boxes = copies.length ? [...nodes, ...copies].map(boxOf) : [];
+    // Each row's and copy's height, read with the places: the writes below (each `animate()`) dirty
+    // style, so a height read between them forced a style pass per row (chat-render-pipeline R2).
+    // Translate, clip and opacity never change a height, so these are the heights the loop read.
+    const heights = boxes.length ? boxes.slice(0, nodes.length).map((box) => box.height) : nodes.map(heightOf);
+    const copyHeights = boxes.length ? boxes.slice(nodes.length).map((box) => box.height) : copies.map(heightOf);
+    turnEndFoldPerf.passes += 1;
+    turnEndFoldPerf.rowsRead += nodes.length + copies.length;
+    turnEndFoldPerf.mostRowsRead = Math.max(turnEndFoldPerf.mostRowsRead, nodes.length + copies.length);
     /// Each row's path on this clock, for the copies under or over it.
     const paths: CoverPath[] = [];
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
@@ -675,7 +699,7 @@ export function playTurnEnd(
       // the copy in the fold's first frame (agent-pane-stream-row-overlap, chromium lagging: 14 px).
       const from = startTop(node, before.top);
       const shown = starts.get(node)?.shown ?? before.shown;
-      const height = node.offsetHeight;
+      const height = heights[index]!;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
       if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
@@ -724,11 +748,11 @@ export function playTurnEnd(
       // move over its former place, so crop the copy on their shared clock rather than drawing
       // its text through the header or the final answer.
       const { above, below } = boundaries.get(copy) ?? {};
-      const height = copy.offsetHeight;
+      const height = copyHeights[order]!;
       const topFrom = above
-        ? Math.max(0, startTop(above.node, above.row.top) + (above.row.height ?? above.node.offsetHeight) - from)
+        ? Math.max(0, startTop(above.node, above.row.top) + (above.row.height ?? heights[above.index]!) - from)
         : 0;
-      const topTo = above ? Math.max(0, tops[above.index]! + above.node.offsetHeight - (copyTops[order]! + end)) : 0;
+      const topTo = above ? Math.max(0, tops[above.index]! + heights[above.index]! - (copyTops[order]! + end)) : 0;
       const bottomFrom = Math.max(
         goneByCopy.get(copy)!.clip ?? 0,
         below ? from + height - startTop(below.node, below.row.top) : 0,
@@ -793,27 +817,54 @@ export function playTurnEnd(
   }
   thread.setAttribute(TURN_END_ATTR, look);
   // Each time the rows are placed again (a row mounts or leaves, a row's offset changes) or the
-  // view's offset moves (the bottom kept pinned), the next pass reads them again.
+  // view's offset moves (the bottom kept pinned), the next pass reads them again, at once: a pass
+  // put off to the next animation frame left a row placed after that frame's callbacks one frame
+  // off its path (agent-pane-stream-jitter, WebKit, a queued prompt sent as the turn ends: the reply
+  // drawn 35 px back up). A mutation batch already comes once per microtask checkpoint and a scroll
+  // once per frame; `sameFramePasses` counts the passes that still share a frame.
+  let lastFrame: number | null | undefined;
+  const passAgain = () => {
+    const frame = typeof timeline?.currentTime === "number" ? timeline.currentTime : null;
+    if (frame !== null && frame === lastFrame) turnEndFoldPerf.sameFramePasses += 1;
+    lastFrame = frame;
+    pass();
+  };
+  // The observer watches the thread's own children (a row mounts or leaves) and each row's own
+  // `style` and `aria-posinset` (its offset), never the rows' subtrees: a write deep in a row (a
+  // roll-out's width, a reply's text) never wakes it (chat-render-pipeline R9). A row that mounts
+  // during the fold is watched from its mount on. All of it stops with the fold.
+  const watched = new WeakSet<Element>();
+  const watchRows = (observer: MutationObserver) => {
+    for (const row of mounted(thread)) {
+      if (watched.has(row)) continue;
+      watched.add(row);
+      observer.observe(row, { attributes: true, attributeFilter: ["style", "aria-posinset"] });
+    }
+  };
   const observer = View?.MutationObserver
-    ? new View.MutationObserver((records) => {
+    ? new View.MutationObserver((records, self) => {
+        turnEndFoldPerf.mutationEvents += 1;
         const placed = (record: MutationRecord) =>
           record.type === "childList"
             ? record.target === thread
             : record.target.parentNode === thread && (record.target as Element).hasAttribute("data-row-id");
-        if (records.some(placed)) pass();
+        if (records.some((record) => record.type === "childList")) watchRows(self);
+        if (records.some(placed)) passAgain();
       })
     : undefined;
-  observer?.observe(thread, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["style", "aria-posinset"],
-  });
-  scroller?.addEventListener("scroll", pass, { passive: true });
+  if (observer) {
+    observer.observe(thread, { childList: true });
+    watchRows(observer);
+  }
+  const onScroll = () => {
+    turnEndFoldPerf.scrollEvents += 1;
+    passAgain();
+  };
+  scroller?.addEventListener("scroll", onScroll, { passive: true });
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
-    scroller?.removeEventListener("scroll", pass);
+    scroller?.removeEventListener("scroll", onScroll);
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
   arm(lead);
