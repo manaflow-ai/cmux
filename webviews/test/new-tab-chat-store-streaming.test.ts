@@ -58,7 +58,8 @@ function chat(n: number, updatedAt: number): AcpmuxSessionEntry {
 }
 
 const connected = (sessions: AcpmuxSessionEntry[]) => ({
-  connection: "session changed",
+  link: "connected" as const,
+  emitReason: "session changed",
   origin: "local" as const,
   listedSessions: true as const,
   sessions,

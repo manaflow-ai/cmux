@@ -97,6 +97,8 @@ async function mountChat(harness: string, summary: Record<string, unknown> = {})
     protocolVersion: 1,
     rows: [],
     sessions: [],
+    link: "connected" as const,
+    emitReason: "test",
     connection: "test",
     isWorking: false,
     queue: [],

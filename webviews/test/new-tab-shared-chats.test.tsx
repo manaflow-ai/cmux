@@ -63,7 +63,8 @@ function chat(n: number): AcpmuxSessionEntry {
 }
 
 const connected = (sessions: AcpmuxSessionEntry[]) => ({
-  connection: "connected",
+  link: "connected" as const,
+  emitReason: "connected",
   origin: "local" as const,
   listedSessions: true as const,
   sessions,
@@ -149,8 +150,8 @@ test("a list a page is showing updates in place when another page publishes", as
 test("a page that is not connected never overwrites the store", async () => {
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
   store.publishSessions(connected([chat(3), chat(2)]), T0 + 1);
-  store.publishSessions({ connection: "connecting", sessions: [] }, T0 + 2);
-  store.publishSessions({ connection: "gallery", sessions: [chat(9)] }, T0 + 3);
+  store.publishSessions({ link: "connecting" as const, emitReason: "connecting", sessions: [] }, T0 + 2);
+  store.publishSessions({ link: "connected" as const, emitReason: "gallery", sessions: [chat(9)] }, T0 + 3);
   store.reloadChatStoreForTests();
   // Chats 2 and 3 started in the same second: they tie on their ids.
   expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-03"]);
@@ -161,20 +162,41 @@ test("a connected page keeps publishing on later emits, whatever their reason", 
   // The direct client names why it emitted, not whether it is linked: after `connected` come
   // "session changed", "attached", an event's kind.
   store.publishSessions(
-    { connection: "connected", origin: "local", listedSessions: true, sessions: [chat(1)] },
+    { link: "connected" as const, emitReason: "connected", origin: "local", listedSessions: true, sessions: [chat(1)] },
     T0 + 1,
   );
   store.publishSessions(
-    { connection: "session changed", origin: "local", listedSessions: true, sessions: [chat(2), chat(1)] },
+    {
+      link: "connected" as const,
+      emitReason: "session changed",
+      origin: "local",
+      listedSessions: true,
+      sessions: [chat(2), chat(1)],
+    },
     T0 + 2,
   );
   store.publishSessions(
-    { connection: "permission", origin: "local", listedSessions: true, sessions: [chat(3), chat(2), chat(1)] },
+    {
+      link: "connected" as const,
+      emitReason: "permission",
+      origin: "local",
+      listedSessions: true,
+      sessions: [chat(3), chat(2), chat(1)],
+    },
     T0 + 3,
   );
-  store.publishSessions({ connection: "disconnected", origin: "local", listedSessions: true, sessions: [] }, T0 + 4);
   store.publishSessions(
-    { connection: "reconnecting (2)", origin: "local", listedSessions: true, sessions: [] },
+    { link: "disconnected" as const, emitReason: "disconnected", origin: "local", listedSessions: true, sessions: [] },
+    T0 + 4,
+  );
+  store.publishSessions(
+    {
+      link: "connecting" as const,
+      emitReason: "reconnecting (2)",
+      origin: "local",
+      listedSessions: true,
+      sessions: [],
+    },
     T0 + 5,
   );
   store.reloadChatStoreForTests();
@@ -184,15 +206,33 @@ test("a connected page keeps publishing on later emits, whatever their reason", 
 test("a chat on another machine never writes its one chat into this Mac's store", async () => {
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
   store.publishSessions(
-    { connection: "connected", origin: "local", listedSessions: true, sessions: [chat(2), chat(1)] },
+    {
+      link: "connected" as const,
+      emitReason: "connected",
+      origin: "local",
+      listedSessions: true,
+      sessions: [chat(2), chat(1)],
+    },
     T0 + 1,
   );
   store.publishSessions(
-    { connection: "connected", origin: "remote", listedSessions: true, sessions: [chat(7)] },
+    {
+      link: "connected" as const,
+      emitReason: "connected",
+      origin: "remote",
+      listedSessions: true,
+      sessions: [chat(7)],
+    },
     T0 + 2,
   );
   store.publishSessions(
-    { connection: "session changed", origin: "peer", listedSessions: true, sessions: [chat(8)] },
+    {
+      link: "connected" as const,
+      emitReason: "session changed",
+      origin: "peer",
+      listedSessions: true,
+      sessions: [chat(8)],
+    },
     T0 + 3,
   );
   store.reloadChatStoreForTests();
@@ -212,10 +252,16 @@ test("a connection's emits before it reads the daemon's list, or on an older acp
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
   store.publishSessions(connected([chat(2), chat(1)]), T0 + 1);
   // A new page's client emits "connected" (its permission rules) before its first list page.
-  store.publishSessions({ connection: "connected", origin: "local", sessions: [] }, T0 + 2);
+  store.publishSessions({ link: "connected" as const, emitReason: "connected", origin: "local", sessions: [] }, T0 + 2);
   // An acpmux that names no origin may be another machine's.
   store.publishSessions(
-    { connection: "connected", origin: "unknown", listedSessions: true, sessions: [chat(9)] },
+    {
+      link: "connected" as const,
+      emitReason: "connected",
+      origin: "unknown",
+      listedSessions: true,
+      sessions: [chat(9)],
+    },
     T0 + 3,
   );
   store.reloadChatStoreForTests();
@@ -238,15 +284,21 @@ test("only a New Tab page of this Mac's daemon lists the shared chats, and not w
   markMockPage(false);
   const page = {};
   // Before the handshake a page names no origin: its context said whether it is this Mac's.
-  expect(sharesChatList(page, { connection: "connecting" })).toBe(true);
-  expect(sharesChatList(page, { connection: "connected", origin: "local" })).toBe(true);
+  expect(sharesChatList(page, { link: "connecting" as const, emitReason: "connecting" })).toBe(true);
+  expect(sharesChatList(page, { link: "connected" as const, emitReason: "connected", origin: "local" })).toBe(true);
   // Another machine's page (its context turns the store off), or an older acpmux that names none.
-  expect(sharesChatList({ privateChatLists: true }, { connection: "connecting" })).toBe(false);
-  expect(sharesChatList(page, { connection: "connected", origin: "remote" })).toBe(false);
-  expect(sharesChatList(page, { connection: "connected", origin: "peer" })).toBe(false);
-  expect(sharesChatList(page, { connection: "connected", origin: "unknown" })).toBe(false);
+  expect(sharesChatList({ privateChatLists: true }, { link: "connecting" as const, emitReason: "connecting" })).toBe(
+    false,
+  );
+  expect(sharesChatList(page, { link: "connected" as const, emitReason: "connected", origin: "remote" })).toBe(false);
+  expect(sharesChatList(page, { link: "connected" as const, emitReason: "connected", origin: "peer" })).toBe(false);
+  expect(sharesChatList(page, { link: "connected" as const, emitReason: "connected", origin: "unknown" })).toBe(false);
   // A daemon that is down shows that, not chats the page cannot open; a chat page lists none.
-  expect(sharesChatList(page, { connection: "disconnected", origin: "local" })).toBe(false);
-  expect(sharesChatList(page, { connection: "debug", origin: "local" })).toBe(false);
-  expect(sharesChatList(undefined, { connection: "connected", origin: "local" })).toBe(false);
+  expect(sharesChatList(page, { link: "disconnected" as const, emitReason: "disconnected", origin: "local" })).toBe(
+    false,
+  );
+  expect(sharesChatList(page, { link: "connected" as const, emitReason: "debug", origin: "local" })).toBe(false);
+  expect(sharesChatList(undefined, { link: "connected" as const, emitReason: "connected", origin: "local" })).toBe(
+    false,
+  );
 });
