@@ -1,5 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
+import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 /// How the tray of running work (SubagentTray.tsx) comes and goes (Leo 2026-10-26: "Like why is this
 /// not animating and, like, following along with the exact same things as everything else?"). Every
@@ -14,12 +15,11 @@ export const trayMotionLook = defineExperiment({
   arms: {
     message: {
       label: "Settle",
-      description:
-        "A fade and a 4px rise on the house settle (--cmux-ease-settle over --cmux-motion-settle: cubic-bezier(0.16, 1, 0.3, 1), 265 ms, no overshoot); out quicker on --agent-motion-out.",
+      description: `A fade and a 4px rise on the house settle (--cmux-ease-settle over --cmux-motion-settle: ${MOTION_SETTLE}, ${MOTION_SETTLE_MS} ms, no overshoot); out quicker on --agent-motion-out.`,
     },
     tight: {
       label: "Tight fade",
-      description: "Opacity only, on the micro step (120 ms) easing out; out on the quick step.",
+      description: `Opacity only, on the micro step (${MOTION_MS.micro} ms) easing out; out on the quick step.`,
     },
   },
   defaultArm: "message",

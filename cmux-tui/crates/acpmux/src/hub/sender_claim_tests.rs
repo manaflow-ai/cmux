@@ -77,3 +77,20 @@ fn a_duplicate_or_refused_prompt_writes_no_claim() {
     drop(accept_with_claim(&hub, &s, &claim));
     assert!(claims(&hub, "a").is_empty());
 }
+
+#[test]
+fn a_withdrawn_or_resent_inbox_message_writes_no_claim() {
+    let (hub, s) = hub_with_chat("a");
+    let claim = json!({"promptId": "p-1", "claimed": {"harness": "codex", "selfReported": true}});
+    // As `inbox_accept` answers a resend of one withdrawn, and a resend of one it holds or a
+    // notice carries: neither is a prompt kept now, so neither writes (or rewrites) a claim.
+    accept_with_claim(&hub, &s, &claim)(
+        json!({"promptId": "p-1", "queued": false, "inbox": true, "withdrawn": true}),
+    );
+    accept_with_claim(&hub, &s, &claim)(
+        json!({"promptId": "p-1", "queued": true, "inbox": true, "resent": true}),
+    );
+    assert!(claims(&hub, "a").is_empty());
+    accept_with_claim(&hub, &s, &claim)(json!({"promptId": "p-1", "queued": true, "inbox": true}));
+    assert_eq!(claims(&hub, "a"), vec![claim]);
+}

@@ -23,13 +23,16 @@ import {
   TEXT_SIZE_KEY,
   customDensities,
   duplicate,
+  densityRowFill,
   parseExport,
   resolve,
+  setExactMetric,
   toJSON,
   type Density,
 } from "../density";
 import { t } from "../strings";
 import { SettingRow } from "./SettingRow";
+import { rangeFill } from "../format";
 
 const EXACT: ReadonlyArray<keyof typeof PAIRS> = ["sidebarRowHeight", "tabHeight", "itemCornerRadius", "iconSize"];
 
@@ -42,14 +45,14 @@ function displayName(density: Density): string {
 export function DensityPreview({ density, rows = 1 }: { density: Density; rows?: number }) {
   const r = resolve(density);
   const style = {
-    "--density-row": `${r.sidebarRowHeight}px`,
-    "--density-tab": `${r.tabHeight}px`,
-    "--density-strip": `${r.tabStripHeight}px`,
-    "--density-radius": `${r.itemCornerRadius}px`,
-    "--density-icon": `${r.iconSize}px`,
-    "--density-body": `${r.body}px`,
-    "--density-caption": `${r.caption}px`,
-    "--density-inset": `${r.inset}px`,
+    "--density-row": `calc(${r.sidebarRowHeight}px * var(--page-density, 1))`,
+    "--density-tab": `calc(${r.tabHeight}px * var(--page-density, 1))`,
+    "--density-strip": `calc(${r.tabStripHeight}px * var(--page-density, 1))`,
+    "--density-radius": `calc(${r.itemCornerRadius}px * var(--page-density, 1))`,
+    "--density-icon": `calc(${r.iconSize}px * var(--page-density, 1))`,
+    "--density-body": `calc(${r.body}px * var(--page-density-text, 1))`,
+    "--density-caption": `calc(${r.caption}px * var(--page-density-text, 1))`,
+    "--density-inset": `calc(${r.inset}px * var(--page-density, 1))`,
   } as CSSProperties;
   const names = ["cmux-next app", "density rethink", "source control", "Home"];
   return (
@@ -107,6 +110,7 @@ function Slider({
         max={range.max}
         step={step}
         value={value}
+        style={rangeFill(value, range.min, range.max)}
         onChange={(event) => onChange(Number(event.target.value))}
       />
       <output>{value}</output>
@@ -311,9 +315,12 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
                   name={name}
                   label={t(`settingsWindow.density.token.${name}`)}
                   value={resolve(editing)[name]}
-                  range={{ min: 0, max: Math.max(48, PAIRS[name][1] * 2) }}
+                  range={{
+                    min: name === "sidebarRowHeight" ? densityRowFill(editing) : 0,
+                    max: Math.max(48, PAIRS[name][1] * 2),
+                  }}
                   step={1}
-                  onChange={(value) => edit({ tokens: { ...editing.tokens, [name]: value } })}
+                  onChange={(value) => setDraft(setExactMetric(editing, name, value))}
                 />
               ))}
             </details>

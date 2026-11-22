@@ -18,13 +18,25 @@ use std::sync::{Arc, Mutex};
 pub struct LinkCfg {
     /// STUN servers for the host's reflexive candidate (`--link-stun`), as named.
     names: Vec<String>,
-    /// Their IPv4 addresses once resolved; `None` before the first session that
-    /// negotiated `link.udp` asked. Shared by every session of this host.
+    /// Their IPv4 addresses once resolved. Shared by every session of this host.
     #[cfg_attr(not(feature = "link"), allow(dead_code))]
-    resolved: Arc<Mutex<Option<Vec<SocketAddr>>>>,
+    resolved: Arc<Mutex<Stun>>,
+}
+
+/// How far resolving `--link-stun` got.
+#[derive(Debug, Default)]
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+enum Stun {
+    /// No session negotiated `link.udp` yet.
+    #[default]
+    Unasked,
+    Resolving,
+    Resolved(Vec<SocketAddr>),
 }
 
 impl LinkCfg {
+    /// Only `--listen-systemd` (Linux, host.rs) builds one outside tests.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn new(names: Vec<String>) -> Self {
         Self { names, resolved: Arc::default() }
     }
@@ -35,14 +47,14 @@ impl LinkCfg {
     /// opens) until a session negotiated `link.udp`.
     pub fn resolve_stun(&self) {
         let Ok(mut slot) = self.resolved.lock() else { return };
-        if slot.is_some() {
+        if !matches!(*slot, Stun::Unasked) {
             return;
         }
         if self.names.is_empty() {
-            *slot = Some(Vec::new());
+            *slot = Stun::Resolved(Vec::new());
             return;
         }
-        *slot = Some(Vec::new());
+        *slot = Stun::Resolving;
         let (names, resolved) = (self.names.clone(), self.resolved.clone());
         let spawned = std::thread::Builder::new().name("rd-link-stun".into()).spawn(move || {
             let found: Vec<SocketAddr> = names
@@ -58,18 +70,46 @@ impl LinkCfg {
                 })
                 .collect();
             if let Ok(mut slot) = resolved.lock() {
-                *slot = Some(found);
+                *slot = Stun::Resolved(found);
             }
         });
         if spawned.is_err() {
             eprintln!("cmux-rd: link: no thread to resolve --link-stun; no reflexive candidate");
+            *slot = Stun::Resolved(Vec::new());
         }
     }
 
     /// The STUN servers resolved so far (none while they are still resolving).
-    #[cfg_attr(not(feature = "link"), allow(dead_code))]
+    #[cfg(all(test, feature = "link"))]
     pub fn stun(&self) -> Vec<SocketAddr> {
-        self.resolved.lock().ok().and_then(|s| s.clone()).unwrap_or_default()
+        match self.resolved.lock().as_deref() {
+            Ok(Stun::Resolved(found)) => found.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The STUN servers resolved so far and, while they are still resolving,
+    /// the list when it arrives ([`cmux_rd_link::net::Net::add_stun_later`]),
+    /// so the first session on a fresh machine still gets its reflexive candidate.
+    #[cfg(feature = "link")]
+    pub fn stun_now_or_later(
+        &self,
+    ) -> (Vec<SocketAddr>, Option<cmux_rd_link::net::Later<SocketAddr>>) {
+        match self.resolved.lock().as_deref() {
+            Ok(Stun::Resolved(found)) => (found.clone(), None),
+            Ok(Stun::Resolving) => {
+                let resolved = self.resolved.clone();
+                let later: cmux_rd_link::net::Later<SocketAddr> =
+                    Box::new(move || match resolved.lock().as_deref() {
+                        Ok(Stun::Resolving) => None,
+                        Ok(Stun::Resolved(found)) => Some(found.clone()),
+                        // Poisoned, or never asked: nothing more will come.
+                        _ => Some(Vec::new()),
+                    });
+                (Vec::new(), Some(later))
+            }
+            _ => (Vec::new(), None),
+        }
     }
 }
 
@@ -91,7 +131,7 @@ pub use with_link::HybridCarrier;
 #[cfg(feature = "link")]
 mod with_link {
     use super::{LinkCfg, LINK_MAX_DATAGRAM, MAX_CANDIDATES, MAX_OFFERS, MAX_PROLOGUE};
-    use crate::carrier::{Carrier, Incoming, SocketCarrier};
+    use crate::carrier::{Carrier, Incoming, MediaQueueStats, SocketCarrier};
     use crate::wire::Control;
     use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
     use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
@@ -109,6 +149,7 @@ mod with_link {
         offers: u32,
         candidates: usize,
         incoming: Vec<Incoming>,
+        path_rtt_us: Option<u64>,
     }
 
     impl<'a, S: Read + Write + AsRawFd> HybridCarrier<'a, S> {
@@ -121,6 +162,7 @@ mod with_link {
                 offers: 0,
                 candidates: 0,
                 incoming: Vec::new(),
+                path_rtt_us: None,
             }
         }
 
@@ -141,6 +183,9 @@ mod with_link {
                 eprintln!("cmux-rd host: udp link down: {reason}");
             }
             self.up = up;
+            if !up {
+                self.path_rtt_us = None;
+            }
             self.stream.send_control(&Control::LinkState { up, reason })
         }
 
@@ -177,12 +222,13 @@ mod with_link {
                 Err(e) => return self.state(false, Some(format!("link key: {e}"))),
             };
             let public = crate::serve::hex(&keys.public);
+            let (stun, stun_later) = self.cfg.stun_now_or_later();
             let net = match Net::start(NetConfig {
                 role: Role::Responder,
                 session: session.into_bytes(),
                 local: keys,
                 expected_remote,
-                stun: self.cfg.stun(),
+                stun,
                 bind: SocketAddr::from(([0, 0, 0, 0], 0)),
                 turn: Vec::new(),
                 relay_only: false,
@@ -190,6 +236,9 @@ mod with_link {
                 Ok(n) => n,
                 Err(e) => return self.state(false, Some(format!("link start: {e}"))),
             };
+            if let Some(later) = stun_later {
+                net.add_stun_later(later);
+            }
             self.net = Some(net);
             self.up = false;
             self.stream.send_control(&Control::LinkAnswer { key: public })?;
@@ -223,7 +272,8 @@ mod with_link {
                     NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                         out.push(Incoming::Datagram(d));
                     }
-                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, .. }) => {
+                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, rtt_us, .. }) => {
+                        self.path_rtt_us = route.and(rtt_us);
                         match (route.is_some(), self.up) {
                             (true, false) => self.state(true, None)?,
                             (false, true) => {
@@ -249,6 +299,20 @@ mod with_link {
     }
 
     impl<S: Read + Write + AsRawFd> Carrier for HybridCarrier<'_, S> {
+        fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+            // A route switch must not hide receipts from the previous carrier.
+            self.stream.drain_departures(out);
+            if let Some(net) = &self.net {
+                net.drain_departures(out);
+            }
+        }
+
+        fn departure_overflows(&self) -> u64 {
+            self.stream
+                .departure_overflows()
+                .saturating_add(self.net.as_ref().map_or(0, |net| net.departure_overflows()))
+        }
+
         fn fds(&self) -> Vec<RawFd> {
             let mut fds = self.stream.fds();
             fds.extend(self.net.as_ref().map(Net::event_fd));
@@ -261,17 +325,21 @@ mod with_link {
             let mut answered = Ok(());
             for item in incoming.drain(..) {
                 let result = match item {
-                    Incoming::Control(Control::LinkOffer { session, key, candidates }) => {
-                        self.on_offer(session, key, candidates)
-                    }
-                    Incoming::Control(Control::LinkCandidate { candidate }) => {
-                        self.on_candidate(&candidate);
-                        Ok(())
-                    }
-                    // Host-to-viewer messages are not taken from the viewer.
-                    Incoming::Control(Control::LinkAnswer { .. } | Control::LinkState { .. }) => {
-                        Ok(())
-                    }
+                    Incoming::Control(control) => match *control {
+                        Control::LinkOffer { session, key, candidates } => {
+                            self.on_offer(session, key, candidates)
+                        }
+                        Control::LinkCandidate { candidate } => {
+                            self.on_candidate(&candidate);
+                            Ok(())
+                        }
+                        // Host-to-viewer messages are not taken from the viewer.
+                        Control::LinkAnswer { .. } | Control::LinkState { .. } => Ok(()),
+                        other => {
+                            out.push(Incoming::Control(Box::new(other)));
+                            Ok(())
+                        }
+                    },
                     other => {
                         out.push(other);
                         Ok(())
@@ -287,6 +355,18 @@ mod with_link {
             self.pump_link(out).map_err(|e| format!("control write failed: {e}"))
         }
 
+        fn path_rtt_us(&self) -> Option<u64> {
+            if self.up {
+                self.path_rtt_us
+            } else {
+                None
+            }
+        }
+
+        fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+            self.net.as_ref().filter(|_| self.up).map(|net| net.stats().into())
+        }
+
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
             match &self.net {
                 Some(net) if self.up && datagram.len() <= LINK_MAX_DATAGRAM => {
@@ -294,6 +374,22 @@ mod with_link {
                     Ok(())
                 }
                 _ => self.stream.send_datagram(datagram),
+            }
+        }
+
+        fn send_datagram_frame(
+            &mut self,
+            datagrams: Vec<Vec<u8>>,
+            droppable: bool,
+        ) -> io::Result<()> {
+            let on_link =
+                self.up && datagrams.iter().all(|datagram| datagram.len() <= LINK_MAX_DATAGRAM);
+            match (on_link, &self.net) {
+                (true, Some(net)) => {
+                    net.send_datagram_frame(datagrams, droppable);
+                    Ok(())
+                }
+                _ => self.stream.send_datagram_frame(datagrams, droppable),
             }
         }
 
@@ -305,7 +401,9 @@ mod with_link {
 
 /// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
 /// here (a malformed entry is an error); names resolve later
-/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out. Only `--listen-systemd`
+/// (Linux, host.rs) reads `--link-stun` outside tests.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
@@ -387,7 +485,9 @@ mod tests {
             carrier.receive(&mut out).expect("receive");
         }
         // The link messages are the carrier's; the session sees only the rest.
-        assert!(matches!(out.as_slice(), [Incoming::Control(Control::Stop)]));
+        assert!(
+            matches!(out.as_slice(), [Incoming::Control(control)] if matches!(**control, Control::Stop))
+        );
         let states = controls(&viewer.frames());
         assert!(
             states.iter().any(|c| matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("64 hex"))),
@@ -474,6 +574,9 @@ mod tests {
         }
         assert!(carrier.is_up(), "the link never came up");
         assert!(got.iter().any(|d| d == b"up"), "the viewer's datagram never arrived");
+        let rtt = carrier.path_rtt_us();
+        assert!(rtt.is_some(), "the live link reports its measured RTT");
+        assert_eq!(carrier.path_rtt_us(), rtt, "a read must not consume the route RTT");
         // Media goes on the link now, not on the stream.
         carrier.send_datagram(b"media").expect("send");
         let net = viewer_net.take().expect("viewer link");
@@ -495,6 +598,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!carrier.is_up(), "still on the link after the viewer closed it");
+        assert_eq!(carrier.path_rtt_us(), None, "the socket must not reuse the old link RTT");
         carrier.send_datagram(b"back").expect("send");
         assert!(viewer.frames().iter().any(|(ty, p)| *ty == FRAME_DATAGRAM && p == b"back"));
     }
@@ -555,5 +659,21 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(cfg.stun(), vec!["127.0.0.1:3478".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn a_session_offered_while_stun_resolves_takes_the_servers_when_they_arrive() {
+        let cfg = LinkCfg::new(vec!["127.0.0.1:3478".into()]);
+        let (now, later) = cfg.stun_now_or_later();
+        assert!(now.is_empty() && later.is_none(), "nothing resolves before a session asks");
+        *cfg.resolved.lock().unwrap() = Stun::Resolving;
+        let (now, later) = cfg.stun_now_or_later();
+        assert!(now.is_empty());
+        let mut later = later.expect("a later list while resolving");
+        assert_eq!(later(), None);
+        let server: SocketAddr = "127.0.0.1:3478".parse().unwrap();
+        *cfg.resolved.lock().unwrap() = Stun::Resolved(vec![server]);
+        assert_eq!(later(), Some(vec![server]));
+        assert_eq!(cfg.stun_now_or_later().0, vec![server]);
     }
 }

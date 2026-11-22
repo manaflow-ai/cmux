@@ -4,6 +4,265 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    ConnectionStatus {
+        Pending = "pending",
+        Active = "active",
+        NeedsReauth = "needs_reauth",
+        Error = "error",
+        Revoked = "revoked",
+        Expired = "expired",
+    }
+}
+
+/// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
+pub type ConversationId = String;
+
+wire_enum! {
+    ConversationKind {
+        Chief = "chief",
+        Dm = "dm",
+        Group = "group",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CronSpec {
+    pub expr: String,
+    pub tz: String,
+}
+
+/// A device (hardware) that groups installs.
+pub type DeviceId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DeviceStatus {
+    pub install: InstallId,
+    pub user: String,
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub reported_at: i64,
+}
+
+pub type EgressHost = String;
+
+pub type EmailAddress = String;
+
+/// A lowercase DNS name such as acme.com.
+pub type EmailDomain = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EnrollmentToken {
+    pub id: EnrollmentTokenId,
+    pub label: String,
+    pub allowed_domains: Option<Vec<String>>,
+    pub expires_at: Option<i64>,
+    pub created_by: String,
+    pub created_at: i64,
+    pub revoked_at: Option<i64>,
+    pub uses: i64,
+}
+
+/// base64url(SHA-256(token)) without padding.
+pub type EnrollmentTokenHash = String;
+
+pub type EnrollmentTokenId = String;
+
+/// A Cloud environment.
+pub type EnvironmentId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAction {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<FeedActionStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub answer: Option<Value>,
+}
+
+wire_enum! {
+    FeedActionStyle {
+        Default = "default",
+        Primary = "primary",
+        Destructive = "destructive",
+    }
+}
+
+/// A file attached to a feed item or an answer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAttachment {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    pub sha256: String,
+    pub r#ref: String,
+}
+
+wire_enum! {
+    FeedCancelReason {
+        Poster = "poster",
+        Declined = "declined",
+        AnsweredElsewhere = "answered_elsewhere",
+        Superseded = "superseded",
+        PosterGone = "poster_gone",
+    }
+}
+
+/// What the item is about; clients open it and use it for the visibility rule.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poster_kind: Option<FeedPosterKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<FeedKind>,
+}
+
+/// One notice or request in a user's feed.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedItem {
+    pub id: FeedItemId,
+    pub home: String,
+    pub r#type: FeedItemType,
+    pub kind: FeedKind,
+    pub title: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub prompt: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub answer_schema: Option<Value>,
+    pub priority: FeedPriority,
+    pub dedupe_key: Option<String>,
+    pub thread: Option<String>,
+    pub context: FeedContext,
+    pub attachments: Vec<FeedAttachment>,
+    pub actions: Vec<FeedAction>,
+    pub open: Option<FeedOpen>,
+    pub poster: FeedPoster,
+    pub state: FeedState,
+    pub answer: Option<FeedItemAnswer>,
+    pub cancel: Option<FeedItemCancel>,
+    pub needs_mac: bool,
+    pub expires_at: i64,
+    pub read_at: Option<i64>,
+    pub seen_at: Option<i64>,
+    pub archived_at: Option<i64>,
+    pub snoozed_until: Option<i64>,
+    pub push_due_at: Option<i64>,
+    pub pushed_at: Option<i64>,
+    pub count: i64,
+    pub order: i64,
+    pub revision: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub closed_at: Option<i64>,
+}
+
+wire_enum! {
+    FeedItemType {
+        Notice = "notice",
+        Request = "request",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedItemAnswer {
+    pub value: Value,
+    pub by: String,
+    pub device: Option<String>,
+    pub at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedItemCancel {
+    pub reason: FeedCancelReason,
+    pub by: String,
+    pub at: i64,
+    pub note: Option<String>,
+}
+
+/// A feed item; stable when its home moves from a local owner to the cloud.
+pub type FeedItemId = String;
+
+/// notice, a built-in request kind, or a custom kind x-<publisher>.<name>.
+pub type FeedKind = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedOpen {
+    pub action: FeedOpenAction,
+    pub args: FeedOpenArgs,
+}
+
+wire_enum! {
+    FeedOpenAction {
+        TabFocus = "tab.focus",
+        WorkspaceFocus = "workspace.focus",
+        BrowserOpen = "browser.open",
+        BrowserDuplicateRight = "browser.duplicateRight",
+        UrlOpen = "url.open",
+        TaskOpen = "task.open",
+        AcpSessionOpen = "acp.session.open",
+        AppOpen = "app.open",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedOpenArgs {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPoster {
+    pub kind: FeedPosterKind,
+    pub scope: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+}
+
+wire_enum! {
+    FeedPosterKind {
+        Agent = "agent",
+        Harness = "harness",
+        App = "app",
+        Server = "server",
+        Vm = "vm",
+        Automation = "automation",
+        Integration = "integration",
+        System = "system",
+        User = "user",
+    }
+}
+
 /// Per-user push rules, synced by the feed owner.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPrefs {
@@ -633,270 +892,4 @@ pub struct HomeThreadSummary {
     pub resolved_by: Option<ParticipantId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<Timestamp>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Host {
-    pub id: HostId,
-    pub name: String,
-    pub platform: Platform,
-    pub owner_user: UserId,
-    pub enrolled_by: InstallId,
-    pub enrolled_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<HostKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wg_public_key: Option<WgPublicKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<ServerNetworkState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub orphaned: Option<HostOrphaned>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostOrphaned {
-    pub at: i64,
-    pub former_owner: UserId,
-}
-
-/// A machine's session host, enrolled by its link.
-pub type HostId = String;
-
-wire_enum! {
-    HostKind {
-        Device = "device",
-        Server = "server",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeer {
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub inbound: Vec<HostNetworkPeerInboundItem>,
-    pub outbound: Vec<HostNetworkPeerOutboundItem>,
-}
-
-wire_enum! {
-    HostNetworkPeerInboundItemVariant1Protocol {
-        Tcp = "tcp",
-        Udp = "udp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerInboundItemVariant1 {
-    pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-}
-
-wire_enum! {
-    HostNetworkPeerInboundItemVariant2Protocol {
-        Any = "any",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerInboundItemVariant2 {
-    pub protocol: HostNetworkPeerInboundItemVariant2Protocol,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum HostNetworkPeerInboundItem {
-    Variant1(HostNetworkPeerInboundItemVariant1),
-    Variant2(HostNetworkPeerInboundItemVariant2),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-wire_enum! {
-    HostNetworkPeerOutboundItemVariant1Protocol {
-        Tcp = "tcp",
-        Udp = "udp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerOutboundItemVariant1 {
-    pub protocol: HostNetworkPeerOutboundItemVariant1Protocol,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-}
-
-wire_enum! {
-    HostNetworkPeerOutboundItemVariant2Protocol {
-        Any = "any",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerOutboundItemVariant2 {
-    pub protocol: HostNetworkPeerOutboundItemVariant2Protocol,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum HostNetworkPeerOutboundItem {
-    Variant1(HostNetworkPeerOutboundItemVariant1),
-    Variant2(HostNetworkPeerOutboundItemVariant2),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPolicyView {
-    pub schema_version: IntLit<1>,
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub team: TeamId,
-    pub origin: String,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub checked_at: i64,
-    pub expires_at: i64,
-    pub acl_version: i64,
-    pub policy_digest: String,
-    pub peers: Vec<HostNetworkPeer>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Install {
-    pub id: InstallId,
-    pub device: DeviceId,
-    pub kind: InstallKind,
-    pub name: String,
-    pub device_name: String,
-    pub platform: Platform,
-    pub public_jwk: PublicJwk,
-    pub thumbprint: String,
-    pub grant: GrantId,
-    pub created_at: i64,
-    pub revoked_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bound_team: Option<TeamId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sso_team: Option<TeamId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bound_machine: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<ServerCapability>>,
-}
-
-/// One app, CLI or daemon install with its own keypair.
-pub type InstallId = String;
-
-wire_enum! {
-    InstallKind {
-        Mac = "mac",
-        Ios = "ios",
-        Cli = "cli",
-        Daemon = "daemon",
-        Web = "web",
-        Vm = "vm",
-        TeamVm = "team-vm",
-    }
-}
-
-wire_enum! {
-    IntegrationProvider {
-        Github = "github",
-        Linear = "linear",
-        Slack = "slack",
-        GoogleCalendar = "google_calendar",
-        Gmail = "gmail",
-    }
-}
-
-pub type InviteId = String;
-
-/// A Cloud machine.
-pub type MachineId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ManagedDevice {
-    pub install: InstallId,
-    pub user: String,
-    pub via: ManagedDeviceVia,
-    pub token: Option<EnrollmentTokenId>,
-    pub at: i64,
-}
-
-wire_enum! {
-    ManagedDeviceVia {
-        Token = "token",
-        Accept = "accept",
-    }
-}
-
-pub type MessageId = String;
-
-wire_enum! {
-    Meter {
-        AutomationSteps = "automation.steps",
-        AutomationCpuMs = "automation.cpu_ms",
-        AutomationInvocations = "automation.invocations",
-        AutomationDynamicWorkers = "automation.dynamic_workers",
-        EgressRequests = "egress.requests",
-        ModelSpendUsd = "model.spend_usd",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MovedAutomation {
-    pub id: AutomationId,
-    pub name: String,
-    pub moved_to: String,
-    pub moved_id: String,
-    pub epoch: i64,
-    pub moved_at: i64,
-}
-
-pub type NativeDeviceId = String;
-
-pub type NativeMeshId = String;
-
-pub type NativeTenantId = String;
-
-wire_enum! {
-    OpClass {
-        Read = "read",
-        MutateOwn = "mutate-own",
-        MutateShared = "mutate-shared",
-        Execute = "execute",
-        SendExternal = "send-external",
-        Money = "money",
-        Destructive = "destructive",
-        CloudLink = "cloud-link",
-        VmSelf = "vm-self",
-    }
-}
-
-/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
-pub type PairingCode = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingInfo {
-    pub name: String,
-    pub platform: Platform,
-    pub os_version: String,
-    pub arch: PairingInfoArch,
-    pub cmux_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<ServerCapability>>,
 }

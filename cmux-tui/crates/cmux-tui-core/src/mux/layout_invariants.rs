@@ -49,6 +49,7 @@ const TAB_CONSERVING_OPERATIONS: &[&str] = &[
     "tab.group.remove",
     "tab.group.move",
     "pane.swap",
+    "pane.move",
     "screen.move",
     "screen.group.create",
     "screen.group.add",

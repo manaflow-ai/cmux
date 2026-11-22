@@ -50,6 +50,20 @@ impl Client {
         Client(in_tx, out_rx, 0)
     }
 
+    /// A connection that presented `auth` (`serve_connection_authed`).
+    fn authed(hub: &Arc<Hub>, origin: Origin, auth: acpmux::server::ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_authed(
+            hub.clone(),
+            in_rx,
+            out_tx,
+            origin,
+            auth,
+        ));
+        Client(in_tx, out_rx, 0)
+    }
+
     async fn send(&mut self, m: &str, params: Value) -> i64 {
         self.2 += 1;
         let id = self.2;
@@ -485,28 +499,60 @@ async fn fast_mode_is_never_web_changeable() {
 }
 
 /// A side session (`_acpmux/btw`, `hub/btw.rs`) is a new session on this
-/// machine that approves reads: the app and the unix socket open it, a Web
-/// connection or a peer never does, whatever the chat.
+/// machine that approves reads: the app, the unix socket and the owner's own
+/// peer daemon (asking for itself or for its app) open it. A Web connection, a
+/// paired device, or a peer forwarding for either never does, whatever it
+/// claims and whatever the chat.
 #[tokio::test]
-async fn a_side_session_is_opened_by_the_app_and_the_unix_socket_never_the_web_or_a_peer() {
+async fn a_side_session_is_opened_by_the_app_the_unix_socket_and_the_owners_daemon_only() {
+    use acpmux::server::ConnAuth;
     let hub = hub();
     let mut local = Client::new(&hub, Origin::Local);
     let cwd = std::env::temp_dir().to_string_lossy().into_owned();
     let chat = local.call("session/new", new_session(&cwd, json!({}))).await;
     let id = chat["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{chat}")).to_owned();
+    let ask = |via: Option<&str>| match via {
+        None => json!({"sessionId": id, "question": "why?"}),
+        Some(via) => {
+            json!({"sessionId": id, "question": "why?", "_meta": {"acpmux": {"via": via}}})
+        }
+    };
     let before = hub.sessions().len();
-    for origin in [Origin::Web, Origin::Peer] {
-        let mut c = Client::new(&hub, origin);
-        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
-        assert_eq!(r["error"]["data"]["reason"], "btw.remote", "{origin:?}: {r}");
+    let refused = [
+        // A guest: the shared dashboard token, also claiming to be the owner's app.
+        ("web", Origin::Web, ConnAuth::ListenerToken, None),
+        ("web claims app", Origin::Web, ConnAuth::ListenerToken, Some("app")),
+        // A paired machine's own credential, served as Peer: never the owner.
+        ("paired device", Origin::Peer, ConnAuth::Device, None),
+        ("paired device claims app", Origin::Peer, ConnAuth::Device, Some("app")),
+        // A read-only machine (served as Web, behind its own read-only gate).
+        ("read-only device", Origin::Web, ConnAuth::ReadOnlyDevice, None),
+        // The owner's daemon forwarding for someone else: its Web client, a paired machine.
+        ("peer for its web", Origin::Peer, ConnAuth::PeerToken, Some("web")),
+        ("peer for a device", Origin::Peer, ConnAuth::PeerToken, Some("device")),
+    ];
+    for (what, origin, auth, via) in refused {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/btw", ask(via)).await;
+        assert!(r.get("error").is_some(), "{what}: {r}");
+        if auth != ConnAuth::ReadOnlyDevice {
+            assert_eq!(r["error"]["data"]["reason"], "btw.remote", "{what}: {r}");
+        }
     }
     assert_eq!(hub.sessions().len(), before, "a refused side session opens nothing");
-    for origin in [Origin::LocalApp, Origin::Local] {
-        let mut c = Client::new(&hub, origin);
-        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
-        assert!(r["result"]["sessionId"].is_string(), "{origin:?}: {r}");
+    let allowed = [
+        ("app", Origin::LocalApp, ConnAuth::LocalApp, None),
+        ("unix socket", Origin::Local, ConnAuth::LocalSocket, None),
+        // The person's own daemon on another machine, for itself and for its app.
+        ("owner's daemon", Origin::Peer, ConnAuth::PeerToken, None),
+        ("owner's daemon for its app", Origin::Peer, ConnAuth::PeerToken, Some("app")),
+    ];
+    for (what, origin, auth, via) in allowed {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/btw", ask(via)).await;
+        assert!(r["result"]["sessionId"].is_string(), "{what}: {r}");
     }
-    assert_eq!(hub.sessions().len(), before + 2, "one side session each");
+    assert_eq!(hub.sessions().len(), before + allowed.len(), "one side session each");
 }
 
 async fn session(c: &mut Client, name: &str) -> String {

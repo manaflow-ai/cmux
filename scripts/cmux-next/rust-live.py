@@ -6,6 +6,7 @@ that build a few seconds later, with every terminal and agent session kept.
                       [--session S | --socket P] [--foreground]
   rust-live.py stop
   rust-live.py status [--json]
+  rust-live.py inputs [--worktree T] [--json]
   rust-live.py measure --out DIR [--runs N] [--terminals N]
 
 The loop (`start`; `cmux live start --rust` runs it):
@@ -58,6 +59,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import statistics
 import subprocess
 import sys
@@ -66,6 +68,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -136,6 +140,20 @@ def scan(root: Path) -> dict[str, int]:
     return found
 
 
+def scan_all(root: Path) -> dict[str, int]:
+    """Relative path -> mtime_ns of every file under root (an outside folder the build reads)."""
+    found: dict[str, int] = {}
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIPPED_DIRS and not d.startswith(".")]
+        for name in names:
+            path = os.path.join(folder, name)
+            try:
+                found[os.path.relpath(path, root)] = os.stat(path).st_mtime_ns
+            except OSError:
+                pass
+    return found
+
+
 def changes(before: dict[str, int], after: dict[str, int]) -> tuple[list[str], list[str]]:
     changed = [path for path, mtime in after.items() if before.get(path) != mtime]
     removed = [path for path in before if path not in after]
@@ -182,6 +200,8 @@ class Graph:
         return cls(dirs, reaches)
 
     def package_of(self, relpath: str) -> str | None:
+        if relpath.startswith("../"):
+            return None  # outside cmux-tui/ (a design token, a skill page): which crate embeds it is not known here
         for folder, name in self.dirs:
             if relpath.startswith(folder):
                 return name
@@ -202,10 +222,11 @@ class Graph:
 def outside_path_deps(workspace: Path) -> list[str]:
     """Folders of path dependencies outside cmux-tui/ (relative to the repo root), which a
     build host needs too: cmux-tui depends on workers/cmux-vm, for one."""
-    out = subprocess.run(["cargo", "metadata", "--format-version", "1", "--offline"],
+    cargo = os.environ.get("CARGO") or "cargo"  # the cargo that runs a test of this, else PATH's
+    out = subprocess.run([cargo, "metadata", "--format-version", "1", "--offline"],
                          cwd=workspace, capture_output=True, text=True)
     if out.returncode != 0:
-        out = subprocess.run(["cargo", "metadata", "--format-version", "1"],
+        out = subprocess.run([cargo, "metadata", "--format-version", "1"],
                              cwd=workspace, capture_output=True, text=True, check=True)
     root = workspace.parent.resolve()
     folders = set()
@@ -231,13 +252,122 @@ def outside_path_deps(workspace: Path) -> list[str]:
     return sorted(f for f in folders if not any(f.startswith(o + "/") for o in folders if o != f))
 
 
+# `include_str!("p")` / `include_bytes!("p")` (relative to the file), or with
+# `concat!(env!("CARGO_MANIFEST_DIR"), "/p")` (relative to the crate).
+INCLUDE_RE = re.compile(
+    r'include_(?:str|bytes)!\s*\(\s*(concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?"((?:[^"\\]|\\.)*)"')
+# A path a build script (or a `#[path]` in one) names relative to its crate: "../../../plans/x.json".
+BUILD_PATH_RE = re.compile(r'"(\.\./(?:[^"\\]|\\.)*)"')
+# Folders a sync sends from outside cmux-tui/ never need these.
+OUTSIDE_EXCLUDES = ("--exclude=.git", "--exclude=zig-out/", "--exclude=.zig-cache/", "--exclude=/target/",
+                    "--exclude=node_modules/")
+
+
+def crate_dir(path: Path, workspace: Path) -> Path:
+    """The folder of the Cargo.toml nearest above `path` (inside the workspace)."""
+    for parent in path.parents:
+        if (parent / "Cargo.toml").is_file() or parent == workspace:
+            return parent
+    return workspace
+
+
+def outside_reads(workspace: Path) -> set[Path]:
+    """Every path outside the workspace its sources read while they build, from the source: each
+    `include_str!`/`include_bytes!` target and each `../` path a build script names. Absolute, resolved."""
+    workspace = workspace.resolve()
+    found: set[Path] = set()
+    stack = [workspace]
+    while stack:
+        folder = stack.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                if entry.name not in SKIPPED_DIRS and not entry.name.startswith("."):
+                    stack.append(Path(entry.path))
+                continue
+            if not entry.name.endswith(".rs"):
+                continue
+            path = Path(entry.path)
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+            # Doc and line comments show the macro in examples (`include_str!("path")`); they read nothing.
+            text = "\n".join("" if line.lstrip().startswith("//") else line for line in text.splitlines())
+            crate = crate_dir(path, workspace)
+            for match in INCLUDE_RE.finditer(text):
+                literal = match.group(2)
+                base = crate if match.group(1) else path.parent
+                found.add(Path(os.path.normpath(base / literal.lstrip("/" if match.group(1) else ""))))
+            if entry.name == "build.rs" or "build-support" in path.parts:
+                for match in BUILD_PATH_RE.finditer(text):
+                    found.add(Path(os.path.normpath(crate / match.group(1))))
+    return {p for p in found if workspace not in p.parents and p != workspace}
+
+
+def submodules(tree: Path) -> list[str]:
+    """The repo's submodule paths (gitlinks at HEAD), relative to its root."""
+    out = subprocess.run(["git", "-C", str(tree), "ls-files", "--stage"], capture_output=True, text=True)
+    return [line.split("\t", 1)[1] for line in out.stdout.splitlines() if line.startswith("160000 ")]
+
+
+def outside_inputs(tree: Path, path_deps: list[str] | None = None) -> list[str]:
+    """What a build of tree/cmux-tui reads outside cmux-tui/, relative to the repo root: the folders of
+    path dependencies there (workers/cmux-vm), each file or folder the sources include or a build script
+    names (plans/.../design-tokens.json), and a submodule whole (ghostty-next) when anything in it is
+    read. Outermost entries only, sorted. Computed from the tree each time, so a new include is sent
+    without anyone listing it here (the cmux-tui test `rust_live_sends_every_outside_input` checks this
+    against cargo's own dep-info)."""
+    tree = tree.resolve()
+    entries = set(outside_path_deps(tree / "cmux-tui") if path_deps is None else path_deps)
+    modules = submodules(tree)
+    for path in outside_reads(tree / "cmux-tui"):
+        if tree not in path.parents:
+            continue  # outside the repo: not ours to send
+        rel = path.relative_to(tree).as_posix()
+        module = next((m for m in modules if rel == m or rel.startswith(m + "/")), None)
+        entries.add(module or rel)
+    return sorted(e for e in entries if not any(e.startswith(o + "/") for o in entries if o != e))
+
+
+def check_out_submodules(tree: Path, entries: list[str]) -> None:
+    """Check out each submodule the build reads that this checkout never did: a fresh worktree has an
+    empty ghostty-next, and ghostty-vt-sys cannot build libghostty-vt without it."""
+    for module in sorted(set(submodules(tree)) & set(entries)):
+        folder = tree / module
+        if folder.is_dir() and any(folder.iterdir()):
+            continue
+        log(f"checking out the {module} submodule (the build reads it)")
+        result = run(["git", "-C", str(tree), "submodule", "update", "--init", "--depth", "1", "--", module])
+        if result.returncode != 0:
+            raise RuntimeError(f"git submodule update --init {module}: {result.stderr.strip()}")
+
+
+def control_dir() -> str:
+    """This user's ssh ControlMaster folder: short (a socket path is capped near 104 bytes on macOS), kept across runs
+    (ControlPersist), and refused unless it is a real 700 folder this user owns, so another account cannot plant the
+    socket an ssh here then talks to."""
+    path = f"/tmp/rust-live-{os.getuid()}"
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    st = os.lstat(path)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        sys.exit(f"rust-live: {path} is not a private folder of this user's; remove it")
+    return path
+
+
 def ssh_options(state: Path) -> list[str]:
     # One connection kept open: each step after the first costs one round trip.
     # CMUX_RUST_LIVE_SSH_OPTS: more ssh options (a port, a jump host, a known-hosts file).
     extra = shlex.split(os.environ.get("CMUX_RUST_LIVE_SSH_OPTS", ""))
     return ["-o", "BatchMode=yes", "-o", "ControlMaster=auto",
             # %C is 40 characters; a socket path under a deep state folder passes macOS's 104 limit.
-            "-o", f"ControlPath=/tmp/rust-live-{os.getuid()}-%C", "-o", "ControlPersist=900", *extra]
+            "-o", f"ControlPath={control_dir()}/%C", "-o", "ControlPersist=900", *extra]
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -267,16 +397,30 @@ class Builder:
         self.incoming = state / "incoming"
         self.incoming.mkdir(parents=True, exist_ok=True)
         self.synced = False
+        self.outside: list[str] | None = None  # outside_inputs(tree), set by the loop (None: compute it)
         self.current: subprocess.Popen | None = None  # the build running now, if any
 
     def cancel(self) -> None:
         """End the running build (its own process group: cargo or the ssh that runs it)."""
         proc = self.current
-        if proc and proc.poll() is None:
+        if proc is None:
+            return
+        # The group, whatever its leader's state: a leader that exited (and was reaped) can leave a child running in
+        # it, and that child would run into later builds (cmux#41767 review F1). start_new_session made the group's id
+        # the leader's pid, which the kernel keeps while any member lives; ProcessLookupError means it is empty.
+        pgid = proc.pid
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return
+            except PermissionError:  # macOS, a group whose members are exiting: SIGKILL still goes after the grace
                 pass
+            if sig == signal.SIGTERM:
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
 
     def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -302,27 +446,66 @@ class Builder:
             result = run(argv)
             if result.returncode != 0:
                 raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
-            # ghostty-vt-sys builds libghostty-vt from the repo root's ghostty-next submodule, and
-            # some path dependencies live outside cmux-tui/ (workers/cmux-vm).
-            outside = outside_path_deps(self.tree / "cmux-tui")
-            if (self.tree / "ghostty-next/build.zig").is_file():
-                outside.append("ghostty-next")
-            for folder in outside:
-                if self.synced and folder == "ghostty-next":
-                    continue
-                run(["ssh", *ssh_options(self.state), self.host, f"mkdir -p {self.remote}/{folder}"], check=True)
-                result = run(["rsync", "-a", "--delete", "-e", rsh, "--exclude=.git", "--exclude=zig-out/",
-                              "--exclude=.zig-cache/", "--exclude=/target/", "--exclude=node_modules/",
-                              f"{self.tree / folder}/", f"{self.host}:{self.remote}/{folder}/"])
-                if result.returncode != 0:
-                    raise RuntimeError(f"rsync {folder} to {self.host}: {result.stderr.strip()}")
+            # The build reads files outside cmux-tui/ too: path dependencies (workers/cmux-vm),
+            # include_str!/include_bytes! targets and build-script inputs (design-tokens.json, the
+            # ghostty-next submodule ghostty-vt-sys builds libghostty-vt from). The set is computed.
+            self.send_outside(rsh, skip_submodules=self.synced)
             self.synced = True
             return
-        result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", source, dest],
-                                input="\n".join(changed) + "\n", capture_output=True, text=True)
-        if result.returncode != 0:
-            self.synced = False  # the next save sends the whole tree, so this edit is not lost
-            raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
+        inside = [p for p in changed if not p.startswith("../")]
+        outside = [p[3:] for p in changed if p.startswith("../")]
+        if inside:
+            result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", source, dest],
+                                    input="\n".join(inside) + "\n", capture_output=True, text=True)
+            if result.returncode != 0:
+                self.synced = False  # the next save sends the whole tree, so this edit is not lost
+                raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
+        if outside:
+            result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", f"{self.tree}/",
+                                     f"{self.host}:{self.remote}/"],
+                                    input="\n".join(outside) + "\n", capture_output=True, text=True)
+            if result.returncode != 0:
+                self.synced = False
+                raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
+
+    def send_outside(self, rsh: str, skip_submodules: bool) -> None:
+        """Send every outside input (outside_inputs) to the build host's tree. A submodule this
+        checkout never checked out is checked out first (a fresh worktree has an empty ghostty-next);
+        a file a sparse checkout leaves out comes from HEAD."""
+        modules = set(submodules(self.tree))
+        entries = self.outside if self.outside is not None else outside_inputs(self.tree)
+        check_out_submodules(self.tree, entries)
+        on_disk = [e for e in entries if (self.tree / e).exists()]
+        missing = [e for e in entries if e not in on_disk]
+        folders = sorted({str(Path(e).parent) for e in entries} - {"."})
+        if folders:
+            run(["ssh", *ssh_options(self.state), self.host,
+                 "mkdir -p " + " ".join(shlex.quote(f"{self.remote}/{f}") for f in folders)], check=True)
+        for entry in on_disk:
+            if skip_submodules and entry in modules:
+                continue  # sent once; a submodule moves only with its gitlink
+            path = self.tree / entry
+            source, dest = (f"{path}/", f"{self.host}:{self.remote}/{entry}/") if path.is_dir() else (
+                str(path), f"{self.host}:{self.remote}/{entry}")
+            result = run(["rsync", "-a", "--delete", "-e", rsh, *OUTSIDE_EXCLUDES, source, dest])
+            if result.returncode != 0:
+                raise RuntimeError(f"rsync {entry} to {self.host}: {result.stderr.strip()}")
+        if missing:
+            # Not on disk here (a sparse checkout): the committed copy, as `git archive` writes it.
+            tracked = run(["git", "-C", str(self.tree), "ls-tree", "-r", "--name-only", "HEAD", "--", *missing])
+            known = [e for e in missing if any(line == e or line.startswith(e + "/")
+                                               for line in tracked.stdout.splitlines())]
+            for entry in sorted(set(missing) - set(known)):
+                log(f"the build reads {entry}, which is neither here nor in HEAD; the build host may fail on it")
+            if known:
+                archive = subprocess.Popen(["git", "-C", str(self.tree), "archive", "--format=tar", "HEAD", "--",
+                                            *known], stdout=subprocess.PIPE)
+                untar = subprocess.run(["ssh", *ssh_options(self.state), self.host,
+                                        f"tar -x -C {shlex.quote(self.remote)}"],
+                                       stdin=archive.stdout, capture_output=True, text=True)
+                archive.stdout.close()
+                if archive.wait() != 0 or untar.returncode != 0:
+                    raise RuntimeError(f"send {', '.join(known)} from HEAD to {self.host}: {untar.stderr.strip()}")
 
     def build(self, daemons: list[str]) -> tuple[bool, str]:
         cargo = shlex.join(cargo_args(daemons, self.target))
@@ -590,6 +773,30 @@ class Loop:
         self.root = self.tree / "cmux-tui"
         self.graph = Graph.load(self.root)
         self.generation = 0
+        self.load_outside()
+
+    def load_outside(self) -> None:
+        """What the build reads outside cmux-tui/ (the builder sends it), and the part of it a save
+        changes: not path-dependency crates or submodules, whole trees sent once. An edit to a design
+        token or a schema the daemon embeds rebuilds and swaps like a saved .rs."""
+        deps = outside_path_deps(self.root)
+        self.builder.outside = outside_inputs(self.tree, deps)
+        skip = set(deps) | set(submodules(self.tree))
+        self.outside = [e for e in self.builder.outside if e not in skip]
+
+    def scan(self) -> dict[str, int]:
+        """scan(cmux-tui/), and each outside input as `../<path from the repo root>`."""
+        found = scan(self.root)
+        for entry in self.outside:
+            path = self.tree / entry
+            if path.is_dir():
+                found.update({f"../{entry}/{rel}": mtime for rel, mtime in scan_all(path).items()})
+            else:
+                try:
+                    found[f"../{entry}"] = path.stat().st_mtime_ns
+                except OSError:
+                    pass
+        return found
 
     def record(self, entry: dict) -> None:
         self.state.mkdir(parents=True, exist_ok=True)
@@ -610,6 +817,7 @@ class Loop:
     def once(self, changed: list[str], removed: list[str], saved_at: float, detected_at: float) -> dict:
         if any(p.endswith("Cargo.toml") for p in changed + removed):
             self.graph = Graph.load(self.root)  # a new crate or path dependency
+            self.load_outside()
         daemons, packages = self.graph.daemons_for(changed + removed)
         daemons = [d for d in daemons if d in self.only]
         entry: dict = {
@@ -652,20 +860,21 @@ class Loop:
 
     def run(self) -> None:
         log(f"watching {self.root} (build: {self.builder.host or 'here'})")
-        files = scan(self.root)  # before the sync: a save during a slow first sync is still seen
+        files = self.scan()  # before the sync: a save during a slow first sync is still seen
+        check_out_submodules(self.tree, self.builder.outside or [])
         self.builder.sync([], [])
         self.watching.set()
         (self.state / "watch.ready").write_text(f"{os.getpid()}\n")
         while not self.stop_event.is_set():
             time.sleep(POLL_SECS)
-            now = scan(self.root)
+            now = self.scan()
             changed, removed = changes(files, now)
             if not (changed or removed):
                 continue
             # An editor's save can be several writes: wait for them to settle.
             while True:
                 time.sleep(SETTLE_SECS)
-                later = scan(self.root)
+                later = self.scan()
                 if later == now:
                     break
                 now = later
@@ -827,7 +1036,7 @@ def command_stop(_args) -> int:
     if pid is None:
         if any(state.glob("app-original-*.json")):
             return restore_left_apps(state)
-        print("rust-live: not watching")
+        safe_print("rust-live: not watching")
         return 0
     os.kill(pid, signal.SIGTERM)
     # It ends after the build under way, if any (and swaps nothing more); wait so no second loop starts.
@@ -836,10 +1045,10 @@ def command_stop(_args) -> int:
         time.sleep(0.1)
     if running_pid(state) == pid:
         # Still finishing a build; it swaps nothing more. Its pid file stays, so no second loop starts.
-        print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
+        safe_print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
         return 0
     pid_file(state).unlink(missing_ok=True)
-    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
+    safe_print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
     # The watcher puts an app's daemon back on its way out; a marker it left means that did not finish.
     return restore_left_apps(state)
 
@@ -932,7 +1141,7 @@ def command_measure(args) -> int:
     edit_path = tree / EDIT_FILE
     original = edit_path.read_text()
     if EDIT_ANCHOR not in original:
-        print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
+        safe_print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
         return 1
     sock = work / "mux.sock"
     env = {k: v for k, v in os.environ.items()
@@ -1043,7 +1252,7 @@ def command_measure(args) -> int:
                 result["terminals"] = checks
                 result["terminals_survived"] = all(c.get("same_shell") and c.get("scrollback_kept") for c in checks)
             report["runs"].append(result)
-            print(f"rust-live measure: run {run_index}: {json.dumps(result)}", file=sys.stderr, flush=True)
+            safe_print(f"rust-live measure: run {run_index}: {json.dumps(result)}", file=sys.stderr, flush=True)
     except KeyboardInterrupt:
         report["error"] = "interrupted (SIGINT or SIGTERM)"
     except Exception as error:  # noqa: BLE001 - the report says what failed
@@ -1081,8 +1290,16 @@ def command_measure(args) -> int:
     report["passed"] = bool(report["runs"]) and "error" not in report and len(good) == args.runs and all(
         r.get("terminals_survived") for r in good)
     (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(report, indent=2))
+    safe_print(json.dumps(report, indent=2))
     return 0 if report["passed"] else 1
+
+
+def command_inputs(args) -> int:
+    """`inputs`: what a build of the checkout's cmux-tui reads outside cmux-tui/ (what `start
+    --build-host` sends besides cmux-tui/), one path from the repo root per line, or a JSON list."""
+    entries = outside_inputs(checkout(args.worktree))
+    print(json.dumps(entries) if args.json else "\n".join(entries))
+    return 0
 
 
 def main() -> int:
@@ -1107,9 +1324,12 @@ def main() -> int:
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.add_argument("--if-used", action="store_true", help="print nothing when the loop never ran")
+    inputs = sub.add_parser("inputs", help="what a build reads outside cmux-tui/ (what a build host is sent)")
+    inputs.add_argument("--worktree")
+    inputs.add_argument("--json", action="store_true")
     args = parser.parse_args()
     return {"start": command_start, "stop": command_stop, "status": command_status,
-            "measure": command_measure}[args.command](args)
+            "measure": command_measure, "inputs": command_inputs}[args.command](args)
 
 
 if __name__ == "__main__":

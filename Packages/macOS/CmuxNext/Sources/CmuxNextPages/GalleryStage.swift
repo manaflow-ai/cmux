@@ -14,7 +14,7 @@ public import WebKit
 /// `gallery.openStage` (palette, `cmux action run gallery.openStage --entry agent-pane.composer`;
 /// CmuxNextApp's `AppActions` binds it) opens one tab per run: the entry's stage (`variant` picks one),
 /// else the gallery's index. The server is web-dev.json's `gallery`, else
-/// ``WebDevOverride/defaultGallery``. Every build (``WebDevOverride/isEnabled``); off with Live Web Reload.
+/// ``WebDevOverride/defaultGallery``. Every build (``WebDevOverride/isEnabled``); off with cmux Live.
 ///
 /// This keeps which stage each tab shows: a run sets ``next`` around its open, and the tab it opens
 /// keeps it. A tab restored at launch has none and shows the gallery's index.
@@ -81,7 +81,7 @@ public final class GalleryStageTabs {
     public static var noPane: String { t("galleryStage.refusal.noPane", "This window has no pane for the stage.") }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 }
 
@@ -121,7 +121,7 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         webView.load(URLRequest(url: url))
         // task-owner: one per stage view; ends with the view (weak self) or its deinit
         scaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale) }) {
                 guard let self else { return }
                 self.applyScale()
             }

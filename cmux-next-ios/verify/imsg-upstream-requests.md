@@ -1,5 +1,11 @@
 # Proposed CmuxConversation changes for the iMessage team
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 cmux-next-ios uses `Packages/iOS/CmuxConversation` exactly as
 `origin/feat-imsg-parity-gui` ships it (c4741ca97f05 when this was written). We do not
 patch the package. These are the changes Chief would need from it. They are proposals

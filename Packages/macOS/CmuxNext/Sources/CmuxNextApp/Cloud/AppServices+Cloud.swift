@@ -7,7 +7,6 @@ import CmuxNextHomeEngine
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
-import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
@@ -25,10 +24,10 @@ extension AppServices {
               let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(),
                                                     team: session.machine.team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
         return { control in
-            let carrier = RemoteRdStreamCarrier {
-                let stream = try await dial.open()
+            let carrier = RemoteRdStreamCarrier(reportingOpen: { progress in
+                let stream = try await dial.open(progress: progress)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
-            }
+            })
             return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(), startKey: UUID().uuidString, control: control)
         }
     }
@@ -69,7 +68,7 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
-        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
+        cloud.agentCreatePolicy = { [weak self] in self?.settings.map { CloudMachineCreatePolicy(asksFirst: !$0.cloudAgentsSkipAsking, pauseAgentMachines: $0.snapshot.pauseAgentMachines) } ?? CloudMachineCreatePolicy() }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
         cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
@@ -100,7 +99,7 @@ extension AppServices {
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
-                self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
+                self.agentTabs.syncCloudAccountActions(services: self)
                 // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
                 if routerUser != .some(user) {
@@ -116,18 +115,12 @@ extension AppServices {
                     self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
                                                        team: team)
                 }
-                // Phone access follows the account: start after sign-in, restart on a user or team switch,
-                // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
+                // A switch of the active team reloads the team's machines and accounts.
                 let current = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
                 guard current?.user != account?.user || current?.team != account?.team else { continue }
                 // task-owner: one machine-list reload; CloudService reconciles.
                 if let before = account, before.user == current?.user { Task { await cloud.refresh() }; self.accounts.model.refresh() }
                 account = current
-                if let auth = CloudMobileAuth(auth: cloud.auth) {
-                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
-                } else {
-                    self.mobile.stop()
-                }
             }
         }
     }

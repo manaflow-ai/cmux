@@ -26,9 +26,8 @@ fn a_viewer_with_a_turn_relay_offers_its_relayed_address() {
         username: o.username.into(),
         password: o.password.into(),
     };
-    let offer = ViewerOffer::new(Vec::new(), vec![name]).unwrap();
-    // The resolver runs on its own thread; an address literal resolves at once.
-    std::thread::sleep(Duration::from_millis(200));
+    let mut offer = ViewerOffer::new(Vec::new(), vec![name]).unwrap();
+    assert!(offer.wait_resolved(Duration::from_secs(5)), "the relay's address never resolved");
     let (mut host, host_key) = DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
     let mut viewer = offer.start(&host_key, any()).unwrap();
 

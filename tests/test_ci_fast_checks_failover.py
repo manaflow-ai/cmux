@@ -24,6 +24,13 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "|| fromJSON(vars.RUNNER_POOLS).linux }}"
@@ -67,7 +74,8 @@ class FastChecksFailoverTests(unittest.TestCase):
         return result, receipt
 
     def test_the_label_comes_from_the_linux_pool(self) -> None:
-        lines = runs_on_lines()
+        # The Linux job's label; setup=kernel-free's Mac job (checks-mac) names the owned side-light pool.
+        lines = [line for line in runs_on_lines() if "RUNNER_POOLS" in line]
         self.assertEqual(len(lines), 1)
         line = lines[0].rstrip()
         self.assertTrue(line.endswith(POOL), line.strip())

@@ -178,19 +178,6 @@ struct CloudBrowserActionTests {
 
     // MARK: Results
 
-    @Test func aForwardRecordAnswersItsLocalURL() {
-        let fields = CloudHandlers.forwardFields(.object([
-            "machine": .string("vm-a"), "port": .number(3000), "host": .string("127.0.0.1"), "localPort": .number(52_011),
-            "generation": .number(1), "state": .string("up"), "reason": .null,
-        ]))
-        #expect(fields["machine_id"] == .string("vm-a"))
-        #expect(fields["port"] == .int(3000))
-        #expect(fields["local_port"] == .int(52_011))
-        #expect(fields["url"] == .string("http://127.0.0.1:52011/"))
-        #expect(fields["state"] == .string("up"))
-        #expect(fields["reason"] == nil)
-    }
-
     /// A port's link is the platform's preview share link (`/v1/cloud/machines/{id}/previews/{port}/links`),
     /// never classic `/api/vm/{id}/open-port`, which knows no Worker machine id: with no platform preview
     /// origin there is no link, and nothing is asked.

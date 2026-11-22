@@ -17,6 +17,8 @@ quitEndSessions, endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, N
 NX_ARTIFACTS.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 APP, TAG = os.environ["NX_APP"], os.environ["NX_APP_TAG"]
 OUT, STOP = os.environ.get("NX_ARTIFACTS", "/tmp/home-dock-actions"), os.environ.get("NX_APP_STOP", "")
@@ -171,7 +173,7 @@ finally:
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print("app pid %d did not quit within 60 s" % app.pid, flush=True)
+        safe_print("app pid %d did not quit within 60 s" % app.pid, flush=True)
     rpc("action.run", {"id": "endAgents"}, timeout=10)
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
         if os.path.isdir(acp):

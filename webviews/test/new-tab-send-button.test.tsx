@@ -12,6 +12,7 @@ import { CMUX_PASS_THROUGH } from "../src/agent-session/acpmux/cmuxCommands";
 import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
 import { inlineToken, inlineTokenIds, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -80,11 +81,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};

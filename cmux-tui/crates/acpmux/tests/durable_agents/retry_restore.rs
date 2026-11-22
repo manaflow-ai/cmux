@@ -397,3 +397,75 @@ async fn an_adopted_idle_chat_saved_waiting_with_nothing_asked_is_ready() {
         daemon.rpc().await.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
     assert_eq!(attached["session"]["status"], "ready", "{attached:#}");
 }
+
+/// The saved `lastTurn` of the chat, read with the daemon down.
+fn saved_last_turn(daemon: &Daemon, session: &str) -> Value {
+    let meta: Value =
+        serde_json::from_slice(&std::fs::read(daemon.saved_meta_path(session)).unwrap()).unwrap();
+    meta["lastTurn"].clone()
+}
+
+/// A kill that lost the metadata save of a finished turn: the log has its result, the saved
+/// metadata the turn before. The first attach after the restart reads the chat's log and shows
+/// the log's turn. Before, only the queue resume's retry pass corrected it (`auto_resume/
+/// restore.rs`), which runs after adoption: an attach before it showed the older turn (the
+/// full-run failure of `pending_retry_survives_restart_at_its_original_deadline_once` on a
+/// loaded gate host). `ACPMUX_TEST_SAVE_META_HOLD_DIR` holds the save for the kill, and
+/// `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` keeps the attach ahead of that pass with no load.
+#[tokio::test]
+async fn an_attach_after_a_kill_that_lost_a_turns_save_shows_that_turn() {
+    let mut daemon = Daemon::new("lastturn-kill", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let first = rpc
+        .reply(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}],
+                   "_meta": {"acpmux": {"promptId": "first"}}}),
+        )
+        .await;
+    assert_eq!(first["result"]["stopReason"], "end_turn", "{first}");
+    // A clean stop saves the first turn's summary.
+    daemon.sigterm();
+    drop(rpc);
+    assert_eq!(saved_last_turn(&daemon, &session)["promptId"], "first");
+
+    let holds = daemon.home.join("meta-holds");
+    std::fs::create_dir_all(&holds).unwrap();
+    daemon.env.push(("ACPMUX_TEST_SAVE_META_HOLD_DIR".into(), holds.display().to_string()));
+    daemon.start();
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut rpc = daemon.rpc().await;
+    rpc.send(
+        "session/prompt",
+        json!({"sessionId": session,
+               "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}],
+               "_meta": {"acpmux": {"promptId": "second"}}}),
+    )
+    .await;
+    daemon.wait_event(&session, "the second turn at its gate", |e| chunk(e, "before-gate"));
+    // The next save of the chat (at the latest, the second turn's end) is held, then killed.
+    std::fs::write(holds.join(format!("hold-{session}")), b"").unwrap();
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the second turn's result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["promptId"] == "second"
+    });
+    daemon.wait_event(&session, "a held save", |_| holds.join(format!("held-{session}")).exists());
+    daemon.sigkill();
+    drop(rpc);
+    assert_eq!(
+        saved_last_turn(&daemon, &session)["promptId"],
+        "first",
+        "the kill was meant to lose the second turn's save"
+    );
+
+    daemon.env.push(("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(
+        attached["session"]["lastTurn"]["promptId"], "second",
+        "the restart showed the turn before the chat's last: {attached:#}"
+    );
+}

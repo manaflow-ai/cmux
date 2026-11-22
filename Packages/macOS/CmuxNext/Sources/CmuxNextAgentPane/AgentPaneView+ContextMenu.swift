@@ -48,6 +48,12 @@ final class AgentPaneWKWebView: WKWebView {
     /// + button (Leo, 2026-10-21).
     @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+        renderKeyEditNow()
+    }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)
@@ -97,14 +103,13 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
-    /// cmux menu row shows one) that runs `handler`.
-    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with an optional SF Symbol, running `handler` when selected.
+    static func item(_ title: String, symbol: String?, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
-        item.image = AgentPaneContextMenu.icon(symbol)
+        item.image = symbol.flatMap(AgentPaneContextMenu.icon)
         return item
     }
 }
@@ -121,6 +126,7 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
+            model.hostTouch.mark("drop") // a posted drop too: the page has the files
             // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
             // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
             // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
@@ -128,7 +134,7 @@ extension AgentPaneView {
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
             guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)
-            model.droppedPaths.stash(urls, kind: .drop)
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
@@ -138,6 +144,7 @@ extension AgentPaneView {
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            self?.model.hostTouch.mark("paste") // a posted paste too: the page has the text
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
@@ -252,7 +259,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: AgentPaneContextMenu.drawnSize(of: menu), visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }

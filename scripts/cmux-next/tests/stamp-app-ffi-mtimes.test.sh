@@ -6,11 +6,13 @@
 # cx-4ncv). Two runs of one commit must give byte-identical zips; two commits
 # must give different header mtimes. A non-UTC TZ proves the stamp is UTC.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 stamp="$root/scripts/cmux-next/stamp-app-ffi-mtimes.sh"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+git_fixture_trap_exit 'rm -rf "$work"'
 export TZ=America/Los_Angeles
 
 fail() { echo "FAIL: $*" >&2; exit 1; }

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFilesUI
 
-/// Makes each window's file explorer (the right sidebar's Files section) and
+/// Makes each window's file explorer (the Files section; no surface shows it now) and
 /// finds the one an action runs on: the right-clicked one for a row's menu (its
 /// `explorer` argument), else the active window's. The tree roots at
 /// the focused terminal's folder when it is on this Mac, else the home folder.
@@ -23,11 +23,11 @@ final class FileExplorerService {
         effects = AppFileExplorerEffects(services: services)
     }
 
-    /// The Files section of `controller` (made once per window by ``RightSidebarSections``).
+    /// The Files section of `controller` (made once per window).
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let id = UUID().uuidString
         let view = FileExplorerSectionView(
-            model: FileExplorerModel(),
+            model: services.map { FileExplorerModel(lister: $0.viewers.filesPanes.directoryLister) } ?? FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
             rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection, explorer: id) },
@@ -39,13 +39,6 @@ final class FileExplorerService {
         sections.setObject(view, forKey: controller)
         sectionsByID.setObject(view, forKey: id as NSString)
         return view
-    }
-
-    /// The Find section of `controller`: ripgrep over the folder the explorer would show.
-    func makeFindSection(for controller: WindowController) -> FindSectionView {
-        FindSectionView(model: FindSectionModel(), rootFolder: { [weak self, weak controller] in
-            controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
-        }, effects: effects)
     }
 
     /// Focus moved in `controller`: its Files tree follows the newly focused terminal's folder.
@@ -101,8 +94,6 @@ final class FileExplorerService {
     /// registry's `fileExplorerRow` menu, whose rows imply the same fact.
     private func perform(_ id: ActionID) {
         guard let registry = services?.registry else { return }
-        var invocation = ActionInvocation()
-        invocation.keyContext = registry.context.union(.fileExplorerFocused)
-        registry.perform(id, invocation: invocation)
+        registry.perform(id, invocation: ActionInvocation(keyContext: registry.context.union(.fileExplorerFocused)))
     }
 }

@@ -77,6 +77,21 @@ class TraceTests(unittest.TestCase):
         stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
         self.assertEqual(stats["retargets"], 0, stats["retargeted"])
 
+    def test_a_terminal_sized_to_its_final_grid_at_the_start_is_no_retarget(self):
+        # Split Down in a 2 x 2 grid (split-scale s4 empty split_down): the pushed pane's terminal takes its final grid
+        # (470 -> 304 pt) in the motion's first frame, as every neighbour's does (no grid is held), and then rides its
+        # pane down. Its bottom edge jumps up once and moves down with the pane: the grid's size, not a new target.
+        # Its top edge rides the pane, so a top that turns back is still a retarget.
+        tops = [529, 571, 600, 626, 662, 673, 681, 686, 689, 692, 693, 694, 694, 695]
+        heights = [470] + [304] * (len(tops) - 1)
+
+        def stats(tops):
+            return ssm.trace_stats({"refresh_ms": 8.33, "samples": [
+                {"t": k * 8.33, "terminal": [[208, top, 695, height]]} for k, (top, height) in enumerate(zip(tops, heights))]})
+        self.assertEqual(stats(tops)["retargets"], 0, stats(tops)["retargeted"])
+        turned = tops[:6] + [650] + tops[7:]
+        self.assertGreaterEqual(stats(turned)["retargets"], 1)
+
     def test_speeding_up_after_a_dropped_frame_is_a_retarget(self):
         # The slowest step spanned a dropped frame (33 ms): it is judged by its speed, not its points (#38998 review F1).
         self.assertEqual(ssm.retargets([(0, (0,)), (8.33, (100,)), (41.66, (110,)), (50, (118,))]), {50})
@@ -201,6 +216,19 @@ class TransitionTests(unittest.TestCase):
         row = ssm.transition(self.strip(sent, [frame(5)]), t, static=False)
         self.assertIn("nothing moved", row["error"])
 
+    def test_a_tick_stamped_just_before_the_input_but_drawn_after_it_is_the_move(self):
+        # A display-link tick carries its vsync's time (link.timestamp), not the time its callback read the layout:
+        # a callback that runs after the key went in (the main thread was in frame_strip's own turn) shows the
+        # post-key layout under a time up to one refresh before `sent_host_s`. A close is a one-tick jump, so that
+        # tick held the whole move and the round read "nothing moved after the input" (nightly 01fc64af3: 32 close
+        # rounds with browser or chat panes, the movers of the layout after the close only).
+        t, sent = self.aligned([1000, 1000, 600, 600, 600, 600], sent_t=18.0)
+        row = ssm.transition(self.strip(sent, [frame(5, ob=0.2, cb=0.3)] + [frame(10 + i * 8) for i in range(8)]), t,
+                             static=False)
+        self.assertNotIn("error", row)
+        self.assertEqual(row["first_frame_ms"], 0)
+        self.assertEqual(row["pane_width_change"], -400.0)
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)
@@ -225,6 +253,22 @@ class SummaryTests(unittest.TestCase):
         self.assertFalse(ssm.verdict(s, 8.33)["pass"])
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
+
+    def test_an_unsettled_round_is_the_worst_at_least_the_strip(self):
+        # The 01fc64af3 nightly: s9-browser-w1 divider_drag was still painting when its 900 ms strip ended, and the
+        # headline published settled None, so the goal check had no score at all.
+        s = ssm.summarize([{"settled_ms": None}, {"settled_ms": 780}, {"settled_ms": 415}])
+        self.assertEqual(s["unsettled"], 1)
+        self.assertFalse(ssm.verdict(s, 8.33)["pass"])
+        cells = {"s9-browser-w1": {"divider_drag": s}, "s1-empty-w1": {"split_right": self.summary(1427)}}
+        head = ssm.headline(cells, {}, unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"], head["settled_at_least"]), ("s1-empty-w1", 1427, False))
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}}, {}, unsettled_ms=900)
+        self.assertEqual((head["settled_ms"], head["settled_at_least"]), (900, True))
+        failed = ssm.summarize([{"settled_ms": 50}, {"error": "nothing moved after the input"}])
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}, "s1-chat-w1": {"bottom_close": failed}}, {},
+                            unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"]), ("s1-chat-w1", None))
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])

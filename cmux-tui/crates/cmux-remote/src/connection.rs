@@ -634,9 +634,16 @@ impl ClientConnection {
                             actual,
                         });
                     }
-                    // Replayable traffic was retained and recovery sent it
-                    // with the original sequence on the new generation.
-                    return Ok(sequence);
+                    // Replayable traffic the old session took (its sequence was used) was
+                    // retained, and recovery sent it with the original sequence on the new
+                    // generation. A send that found the old session already closed took
+                    // nothing: send it now, or it is lost and the next frame takes its
+                    // sequence (a 16 MiB transfer lost a frame at each reconnect).
+                    let session = self.by_deadline(deadline, self.session.read()).await?.clone();
+                    if session.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
+                    continue;
                 }
                 Err(error) => {
                     session.rollback_unscheduled(lane, sequence);
@@ -1135,6 +1142,10 @@ impl ClientConnection {
             self.set_diagnostics_state(ConnectionState::Reconnecting);
             let attempt_timeout = remaining(policy.attempt_timeout);
             let attempt_started = tokio::time::Instant::now();
+            // The attempt's report, owed even when this recovery is dropped:
+            // a reader whose `select!` sees the published generation first
+            // cancels the receive that runs it, after the new carrier is up.
+            let mut report = AttemptReport::new(self, attempt_started);
             // This dial starts on the network as it is now; only a change
             // while it is in flight abandons it.
             network.borrow_and_update();
@@ -1169,9 +1180,7 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
-            if let Some(hooks) = self.resume_hooks() {
-                hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
-            }
+            report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
             match result {
@@ -1315,6 +1324,39 @@ impl ClientConnection {
         match result_rx.await {
             Ok(result) => result,
             Err(_) => wait_for_close(self.close_state.subscribe()).await,
+        }
+    }
+}
+
+/// One resume attempt's [`ResumeHooks::attempt_ended`] call, made once:
+/// with the attempt's result, or, when the attempt is dropped before it
+/// ends (its caller was cancelled), `Ok` if it had already published a new
+/// generation and nothing otherwise.
+struct AttemptReport<'a> {
+    connection: &'a ClientConnection,
+    started: tokio::time::Instant,
+    generation: u64,
+    done: bool,
+}
+
+impl<'a> AttemptReport<'a> {
+    fn new(connection: &'a ClientConnection, started: tokio::time::Instant) -> Self {
+        let generation = *connection.generation.borrow();
+        Self { connection, started, generation, done: false }
+    }
+
+    fn ended(&mut self, result: Result<(), &ConnectionError>) {
+        self.done = true;
+        if let Some(hooks) = self.connection.resume_hooks() {
+            hooks.attempt_ended(result, self.started.elapsed());
+        }
+    }
+}
+
+impl Drop for AttemptReport<'_> {
+    fn drop(&mut self) {
+        if !self.done && *self.connection.generation.borrow() != self.generation {
+            self.ended(Ok(()));
         }
     }
 }
@@ -1531,9 +1573,32 @@ async fn authenticate_one(
     context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical =
-        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    let secure = initiate_secure_link(
+    // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
+    // WebSocket's TCP, TLS and upgrade, a relay circuit), the Noise exchange, the daemon's welcome
+    // and its link-ready. The clock starts before the open, so a carrier that accepts and then
+    // never finishes opening fails this attempt (and the first connect, which has no outer
+    // deadline of its own) instead of hanging it. A link that stalls after the Noise exchange
+    // fails the attempt too (so it is retried), and cannot hand back a session the daemon dropped
+    // meanwhile as an incomplete link group. An invitation is the exception: its welcome waits on
+    // a person's approval, so only its open and its link-ready, once the welcome is in, have the
+    // deadline.
+    let timeout = config.reconnect.attempt_timeout;
+    let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
+    let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
+    let started = tokio::time::Instant::now();
+    let physical = tokio::time::timeout_at(
+        started + timeout,
+        group.open(LinkRequest { lane: primary, generation: context.generation }),
+    )
+    .await
+    .map_err(|_| {
+        ConnectionError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "opening lane {primary} on {} did not finish within {}",
+            group.description(),
+            crate::provider::DisplaySeconds(timeout)
+        ))))
+    })??;
+    let setup = initiate_secure_link(
         physical,
         ClientHandshake {
             identity: config.identity.clone(),
@@ -1548,9 +1613,19 @@ async fn authenticate_one(
             resume,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
-    )
-    .await?;
-    let ready = match receive_control::<LinkHandshakeResponse>(&secure).await? {
+    );
+    let (secure, deadline) = if invitation {
+        let secure = setup.await?;
+        (secure, tokio::time::Instant::now() + timeout)
+    } else {
+        let deadline = started + timeout;
+        (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
+    };
+    let answer =
+        tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
+            .await
+            .map_err(|_| timed_out())?;
+    let ready = match answer? {
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
@@ -1657,15 +1732,31 @@ impl ConnectionError {
     pub fn is_retryable_carrier_failure(&self) -> bool {
         match self {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
-            Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
+            Self::Crypto(CryptoError::LinkError(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Crypto(CryptoError::UnexpectedEof)
             | Self::Crypto(CryptoError::HandshakeTimeout { .. })
-            | Self::Link(LinkError::Closed | LinkError::Transport(_))
-            | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+            | Self::Session(SessionError::Link(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
             | Self::ReconnectAttemptTimedOut { .. } => true,
             _ => false,
+        }
+    }
+
+    /// The far side's refusal, when a dial ended on one no redial cures
+    /// ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Provider(error) => error.refusal(),
+            Self::Link(error)
+            | Self::Crypto(CryptoError::LinkError(error))
+            | Self::Session(SessionError::Link(error)) => error.refusal(),
+            _ => None,
         }
     }
 }

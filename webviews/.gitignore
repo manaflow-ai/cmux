@@ -1,3 +1,5 @@
 # preview:build output; Tailwind scans webviews/ and would pick up its classes.
 dist/
+# dom-teardown-settles.test.ts writes its fixture files here while it runs.
+test/.dom-teardown-*/
 latency-results.json

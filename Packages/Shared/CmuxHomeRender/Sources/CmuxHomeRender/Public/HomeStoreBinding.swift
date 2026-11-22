@@ -105,6 +105,37 @@ public final class HomeStoreBinding {
         await opening?.value
     }
 
+    /// Returns once there is something to draw: the first page is in (`opened()`), or the owner
+    /// named the conversation with no messages yet (`lastSeq` 0, a Chief conversation it just
+    /// made), whichever comes first. An empty conversation's front page draws from its summary
+    /// alone: the read has no history to bring, and a fresh launch's Home waited one snapshot
+    /// round trip (about 490 ms on a bench Mac) after it had everything it shows. A summary from
+    /// the launch cache alone never counts (the owner may hold messages since): only one the
+    /// owner named this session (`HomeStore.confirmed`). The read still runs and fills in.
+    public func firstDrawable() async {
+        guard let opening else { return }
+        let once = HomeFirstDrawable()
+        Task { await opening.value; once.finish() }
+        watchNamedEmpty(once)
+        await once.wait()
+    }
+
+    /// Finishes `once` when the owner names this conversation empty; re-registers on each change
+    /// of the rows or the confirmed set until `once` is finished.
+    private func watchNamedEmpty(_ once: HomeFirstDrawable) {
+        guard !once.finished else { return }
+        let store = store, id = conversation
+        if store.confirmed.contains(id), store.summary(id)?.lastSeq == 0 { return once.finish() }
+        withObservationTracking {
+            _ = store.rows
+            _ = store.confirmed
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                if let self { self.watchNamedEmpty(once) } else { once.finish() }
+            }
+        }
+    }
+
     /// Cancels my pending send `key` (an upload, a queued send or a failed
     /// one; `HomeController.cancellableSend` says when it can). The row leaves
     /// the transcript. Returns false when the store could not cancel it.
@@ -234,5 +265,24 @@ struct HomeFetchLoader: HomeAttachmentLoader {
 
     func original(for ref: AttachmentRef) async throws -> URL {
         try await fetch(ref, .original)
+    }
+}
+
+/// The one end of `HomeStoreBinding.firstDrawable()`: the first of its two ends to finish wins.
+@MainActor
+private final class HomeFirstDrawable {
+    private(set) var finished = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        guard !finished else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func finish() {
+        guard !finished else { return }
+        finished = true
+        waiter?.resume()
+        waiter = nil
     }
 }

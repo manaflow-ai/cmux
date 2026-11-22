@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ArtifactLiveSource, mergeArtifactVersions } from "../src/agent-session/acpmux/conversation/artifactLive";
-import { artifactVersions } from "../src/agent-session/acpmux/conversation/artifactVersions";
+import { artifactVersions, replyDocuments } from "../src/agent-session/acpmux/conversation/artifactVersions";
 
 const put = (rows: OrderedRows, next: AcpmuxRow, seq: number) => {
   rows.current = seq;
@@ -68,7 +68,7 @@ test("an open live source still gains a version a later reply finishes after ope
   const sorted = rows.sorted();
   const live = source.read(sorted);
   const scanned = artifactVersions(
-    sorted.flatMap((row) => (row.kind === "assistant" && row.text ? [row.text] : [])),
+    sorted.flatMap((row) => (row.kind === "assistant" && row.text ? replyDocuments(row) : [])),
     live.artifact,
   );
   expect(mergeArtifactVersions(live.versions, scanned).map((version) => version.code)).toEqual([

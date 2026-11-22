@@ -12,6 +12,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts/ci/owned_catch_up.sh"
@@ -48,9 +55,9 @@ class OwnedCatchUpTest(unittest.TestCase):
             stub = Path(tools) / "defaults"
             stub.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
             stub.chmod(0o755)
-            result = run("99", state, env={"CMUX_CI_XCODE_APP": "/nonexistent/Xcode.app",
+            result = run("99", state, env=git_fixture_env.fixture_env({"CMUX_CI_XCODE_APP": "/nonexistent/Xcode.app",
                                            "CMUX_CATCH_UP_LOG": os.path.join(state, "log"),
-                                           "PATH": f"{tools}:{os.environ['PATH']}"})
+                                           "PATH": f"{tools}:{os.environ['PATH']}"}))
             self.assertEqual(result.returncode, 1)
             # An override a killed run left behind is cleared before anything else.
             self.assertIn("delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges", calls.read_text())
@@ -59,6 +66,28 @@ class OwnedCatchUpTest(unittest.TestCase):
                              ("false", 99, "setup", "select-ci-xcode"))
             self.assertRegex(line["head"], r"^[0-9a-f]{40}$")
             self.assertEqual(os.listdir(state), ["log"])  # no store was written
+
+    def test_makes_the_web_bundles_current_before_the_tree_is_copied_and_built(self) -> None:
+        # The app's Verify web bundles phase fails a build without the web bundles and the App
+        # Store packages (build output since #45083): two catch-ups of the NEXT tip on
+        # 2026-11-22 failed `compile exit 65` there. canonical-resolve copies this checkout
+        # into the root's src, so the bundles must be current before it, and a failed step
+        # must be named in the result line.
+        text = SCRIPT.read_text()
+        step = text.index("bash scripts/ci/ensure-web-bundles.sh")
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-resolve"))
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-build"))
+        self.assertIn('ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"', text)
+
+    def test_fetches_this_trees_cmux_tui_before_the_tree_is_copied_and_built(self) -> None:
+        # The Bundle cmux-tui phase never downloads: the 2026-11-22 rerun past Verify web bundles
+        # failed `compile exit 65` on "the same-tree cmux-tui ... is not downloaded". It must not
+        # hold an idle Mac waiting for an unpublished tree.
+        text = SCRIPT.read_text()
+        step = text.index("bash scripts/cmux-next/pin-cmux-tui.sh fetch")
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-resolve"))
+        self.assertIn('CMUX_TUI_TREE_WAIT_SECONDS=0 bash scripts/cmux-next/pin-cmux-tui.sh fetch >>"$log" 2>&1 '
+                      '|| fail "cmux-tui"', text)
 
 
 if __name__ == "__main__":

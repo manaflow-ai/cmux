@@ -1,3 +1,4 @@
+import { envForObject } from "../build-space.ts"
 import * as slack from "./brain-slack.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
@@ -5,7 +6,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai"
 import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
@@ -40,7 +41,7 @@ import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus,
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
-import { authorizeDefaultMachine } from "../chief-default-hand.ts"
+import { authorizeDefaultMachineFollowing } from "../chief-default-hand.ts"
 import { machineHarness, machineLogin, readMachineRoute, type MachineRoute } from "./brain-machine.ts"
 
 /**
@@ -223,7 +224,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.harness)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
@@ -371,8 +373,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
       if (record.cloud_machine) {
         const harness = machineHarness(record.harness)
         if (!harness) return { ok: false, code: "chief.machine.unsupported_harness", message: "the default machine uses Claude or Codex" }
-        await authorizeDefaultMachine(this.env, { ...record.cloud_machine, owner, chief: agent }, { running: false })
-        writeConfig(this.sql, { machine_route: JSON.stringify({ binding: record.cloud_machine, harness }) })
+        const binding = await authorizeDefaultMachineFollowing(this.env, owner, agent, record.cloud_machine, { running: false })
+        writeConfig(this.sql, { machine_route: JSON.stringify({ binding, harness }) })
       }
       // A channel Chief's scope (channel-scope.ts) comes from the owner's record, never from the patch.
       if (record.channel) writeConfig(this.sql, { channel: record.channel })
@@ -449,8 +451,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (record.cloud_machine) {
       const harness = machineHarness(record.harness)
       if (!harness) return { ok: false, reason: "chief.machine.unsupported_harness" }
-      await authorizeDefaultMachine(this.env, { ...record.cloud_machine, owner, chief: agent }, { running: false })
-      machine = { binding: record.cloud_machine, harness }
+      // A shrink or rewind moved the logical machine to a new VM: follow it rather than refuse every turn.
+      machine = { binding: await authorizeDefaultMachineFollowing(this.env, owner, agent, record.cloud_machine, { running: false }), harness }
       writeConfig(this.sql, { machine_route: JSON.stringify(machine) })
     } else if (this.machineRoute()) return { ok: false, reason: "chief.machine.binding_changed" }
     if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
@@ -482,9 +484,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
     }
     const harness = machineHarness(record.harness)
     if (!harness) return { ok: false, reason: "chief.machine.unsupported_harness" }
-    await authorizeDefaultMachine(this.env, { ...record.cloud_machine, owner, chief: agent }, { running: false })
+    const binding = await authorizeDefaultMachineFollowing(this.env, owner, agent, record.cloud_machine, { running: false })
     const configured = this.sql.exec(`SELECT 1 FROM cb_config WHERE name = 'enabled'`).toArray().length > 0
-    const machine = { binding: record.cloud_machine, harness }
+    const machine = { binding, harness }
     writeConfig(this.sql, { agent, owner, display_name: record.display_name, machine_route: JSON.stringify(machine), ...(!configured ? { enabled: "1" } : {}) })
     this.sql.exec(`DELETE FROM cb_config WHERE name = 'default_machine_pending'`)
     await this.lifecycle.start()

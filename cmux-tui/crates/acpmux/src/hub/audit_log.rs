@@ -250,9 +250,22 @@ impl AuditLog {
         match exited.recv_timeout(deadline) {
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 tracing::warn!("audit: the writer did not finish within {deadline:?} at shutdown");
+                // Kept for `wait_closed`: the writer still writes.
+                *self.exited.lock().unwrap_or_else(|e| e.into_inner()) = Some(exited);
                 false
             }
             _ => true,
+        }
+    }
+
+    /// Ends the channel and waits for the writer to exit, however long that takes: what holds
+    /// the daemon's home lock until then (`Hub::persist_for_handoff`).
+    pub(crate) fn wait_closed(&self) {
+        drop(self.tx.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let exited = self.exited.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(exited) = exited {
+            // Disconnected once the writer thread ends (its sender drops).
+            let _ = exited.recv();
         }
     }
 
@@ -677,7 +690,7 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     private_dir_of(path)?;
     let tmp = path.with_extension("jsonl.tmp");
     // A leftover (or planted) tmp goes first: removing a link never touches what it names.
-    match std::fs::remove_file(&tmp) {
+    match crate::home_fs::remove_file(&tmp) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
         _ => {}
     }
@@ -687,7 +700,7 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
         file.write_all(b"\n")?;
     }
     file.sync_all()?;
-    std::fs::rename(&tmp, path)?;
+    crate::home_fs::rename(&tmp, path)?;
     if let Some(dir) = path.parent()
         && let Ok(d) = std::fs::File::open(dir)
     {

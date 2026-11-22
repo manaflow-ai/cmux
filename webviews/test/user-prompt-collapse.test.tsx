@@ -11,6 +11,7 @@
 // structure, the toggle, Copy and the paste ranges.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -32,8 +33,13 @@ const replacements: Record<string, unknown> = {
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
   NodeFilter: dom.window.NodeFilter,
+  // A browser delivers each new observation once before the frame paints; the prompt measures there
+  // (PromptText.tsx). Delivered at once here, inside the same act.
   ResizeObserver: class {
-    observe() {}
+    constructor(private changed: (entries: unknown[]) => void) {}
+    observe() {
+      this.changed([]);
+    }
     unobserve() {}
     disconnect() {}
   },
@@ -62,7 +68,7 @@ const { resetTranscriptDisclosure } =
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-// Strings by key (REVIEW.md: tests never pin English copy).
+// Strings by key: tests never pin English copy.
 const MORE = translate("message.more");
 const LESS = translate("message.less");
 const COPY = `.cv-user__actions button[aria-label="${translate("turn.copy")}"]`;
@@ -103,6 +109,24 @@ const click = (element: Element) =>
 const body = () => host.querySelector(".cv-user__text")!;
 const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more");
 
+/// Lays out every box and line of the prompt's text as one `height()` tall (PromptText.tsx
+/// laidOutHeight reads them, open or clamped); returns the undo.
+function laidOut(height: () => number): () => void {
+  const element = Object.getOwnPropertyDescriptor(dom.window.Element.prototype, "getBoundingClientRect");
+  const line = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+  const box = () => {
+    const tall = height();
+    return { top: 0, bottom: tall, height: tall, left: 0, right: 100, width: 100 };
+  };
+  Object.defineProperty(dom.window.Element.prototype, "getBoundingClientRect", { configurable: true, value: box });
+  Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", { configurable: true, value: box });
+  return () => {
+    if (element) Object.defineProperty(dom.window.Element.prototype, "getBoundingClientRect", element);
+    if (line) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", line);
+    else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+  };
+}
+
 // Supply layout that JSDOM does not perform, while keeping the real component, effects and
 // observer lifecycle. The profiler counts commits, not timings on the test machine.
 function measuredPrompt(
@@ -119,9 +143,15 @@ function measuredPrompt(
   root = createRoot(host);
   const computed = dom.window.getComputedStyle;
   const observer = scope.ResizeObserver;
-  const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-  const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
   const observers = new Set<() => void>();
+  // A browser's observer delivers each new observation once, after the frame's layout and before
+  // its paint: the prompt measures there, not in its commit (PromptText.tsx).
+  const fresh = new Set<() => void>();
+  const deliver = () => {
+    const due = [...fresh];
+    fresh.clear();
+    for (const changed of due) changed();
+  };
   const commits: string[] = [];
   let height = initialHeight;
   let measurements = 0;
@@ -129,25 +159,23 @@ function measuredPrompt(
     measurements += 1;
     return height;
   };
-  Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: readHeight });
+  const undoLayout = laidOut(readHeight);
   Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-  Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-    configurable: true,
-    value: () => ({ height: readHeight() }),
-  });
   scope.ResizeObserver = class {
     constructor(private changed: () => void) {}
     observe() {
       observers.add(this.changed);
+      fresh.add(this.changed);
     }
     disconnect() {
       observers.delete(this.changed);
+      fresh.delete(this.changed);
     }
   };
   const show = (text: string) => text;
   try {
     run({
-      render: (text) =>
+      render: (text) => {
         act(() =>
           root.render(
             <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
@@ -156,7 +184,9 @@ function measuredPrompt(
               </div>
             </Profiler>,
           ),
-        ),
+        );
+        act(deliver);
+      },
       resize: (next) => {
         height = next;
         expect(observers.size).toBe(1);
@@ -172,10 +202,7 @@ function measuredPrompt(
     root = createRoot(host);
     scope.ResizeObserver = observer;
     Object.assign(dom.window, { getComputedStyle: computed });
-    if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-    else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-    if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-    else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    undoLayout();
   }
 }
 
@@ -387,15 +414,9 @@ try {
     const start = typed.length + 1;
     const row = prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] });
     const computed = dom.window.getComputedStyle;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 1000 });
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    // Drawn whole, the prompt is measured by its parts' lines (a paste card by its own box).
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ top: 0, bottom: 1000, height: 1000 }),
-    });
+    // Laid out, its parts are 1000px tall.
+    const undoLayout = laidOut(() => 1000);
     try {
       act(() => root.unmount());
       root = createRoot(host);
@@ -404,10 +425,7 @@ try {
       expect(body().classList.contains("is-clamped")).toBe(false);
     } finally {
       Object.assign(dom.window, { getComputedStyle: computed });
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+      undoLayout();
     }
   });
 
@@ -446,23 +464,15 @@ try {
     resetTranscriptDisclosure();
     const computed = dom.window.getComputedStyle;
     const observer = scope.ResizeObserver;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
     const observers = new Set<() => void>();
     let drawnHeight = 20;
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get: () => drawnHeight,
-    });
+    const undoLayout = laidOut(() => drawnHeight);
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ height: drawnHeight }),
-    });
     scope.ResizeObserver = class {
       constructor(private changed: () => void) {}
       observe() {
         observers.add(this.changed);
+        this.changed();
       }
       disconnect() {
         observers.delete(this.changed);
@@ -482,10 +492,7 @@ try {
     } finally {
       scope.ResizeObserver = observer;
       Object.assign(dom.window, { getComputedStyle: computed });
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+      undoLayout();
     }
   });
 
@@ -511,12 +518,8 @@ try {
     ]);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

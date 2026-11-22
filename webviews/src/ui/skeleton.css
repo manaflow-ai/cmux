@@ -1,0 +1,24 @@
+/* SKELETON (ui/Skeleton.tsx). The fill is the hover wash (`--ui-skeleton-fill` overrides it), so it reads
+   on any surface, glass included. It breathes on the shared clock (desktop.css `cmux-breathe`, phase
+   from ui/spinnerClock.ts) and holds still under Reduce Motion, the app's motion setting and Settings >
+   Static status indicators. Moved here from the Apps page's own skeleton (pages/apps/styles.css).
+   The look rules weigh nothing (`:where`), so a caller's own size and radius always win, whichever
+   sheet loads first. */
+:where(.ui-skeleton) {
+  display: block;
+  border-radius: var(--ds-radius-sm, 4px);
+  background: var(--ui-skeleton-fill, var(--ds-color-hover, var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent))));
+}
+/* line: one line of text, its height a little under the text's so lines stay apart. */
+:where(.ui-skeleton[data-shape="line"]) {
+  height: 0.75em;
+}
+/* circle: an avatar or a status mark. */
+:where(.ui-skeleton[data-shape="circle"]) {
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .ui-skeleton {
+    animation: cmux-breathe var(--cmux-breath-period, 2.4s) var(--cmux-breath-ease, ease-in-out) infinite;
+  }
+}

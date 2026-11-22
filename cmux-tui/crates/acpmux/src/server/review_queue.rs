@@ -225,6 +225,7 @@ async fn verdict(
 
 /// How long a verdict's reply waits for its comment's prompt to be accepted; past it the reply
 /// says not delivered, and the page opens the chat.
+// timeout: the verdict is recorded either way; past it the reply says the comment was not delivered.
 const ACCEPT_WAIT: Duration = Duration::from_secs(10);
 
 /// The most bytes a Request changes comment may have.

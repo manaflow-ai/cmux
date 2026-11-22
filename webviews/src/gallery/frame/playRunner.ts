@@ -4,9 +4,13 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  frameIsOfStep,
+  LONG_FRAME_PARTS,
+  longFramePart,
   overall,
   rectDelta,
   resolveTarget,
+  type LongFrameEntry,
   type Play,
   type PlayAction,
   type PlayChecks,
@@ -20,6 +24,7 @@ import {
 } from "../play";
 import { createMotionController } from "../motionEvidence";
 import { isExpansionShift, startBoxTracker } from "../shift";
+import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -327,7 +332,12 @@ function measurePopups(): PopupMeasure[] {
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
   const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
-  return outermost.map((popup) => {
+  // A tooltip draws no hit target (pointer-events: none), so elementFromPoint sees what is under it;
+  // each takes hits for the sampling only, to tell a covered tooltip from one on top. Every popup is
+  // switched before any is read and restored after, so the sampling forces one layout, not one each.
+  const hitTestable = outermost.map((popup) => (popup as HTMLElement).style.pointerEvents);
+  for (const popup of outermost) (popup as HTMLElement).style.pointerEvents = "auto";
+  const measures = outermost.map((popup) => {
     const rect = popup.getBoundingClientRect();
     const inset = 3;
     const points: [string, number, number][] = [
@@ -371,6 +381,8 @@ function measurePopups(): PopupMeasure[] {
       clippedBy,
     };
   });
+  outermost.forEach((popup, index) => ((popup as HTMLElement).style.pointerEvents = hitTestable[index]!));
+  return measures;
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
@@ -399,11 +411,20 @@ async function measured(
         });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
+  const longFrameParts: string[] = [];
+  const stepStart = performance.now();
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
-  const observers: PerformanceObserver[] = [];
+  // Each observer of the step, with how it reads a list of reports: the step's end reads the reports
+  // the engine has queued and not delivered yet (`takeRecords()`) by the same rule as the delivered ones.
+  const hearing: { observer: PerformanceObserver; read: (entries: PerformanceEntryList) => void }[] = [];
+  const hear = (type: string, read: (entries: PerformanceEntryList) => void) => {
+    const observer = new PerformanceObserver((list) => read(list.getEntries()));
+    observer.observe({ type, buffered: false });
+    hearing.push({ observer, read });
+  };
   if (PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as (PerformanceEntry & {
+    hear("layout-shift", (entries) => {
+      for (const entry of entries as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
         sources?: {
@@ -437,16 +458,17 @@ async function measured(
         });
       }
     });
-    observer.observe({ type: "layout-shift", buffered: false });
-    observers.push(observer);
   }
   let rafRunning = !loafSupported;
   if (loafSupported) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) if (entry.duration > 16.7) longFrames.push(entry.duration);
+    hear("long-animation-frame", (entries) => {
+      for (const entry of entries) {
+        if (entry.duration <= 16.7 || !frameIsOfStep(entry, stepStart)) continue;
+        longFrames.push(entry.duration);
+        if (longFrameParts.length < LONG_FRAME_PARTS)
+          longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
+      }
     });
-    observer.observe({ type: "long-animation-frame", buffered: false });
-    observers.push(observer);
   } else {
     void (async () => {
       let last = await nextFrame();
@@ -472,8 +494,8 @@ async function measured(
   performance.clearMeasures(mark);
   rafRunning = false;
   const boxShift = boxes?.stop();
-  for (const observer of observers) {
-    observer.takeRecords();
+  for (const { observer, read } of hearing) {
+    read(observer.takeRecords());
     observer.disconnect();
   }
   const anchorMoves = before
@@ -498,8 +520,9 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
-    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
+    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves, boxFollow: boxShift.follow } : {}),
     longFrames,
+    ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
     popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
@@ -562,9 +585,12 @@ export async function runPlay(
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       await record(
-        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
-          element.focus(),
-        ),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () => {
+          element.focus();
+          // FOCUS-RING: a staged focus stands in for the person's key, so its ring may show (a
+          // code focus alone earns none, and every "focused" stage would match its rest stage).
+          earnFocusRing(element.ownerDocument);
+        }),
       );
     },
     scroll: async (target, position) => {

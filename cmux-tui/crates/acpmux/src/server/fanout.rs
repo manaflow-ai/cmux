@@ -6,18 +6,97 @@ use super::{
     json,
 };
 use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot};
 
-pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<()> {
-    let mut rx = hub.subscribe();
+/// How long a turn's answer waits for its connection's fan-out to send the updates broadcast
+/// before it ([`Flush::sent`]). The fan-out only sends queued lines (it never waits on a client),
+/// so this bounds a stalled task, never a slow reader.
+const FLUSH_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Asks the connection's fan-out to send every hub event already broadcast. A turn's answer goes
+/// on the request's own task, its updates through the fan-out, so under load the answer could
+/// overtake the turn's last text: the pane drew the turn ended, then its words, a layout shift
+/// (tests/permission_matrix.rs, 2 runs in 50 on a loaded Linux box). Its events are broadcast
+/// before the turn's answer resolves, so once the fan-out has drained its queue they are sent.
+pub(super) struct Flush(mpsc::UnboundedSender<oneshot::Sender<()>>);
+
+impl Flush {
+    pub(super) fn channel() -> (Self, mpsc::UnboundedReceiver<oneshot::Sender<()>>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Self(tx), rx)
+    }
+
+    /// Returns once the fan-out sent what was broadcast before this call, its task ended, or
+    /// [`FLUSH_BOUND`] passed.
+    pub(super) async fn sent(&self) {
+        let (done, sent) = oneshot::channel();
+        if self.0.send(done).is_ok() {
+            let _ = tokio::time::timeout(FLUSH_BOUND, sent).await;
+        }
+    }
+}
+
+fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+    // A record a catch-up after a lap already sent goes no second time (`stream_cursor.rs`).
+    if ev.remote.is_none() && !conn.stream_cursors.advance(&ev.session_id, ev.record.seq) {
+        return;
+    }
+    deliver_once(hub, conn, ev);
+}
+
+/// The ring dropped events for `conn`: it is told (`_acpmux/lagged`), and each chat it attached
+/// is read from its cursor in the store before the next live event (`stream_cursor.rs`).
+async fn lapped(hub: &Arc<Hub>, conn: &Arc<Conn>, dropped: u64) {
+    // Events this connection never queued: no latency sample, a drop.
+    crate::gauges::fanout_lagged(dropped);
+    conn.controls.resync(conn, "lagged");
+    conn.send(&Message::notification("_acpmux/lagged", lagged(conn, dropped)));
+    super::stream_cursor::catch_up(hub, conn, deliver_once).await;
+}
+
+fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+    // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
+    let _stream = durable_gate::stream_scope(&ev.record);
+    #[cfg(test)]
+    tests::panic_if_marked(&ev.session_id);
+    let row = ev.row.clone();
+    deliver(hub, conn, ev);
+    // Queued what this connection owes for it: the last connection to get here times the
+    // event's fan-out (`gauges.fanout`).
+    row.fanout.taken();
+}
+
+pub(super) fn start(
+    hub: Arc<Hub>,
+    conn: Arc<Conn>,
+    mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+) -> tokio::task::JoinHandle<()> {
+    let (mut rx, seat) = hub.subscribe_fanout();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
+        // Counted in each event's fan-out until this task ends.
+        let _seat = seat;
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                // A turn's answer waits for the events queued before it (`Flush`).
+                Some(done) = flushes.recv() => {
+                    loop {
+                        match rx.try_recv() {
+                            Ok(ev) => send_event(&hub, &conn, ev),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                lapped(&hub, &conn, n).await
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    let _ = done.send(());
+                    continue;
+                }
                 note = harnesses.recv() => {
                     match note {
                         Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
@@ -80,14 +159,8 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 }
             };
             match ev {
-                Ok(ev) => {
-                    // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
-                    let _stream = durable_gate::stream_scope(&ev.record);
-                    deliver(&hub, &conn, ev);
-                }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
-                }
+                Ok(ev) => send_event(&hub, &conn, ev),
+                Err(broadcast::error::RecvError::Lagged(n)) => lapped(&hub, &conn, n).await,
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -107,5 +180,42 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
     if attached {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+    }
+}
+
+/// The fan-out task of `conn` ended while its connection was still open: a panic in a delivery,
+/// or the hub's feed closed. The connection ends with it (`serve_connection_from`), never lives on answering
+/// requests with no pushes, which left an attached chat standing still with no close.
+pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
+    match ended {
+        Err(error) if error.is_panic() => {
+            tracing::error!(conn = %conn.id, "the connection's fan-out task panicked: it is disconnected");
+        }
+        _ => {
+            tracing::warn!(conn = %conn.id, "the connection's fan-out task ended: it is disconnected")
+        }
+    }
+}
+
+/// `_acpmux/lagged` for `dropped` hub events this connection's fan-out fell behind on. A watcher
+/// that asked for peer row batches is told its watch lost notices too (`watch: true`): it follows
+/// the list from its cursor for them, a batch's close among them (`peer_rows_changed`). Every
+/// other connection gets the note as before.
+fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
+    let watch =
+        conn.peer_row_batches.load(Ordering::SeqCst) && conn.watch_all.load(Ordering::SeqCst);
+    if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
+    /// so parallel tests never trip each other (the test-hooks check, cmux#41350).
+    pub(in crate::server) const PANIC_PREFIX: &str = "fanout-test-panic-";
+
+    pub(super) fn panic_if_marked(session: &str) {
+        if session.starts_with(PANIC_PREFIX) {
+            panic!("fan-out test panic for {session}");
+        }
     }
 }

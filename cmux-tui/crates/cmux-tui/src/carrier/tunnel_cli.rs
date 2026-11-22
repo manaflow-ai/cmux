@@ -66,7 +66,7 @@ fn valid_machine_id(id: &str) -> bool {
 }
 
 /// The device name the VM API accepts (`MeshDeviceEnrollment.name`).
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= 63
@@ -134,7 +134,7 @@ pub(crate) fn parse_keys(line: &[u8]) -> Result<(Zeroizing<[u8; 32]>, InstallKey
 }
 
 /// The VM API of the deployment whose platform origin is `platform`.
-fn vm_api_of(platform: &str) -> Option<&'static str> {
+pub(crate) fn vm_api_of(platform: &str) -> Option<&'static str> {
     use cmux_cloud_environment as env;
     let platform = platform.trim_end_matches('/');
     [env::PRODUCTION_DEPLOYMENT, env::STAGING_DEPLOYMENT, env::DEVELOPMENT_DEPLOYMENT]
@@ -198,6 +198,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return 0;
     }
     let Some(args) = parse(args) else { return usage(USAGE) };
+    // Before any hub exists: a SIGCHLD ignored by whoever started us would
+    // let the kernel reap the hub and free its pid while we still signal it.
+    if !tunnel::reap_own_children() {
+        emit(&json!({"event": "tunnel-failed", "detail": "cannot reset SIGCHLD"}));
+        return 1;
+    }
     let team = match super::with_team_env_value(args.team.clone()) {
         Some(team) => team,
         None => return usage("CMUX_CLOUD_TEAM is not team_ and 20 lowercase hex digits"),

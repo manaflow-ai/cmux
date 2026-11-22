@@ -20,13 +20,19 @@ export const HEADER_INNER_CONTROL =
 /// The header's attribute: foldAnchor.ts holds a click anywhere on it.
 export const HEADER_TOGGLE_ATTRIBUTE = "data-header-toggle";
 
+/// A button inside the header that opens and closes it, as the header's own click does (an inbox
+/// thread's "+N more"): its click goes to the header's toggle, so the transcript holds the line in
+/// place as the body folds, the same as a click on the line.
+export const HEADER_TOGGLES_ATTRIBUTE = "data-toggles-header";
+
 /// Whether a click at `target` on `header` is the header's toggle: inside it (not a portal's content
 /// bubbling through React), not on a control of its own, and not the end of a selection drag.
 export function togglesHeader(header: Element, target: EventTarget | null): boolean {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
   if (!element || !header.contains(element)) return false;
   const control = element.closest(HEADER_INNER_CONTROL);
-  if (control && control !== header && header.contains(control)) return false;
+  if (control && control !== header && header.contains(control) && !control.hasAttribute(HEADER_TOGGLES_ATTRIBUTE))
+    return false;
   const selection = header.ownerDocument.defaultView?.getSelection();
   if (selection && !selection.isCollapsed && selection.anchorNode && header.contains(selection.anchorNode))
     return false;
@@ -34,9 +40,10 @@ export function togglesHeader(header: Element, target: EventTarget | null): bool
 }
 
 /// The header's click handler: `toggle` for a primary click anywhere on it but its own controls.
-export function headerToggleClick(toggle: () => void) {
+export function headerToggleClick(toggle: (event: MouseEvent<HTMLElement>) => unknown) {
   return (event: MouseEvent<HTMLElement>) => {
     if (event.defaultPrevented || event.button !== 0) return;
-    if (togglesHeader(event.currentTarget, event.target)) toggle();
+    // The click goes to the toggle, so a drag across the header opens nothing (`deliberateClick`).
+    if (togglesHeader(event.currentTarget, event.target)) toggle(event);
   };
 }

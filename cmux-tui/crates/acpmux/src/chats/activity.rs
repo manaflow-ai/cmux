@@ -120,12 +120,21 @@ type Newest = (u64, String, Value);
 /// The activity of every chat a session continues, by chat key: the closed sessions' part built
 /// once and shared until one of them changes (`ActivityCache`), the live sessions' part read now.
 /// Decorating stays one lookup per chat.
+#[derive(Default)]
 pub struct ChatActivity {
     closed: Arc<HashMap<String, Newest>>,
     live: HashMap<String, Newest>,
+    /// When the first session tag that had not expired when this was read expires: past it, a
+    /// `parent` or fold read from this may be out of date with no record saying so.
+    expires_at: Option<u64>,
 }
 
 impl ChatActivity {
+    /// When the first tag read for this activity expires (`expires_at`).
+    pub fn expires_at(&self) -> Option<u64> {
+        self.expires_at
+    }
+
     /// The fields of the newest session continuing `key`, closed or live.
     fn fields(&self, key: &str) -> Option<&Value> {
         match (self.closed.get(key), self.live.get(key)) {
@@ -185,8 +194,8 @@ type SharedBatch = (Arc<Vec<SeqChange>>, (u64, u64, usize), Option<u64>, Arc<Cha
 
 #[cfg(test)]
 struct BuildPause {
-    entered: Arc<std::sync::Barrier>,
-    release: Arc<std::sync::Barrier>,
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 
 struct Built {
@@ -218,8 +227,8 @@ impl ActivityCache {
     #[cfg(test)]
     pub(crate) fn test_pause_next_build(
         &self,
-        entered: Arc<std::sync::Barrier>,
-        release: Arc<std::sync::Barrier>,
+        entered: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
     ) {
         *lock(&self.build_pause) = Some(BuildPause { entered, release });
     }
@@ -271,7 +280,11 @@ impl Hub {
     fn chat_activity_with_expiry(&self) -> (Arc<ChatActivity>, Option<u64>) {
         let built = self.closed_chat_activity();
         (
-            Arc::new(ChatActivity { closed: built.closed.clone(), live: self.newest(&built.live) }),
+            Arc::new(ChatActivity {
+                closed: built.closed.clone(),
+                live: self.newest(&built.live),
+                expires_at: built.expires_at,
+            }),
             built.expires_at,
         )
     }
@@ -364,8 +377,9 @@ impl Hub {
         });
         #[cfg(test)]
         if let Some(pause) = lock(&cache.build_pause).take() {
-            pause.entered.wait();
-            pause.release.wait();
+            let _ = pause.entered.send(());
+            // The hold's own park: it ends when the test sends, or drops its sender on an unwind.
+            let _ = pause.release.recv();
         }
         // A closed-session activity record or a map change while the index was being built
         // invalidates this result. Return it to this reader, but do not publish it; the mutation's

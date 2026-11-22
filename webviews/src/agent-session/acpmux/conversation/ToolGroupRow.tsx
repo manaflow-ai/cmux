@@ -20,6 +20,8 @@ import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
+import { RunScroll } from "./RunScroll";
+import { ShimmerEnabledContext } from "./ShimmerText";
 import { useT } from "../i18n";
 import {
   callDisclosureKeys,
@@ -149,7 +151,10 @@ const Step = memo(
     stepProbe.render?.(probeKey);
     if (!item.tool && isQuietThought(item)) return null;
     return (
-      <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
+      <div
+        className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}
+        data-step-call={item.tool?.id}
+      >
         {item.tool ? (
           commands ? (
             <CommandRow item={item} />
@@ -366,6 +371,7 @@ export function ToolGroupRow({
   folded = false,
   findTitle,
   inherits,
+  closedBy,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -374,6 +380,8 @@ export function ToolGroupRow({
   folded?: boolean;
   /// The key of the run line this group's line takes the place of (TurnRows.tsx): opened, it opens this.
   inherits?: readonly string[];
+  /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
+  closedBy?: readonly string[];
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -390,14 +398,14 @@ export function ToolGroupRow({
   // A call in the group the reader opened, before or after it was grouped, keeps the group open when
   // its run finishes; a choice inside the group pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    (kind !== "edits" && !folded) || holdsThought,
-    true,
+  // Its thoughts' ids, as `entryNodes` numbers them: closing the group forgets their open choices.
+  const thoughts = items.filter((item) => !item.tool).map((_, n) => thoughtId(n));
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true, {
     inherits,
-    false,
     members,
-  );
+    closedBy,
+    thoughts,
+  });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
@@ -432,9 +440,10 @@ export function ToolGroupRow({
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
-        onClick={() => {
-          if (!open) setByClick(true);
-          fold.toggle();
+        onClick={(event) => {
+          // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
+          const opening = !open;
+          if (fold.toggle(event) && opening) setByClick(true);
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>
@@ -483,30 +492,34 @@ export function ToolGroupRow({
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <FoldPin.Provider value={pin}>
-          <div {...fold.bodyProps}>
-            {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
-            {kind === "edits" ? (
-              <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
-                {!files.length
-                  ? entryNodes(items, kind, thoughtId)
-                  : [
-                      ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                      // Edits that carried no diff (a delete, a move), as rows.
-                      ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
-                    ]}
-              </div>
-            ) : (
-              <StepList
-                id={detailsId}
-                disclosureKey={disclosureKey}
-                entries={entries}
-                items={items}
-                kind={kind}
-                thoughtId={thoughtId}
-                defer={byClick}
-              />
-            )}
-          </div>
+          <ShimmerEnabledContext value={false}>
+            <div {...fold.bodyProps}>
+              {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
+              {kind === "edits" ? (
+                <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
+                  {!files.length
+                    ? entryNodes(items, kind, thoughtId)
+                    : [
+                        ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                        // Edits that carried no diff (a delete, a move), as rows.
+                        ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
+                      ]}
+                </div>
+              ) : (
+                <RunScroll running={running}>
+                  <StepList
+                    id={detailsId}
+                    disclosureKey={disclosureKey}
+                    entries={entries}
+                    items={items}
+                    kind={kind}
+                    thoughtId={thoughtId}
+                    defer={byClick}
+                  />
+                </RunScroll>
+              )}
+            </div>
+          </ShimmerEnabledContext>
         </FoldPin.Provider>
       )}
     </>

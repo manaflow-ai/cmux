@@ -101,11 +101,21 @@ pub struct VisitStore {
 
 impl VisitStore {
     /// Opens (creating the file and its directory) the log at `path`.
+    ///
+    /// A file SQLite cannot read (not a database, or corrupt) is moved aside with its WAL and
+    /// shared-memory files, never deleted (`<name>.corrupt-<ms>`), and a new log opens in its
+    /// place: one bad file must not keep the profile's history off until someone deletes it.
     pub fn open(path: &Path) -> Result<Self, HistoryError> {
         if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)?;
         }
-        Self::prepare(Connection::open(path)?)
+        match Self::prepare(Connection::open(path)?) {
+            Err(HistoryError::Sqlite(error)) if is_unreadable_database(&error) => {
+                move_aside(path)?;
+                Self::prepare(Connection::open(path)?)
+            }
+            other => other,
+        }
     }
 
     /// A log that lives in memory only (tests, demos).
@@ -400,8 +410,23 @@ impl VisitStore {
     /// Removes visits at or after `since_ms` (`None`: every visit), into
     /// `backup`.
     pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
+        self.remove_between(since_ms, i64::MAX, backup)
+    }
+
+    /// Removes visits at or after `since_ms` (`None`: from the first) and at
+    /// or before `until_ms`, into `backup`.
+    pub fn remove_between(
+        &self,
+        since_ms: Option<i64>,
+        until_ms: i64,
+        backup: &str,
+    ) -> Result<usize, HistoryError> {
         let since = since_ms.unwrap_or(i64::MIN);
-        self.remove_where("visit_time_ms >= ?2", &[&since], backup)
+        self.remove_where(
+            "visit_time_ms >= ?2 AND visit_time_ms <= ?3",
+            &[&since, &until_ms],
+            backup,
+        )
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest
@@ -644,4 +669,46 @@ fn search_text(url: &str, title: Option<&str>) -> String {
 /// Escapes `LIKE` wildcards with backslash.
 fn escape_like(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// SQLite said the file is not a database, or is corrupt. Any other failure (busy, locked, out of
+/// space, permission) leaves the file where it is: it may be fine on the next open.
+fn is_unreadable_database(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
+    )
+}
+
+/// Renames `path` and its `-wal` and `-shm` files to `<name>.corrupt-<ms>[-<n>]` beside it, a
+/// name no earlier one has, so a second bad file never replaces the first kept. Nothing is
+/// deleted. The new names do not end in `.sqlite`, so they are never read as a profile's log.
+fn move_aside(path: &Path) -> Result<(), HistoryError> {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("visits.sqlite");
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let taken = |stem: &str| {
+        ["", "-wal", "-shm"]
+            .iter()
+            .any(|suffix| path.with_file_name(format!("{stem}{suffix}")).exists())
+    };
+    let mut stem = format!("{name}.corrupt-{millis}");
+    let mut n = 1;
+    while taken(&stem) {
+        stem = format!("{name}.corrupt-{millis}-{n}");
+        n += 1;
+    }
+    for suffix in ["", "-wal", "-shm"] {
+        let from = path.with_file_name(format!("{name}{suffix}"));
+        match std::fs::rename(&from, path.with_file_name(format!("{stem}{suffix}"))) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    // The renames last past a crash (docs/handbook rename-without-directory-sync); best effort:
+    // the kept file is there either way.
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(parent).and_then(|dir| dir.sync_all());
+    }
+    Ok(())
 }

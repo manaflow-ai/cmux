@@ -102,13 +102,13 @@ lists every device that can reach this one; `machine ls` is the machine catalog,
 whose ids `cmux chat --on` takes. `cmux device --help` has every device verb.
 
 With the cmux app running, `machine ls` also lists its Cloud machines
-(`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
+(`kind: cloud`, `target: vm:<id>`); without it a note says they are missing.
 ";
 
 /// Where a `machine` help sends a person for VMs: `vm` is the one noun that makes them (CMUX-43).
 pub(super) const VM_POINTER: &str = "\
 Cloud VMs (new, run, show, pause, resume, rm, exec, key, access) are `cmux vm`:
-`cmux vm --help`. `cmux machine new|pause|...` still work as old spellings.
+`cmux vm --help`.
 ";
 
 /// `cmux vm`'s VM API verbs (cli/vm.rs), in `cmux vm --help` and a `vm` usage error.
@@ -122,19 +122,21 @@ Cloud VMs through the cmux VM API (vm.cmux.dev):
   resume    Resume a paused VM
   start     Start a stopped VM
   stop      Stop a VM; its disk stays
-  rm        Delete a VM for good
+  rm        Delete a VM for good (--wait: until it is gone; --with-snapshots:
+            its snapshots too)
   exec      Run a command on a VM
   fork      Fork a VM
   snapshot  Snapshots (new, show, ls, rm)
+  snapshots The team's snapshots and whether their VM still exists (--orphaned)
   access    Short-lived access to one VM (new, ls, revoke, exec)
   key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+  pool      The CI runner pool on Freestyle and GCP: up N, pause, watch,
+            schedule (`cmux vm pool --help`; never deletes a machine)
+  runner    Your own Freestyle runner VM for one CI job: new, ls, park
+            (`cmux vm runner --help`; resumes a parked VM, never deletes)
 
-`cmux vm access new|exec --target machine:VM_ID` mints access through the
-cmux API instead, for the app's Cloud VMs. Use `cmux vm resize-machine`
-to resize one.
-
-Old spellings still work: `cmux machine VERB` for each of these verbs,
-`cmux cloud new-machine` for `vm new`, and create, get, delete, `token create`
-and `client-session create` for new, show, rm, `key new` and `access new`.
+`cmux vm access new|exec --target vm:VM_ID` mints access through the
+cmux API instead, for the app's Cloud VMs. Use `cmux vm resize` to
+resize one.
 ";

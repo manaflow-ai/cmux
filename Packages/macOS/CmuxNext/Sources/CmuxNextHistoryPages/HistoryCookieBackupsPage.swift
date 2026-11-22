@@ -66,8 +66,10 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             if op == "cmux.history.entries.list", let history {
                 let read = try await history.list(params)
                 shown = Dictionary(read.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                // The daemon's row shape (webviews/src/pages/history/types.ts).
-                return ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+                // The daemon's row shape (webviews/src/pages/history/types.ts), and its `pending_kinds` when the list is not complete.
+                var reply: [String: CmuxNextSettings.JSONValue] = ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+                if !read.pending.isEmpty { reply["pending_kinds"] = .array(read.pending.map(\.rawValue).sorted().map(CmuxNextSettings.JSONValue.string)) }
+                return .object(reply)
             }
             guard Self.gestureOperations.contains(op) else { return try await relay.call(op, params: params, context: context) }
             try spendGesture(context)
@@ -131,7 +133,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     static var question: CmuxDialogSpec {
-        CmuxDialogSpec(title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
+        CmuxDialogSpec(usesTransientMaterial: true, title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
                        buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: HistoryCookieBackupStrings.confirmDelete, role: .destructive)],
                        identifier: "cmux.history.cookieBackups.confirm")
     }
@@ -142,7 +144,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
 /// The delete question's strings (this target's Localizable.xcstrings); the panel's own are the page's.
 nonisolated enum HistoryCookieBackupStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var confirmTitle: String { t("cookieBackups.confirm.title", "Delete these cookie backups?") }
