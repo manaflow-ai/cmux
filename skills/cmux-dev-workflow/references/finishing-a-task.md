@@ -17,15 +17,17 @@ use it before the build is done. The agent itself runs it there only when asked;
 
   ```bash
   JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
-      --workspace <PR URL, else the branch name> --backend-mode local \
+      --workspace <PR URL, else the branch name> --production \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
   cmux-ci wait "$JOB_ID"
   cmux-ci publish-hq "$JOB_ID"
   ```
 
   `--workspace` is required (queued builds with the same workspace and tag supersede each other).
-  `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
-  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
+  `--production` because the build is for a person: it launches on the production Cloud, where their own
+  cmux.com account signs in (Leo: "why is the stuff so weird to log in to dev builds?"), and it needs no hq
+  checkout. An agent's own test build takes `--backend-mode local` instead (the default `auto` provisions
+  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout).
   When you run `cmux-next-ios/scripts/review.sh` below, skip this step: it builds and publishes the
   same-tag Mac app itself, and a second Mac build replaces the first.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it

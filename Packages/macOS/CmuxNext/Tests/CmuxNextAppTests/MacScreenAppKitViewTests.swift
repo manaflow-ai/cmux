@@ -62,7 +62,7 @@ struct MacScreenAppKitViewTests {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let home = pages.makeView(for: "home")
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let prompt = MacScreenApprovalPrompt()
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
@@ -237,7 +237,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         #expect(pane.model.card == .hubConnect)
         #expect(texts(under: pane.view.chrome.card).contains(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), "Studio")))
@@ -260,7 +260,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func toolbarShowsTheNameAndHidesStreamControlsBeforeASession() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
         #expect(texts(under: toolbar).contains("Studio"))

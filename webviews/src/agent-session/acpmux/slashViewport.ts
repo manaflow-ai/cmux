@@ -1,10 +1,11 @@
 /**
- * The composer slash list uses the shared 28px menu row (styles.css) in a menu capped at 296px.
+ * The composer slash list uses the shared 28px menu row (styles.css) in a menu that shows at most
+ * 8 rows (224px of rows inside its padding) before it scrolls.
  * Keep keyboard selection in the complete match list; mount only this window of rows.
  * The same logical indices can also feed a future native-popup consumer.
  */
 export const SLASH_ROW_PX = 28;
-export const SLASH_MAX_VIEWPORT_PX = 296;
+export const SLASH_MAX_VIEWPORT_PX = 8 * SLASH_ROW_PX;
 export const SLASH_OVERSCAN_ROWS = 6;
 
 export type SlashViewport = {

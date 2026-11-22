@@ -357,10 +357,13 @@ impl Hub {
         let agent_steer = !opts.send_now
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some();
-        // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
+        // A digest its drain asked to steer still goes into the person's own turn (`turns.rs`
+        // `persons_held`), but never ahead of the person's waiting prompt.
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
-        // A sub-session family message still goes into the person's own turn (`turns.rs`).
-        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // A sub-session family message, and a report of the chat's own lane, still go into the
+        // person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            || self.own_lane_report(session, opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
         // Another agent's message (an inbox notice too) never goes into a turn a Stop is ending:
@@ -380,7 +383,7 @@ impl Hub {
                 super::inbox::notice_held(session)
             } else if agent_steer && super::inbox::review_box(session) {
                 true
-            } else if agent_steer && !digest && super::inbox::persons_prompt_waits(session) {
+            } else if agent_steer && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
             } else if agent_steer && !digest && !family && super::inbox::persons_turn(session) {
@@ -502,10 +505,13 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended, a
-                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    // Logged above, it never went: the log says so (the turn cap's notice or an
+                    // inbox notice whose turn ended or that a waiting prompt held, a steer-only
+                    // one the person's prompt queued ahead of meanwhile). An inbox notice's
+                    // messages go in with the next notice (`inbox.rs` `notice_done`): unmarked,
+                    // the chat showed them twice, and the log said they went in twice.
                     let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
-                    if bound || waits {
+                    if bound || waits || inbox_notice {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
                     }

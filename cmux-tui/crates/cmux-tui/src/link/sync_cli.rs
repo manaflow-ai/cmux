@@ -15,7 +15,8 @@
 //! whose hash, permissions and revision still match is not written again,
 //! and a file the manifest lists but the folder no longer has is deleted
 //! while the machine still has it as this push left it. Files the machine
-//! made or changed itself are never deleted. This Mac keeps a copy of the
+//! made or changed itself are never deleted, and a file the machine changed
+//! since the last push is never written over (counted as `kept`). This Mac keeps a copy of the
 //! manifest ([`base`]); a pull trusts only that copy.
 //!
 //! A symlink whose target stays inside the folder is kept as a symlink both
@@ -36,7 +37,7 @@
 //! not written again.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"written":N,"unchanged":N,
-//! "deleted":N,"skipped":N,"bytes":N,"skipped_files":[{"path","kind","why"}],
+//! "deleted":N,"kept":N,"skipped":N,"bytes":N,"skipped_files":[{"path","kind","why"}],
 //! "skipped_counts":{KIND:N}}` (a pull adds `fast_forwarded` and `head`),
 //! exit 0; on failure `{"ok":false,"error":...,"error_code":...}` on stdout
 //! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`; a
@@ -59,6 +60,7 @@ pub(super) use summary::Summary;
 mod links;
 mod listed;
 mod local;
+pub(crate) mod memory;
 mod merge;
 mod names;
 mod packs;
@@ -80,6 +82,7 @@ pub(super) use seed_pull::{
 };
 pub(crate) mod estimate;
 pub(crate) mod project;
+pub(crate) mod project_back;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -114,6 +117,16 @@ struct Manifest {
     /// pushes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     links: BTreeMap<String, Linked>,
+    /// The base of a projected folder ([`project`]): this Mac made it when the folder was
+    /// projected, not a push, so the machine holds no record of it until the first Bring Back,
+    /// and a file not read back since is named by its stat then ([`project::stand_in`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    projected: bool,
+    /// The git state of each repository inside the folder (a folder of repositories, RFD 0007
+    /// hard case 12), by its folder: a pull brings each one back against its own
+    /// ([`pull`]). Empty from older pushes: a pull then compares with this Mac's.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    repos: BTreeMap<String, git_back::GitBase>,
 }
 
 /// A symlink the sync keeps: its text on the machine, relative and inside
@@ -219,6 +232,14 @@ impl Tally<'_> {
 
     fn unchanged(&mut self, relative: &str, pushed: &Pushed, bytes: u64) {
         self.summary.unchanged += 1;
+        self.next.files.insert(relative.to_string(), pushed.clone());
+        self.step(bytes);
+    }
+
+    /// A file the machine changed since the last push: left as the machine has it, and the
+    /// record keeps the last push, so a pull still sees both sides' changes against it.
+    fn kept(&mut self, relative: &str, pushed: &Pushed, bytes: u64) {
+        self.summary.kept = self.summary.kept.saturating_add(1);
         self.next.files.insert(relative.to_string(), pushed.clone());
         self.step(bytes);
     }
@@ -1148,6 +1169,8 @@ fn push_inner(
     }
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
+    // And each repository's inside it, which a pull brings back one by one.
+    let repos = git_back::nested_bases(&local, set.files.keys());
     let mut remote = Remote::connect_negotiated(socket)?;
     let mut fresh = fresh::Fresh::make_root(&mut remote, remote_root)?;
     // A store fetch of an earlier push may still be running there: it stops
@@ -1214,15 +1237,24 @@ fn push_inner(
 
     // Deletes first, so a file that became a folder (or the reverse) is out
     // of the way. Only a file still as this push left it goes; one the
-    // machine changed since stays.
+    // machine changed since stays, and keeps the last push's record so a
+    // pull names the delete here against the edit there.
+    let mut spared: Vec<(String, Pushed)> = Vec::new();
     for (relative, pushed) in &previous.files {
         if set.files.contains_key(relative) {
             continue;
         }
         let target = format!("{remote_root}/{relative}");
-        if listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str()) {
-            remote.delete(std::slice::from_ref(&target))?;
-            summary.deleted += 1;
+        match listings.revision(&mut remote, &target)? {
+            Some(revision) if revision == pushed.revision => {
+                remote.delete(std::slice::from_ref(&target))?;
+                summary.deleted += 1;
+            }
+            Some(_) => {
+                summary.kept = summary.kept.saturating_add(1);
+                spared.push((relative.clone(), pushed.clone()));
+            }
+            None => {}
         }
         let (parent, name) = remote::split(&target)?;
         remote.delete(&[format!("{parent}/.{name}.cmux-sync-part")])?;
@@ -1251,7 +1283,14 @@ fn push_inner(
     let checking_total = set.files.len() as u64;
     let mut tally = Tally {
         summary,
-        next: Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() },
+        next: Manifest {
+            version: 1,
+            // A path this Mac made a link has the link's record, never a spared file's too.
+            files: spared.into_iter().filter(|(path, _)| !set.links.contains_key(path)).collect(),
+            git,
+            repos,
+            ..Manifest::default()
+        },
         save_every_files: SAVE_EVERY_FILES.max(done.files_total / 20),
         since_save: (0, 0),
         done,
@@ -1270,13 +1309,32 @@ fn push_inner(
         let (parent, _) = remote::split(&target)?;
         let sha256 = stages.hashing(|| hash(file))?;
         let bytes = size(file)?;
-        if let Some(pushed) = previous.files.get(relative)
-            && pushed.sha256 == sha256
-            && pushed.permissions == file.permissions
-            && listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str())
-        {
-            tally.unchanged(relative, pushed, bytes);
-            continue;
+        if let Some(pushed) = previous.files.get(relative) {
+            let there = listings.revision(&mut remote, &target)?;
+            let mut pushed = pushed.clone();
+            let mut as_pushed = there.as_deref() == Some(pushed.revision.as_str());
+            // A revision is size and mtime: one that moved with the bytes still as this push
+            // left them (a touch, a checkout, a formatter that changed nothing) is the last
+            // push under a new revision, and the record takes it, so this Mac's edits still go.
+            if !as_pushed
+                && let Some(revision) = there
+                && remote.sha256(&target)?.as_deref() == Some(pushed.sha256.as_str())
+            {
+                pushed.revision = revision;
+                as_pushed = true;
+            }
+            // The machine changed or removed it since the last push (an earlier chat there): it
+            // stays as the machine has it, and the record keeps the last push, so a pull still
+            // sees both sides' changes against it. A `cmux link access` share (`files_only`) is
+            // this Mac's folder as this Mac has it, so it is written again.
+            if !as_pushed && !files_only {
+                tally.kept(relative, &pushed, bytes);
+                continue;
+            }
+            if as_pushed && pushed.sha256 == sha256 && pushed.permissions == file.permissions {
+                tally.unchanged(relative, &pushed, bytes);
+                continue;
+            }
         }
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
@@ -1588,8 +1646,14 @@ fn save_partway(
         .map(|(relative, pushed)| (relative.clone(), pushed.clone()))
         .collect();
     files.extend(next.files.iter().map(|(relative, pushed)| (relative.clone(), pushed.clone())));
-    let partway =
-        Manifest { version: 1, files, git: previous.git.clone(), links: previous.links.clone() };
+    let partway = Manifest {
+        version: 1,
+        files,
+        git: previous.git.clone(),
+        links: previous.links.clone(),
+        projected: false,
+        repos: previous.repos.clone(),
+    };
     let bytes = serde_json::to_vec(&partway)?;
     remote
         .write(manifest_path, &mut bytes.as_slice(), 0o600)
