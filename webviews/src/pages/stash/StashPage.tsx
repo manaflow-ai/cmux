@@ -482,7 +482,7 @@ const StashRow = memo(function StashRow({
         type="button"
         className="stash-row-main"
         disabled={off}
-        title={workspace ? tabs.join("\n") : member.url}
+        aria-description={workspace ? tabs.join("\n") : member.url}
         onClick={() => onRestore(stash, member)}
       >
         <span className="stash-row-icon">
