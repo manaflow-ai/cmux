@@ -19,10 +19,13 @@
 //! has no `daemon_key` (a fresh create: the bind stores the key later), the
 //! attempt opens the relay link at once and asks the platform for the key
 //! while the relay holds the link for the machine's daemon. If that ask comes
-//! back before the bind and still has no key, it asks once more when the
-//! link is allocated: the daemon registers only after its bind, so the key
-//! is stored by then. The handshake always waits for the key: it never runs
-//! unpinned.
+//! back before the bind and still has no key, it asks again every
+//! [`PARKED_ASK_EVERY`] while parked, and once more when the link is
+//! allocated: the daemon registers only after its bind, so the key is stored
+//! by then. A machine the platform refuses for good on one of those asks (one
+//! bound by an image older than the carrier: `cloud.carrier.image_unsupported`)
+//! ends the dial with that reason at once, not at the deadline. The handshake
+//! always waits for the key: it never runs unpinned.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -82,6 +85,11 @@ pub(super) struct Dialed {
     pub vmk: Option<super::contract::Vmk>,
     /// The desktop datagram link's settings, when the platform turned it on.
     pub rd_link: Option<super::answer::RdLink>,
+    /// The session's routes, the very ones its reconnect resumes through:
+    /// the fault drill kills one of them here ([`CarrierRoutes::kill`]).
+    pub routes: Arc<CarrierRoutes>,
+    /// The carrier the session is on now.
+    pub current: Arc<CurrentRoute>,
 }
 
 /// What one dial needs.
@@ -107,6 +115,11 @@ pub(super) struct DialPlan {
     /// The platform's refusal of the ssh carrier for good, once one came:
     /// every later attempt of this dial leaves the route out.
     pub ssh_refusal: SshRefusal,
+    /// A probe's fault drill dial (only after its gate, `carrier::fault`):
+    /// its routes can be killed inside the session
+    /// ([`CarrierRoutes::kill`]). Every other dial is `false`, and its links
+    /// are the routes' own.
+    pub drill: bool,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -527,7 +540,7 @@ impl RouteAttempt<'_> {
         };
         // The connection and the routes hold the same cached group, so the
         // routes see it retired once the session moves off it.
-        let cached = CachedGroup::new(tracked);
+        let cached = CachedGroup::killable(tracked, plan.drill);
         let tracked: Arc<dyn LinkGroup> = cached.clone();
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let config = ClientConnectionConfig {
@@ -544,13 +557,14 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let routes: Arc<dyn ReconnectGroupSource> = Arc::new(CarrierRoutes::new(
+        let carrier_routes = Arc::new(CarrierRoutes::new(
             RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
             index,
             cached,
             self.session,
             self.current.clone(),
         ));
+        let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connection =
             match ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes))
                 .await
@@ -588,7 +602,8 @@ impl RouteAttempt<'_> {
             marks.mux_open = Some(Instant::now());
             marks.carrier = Some(dialer.name());
         });
-        self.current.set(dialer.name());
+        // Unless the session already moved off this route while the mux stream opened: a reconnect set its own.
+        carrier_routes.first_route(dialer.name());
         // On the relay with an ssh route behind it: authorize the carrier
         // key once now, so a failover inside its lifetime skips the ask.
         if !dialer.is_ssh()
@@ -603,34 +618,84 @@ impl RouteAttempt<'_> {
             mux,
             vmk: self.answer.vmk,
             rd_link: self.answer.rd_link.clone(),
+            routes: carrier_routes,
+            current: self.current.clone(),
         })
     }
 }
 
+/// How often a dial parked for a machine's key asks the platform again. A machine
+/// the platform knows can never connect (bound by an image older than the carrier,
+/// failed, deleted) is refused on the next ask, so the dial ends with that reason
+/// within this, not at its deadline.
+pub(super) const PARKED_ASK_EVERY: Duration = Duration::from_secs(3);
+
 /// The daemon key of an answer that came without one: asked of the platform
 /// (a ticket-only ask; a person's answer carries `daemon_key` whenever the
 /// bind stored it) while the first link opens, which the relay holds until
-/// the machine's daemon registers. An ask that came back without the key is
-/// made once more when the link is allocated. Answers the group to connect
-/// on, whose first open is that already allocated link, and the key to pin.
+/// the machine's daemon registers ([`park_for_key`]). Answers the group to
+/// connect on, whose first open is that already allocated link, and the key to pin.
 async fn pin_while_parked(
     plan: &DialPlan,
     tracked: Arc<dyn LinkGroup>,
     step: &Arc<Progress>,
 ) -> Result<(Arc<dyn LinkGroup>, [u8; 32]), Failure> {
     let first = first_request(tracked.as_ref());
-    let ask = || async { plan.source.fetch(&plan.machine, None).await.map_err(source_failure) };
-    let (opened, early) = tokio::join!(tracked.open(first), ask());
-    let link = opened.map_err(|e| classify(&ConnectionError::Provider(e), step.get()))?;
-    let daemon = match early.as_ref().map(|answer| answer.daemon_key) {
-        Ok(Some(daemon)) => daemon,
-        // Asked before the bind stored the key (or the ask failed): the
-        // daemon has registered now, so its key is stored.
-        Ok(None) | Err(_) => pinned_daemon(&ask().await?)?,
+    let open = async {
+        tracked.open(first).await.map_err(|e| classify(&ConnectionError::Provider(e), step.get()))
     };
+    let ask = || async { plan.source.fetch(&plan.machine, None).await.map_err(source_failure) };
+    let (link, daemon) = park_for_key(open, ask, PARKED_ASK_EVERY).await?;
     let group: Arc<dyn LinkGroup> =
         Arc::new(Opened { inner: tracked, first: std::sync::Mutex::new(Some((first, link))) });
     Ok((group, daemon))
+}
+
+/// Waits for `open` (the parked link) while asking for the daemon key at once
+/// and every `every` after, until an answer has it. An ask the platform refuses
+/// for good (not retryable) ends the park at once with that refusal: the
+/// machine will never register. An ask that fails retryably, or answers before
+/// the bind with no key, is made again. Once the link is allocated with no key
+/// in hand, it asks once more: the daemon registers only after its bind, so the
+/// key is stored by then.
+pub(super) async fn park_for_key<L, A, F>(
+    open: impl Future<Output = Result<L, Failure>>,
+    ask: A,
+    every: Duration,
+) -> Result<(L, [u8; 32]), Failure>
+where
+    A: Fn() -> F,
+    F: Future<Output = Result<CarrierAnswer, Failure>>,
+{
+    let ask = &ask;
+    let next = |wait: Duration| async move {
+        if !wait.is_zero() {
+            tokio::time::sleep(wait).await;
+        }
+        ask().await
+    };
+    let mut open = std::pin::pin!(open);
+    let mut asking = std::pin::pin!(next(Duration::ZERO));
+    let mut daemon = None;
+    loop {
+        tokio::select! {
+            opened = &mut open => {
+                let link = opened?;
+                let daemon = match daemon {
+                    Some(daemon) => daemon,
+                    None => pinned_daemon(&ask().await?)?,
+                };
+                return Ok((link, daemon));
+            }
+            answer = &mut asking, if daemon.is_none() => {
+                match answer {
+                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
+                    Err(failure) if !failure.retryable => return Err(failure),
+                    Ok(_) | Err(_) => asking.set(next(every)),
+                }
+            }
+        }
+    }
 }
 
 /// The link request a connection on `group` opens first (cmux-remote's

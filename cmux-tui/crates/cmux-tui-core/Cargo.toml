@@ -16,10 +16,15 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-build-space.workspace = true
 cmux-json.workspace = true
+# Names a crash sidecar's backtrace in a stripped release binary.
+cmux-panic-log.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
+# The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -33,14 +38,21 @@ cmux-url-input.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
+# cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
+cmux-supervise-core.workspace = true
 cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
+# Another browser's files for the app's browser import (resource_router/browser_import.rs).
+cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
+cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+# The Computer Use policy and wire types (the engine only; the worker is the cmux-tui binary).
+cmux-computer-use.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
@@ -56,9 +68,15 @@ cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
+# This machine's device kind for `identify` (`machine_device`, `machine_symbol`).
+cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
-serde_json.workspace = true
+# float_roundtrip, unbounded_depth: the cached session snapshot keeps its public values as JSON text
+# and each read parses them back to the same values, at any depth (resource_api/committed_snapshot.rs
+# `CompactJson`). cmux-layout-reducer already turns both on for this build.
+serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
+uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
 base64.workspace = true
@@ -68,6 +86,8 @@ regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
 zstd.workspace = true
+# The JSON catalogs compiled in compressed (src/packed_catalogs.rs).
+cmux-embed.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
@@ -79,6 +99,10 @@ parking_lot = { workspace = true, features = ["arc_lock"] }
 arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+# cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
+cmux-signed-bundle.workspace = true
+# A store package's `STORE.sig`, checked against the store keys (`apps/store_trust.rs`).
+cmux-signed-envelope.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true
@@ -94,10 +118,19 @@ cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# Signs the test store packages (`apps/store_trust_tests.rs`).
+ring.workspace = true
+# The worker's control channel in-process, for the Computer Use supervisor's tests.
+cmux-computer-use = { workspace = true, features = ["server"] }
 
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
+cmux-projection.workspace = true
+# The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
+acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
+acpmux-list-types = { path = "../acpmux-list-types" }
 # The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
 cmux-cloud-api.workspace = true
 reqwest.workspace = true
@@ -107,10 +140,16 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`.
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
+# An agent service in the test's process that serves the v2 list (acpmux's `test-support`
+# module, never in a shipped build): the list callers' recorded runs and v2.pr07c gates.
+acpmux = { path = "../acpmux", default-features = false, features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),
@@ -131,5 +170,6 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Kernel",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
+    "Win32_System_RemoteDesktop",
     "Win32_System_Threading",
 ] }

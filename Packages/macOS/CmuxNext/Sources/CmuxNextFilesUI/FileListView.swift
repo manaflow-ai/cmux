@@ -10,7 +10,7 @@ import CmuxNextFiles
 final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     let view: NSView
     var focusView: NSView { table }
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let table = FileTableView()
     private let actions: FilesPaneActions
     private let icons: FileIconProvider

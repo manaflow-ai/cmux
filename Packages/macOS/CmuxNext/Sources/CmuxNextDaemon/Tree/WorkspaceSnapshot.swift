@@ -33,6 +33,10 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     /// The app of an app workspace (`kind` `app`, `app-screens-v1`): one
     /// screen with one app tab; nil for every other workspace.
     public var app: String?
+    /// The daemon's recovery workspace (`workspace-recovered-v1`): its tabs are all terminals the
+    /// daemon recovered from orphaned hosts, so it is not a workspace the person made. Nil on
+    /// daemons without the capability.
+    public var recovered: Bool?
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).
@@ -81,7 +85,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app
+        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app, recovered
         case nameSource = "name_source"
         case nameRevision = "name_revision"
         case markedUnread = "marked_unread"
@@ -114,6 +118,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         app = kind == "app" ? try? c.decodeIfPresent(String.self, forKey: .app) : nil
+        recovered = try c.decodeIfPresent(Bool.self, forKey: .recovered)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }

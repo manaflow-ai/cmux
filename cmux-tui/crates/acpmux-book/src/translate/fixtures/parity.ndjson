@@ -1,0 +1,56 @@
+{"seq":1,"at":1794480001000,"dir":"mux","kind":"user_message","msg":{"promptId":"p1","turnId":"t1","text":"Check why the deploy job failed"}}
+{"seq":2,"at":1794480002000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t1","promptId":"p1"}}
+{"seq":3,"at":1794480003000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Reading the job log."}}}}}
+{"seq":4,"at":1794480004000,"dir":"in","kind":"tool_call","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read deploy.log","kind":"read","status":"pending"}}}}
+{"seq":5,"at":1794480005000,"dir":"in","kind":"tool_call_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"error: timed out pulling image after 300s"}}]}}}}
+{"seq":6,"at":1794480006000,"dir":"in","kind":"usage_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"usage_update","used":12000,"size":200000}}}}
+{"seq":7,"at":1794480007000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The job timed out pulling the image after 300 seconds."}}}}}
+{"seq":8,"at":1794480008000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t1","promptId":"p1","status":"completed","inputTokens":1200,"outputTokens":85,"cacheReadTokens":900,"cacheWriteTokens":100,"model":"gpt-5-codex"}}
+{"seq":9,"at":1794480009000,"dir":"mux","kind":"user_message","msg":{"promptId":"p2","turnId":"t2","text":"Retry it with a longer timeout"}}
+{"seq":10,"at":1794480010000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t2","promptId":"p2"}}
+{"seq":11,"at":1794480011000,"dir":"in","kind":"tool_call","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Run deploy --timeout 600","kind":"execute","status":"in_progress"}}}}
+{"seq":12,"at":1794480012000,"dir":"mux","kind":"user_message","msg":{"promptId":"s1","turnId":"t2","text":"Use 900 seconds instead","steer":true}}
+{"seq":13,"at":1794480013000,"dir":"mux","kind":"steer_read","msg":{"promptId":"s1","turnId":"t2"}}
+{"seq":14,"at":1794480014000,"dir":"mux","kind":"queued","msg":{"text":"Then post the result in the channel","promptId":"q1"}}
+{"seq":15,"at":1794480015000,"dir":"in","kind":"tool_call_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"completed","content":[{"type":"content","content":{"type":"text","text":"deploy ok in 412s"}}]}}}}
+{"seq":16,"at":1794480016000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Retried with 900 seconds; the deploy passed."}}}}}
+{"seq":17,"at":1794480017000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t2","promptId":"p2"}}
+{"seq":18,"at":1794480018000,"dir":"mux","kind":"dequeued","msg":{"promptId":"q1"}}
+{"seq":19,"at":1794480019000,"dir":"mux","kind":"user_message","msg":{"promptId":"q1","turnId":"t3","text":"Then post the result in the channel"}}
+{"seq":20,"at":1794480020000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t3","promptId":"q1"}}
+{"seq":21,"at":1794480021000,"dir":"in","kind":"tool_call","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c3","title":"Post to channel","kind":"execute","status":"pending"}}}}
+{"seq":22,"at":1794480022000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm1","groupId":null,"turnId":"t3","agentRequestId":4,"request":{"toolCall":{"toolCallId":"c3","title":"Post to channel","kind":"execute"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"},{"optionId":"chat","name":"Allow chat"},{"optionId":"this","name":"Allow for this chat"},{"optionId":"plan","name":"Use the plan","kind":"other"}]}}}
+{"seq":23,"at":1794480023000,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm1","outcome":{"outcome":"selected","optionId":"this"},"answeredBy":{"id":"tailnet:ana","name":"Ana"}}}
+{"seq":24,"at":1794480024000,"dir":"in","kind":"tool_call_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c3","status":"completed"}}}}
+{"seq":25,"at":1794480025000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Posted the result."}}}}}
+{"seq":26,"at":1794480026000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t3","promptId":"q1","status":"completed","inputTokens":300,"outputTokens":40,"cacheReadTokens":2000,"inputExcludesCache":true}}
+{"seq":27,"at":1794480027000,"dir":"mux","kind":"user_message","msg":{"promptId":"p4","turnId":"t4","text":"Clean up the old images"}}
+{"seq":28,"at":1794480028000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t4","promptId":"p4"}}
+{"seq":29,"at":1794480029000,"dir":"in","kind":"tool_call","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c4","title":"Delete old images","kind":"execute","status":"pending"}}}}
+{"seq":30,"at":1794480030000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm2","groupId":null,"turnId":"t4","agentRequestId":5,"request":{"toolCall":{"toolCallId":"c4","title":"Delete old images","kind":"execute"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"},{"optionId":"chat","name":"Allow chat"},{"optionId":"this","name":"Allow for this chat"}]}}}
+{"seq":31,"at":1794480031000,"dir":"mux","kind":"permission_auto","msg":{"permissionId":"perm2","policy":"mode","rule":null,"optionId":"always","chatAllowance":false,"request":{"toolCall":{"toolCallId":"c4","title":"Delete old images","kind":"execute"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"},{"optionId":"chat","name":"Allow chat"},{"optionId":"this","name":"Allow for this chat"}]},"fullAccess":"full-access"}}
+{"seq":32,"at":1794480032000,"dir":"in","kind":"tool_call_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c4","status":"failed"}}}}
+{"seq":33,"at":1794480033000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t4","promptId":"p4","status":"failed","errorText":"stream disconnected before completion","errorCode":"overloaded"}}
+{"seq":34,"at":1794480034000,"dir":"mux","kind":"user_message","msg":{"promptId":"m1","turnId":"t5","text":"[lane-7] Merged the image cleanup fix.","client":"acpmux-cli#1@lane-3"}}
+{"seq":35,"at":1794480035000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t5","promptId":"m1"}}
+{"seq":36,"at":1794480036000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Noted the merge."}}}}}
+{"seq":37,"at":1794480037000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t5","promptId":"m1","status":"completed"}}
+{"seq":38,"at":1794480038000,"dir":"mux","kind":"user_message","msg":{"promptId":"m2","turnId":"t6","text":"[message m7Kq2x9a from vm-2/lock-proof (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message m7Kq2x9a]\"]\nLock proof routes are merged.\n[end of message m7Kq2x9a]","client":"acpmux-cli#2@lane-3"}}
+{"seq":39,"at":1794480039000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t6","promptId":"m2"}}
+{"seq":40,"at":1794480040000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Thanks, the routes look right."}}}}}
+{"seq":41,"at":1794480041000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t6","promptId":"m2","status":"completed"}}
+{"seq":42,"at":1794480042000,"dir":"mux","kind":"user_message","msg":{"promptId":"m3","turnId":"t7","text":"summary-panel -> parity-chat: Confirmed, the deploy is green.","client":"acpmux-cli#3@lane-3"}}
+{"seq":43,"at":1794480043000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t7","promptId":"m3"}}
+{"seq":44,"at":1794480044000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Good, nothing left to do there."}}}}}
+{"seq":45,"at":1794480045000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t7","promptId":"m3","status":"completed"}}
+{"seq":46,"at":1794480046000,"dir":"mux","kind":"user_message","msg":{"promptId":"p8","turnId":"t8","text":"Summarize today's deploys"}}
+{"seq":47,"at":1794480047000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t8","promptId":"p8"}}
+{"seq":48,"at":1794480048000,"dir":"mux","kind":"queued","msg":{"text":"And open an issue for the timeout","promptId":"q2"}}
+{"seq":49,"at":1794480049000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Two deploys today, both green after the retry ✓"}}}}}
+{"seq":50,"at":1794480050000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t8","promptId":"p8","status":"completed"}}
+{"seq":51,"at":1794480051000,"dir":"mux","kind":"user_message","msg":{"promptId":"p9","turnId":"t9","text":"Tag the release"}}
+{"seq":52,"at":1794480052000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t9","promptId":"p9"}}
+{"seq":53,"at":1794480053000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm3","groupId":null,"turnId":"t9","agentRequestId":6,"request":{"toolCall":{"toolCallId":"c9","title":"Push the tag","kind":"execute"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"}]}}}
+{"seq":54,"at":1794480054000,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm3","outcome":{"outcome":"selected","optionId":"once"}}}
+{"seq":55,"at":1794480055000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Tagged the release."}}}}}
+{"seq":56,"at":1794480056000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t9","promptId":"p9","status":"completed"}}

@@ -737,6 +737,47 @@ impl Store for JournalStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.inner.fenced(|| Store::events(&self.inner.local, id, after, limit))
     }
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        self.inner
+            .fenced(|| Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
+    }
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        self.inner.fenced(|| {
+            Store::read_log_part(&self.inner.local, id, seq, offset, max, stamp, marks, out)
+        })
+    }
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        Store::log_stamp(&self.inner.local, id)
+    }
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        Store::bump_log_stamp(&self.inner.local, id, by)
+    }
+    /// A line is durable once its journal record is: a power loss's replay writes it into the
+    /// log again. So a sync through a seq waits for the journal, never syncs the log itself.
+    fn sync_log_through(&self, _id: &str, _seq: u64) -> Result<()> {
+        if self.wait_durable(Duration::from_secs(30))? {
+            Ok(())
+        } else {
+            anyhow::bail!("the event journal did not sync within 30 s")
+        }
+    }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
@@ -781,6 +822,15 @@ impl Store for JournalStore {
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        self.inner.fenced(|| Store::newest_window(&self.inner.local, id, before, n))
+    }
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        Store::restore_point(&self.inner.local, id)
+    }
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_restore_point(&self.inner.local, id, bytes)
+    }
     fn scan_kinds(
         &self,
         id: &str,
@@ -796,6 +846,47 @@ impl Store for JournalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.inner.fenced(|| Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
+    }
+    // The local store reads these from its kind and text copies; the trait's defaults would
+    // scan the log (`journal_store_forwards_every_local_store_override`).
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        self.inner.fenced(|| self.inner.local.search_records(id, visit))
+    }
+
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::text_entries(&self.inner.local, id, visit))
+    }
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_after(&self.inner.local, id, after, kinds, visit))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner
+            .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
+    }
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
@@ -904,6 +995,18 @@ impl Store for JournalStore {
     }
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         Store::kept_parked(&self.inner.local, id)
+    }
+    /// Beside the log, not in the journal, as `keep_parked`: a held body takes no seq, and the
+    /// journal is what the deferral keeps it out of (`store/deferred.rs`). Without the folders'
+    /// lock, which a checkpoint holds across the sync of another chat's `session.json`: this is
+    /// on a chat's append. It needs none: the hub writes no body once its chat is purged (under
+    /// the chat's append lock, which the purge waits out before the delete), the local store
+    /// never makes a chat's folder for one, and a sealed store refuses it.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        Store::keep_held(&self.inner.local, id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Store::kept_held(&self.inner.local, id)
     }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or

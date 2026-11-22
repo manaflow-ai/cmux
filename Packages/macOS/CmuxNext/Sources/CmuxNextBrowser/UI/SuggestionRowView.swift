@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// One suggestion: 16 pt icon, then "title – detail" on one line with the
-/// detail dimmed ("query - Engine Search"). The one highlighted row
+/// One suggestion: 16 pt icon, then "title – host" on one line with the
+/// host dimmed (``shownDetail(_:)``). The one highlighted row
 /// (keyboard or mouse, the state machine decides) gets a rounded gray fill
 /// concentric with the card (`OmnibarStyle.rowCornerRadius`). The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
@@ -57,7 +57,7 @@ final class SuggestionRowView: NSView {
         // text and glyph at the new size (the card re-lays out the rows' height).
         density.update { [weak self] in
             guard let self else { return }
-            let iconSize = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+            let iconSize = OmnibarStyle.iconSide
             if let iconKind, !showsFavicon { icon.image = NSImage.icon(iconKind, size: iconSize) }
             if showsFavicon, let image = icon.image { image.size = NSSize(width: iconSize, height: iconSize) }
             applyColors()
@@ -76,7 +76,7 @@ final class SuggestionRowView: NSView {
         self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
-        case .search: .search
+        case .search: .browserOmniboxSearch
         case .history: .history
         case .bookmark: .bookmark
         case .keyword: .extension
@@ -102,18 +102,34 @@ final class SuggestionRowView: NSView {
         }
         if kind != iconKind, !showsFavicon {
             iconKind = kind
-            icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            icon.image = NSImage.icon(kind, size: OmnibarStyle.iconSide)
         }
-        setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
-        guard force || suggestion.title != title || suggestion.detail != detail else { return }
+        let shown = Self.shownDetail(suggestion)
+        setAccessibilityLabel([suggestion.title, shown].filter { !$0.isEmpty }.joined(separator: ", "))
+        guard force || suggestion.title != title || shown != detail else { return }
         title = suggestion.title
-        detail = suggestion.detail
+        detail = shown
         applyColors()
         needsLayout = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The dimmed text after a row's title: a page's host alone, nothing for a search or the typed address (the glyph
+    /// and the title say what they are), and
+    /// an answer's or an extension's own text. A row names what it opens in as few words as it can (Lawrence
+    /// 2026-11-21, "drastically simplify all parts of the UI"): no "Google Search" beside every query, no path.
+    static func shownDetail(_ suggestion: BrowserSuggestion) -> String {
+        switch suggestion.kind {
+        case .search, .navigate: return ""
+        case .history, .bookmark, .switchToTab:
+            // A page with no title shows its address as the title, the host first: no second host after it.
+            let host = BrowserURLDisplay.restingText(for: suggestion.url)
+            return suggestion.title.lowercased().hasPrefix(host.lowercased()) ? "" : host
+        case .answer, .keyword: return suggestion.detail
+        }
+    }
 
     /// Rows that name a known web page show its site icon: history,
     /// bookmarks and open tabs. The typed address keeps its globe (Chrome
@@ -127,7 +143,7 @@ final class SuggestionRowView: NSView {
 
     private func showFavicon(_ image: NSImage) {
         let sized = image.copy() as? NSImage ?? image
-        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+        let side = OmnibarStyle.iconSide
         sized.size = NSSize(width: side, height: side)
         showsFavicon = true
         iconKind = nil
@@ -138,7 +154,7 @@ final class SuggestionRowView: NSView {
         super.layout()
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         // 16 pt at Standard (13 pt glyph size), larger with the bar's text.
-        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+        let side = OmnibarStyle.iconSide
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height
         label.frame = NSRect(
@@ -183,7 +199,7 @@ final class SuggestionRowView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            icon.contentTintColor = OmnibarStyle.textSecondary
+            icon.contentTintColor = OmnibarStyle.resultsIcon
             let text = NSMutableAttributedString(string: title, attributes: [
                 .font: OmnibarStyle.font,
                 .foregroundColor: OmnibarStyle.textPrimary,

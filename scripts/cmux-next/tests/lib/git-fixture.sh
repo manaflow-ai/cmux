@@ -9,7 +9,8 @@
 # tests/git_fixture_env.py (its docstring says why each of the three is needed):
 #
 # 1. git_fixture_init / git_fixture_clone write maintenance.auto=false,
-#    gc.auto=0 and receive.autogc=false into the new repository's own config.
+#    gc.auto=0, receive.autogc=false and core.fsync=none (no F_FULLFSYNC drive
+#    flush per ref update on macOS) into the new repository's own config.
 #    Every bare remote goes through them: git clears GIT_CONFIG_COUNT before
 #    receive-pack, which then runs its own maintenance in the bare repository.
 # 2. The same three as exported GIT_CONFIG_KEY/VALUE pairs, for the git the
@@ -27,7 +28,7 @@
 # keeps the cleanup: this file's `trap` wrapper (cmux#41021) hands an EXIT
 # action to git_fixture_trap_exit, so both build the same chain.
 
-_git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
+_git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false core.fsync=none)
 
 # Variables that point git at another repository, index, object store or config file (GIT_DIR, GIT_INDEX_FILE,
 # GIT_CONFIG and so on): a test run from inside a git hook inherits them, and a fixture's `git -C "$tmp" commit`
@@ -488,7 +489,7 @@ if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
   _git_fixture_py="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 2>/dev/null && pwd)/tests/git_fixture_env.py"
   if ! _git_fixture_text=$(python3 -I "$_git_fixture_py" --global-config-text); then
     echo "git-fixture.sh: $_git_fixture_py --global-config-text failed; the fixture GIT_CONFIG_GLOBAL holds the opt-out alone" >&2
-    _git_fixture_text=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
+    _git_fixture_text=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n[core]\n\tfsync = none'
   fi
   if _git_fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
     _git_fixture_cleanup_dirs+=("$_git_fixture_shell_pid:$_git_fixture_dir")

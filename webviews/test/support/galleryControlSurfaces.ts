@@ -9,12 +9,17 @@
 // shard 1's 28 to 33 (react-apps-check on #40611, 2026-11-10). Each part warms and audits only
 // every `parts`-th entry, so no part comes near the old file's time, and the duration split spreads
 // the parts over the shards. Every entry is still audited exactly once.
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { galleryFrame, warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
+import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type GalleryControlPart = {
   /** One-based. */
@@ -256,41 +261,45 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
   // than a quarter of the old budget: these keep ~1.3x over a quarter of the contended 740 s run.
   const WARM_MS = 360_000;
   const AUDIT_MS = 240_000;
-  const { createServer } = await import("vite");
-  let vite: Awaited<ReturnType<typeof createServer>>;
-  let browser: Browser;
+  let stageServer: GalleryStageServer | undefined;
+  // One Chromium for the file, relaunched when it dies mid-audit (test/support/stageBrowser.ts).
+  let shared: StageBrowser<Browser, Page>;
   beforeAll(async () => {
-    vite = await createServer({
+    shared = await launchStageBrowser<Browser, Page>({
+      launch: () => chromium.launch(),
+      // A fresh context prevents one gallery's saved settings/draft from leaking into another.
+      open: (browser) => browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: "reduce" }),
+    });
+    const browser = shared.browser;
+    const ids = [...new Set(selected.map(({ id }) => id))];
+    stageServer = await galleryStageServer({
       root,
       configFile: path.join(root, "vite.config.ts"),
-      server: { port: 0, host: "127.0.0.1" },
-      logLevel: "error",
+      // Discover every entry's dependencies before parallel audits: Vite otherwise reloads
+      // unrelated pages when a later entry adds an optimized dependency.
+      warm: async (vite) => {
+        await Promise.all(
+          Array.from({ length: 4 }, (_, worker) =>
+            warmGalleryFrame(
+              vite,
+              ids.filter((_, index) => index % 4 === worker),
+              { browser, timeoutMs: WARM_MS },
+            ),
+          ),
+        );
+        console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
+      },
     });
-    await vite.listen();
-    browser = await chromium.launch();
-    // Discover every entry's dependencies before parallel audits: Vite otherwise reloads
-    // unrelated pages when a later entry adds an optimized dependency.
-    const ids = [...new Set(selected.map(({ id }) => id))];
-    await Promise.all(
-      Array.from({ length: 4 }, (_, worker) =>
-        warmGalleryFrame(
-          vite,
-          ids.filter((_, index) => index % 4 === worker),
-          { browser, timeoutMs: WARM_MS },
-        ),
-      ),
-    );
-    console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
   }, WARM_MS + 20_000);
   afterAll(async () => {
-    await browser?.close();
-    await vite?.close();
+    await shared?.close();
+    await stageServer?.close();
   });
   test(
     `every web gallery entry keeps trailing surfaces clear and hover inside its control (part ${part} of ${parts})`,
     async () => {
       expect(selected.length).toBeGreaterThan(0);
-      const port = (vite.httpServer!.address() as { port: number }).port;
+      const { origin, framePath } = stageServer!;
       const failures: string[] = [],
         pending = [...selected];
       let visited = 0,
@@ -299,14 +308,26 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
       await Promise.all(
         Array.from({ length: 4 }, async () => {
           for (let entry = pending.shift(); entry; entry = pending.shift()) {
-            // A fresh context prevents one gallery's saved settings/draft from leaking into another.
-            const page = await browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: "reduce" });
-            page.setDefaultTimeout(30_000);
             const name = `${entry.id}/${entry.variant}`;
+            // A failed open (a dead browser) relaunches it and retries once; past that it fails at once, so
+            // the entries left end now instead of holding the file to its limit.
+            let page: Page;
+            try {
+              page = await shared.page();
+            } catch (error) {
+              failures.push(`${name}: no page: ${String(error).split("\n")[0]}`);
+              continue;
+            }
+            page.setDefaultTimeout(30_000);
             try {
               await page.setViewportSize({ width: 1000, height: Math.min(1200, entry.height) });
               await page.goto(
-                `http://127.0.0.1:${port}${galleryFrame(entry.id, { variant: entry.variant, reducedMotion: "true", colorScheme: process.env.GALLERY_CONTROL_THEME })}`,
+                origin +
+                  galleryFrame(entry.id, {
+                    variant: entry.variant,
+                    reducedMotion: "true",
+                    colorScheme: process.env.GALLERY_CONTROL_THEME,
+                  }).replace(/^\/gallery\/frame\.html/, framePath),
               );
               await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
               if ((await page.locator("html").getAttribute("data-gallery-ready")) !== "1")
@@ -353,7 +374,8 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
             } catch (error) {
               failures.push(`${name}: load/audit error ${String(error).slice(0, 500)}`);
             } finally {
-              await page.close();
+              // A dead browser's page may never answer its close.
+              await shared.closePage(page);
             }
           }
         }),
