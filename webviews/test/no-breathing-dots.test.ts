@@ -30,6 +30,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
     why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
   },
+  ...["start", "middle", "end"].map((dot) => ({
+    file: "agent-session/acpmux/conversation/JumpDots.css",
+    keyframes: `cv-jump-dots-${dot}`,
+    selector: ".cv-jump-dots__dot",
+    why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
+  })),
   {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",

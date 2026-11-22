@@ -113,10 +113,10 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }),
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }, hostMarks: services.personInput.hostMarks),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
-        tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in
+        CloudFrontedChats.wire(tabs, services: services); tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in // the Cloud chats Mac tabs show in place first (cmux#47677)
             guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
             services.cloud.accessAsks.start(services: services)
         }
@@ -203,6 +203,10 @@ extension AgentTabStore {
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
         tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
+        tabs.offersTerminalSwitch = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return false }
+            return TerminalChatHandler.offersToggle(on: tab, services: services)
+        }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services, weak tabs] key in
             guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine), let controller = services.paneController(for: pane) else { return nil }
@@ -517,6 +521,9 @@ extension AgentTabStore {
         }
         tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
+            if let services { // a New Tab key hold from that tab follows it
+                services.keyRouter.newTabInputCoordinator.tabMade(provisional, in: services.agentTabs)
+            }
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
                 for pane in panes where pane.stripModel.selectedID?.rawValue == provisional {
@@ -603,6 +610,11 @@ extension AgentTabStore {
             services?.computerUsePreviews.replayChats()
         }
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.pages.holdAwake(held) }
+        tabs.idlePanes = ({ [weak services] key, leaving in
+            guard let services else { return true }
+            let drawnByAnother = services.cache.isRendering(key) && (leaving == nil || services.cache.presenter(of: key) !== leaving)
+            return drawnByAnother || services.windows.controllers.contains { $0.showsSelected(key, besides: leaving) }
+        }, { [weak services] in services?.cache.presenter(of: $0)?.surfaceWasDisplaced($0) })
         services.madeAgentTabs = tabs
         return tabs
     }
