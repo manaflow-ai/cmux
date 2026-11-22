@@ -1,0 +1,143 @@
+// cmux-web-test-timeout: 900
+// The motion map (Leo, 2026-11-22: "when i send it collapses the compser then sends it to you... but
+// i think we should be able to calculate it out to be like one smooth motion. there are a lot of
+// these possible compound movement situations, esp with folds, that i think we can watch for and map
+// out harder to have more cohesive animations."). The page (browser/compound-motion.harness.tsx)
+// draws the real transcript and plays one compound case at a time; Chromium draws one frame every
+// 8.33 ms on the frames' own clock (support/frames120.ts, browser/frameClock.ts), so a loaded host
+// draws the same frames. Each case runs RUNS times on both arms of compound-motion (the transaction,
+// and each mover on its own as before); the map prints the median run's phases: frames, px a frame,
+// and the anchor's (the row under the viewport's middle) net move and travel.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium } from "playwright";
+import type { Sample } from "./browser/compound-motion.harness";
+import {
+  analyzeRun,
+  EVENT_STEP,
+  summarize,
+  type CaseReport,
+  type RunReport,
+  type Scenario,
+} from "./support/compoundMotionReport";
+import { FramesUnsupported, open120Hz } from "./support/frames120";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+await requireBrowserLane("compound-motion.test.ts", async () => {
+  const PAGE = "/test/browser/compound-motion.html";
+  setDefaultTimeout(600_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("compound-motion: skipping (run `bunx playwright install chromium`)");
+    describe.skip("compound motion", () => test("no chromium", () => {}));
+    return;
+  }
+  try {
+    await (await open120Hz("about:blank")).close();
+  } catch (error) {
+    if (!(error instanceof FramesUnsupported) || process.env.GITHUB_ACTIONS === "true") throw error;
+    console.warn(
+      "compound-motion: skipping, this Chrome draws no frames on the test's clock (set CMUX_CHROME_HEADLESS_SHELL)",
+    );
+    describe.skip("compound motion", () => test("no chrome-headless-shell", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  beforeAll(async () => {
+    vite = await createServer({
+      root: webviews,
+      configFile: path.join(webviews, "vite.config.ts"),
+      mode: "production",
+      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      cacheDir: path.join(webviews, "node_modules/.vite-compound-motion"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, PAGE);
+  });
+  afterAll(async () => {
+    await vite?.close();
+  });
+
+  /// The window after the event: 72 frames, 600 ms at 120 Hz (every motion token ends inside it).
+  const WINDOW_FRAMES = 72;
+  const RUNS = Number(process.env.CMUX_COMPOUND_RUNS) || 3;
+  const ARMS = ["separate", "transaction"] as const;
+  const CASES: Scenario[] = (process.env.CMUX_COMPOUND_CASES?.split(",") as Scenario[] | undefined) ?? [
+    "control",
+    "send-1",
+    "send-5",
+    "send-15",
+    "steer",
+    "fold-stream",
+    "resize-fold",
+    "growth-stream",
+    "stack-stream",
+    "subagent-land",
+    "recap-end",
+  ];
+
+  async function once(arm: string, scenario: Scenario): Promise<RunReport | undefined> {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&arm=${arm}`, {
+      clock: "frames",
+      viewport: { width: 760, height: 820 },
+    });
+    try {
+      await frames.page.waitForFunction(() => "__compound" in window);
+      await frames.page.getByText("History answer 6.").waitFor();
+      frames.start();
+      const samples = (await frames.page.evaluate(
+        (scenario) =>
+          (window as unknown as { __compound: { run(options: object): Promise<unknown> } }).__compound.run({
+            scenario,
+          }),
+        scenario,
+      )) as Sample[];
+      await frames.stop();
+      return analyzeRun(samples, EVENT_STEP[scenario], WINDOW_FRAMES);
+    } finally {
+      await frames.close();
+    }
+  }
+
+  const map = new Map<string, CaseReport>();
+  for (const scenario of CASES)
+    for (const arm of ARMS)
+      test(`${scenario} (${arm})`, async () => {
+        const runs: RunReport[] = [];
+        for (let run = 0; run < RUNS; run += 1) {
+          const report = await once(arm, scenario);
+          expect(report).toBeDefined();
+          runs.push(report!);
+        }
+        const summary = summarize(runs);
+        map.set(`${scenario}|${arm}`, summary);
+        console.log(`compound-motion ${scenario} ${arm}: ${JSON.stringify({ summary, runs })}`);
+        // The control: nothing happens, nothing moves (a harness that reads motion with none is broken).
+        if (scenario === "control") expect(summary.movingFrames).toBe(0);
+        // Everything else moves: a case that reads still is not in view, or its event never ran.
+        else expect(summary.travel).toBeGreaterThan(0.5);
+        // The send's composer collapse and its rows: one motion with the transaction, never two.
+        if (arm === "transaction" && scenario.startsWith("send-")) expect(summary.phases).toBeLessThanOrEqual(1);
+      });
+
+  afterAll(() => {
+    const lines = [
+      "| case | arm | phases | shape (frames @ median px/frame) | max px/frame | net px | travel px | settle frames |",
+      "|---|---|---|---|---|---|---|---|",
+    ];
+    for (const [key, report] of map) {
+      const [scenario, arm] = key.split("|");
+      lines.push(
+        `| ${scenario} | ${arm} | ${report.phases} | ${report.shape} | ${report.maxJump.toFixed(1)} | ${report.net.toFixed(1)} | ${report.travel.toFixed(1)} | ${report.settleFrames} |`,
+      );
+    }
+    console.log(`compound-motion map:\n${lines.join("\n")}`);
+  });
+});

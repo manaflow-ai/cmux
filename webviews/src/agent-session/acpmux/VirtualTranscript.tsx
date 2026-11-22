@@ -61,6 +61,7 @@ import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from ".
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
+import { threadTransaction, transactionOn } from "./conversation/motionTransaction";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
@@ -2670,6 +2671,9 @@ function TranscriptView({
       const rows = thread.current;
       const move = rowsMove;
       const playing = (one: Animation | undefined) => one && one.playState !== "finished" && one.playState !== "idle";
+      // The thread's one motion (motionTransaction.ts) stops where it is drawn too, handed to the chase.
+      const held = rows ? threadTransaction(rows) : undefined;
+      if (held?.active()) followChase.current?.carry(rows!, held.freeze());
       if (!rows || (!playing(move) && stackMoves.size === 0)) return;
       const drawnY = () => {
         const value = getComputedStyle(rows).translate;
@@ -2743,6 +2747,12 @@ function TranscriptView({
       const delta = before - rows.getBoundingClientRect().top;
       const ms = Math.abs(delta) < 0.5 ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
+      // One motion for every mover in the frame (motionTransaction.ts): a send's rows that land next,
+      // a field's growth, another stack change join this one's plan instead of playing on their own.
+      if (transactionOn()) {
+        threadTransaction(rows).move(delta, "stack");
+        return;
+      }
       const move = rows.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
         duration: ms,
         easing: foldMotion.easing(rows),
@@ -2768,6 +2778,12 @@ function TranscriptView({
         // Where the rows now lie against where they were drawn: they start there and go home.
         const delta = before - rows.getBoundingClientRect().top;
         if (Math.abs(delta) < 0.5) return;
+        // A move already in flight (a send's, the stack's): the growth joins its plan, one curve.
+        const tx = transactionOn() ? threadTransaction(rows) : undefined;
+        if (tx?.active()) {
+          tx.move(delta, "field");
+          return;
+        }
         const move = rows.animate(growthTranslate(detail, delta), {
           duration: detail.duration,
           easing: detail.progress ? "linear" : detail.easing,
@@ -5717,6 +5733,13 @@ function TranscriptView({
         easing: ARRIVAL_EASE,
       };
     });
+    // A send's hold (motionTransaction.ts `expect`): what this pass moved at once stays drawn where
+    // the hold began, and the prompt's rows landing release the whole shift as one motion.
+    const held = thread.current && transactionOn() ? threadTransaction(thread.current) : undefined;
+    if (held?.expecting()) {
+      held.settle("pass");
+      if (rows.length > oldRows.length || broughtSentPrompt(oldRows, rows)) held.release("send");
+    }
     previousLayout.current = layout;
     previousRows.current = rows;
     // The rows a fold ride moved are placed where they showed: its hand-over is spent.
@@ -6304,6 +6327,12 @@ function TranscriptView({
     // Sent from the latest row: the view only moves by what came below, and the send's glide that
     // the placement pass may have started this commit (`followGlide.sent`) keeps playing.
     const fromLatest = followingRef.current && jumpTarget.current === undefined;
+    // From the latest row the composer clears now and the prompt's row lands a moment later (the
+    // echo): the rows hold where they are drawn until it does, and the composer's room and the
+    // prompt's rows then move them as one motion (motionTransaction.ts). Two moves made it a
+    // one-two: the rows slid down into the room, then jumped up by the prompt.
+    const sendTx = fromLatest && thread.current && transactionOn() ? threadTransaction(thread.current) : undefined;
+    sendTx?.expect("send");
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
     noteSendFromLatest(fromLatest, node);
@@ -6361,6 +6390,8 @@ function TranscriptView({
           chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
         } else if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
+      // Held for the prompt's rows: the move to the new end and the chase it ended stay drawn as they were.
+      sendTx?.settle("send-scroll");
     }
     // The kept place is the latest message again: a relaunch opens there.
     if (onAnchor) {
