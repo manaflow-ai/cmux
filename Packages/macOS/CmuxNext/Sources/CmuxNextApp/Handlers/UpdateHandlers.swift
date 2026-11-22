@@ -35,6 +35,7 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        // action-wait-allow: `cmux app relaunch` answers at once (the builds); the quit follows the reply.
         registry.bind("relaunchKeepSessions", run: { [weak registry] in registry?.track(result: result(updater.relaunchAnswer(ifNewer: $0["ifNewer"]?.boolValue == true))) })
         // The ring return's rollback check reads the same stores as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
