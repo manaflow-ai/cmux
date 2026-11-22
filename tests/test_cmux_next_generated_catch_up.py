@@ -39,6 +39,10 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
+    "cmux-export-v1": "scripts/merge-insertions.py",
+    # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).
+    "cmux-generated-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
@@ -317,7 +321,7 @@ class KeyWiseDrivers(unittest.TestCase):
 
     def test_every_keywise_driver_in_gitattributes_is_registered_from_the_base(self):
         named = set(re.findall(r"merge=([\w.-]+)", (ROOT / ".gitattributes").read_text(encoding="utf-8")))
-        self.assertEqual(named - {"cmux-generated-v1"}, set(KEYWISE_DRIVERS))
+        self.assertEqual(named, set(KEYWISE_DRIVERS))
         trusted = self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split()
         script = self.step("Merge feat-cmux-next")["run"]
         for driver, path in KEYWISE_DRIVERS.items():

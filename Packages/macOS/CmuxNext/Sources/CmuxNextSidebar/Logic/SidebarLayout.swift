@@ -343,8 +343,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
             // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
-                openGapIfNeeded(section: section.id, group: nil, index: index)
+            // `opensGap` false: the list placed its drop gap by drawn order (`gapEntry`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow(),
+                      opensGap: Bool = true) {
+                if opensGap { openGapIfNeeded(section: section.id, group: nil, index: index) }
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
@@ -387,9 +389,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: nil, count: nodes.count)
                 for (index, depth) in drawn {
                     if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
-                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
+                    guard index < 0 else {
+                        emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth), opensGap: foldedGap == nil)
+                        continue
+                    }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
+                if foldedGap == Self.gapAtEnd, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
