@@ -35,11 +35,13 @@ struct SidebarRowCloseClearsMarksTests {
         var pullRequests: Bool { rawValue.hasPrefix("pullRequest") || self == .everything }
     }
 
-    static func sidebar(_ marks: Marks, style: SidebarRowBadgeStyle) -> (SidebarView, NSWindow) {
+    static func sidebar(_ marks: Marks, style: SidebarRowBadgeStyle, warned: Bool = false) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
+        var row = marks.workspace
+        if warned { row.usageWarnings = ["90 subagents started in the last hour, above 40"] }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
-            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(marks.workspace),
+            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(row),
         ])], activeWorkspaceID: other)
         model.rowBadgeStyle = style
         let design = DesignSettings()
