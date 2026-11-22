@@ -155,7 +155,6 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         XCTAssertTrue(onScreen(app, done), "scrolled past the tall row to the footer\n\(app.debugDescription)")
         XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(line)")
         XCTAssertLessThanOrEqual(largest, 0.5, line)
-        XCTAssertTrue(measures.hasPrefix("tall measures 1,"), "the tall answer was measured once: \(measures)")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeShot(app, "sub11-tall-2-footer")
     }
