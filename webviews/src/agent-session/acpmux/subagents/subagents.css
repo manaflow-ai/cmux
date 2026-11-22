@@ -2661,7 +2661,7 @@ button.cv-subagent > :last-child {
   box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
   transition:
     left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
-    transform 80ms var(--agent-ease-out, ease-out);
+    transform var(--cmux-motion-quick) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face svg {
   display: block;
@@ -2690,7 +2690,7 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-open-step));
 }
 .acpmux-hat-faces[data-hat-faces="fan"] .acpmux-hat-faces__row {
-  z-index: 2;
+  z-index: var(--layer-raised);
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-hat-faces__row,
@@ -2701,8 +2701,8 @@ button.cv-subagent > :last-child {
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-faces__row::before {
   content: "";
   position: absolute;
-  inset: -3px auto -3px -3px;
-  width: calc(var(--hat-face-open-width) + 6px);
+  inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
+  width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
