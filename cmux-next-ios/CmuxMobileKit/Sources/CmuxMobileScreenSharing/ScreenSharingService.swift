@@ -1,6 +1,7 @@
 #if os(iOS)
 public import CmuxDeviceHub
 import enum CmuxMobileModel.UserFacingError
+import struct CmuxMobileModel.BoundedWait
 public import Foundation
 public import Observation
 
@@ -304,14 +305,15 @@ public final class ScreenSharingService {
         // A first start loads this phone's identity in its own task: wait for it too.
         await startTask?.value
         guard discovery == .finding else { return }
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await state in Observations({ self.discovery }) where state != .finding { return }
+        // The bound: a list that never answers still lets the next retry run.
+        await BoundedWait(bound).run { @MainActor [weak self] in
+            // No strong reference across the wait: a service torn down meanwhile goes away.
+            while self?.discovery == .finding, !Task.isCancelled {
+                await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
+                    guard let self, self.discovery == .finding else { return changed.resume() }
+                    withObservationTracking { _ = self.discovery } onChange: { changed.resume() }
+                }
             }
-            // The bound: a list that never answers still lets the next retry run.
-            group.addTask { try? await Task.sleep(for: bound) }
-            await group.next()
-            group.cancelAll()
         }
     }
 

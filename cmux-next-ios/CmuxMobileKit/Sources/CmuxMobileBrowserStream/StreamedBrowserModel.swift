@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import enum CmuxMobileModel.UserFacingError
+import struct CmuxMobileModel.BoundedWait
 import Foundation
 import Observation
 import os
@@ -402,17 +403,21 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// `bound` later. ``AutoRetry`` waits on this.
     public func reconnectAnswered(within bound: Duration = .seconds(20)) async {
         reconnect()
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await settled in Observations({ self.openFailed || self.canReopen || self.phase == .live || self.phase == .unavailable })
-                    where settled { return }
+        // The bound: an open that never answers lets the stall watchdog and the next retry run.
+        await BoundedWait(bound).run { @MainActor [weak self] in
+            // No strong reference across the wait: a page closed meanwhile goes away.
+            while self?.openAnswered == false, !Task.isCancelled {
+                await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
+                    guard let self, !self.openAnswered else { return changed.resume() }
+                    withObservationTracking { _ = self.openAnswered } onChange: { changed.resume() }
+                }
             }
-            // The bound: an open that never answers lets the stall watchdog and the next retry run.
-            group.addTask { try? await Task.sleep(for: bound) }
-            await group.next()
-            group.cancelAll()
         }
     }
+
+    /// Whether the last open answered: failed, went live, or settled where only a person
+    /// (Reopen) or the Mac can move it.
+    private var openAnswered: Bool { openFailed || canReopen || phase == .live || phase == .unavailable }
     #endif
 
     fileprivate func received(_ json: [String: Any], from sink: Sink) {
