@@ -436,6 +436,26 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The host line is out of flow (HostError.tsx HostLineSlot, ConnectionChip; Leo, 2026-11-21: "stop layout
+   shifting"). The slot is a zero-height box in the dock in every state; what it holds is positioned over the
+   transcript's last pixels above the composer, so a chip or a Restart line appearing, changing or going moves
+   no row (noLayoutShift.test.tsx). Its box is click-through; only the chip and the line's own controls take clicks. */
+.acpmux-host-slot{position:relative;height:0;margin:0;padding:0;z-index:var(--layer-sticky);pointer-events:none}
+.acpmux-host-slot>*{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:flex-end}
+.acpmux-host-slot>.acpmux-host-line,.acpmux-host-slot>.acpmux-host-line-group{pointer-events:none}
+.acpmux-host-slot .acpmux-host-line>*{pointer-events:auto}
+.acpmux-host-slot>.acpmux-host-line-group{flex-direction:column;align-items:flex-end}
+.acpmux-host-slot .acpmux-host-line{padding-bottom:var(--ds-space-2)}
+.acpmux-host-slot>.acpmux-host-line-group>.acpmux-host-line:first-child{padding-bottom:var(--ds-space-2)}
+.acpmux-host-slot .acpmux-host-line-message{background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);border-radius:var(--ds-radius-control);padding:0 var(--ds-space-1)}
+/* The chip: a dot and one word, small and muted, in the composer column's end. */
+.acpmux-host-slot>.acpmux-host-chip{pointer-events:none;left:auto;--acpmux-host-chip-end:var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))));right:calc(var(--acpmux-host-chip-end) - var(--acpmux-stack-outset,0px));bottom:var(--ds-space-2);width:max-content;max-width:calc(100% - var(--ds-space-5));align-items:center;gap:var(--ds-space-1);height:20px;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);white-space:nowrap}
+.acpmux-host-chip-dot{--acpmux-host-chip-dot:6px;flex:none;width:var(--acpmux-host-chip-dot);height:var(--acpmux-host-chip-dot);border-radius:50%;background:currentColor;opacity:.7}
+.acpmux-host-chip-words{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-host-chip[data-chip="dot"]{padding:0;width:20px;justify-content:center}
+.acpmux-host-slot>.acpmux-host-chip[data-chip="dot"]{width:20px}
+/* corner: the chip fixed in the pane's top end corner, away from the composer. */
+.acpmux-host-slot>.acpmux-host-chip[data-chip="corner"]{position:fixed;inset:8px 12px auto auto;bottom:auto;left:auto}
 /* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its
    spinner first and its time after the words, in the same muted tone; Cancel is its quiet button. */
 .acpmux-fork-pending .acpmux-fork-pending-time{margin-left:var(--ds-space-1);font-variant-numeric:tabular-nums}
@@ -566,6 +586,12 @@
 /* A new chat: the composer docks at the bottom and the hero centers in the space above it. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
+/* Settings' Empty Chat Message Box set to Center (agentPane.emptyChatComposerPosition, App.tsx
+   data-empty-chat-composer): the composer sits in the pane's middle with the hero just over it, as
+   the New Tab page sets its own. An empty last item takes the same share of the room as the stage
+   above the composer, so the two split it evenly. Absent, the composer docks at the bottom (above). */
+.acpmux-main[data-new-chat][data-empty-chat-composer="center"]::after{content:"";flex:1 1 0;min-height:0}
+.acpmux-main[data-new-chat][data-empty-chat-composer="center"] .acpmux-empty{justify-content:flex-end;padding-bottom:var(--ds-space-6,24px)}
 /* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
 .acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
@@ -1173,7 +1199,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-browser-sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
 .acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-browser-sidebar details { margin: 4px 0 12px; }
-.acpmux-browser-sidebar summary { padding: 4px 8px; cursor: pointer; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browser-sidebar summary { padding: 4px 8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-browser-workspace-chats { padding-inline-start: 12px; }
 .acpmux-browser-sidebar p,
 .acpmux-browser-sidebar output { display: block; margin: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); }
