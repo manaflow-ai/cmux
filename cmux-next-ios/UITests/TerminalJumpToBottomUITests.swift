@@ -36,6 +36,24 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         attach(app, "after-jump")
     }
 
+    /// Leo, 2026-11-22: "make the tapping of the jump to bottom button ... a bit
+    /// easier to tap somehow? ... without necessarily changing too much". The
+    /// pill looks the same; its target is at least 44 pt (HIG) tall and wider than
+    /// the pill, and a tap near its top-left corner, outside the drawn pill, still
+    /// jumps.
+    @MainActor
+    func testJumpToBottomTapTargetIsLargerThanThePill() throws {
+        let app = launch()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
+        XCTAssertGreaterThanOrEqual(jump.frame.height, 44, "a 44 pt target at least: \(jump.frame)")
+        XCTAssertGreaterThanOrEqual(jump.frame.height, 52, "about 56 pt with the key-row gap: \(jump.frame)")
+        attach(app, "tap-target")
+        // 6 pt in from the target's top-left corner: above and left of the 28 pt pill.
+        jump.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 6, dy: 6)).tap()
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "a tap beside the pill jumps too")
+    }
+
     /// Keyboard up, the stack rides the keyboard: the pill stays above the
     /// key row, centered.
     @MainActor
