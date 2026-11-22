@@ -4,8 +4,8 @@
 // the transcript (SubagentDoneLine.tsx), the tray's finished lines (SubagentTray.tsx), the summary
 // card's and Session Info's Subagents (summary/SubagentStatusList.tsx, summary/SubagentsTab.tsx,
 // session-info/SubagentsSection.tsx; the native panel's button is session-info/native/subagents.ts),
-// an open group's line (SubagentGroup.tsx `SubagentListRow`) and the helper's own pane, on its
-// "Subagent of" line (SubagentGroup.tsx `SubagentOfRow`). A stopped acpmux sub-session offers it on
+// an open group's line (SubagentGroup.tsx `SubagentListRow`) and the helper's own view, in its
+// top end corner (SubagentViewCorner.tsx). A stopped acpmux sub-session offers it on
 // the same rows, and on its card in the transcript (conversation/SubsessionCallCard.tsx), from its
 // session row (resumeState.ts ``subsessionResumeRow``).
 //

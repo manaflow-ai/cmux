@@ -51,6 +51,7 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { childView } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
+const { SubagentViewCorner } = await import("../src/agent-session/acpmux/subagents/SubagentViewCorner");
 const { escapeClosesSubagent, useEscapeClosesSubagent } =
   await import("../src/agent-session/acpmux/subagents/subagentEscape");
 
@@ -71,67 +72,77 @@ const group: AcpmuxRow = {
   ],
 };
 
-test("the Subagent of pill has a close button that closes to the chat, and its text goes to the parent", async () => {
+test("a subagent's view draws no line about where it came from: its rows start as a chat's do", () => {
+  const reply: AcpmuxRow = { id: "unit:reply", kind: "assistant", version: 1, at: 2, text: "All green." };
+  const rows = childView("unit", [group], { unit: [reply] }, new Set())!;
+  // Leo, 2026-11-22: "the metadata about provenance or whatever like subagent of something. we
+  // shouldn't have those."
+  expect(rows[0]?.id).toBe("unit:reply");
+  expect(rows.every((row) => !row.id.endsWith(":of"))).toBe(true);
+});
+
+test("the in-place view's corner has a close that goes to the chat, and no provenance text", async () => {
   const root = createRoot(document.getElementById("root")!);
   const opened: (string | undefined)[] = [];
-  const rows = childView("unit", [group], { unit: [] }, new Set(), "Release review")!;
+  const rows = childView("unit", [group], { unit: [] }, new Set())!;
+  const unit = group.subagents![1]!;
   try {
     await act(async () =>
       root.render(
         <SubagentNavContext.Provider value={(id) => opened.push(id)}>
-          <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+          <VirtualTranscript
+            rows={rows}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            corner={<SubagentViewCorner agent={unit} close />}
+          />
         </SubagentNavContext.Provider>,
       ),
     );
-    const close = document.querySelector<HTMLButtonElement>(".cv-subagent-of__close");
-    expect(close).not.toBeNull();
-    expect(close!.getAttribute("aria-label")).toBe("Close subagent");
-    // The × is its own control beside the pill's text, not inside the back button.
-    expect(close!.closest(".cv-subagent-of__pill")).toBeNull();
+    const corner = document.querySelector<HTMLElement>(".acpmux-view-corner");
+    expect(corner?.dataset.zone).toBe("top-end");
+    // Over the rows, outside the scroller: it takes no row's room.
+    expect(corner!.closest(".acpmux-scroll")).toBeNull();
+    const close = corner!.querySelector<HTMLButtonElement>(".cv-subagent-corner__close");
+    expect(close?.getAttribute("aria-label")).toBe("Close subagent");
+    expect(document.body.textContent).not.toContain("Subagent of");
+    expect(document.body.textContent).not.toContain("Lead");
     await act(async () => close!.click());
     expect(opened).toEqual([undefined]);
-    await act(async () => document.querySelector<HTMLElement>(".cv-subagent-of__pill")!.click());
-    expect(opened).toEqual([undefined, "lead"]);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-// Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the top".
-test("the Subagent of pill is pinned over the transcript's top, once, and its row keeps only its room", async () => {
+test("a subagent's own pane draws no close in the corner: its tab closes it", async () => {
   const root = createRoot(document.getElementById("root")!);
-  const rows = childView("unit", [group], { unit: [] }, new Set(), "Release review")!;
+  const rows = childView("unit", [group], { unit: [] }, new Set())!;
   try {
     await act(async () =>
       root.render(
         <SubagentNavContext.Provider value={() => {}}>
-          <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+          <VirtualTranscript
+            rows={rows}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            corner={<SubagentViewCorner agent={group.subagents![1]!} close={false} />}
+          />
         </SubagentNavContext.Provider>,
       ),
     );
-    const pills = document.querySelectorAll(".cv-subagent-of");
-    expect(pills).toHaveLength(1);
-    // Outside the scroller: its soft edge never fades the pill, and rows pass out of sight under it.
-    expect(pills[0]!.closest(".acpmux-pinned-top")).not.toBeNull();
-    expect(pills[0]!.closest(".acpmux-scroll")).toBeNull();
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    expect(scroller.hasAttribute("data-pinned-top")).toBe(true);
-    expect(scroller.style.getPropertyValue("--acpmux-view-top")).toBe("44px");
-    const slot = scroller.querySelector(".cv-subagent-of-slot");
-    expect(slot?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector(".cv-subagent-corner__close")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("a chat's own transcript pins nothing", async () => {
+test("a chat's own transcript draws no corner", async () => {
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () =>
       root.render(<VirtualTranscript rows={[group]} onToggleActivity={() => {}} expanded={new Set()} />),
     );
-    expect(document.querySelector(".acpmux-pinned-top")).toBeNull();
-    expect(document.querySelector(".acpmux-scroll")!.hasAttribute("data-pinned-top")).toBe(false);
+    expect(document.querySelector(".acpmux-view-corner")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

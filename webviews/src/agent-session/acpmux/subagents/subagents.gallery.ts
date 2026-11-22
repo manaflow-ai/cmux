@@ -6,10 +6,11 @@
 // right (summary/SummaryCard.tsx), which lists them with their live state from the same groups. In
 // the gallery's widths the pane has no room for the card's inline column (summary/cardState.ts,
 // #21564), so the card is the popover the header's Summary button opens, and a click outside it
-// closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it with
-// its own composer (SubagentComposer.tsx): "Message <subagent>", and a line naming the chat that
-// passes the message on, where the chat's composer would be.
+// closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that
+// subagent's own view (the child view): its rows from the top as a chat's, nested groups included,
+// with no line naming its parent (Leo, 2026-11-22), and a corner × to close it. A pane the app
+// opened on a subagent shows it with its own composer (SubagentComposer.tsx): "Message <subagent>",
+// and a line naming the chat that passes the message on, where the chat's composer would be.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
@@ -203,7 +204,7 @@ const cardRow = (ctx: PlayContext, name: string) =>
 const openChild = (name: string) => async (ctx: PlayContext) => {
   await openGroup(4)(ctx);
   await ctx.click({ role: "button", name: `Open ${name}` });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
 };
 
 /** Opens the first group and waits for its `count` subagent lines. A group of running agents in a
@@ -286,7 +287,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read a" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
       },
     },
     "codex-two-turns": {
@@ -383,7 +384,7 @@ export default agentPaneEntry({
       play: openGroup(AUDIT.length),
     },
     child: {
-      note: "A list line opened: the subagent's own view, under a Subagent of pill naming the chat.",
+      note: "A list line opened: the subagent's own view, its rows from the top as a chat's, a × in the top end corner.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
@@ -400,7 +401,7 @@ export default agentPaneEntry({
       },
     },
     "child-nested": {
-      note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
+      note: "A nested group in the child view opened, then its finished subagent: its rows from the top as a chat's, no line naming its parent.",
       height: 760,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
@@ -409,40 +410,48 @@ export default agentPaneEntry({
         if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
           await ctx.click({ selector: ".cv-subagents" });
         await ctx.click({ role: "button", name: "Open Unit tests" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__parent")?.textContent === "Test coverage");
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagents") && ctx.document.querySelector(".acpmux-view-corner"),
+        );
+        if (ctx.document.querySelector(".acpmux-scroll")?.textContent?.includes("Subagent of"))
+          throw new Error("the nested view names its parent");
       },
     },
     "child-back": {
-      note: "The pill goes back to the parent: the chat's transcript, its group still open.",
+      note: "From a nested subagent's view the × goes back to the chat's transcript, its group still open.",
       height: 680,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.click({ selector: ".cv-subagent-of__pill" });
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".cv-subagents" });
+        await ctx.click({ role: "button", name: "Open Unit tests" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-subagents"));
+        await ctx.click({ selector: ".cv-subagent-corner__close" });
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".cv-subagent"),
         );
       },
     },
     "child-close-hover": {
-      note: "The pill's × closes the subagent's view; hovered, its highlight covers the × alone, not the pill.",
+      note: "The corner × closes the subagent's view; hovered, its highlight covers the × alone, over no row's room.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__close"));
-        await ctx.hover({ selector: ".cv-subagent-of__close" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-corner__close"));
+        await ctx.hover({ selector: ".cv-subagent-corner__close" });
       },
     },
     "child-close": {
-      note: "The pill's × goes back to the chat's transcript, its group still open.",
+      note: "The corner × goes back to the chat's transcript, its group still open.",
       height: 680,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         await ctx.click({ role: "button", name: "Close subagent" });
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".cv-subagent"),
         );
       },
     },
@@ -455,7 +464,7 @@ export default agentPaneEntry({
         (ctx.document.activeElement as HTMLElement | null)?.blur?.();
         await ctx.press("Escape");
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".cv-subagent"),
         );
       },
     },
@@ -468,8 +477,11 @@ export default agentPaneEntry({
         page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-subagent-composer"),
+            ctx.document.querySelector(".acpmux-view-corner") &&
+            ctx.document.querySelector(".acpmux-subagent-composer"),
         );
+        if (ctx.document.querySelector(".cv-subagent-corner__close"))
+          throw new Error("a subagent's own pane drew the in-place ×; its tab closes it");
         if (ctx.document.querySelector(".acpmux-composer:not(.acpmux-subagent-composer)"))
           throw new Error("a subagent's own pane drew the chat's composer");
         if (ctx.document.body.textContent?.includes("Read only"))
@@ -571,7 +583,8 @@ export default agentPaneEntry({
         );
         const call = log.find((entry) => entry.method === "chat.subagentPane");
         if (call?.params?.focus !== true) throw new Error("a click must focus the subagent's pane");
-        if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("the chat pane switched to the subagent");
+        if (ctx.document.querySelector(".acpmux-view-corner"))
+          throw new Error("the chat pane switched to the subagent");
       }),
     },
     "card-open-pane": {
@@ -596,7 +609,8 @@ export default agentPaneEntry({
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
         await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
+          () =>
+            ctx.document.querySelector(".acpmux-view-corner") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
         );
       },
     },

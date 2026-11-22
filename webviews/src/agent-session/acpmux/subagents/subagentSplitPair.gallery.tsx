@@ -54,12 +54,12 @@ export default componentEntry<Props>({
   title: "Chat and its subagent side by side",
   area: "Agent pane",
   height: 660,
-  covers: ["agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow"],
+  covers: ["agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner"],
   keywords: ["subagent", "split", "side by side", "task thread"],
   load: async () => SplitPair,
   variants: {
     default: {
-      note: "Left: the chat, its subagents' states, Session Info open. Right: the subagent the person opened, titled by its task, its transcript, Session Info closed.",
+      note: "Left: the chat, its subagents' states, Session Info open. Right: the subagent the person opened, its tab titled by its task, its transcript from the top as a chat's, Session Info closed.",
       props: { gap: 1 },
       play: async (ctx) => {
         const left = await pane(ctx, "parent");
@@ -68,7 +68,8 @@ export default componentEntry<Props>({
           throw new Error("the parent's Session Info is not open");
         if (!left.querySelector(".acpmux-running-tray") || !left.querySelector(".cv-subagent-done"))
           throw new Error("the parent shows no subagent states");
-        if (!right.querySelector(".cv-subagent-of__task")) throw new Error("the child pane has no title");
+        if (right.querySelector(".acpmux-scroll")?.textContent?.includes("Subagent of"))
+          throw new Error("the child pane names the chat it came from");
         if (right.querySelector(".acpmux-session-info[data-presence='shown']"))
           throw new Error("the child pane inherited Session Info open");
       },

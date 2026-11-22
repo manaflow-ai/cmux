@@ -188,10 +188,8 @@ import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SubagentOfRow } from "./subagents/SubagentGroup";
-import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
 import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
@@ -1807,6 +1805,7 @@ function TranscriptView({
   endReserve: cardReserve = 0,
   minimapBeside = false,
   topInset = 0,
+  corner,
 }: {
   rows: readonly AcpmuxRow[];
   /// The pane's live transcript: it draws the streaming reply's row ahead of the pane's snapshot
@@ -1940,6 +1939,9 @@ function TranscriptView({
   /// this much taller, so the first row rests where it did below the row and the latest one where it did
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
+  /// Small controls floated in the top end corner, over the rows, taking no row's room: a subagent's
+  /// view's close and Resume (subagents/SubagentViewCorner.tsx). Its rows lie as a chat's do.
+  corner?: React.ReactNode;
 }) {
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
@@ -3864,21 +3866,7 @@ function TranscriptView({
   if (sameChat && (turnEnds || closingHeld) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;
-  // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
-  // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
-  // padding. Read when it comes and as the view resizes, never per streamed token.
-  const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
-  const pinned = pinnedPill !== undefined;
-  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
-  useLayoutEffect(() => {
-    const scroller = ref.current;
-    if (!pinned || !scroller || !thread.current) return;
-    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
-    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
-    const top = scroller.offsetTop + pad;
-    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
-  }, [pinned, height]);
-  // What floats over the transcript's top (Jump to new, the pinned pill) starts at its clear line:
+  // What floats over the transcript's top (Jump to new, a subagent view's corner) starts at its clear line:
   // the lower of where the transcript shows (the scroller's top in the stage, plus the part a one-tab
   // pane's row floats over) and the header's bottom. The stage also holds the header (the pane's tab
   // row) above the scroller, so the stage's own top is the tab strip, and nothing placed from the
@@ -3886,7 +3874,7 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
   // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
   // fixed height), moves the line before the frame paints.
-  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  const overTop = corner !== undefined || (sinceKey !== undefined && onJumpToSince !== undefined);
   const [clearTop, setClearTop] = useState(topInset);
   useLayoutEffect(() => {
     const scroller = ref.current;
@@ -7492,9 +7480,6 @@ function TranscriptView({
             // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
             // scroll a row into view above it.
             data-docked={dockSpace > 0 || undefined}
-            // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
-            // pass out of sight under it.
-            data-pinned-top={pinnedPill ? "" : undefined}
             // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
             // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
             // scroll restyles the scroller alone.
@@ -7505,7 +7490,6 @@ function TranscriptView({
                   ? 0
                   : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
-                ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
                 // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
                 ...LIVE_STEP_VARS,
               } as React.CSSProperties
@@ -7591,24 +7575,22 @@ function TranscriptView({
               {afterLatest}
             </div>
           )}
-          {pinnedPill && (
-            // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
-            // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
-            <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
-              <SubagentOfRow row={pinnedPill} />
+          {corner && (
+            // The top end corner (overlayLayout.ts `viewCorner`): a subagent view's close and Resume,
+            // over the rows, so its first row rests where a chat's does (Leo, 2026-11-22: "we should
+            // align things better").
+            <div className="acpmux-view-corner" data-zone="top-end" style={{ top: clearTop }}>
+              {corner}
             </div>
           )}
           {sinceKey !== undefined && onJumpToSince && sinceRow?.since && (
             // The top-start zone (overlayLayout.ts): what is new arrives where the eye settles, under
-            // the clear line and under a pinned "Subagent of" pill.
+            // the clear line.
             <div
               className="acpmux-over-top"
               data-zone="top-start"
               style={{
-                top: topZoneOffset({
-                  clearTop,
-                  pinnedBottom: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : undefined,
-                }),
+                top: topZoneOffset({ clearTop }),
               }}
             >
               <UnreadBanner

@@ -1,9 +1,10 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// A subagent's own view opens under a "Subagent of <chat>" pill (subagents/SubagentGroup.tsx
-// SubagentOfRow). It names the chat as the chat list does (sessionList.ts `sessionTitle`): a chat
-// with no title yet reads "New chat", never "Subagent of" with nothing after it, and acpmux's
-// generated name (`claude-2`) never shows. The page is the pane's dev entry with its browser host,
-// talking JSON-RPC to a stand-in acpmux daemon.
+// A subagent's view, opened in place in its chat's pane, draws no line about where it came from (Leo,
+// 2026-11-22: "the metadata about provenance or whatever like subagent of something. we shouldn't have
+// those."): no "Subagent of", no chat name, no task line over its rows. Its close is a small × in the
+// transcript's top end corner (subagents/SubagentViewCorner.tsx) that takes no row's room, and it
+// closes the view to the chat's. The page is the pane's dev entry with its browser host, talking
+// JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -12,13 +13,13 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => {
+await requireBrowserLane("agent-pane-subagent-view-top.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
-    console.warn("agent-pane-subagent-of-untitled: skipping (run `bunx playwright install chromium`)");
-    describe.skip("subagent of an untitled chat", () => test("chromium", () => {}));
+    console.warn("agent-pane-subagent-view-top: skipping (run `bunx playwright install chromium`)");
+    describe.skip("a subagent view's top", () => test("chromium", () => {}));
     return;
   }
   const { createServer } = await import("vite");
@@ -102,8 +103,8 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  /// Opens `session`'s chat, then its subagent's own view, and reads the pill's parent name.
-  const parentShown = async (session: string) => {
+  /// Opens `session`'s chat, then its subagent's view in place, and reads what its top draws.
+  const viewTop = async (session: string) => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
@@ -115,11 +116,15 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
       .locator(".cv-subagent-done", { hasText: "Review the uploader branch" })
       .locator("button.cv-agent-tag.is-open")
       .click();
-    await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
-    const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
-    const pill = (await page.locator(".cv-subagent-of__pill").innerText()).replace(/\s+/g, " ").trim();
+    const close = page.locator(".acpmux-view-corner .cv-subagent-corner__close");
+    await close.waitFor({ timeout: 5_000 });
+    const transcript = (await page.locator(".acpmux-scroll").innerText()).replace(/\s+/g, " ");
+    const corner = (await page.locator(".acpmux-view-corner").innerText()).trim();
+    await close.click();
+    await page.getByText("The review is in.").waitFor({ timeout: 5_000 });
+    const closed = (await page.locator(".acpmux-view-corner").count()) === 0;
     await page.close();
-    return { parent, pill };
+    return { transcript, corner, closed };
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -151,21 +156,18 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     await daemon?.stop(true);
   });
 
-  test("the pill names a titled chat by its title", async () => {
-    expect((await parentShown(TITLED)).parent).toBe("Release review");
-  });
-
-  test("an untitled chat's pill names it as the chat list does, not nothing", async () => {
-    expect((await parentShown(UNTITLED)).parent).toBe("New chat");
-  });
-
-  test("a name acpmux generated after the agent never shows in the pill", async () => {
-    expect((await parentShown(GENERATED)).parent).toBe("New chat");
-  });
-
-  // Leo's subagent view read "Subagent of · Reply with only: OK": the chat's name after a dot, and
-  // not what the subagent was asked to do. It reads "Subagent of <chat> · <task>".
-  test("the pill reads Subagent of <chat> · <the subagent's task>", async () => {
-    expect((await parentShown(TITLED)).pill).toBe("Subagent of Release review · Review the uploader branch");
+  test("no line names the chat it came from, titled, untitled or named by acpmux", async () => {
+    for (const [session, chat] of [
+      [TITLED, "Release review"],
+      [UNTITLED, "New chat"],
+      [GENERATED, "claude-2"],
+    ] as const) {
+      const top = await viewTop(session);
+      expect(top.transcript).not.toContain("Subagent of");
+      expect(top.transcript).not.toContain(chat);
+      // The corner holds only icon buttons: no words.
+      expect(top.corner).toBe("");
+      expect(top.closed).toBe(true);
+    }
   });
 });

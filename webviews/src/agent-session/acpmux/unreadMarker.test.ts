@@ -125,6 +125,7 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.unreadBanner.zone]).toBe("dynamic");
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.jumpUp.zone]).toBe("dynamic");
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.sessionInfo.zone]).toBe("stable");
+  expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.viewCorner.zone]).toBe("stable");
   // The sheets agree: the banner's zone starts on the column's start inset, Jump up stands one
   // control and one gap above Jump to latest, which is centered on the composer's line.
   const unreadCss = readFileSync(join(import.meta.dir, "conversation/unread.css"), "utf8");
@@ -137,8 +138,7 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   expect(conversationCss).not.toMatch(/\.cv-since\s*\{/);
 });
 
-test("the top zone starts under the clear line, the tab row and a pinned pill", () => {
+test("the top zone starts under the clear line and the tab row", () => {
   expect(topZoneOffset({ clearTop: 40 })).toBe(40);
   expect(topZoneOffset({ clearTop: 40, floor: 52 })).toBe(52);
-  expect(topZoneOffset({ clearTop: 40, pinnedBottom: 72 })).toBe(72);
 });

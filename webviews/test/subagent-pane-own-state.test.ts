@@ -225,7 +225,7 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         "subagent:a1",
       ),
     );
-    await page.locator(".cv-subagent-of").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
@@ -233,8 +233,12 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     expect(shown.text).not.toContain("Read only");
     expect(shown.placeholder).toBe("Message Reviewer");
     expect(shown.via).toContain("Release review");
-    // "Subagent of" shows the chat in this pane: the chat's composer, queue and bar are back.
-    await page.locator(".cv-subagent-of__pill").click();
+    // Its pane draws no line naming the chat (Leo, 2026-11-22) and no × of its own (its tab closes
+    // it). Escape closes it to the chat (subagentEscape.ts): with no app to focus the opening chat's
+    // tab, this pane shows the chat, and the chat's composer, queue and bar are back.
+    expect(await page.locator(".cv-subagent-corner__close").count()).toBe(0);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Escape");
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     const chat = await bottom(page);
     expect(chat.composer).toBe(1);
