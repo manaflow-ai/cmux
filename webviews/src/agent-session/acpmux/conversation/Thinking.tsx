@@ -26,6 +26,7 @@ import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
 import { ThinkingGlyph } from "./ThinkingGlyph";
+import { JumpDots } from "./JumpDots";
 import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
 import { slotVariant, useSlotVariant } from "../../../slots/registry";
@@ -447,6 +448,7 @@ export function Thinking({
   since,
   now = Date.now,
   doing,
+  activityDots = false,
   doingAt,
   doingShell = false,
   sendTo,
@@ -477,6 +479,8 @@ export function Thinking({
   since?: number;
   now?: () => number;
   doing?: string;
+  /// The live line draws a look's working dots before its words (thinkingLook.ts `jumpButton: "dots"`).
+  activityDots?: boolean;
   doingAt?: number;
   doingShell?: boolean;
   /// The call in flight sends a message to `sendTo` (the sub-session `sendSession`, by its name
@@ -531,6 +535,7 @@ export function Thinking({
   const t = useT();
   const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
+  const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
@@ -789,6 +794,7 @@ export function Thinking({
         <span className="cv-shimmer__row">
           {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
           {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
+          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}
