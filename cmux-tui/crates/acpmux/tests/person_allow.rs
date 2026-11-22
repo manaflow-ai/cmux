@@ -356,6 +356,44 @@ async fn an_agent_side_client_never_widens_what_runs_without_asking() {
     }
 }
 
+/// Only an approval mode needs the person. A speed (`fast-mode`), suggestion or collaboration
+/// choice decides nothing that runs without asking, so the CLI sets it on a chat that asks
+/// (Leo, ask-e8a6bcbb62: agents verify the Fast toggle through the CLI); a mode that does not
+/// ask stays refused.
+#[tokio::test]
+async fn the_cli_sets_options_that_are_no_approval_mode_without_the_person() {
+    let d = Daemon::start("cliopts", None);
+    let mut cli = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut cli, &d).await;
+    for (config, value) in [
+        ("fast-mode", "default"),
+        ("fast-mode", "on"),
+        ("prompt-suggestions", "on"),
+        ("collaboration_mode", "default"),
+        ("collaboration_mode", "plan"),
+        ("model", "m2"),
+        ("reasoning_effort", "high"),
+    ] {
+        let p = json!({"sessionId": id, "configId": config, "value": value});
+        let r = cli.call("session/set_config_option", p.clone()).await;
+        assert_ne!(reason(&r), REASON, "{p}: {r}");
+    }
+    for (m, p) in [
+        ("session/set_mode", json!({"sessionId": id, "modeId": "bypass"})),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "mode", "value": "yolo"}),
+        ),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "approval_policy", "value": "never"}),
+        ),
+    ] {
+        let r = cli.call(m, p.clone()).await;
+        assert_eq!(reason(&r), REASON, "{m} {p}: {r}");
+    }
+}
+
 #[tokio::test]
 async fn the_connection_that_presented_the_person_key_allows_and_grants() {
     let d = Daemon::start("person", Some(KEY));
