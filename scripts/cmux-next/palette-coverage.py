@@ -13,8 +13,10 @@ scripts/cmux-next/check-action-surfaces.sh):
           entry: an exemption that names the palette row standing in for it (FAMILY: a family's one row, the
           default engine's row), and a live-input action that only a right-click menu offers (Copy Link on the
           link under the pointer: the palette has no pointer).
-  menu    a hand-built menu (`context_menus_not_exported`): its rows are not registry actions, so the palette
-          cannot know them. It counts until its rows become actions or its keep reason says why none is needed.
+  menu    a hand-built menu (`context_menus_not_exported`). plans/cmux-next/hand-built-menus.json (generated from
+          the Rust catalog's hand_built_menus.rs, whose test fails on a row naming no palette action) lists each
+          one's rows by action id; a menu is covered when it is listed there and every row and registry menu it
+          names is offered (cmux#51026), and counts as a gap otherwise.
   cli     cmux-tui's own grammar verbs (`workspace create`, `tab pin`, `closed reopen`), not app actions, so the
           export does not list them. `cli_verbs` in the keep list holds one entry per verb: {verb, palette} names
           the palette-offered (or FAMILY) action that does the same for a person, {verb, reason} says with
@@ -51,6 +53,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 KEEP = ROOT / "plans/cmux-next/palette-coverage.json"
 SURFACES = ROOT / "plans/cmux-next/action-surfaces.json"
+MENUS = ROOT / "plans/cmux-next/hand-built-menus.json"
 CATALOG = ROOT / "plans/cmux-next/action-catalog.json"
 KEY_MAP = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteKeyMap.swift"
 KINDS = ("action", "menu", "cli")
@@ -59,9 +62,24 @@ KEEP_REASON = re.compile(r"keep: \S[^\n]*$")
 FAMILY = {"familyMember", "duplicateOfDefault", "secondaryEngine"}
 
 
-def gaps(surfaces: dict) -> dict[tuple[str, str], str]:
+def menu_gap(menu: dict, declared: dict | None, offered: set[str], contexts: set[str]) -> str | None:
+    """Why the palette does not cover hand-built `menu` (its rows by `declared`), or None when it does."""
+    where = f"hand-built menu in {menu.get('source')}"
+    if declared is None:
+        return f"{where}: no rows in hand-built-menus.json (cmux-action-catalog hand_built_menus.rs)"
+    off = [r for r in declared.get("rows", []) if r not in offered]
+    off += [f"menu {c}" for c in declared.get("contexts", []) if c not in contexts]
+    if off or not (declared.get("rows") or declared.get("contexts") or declared.get("pointer_rows")):
+        return f"{where}: rows the palette does not offer: {', '.join(off) or 'none listed'}"
+    return None
+
+
+def gaps(surfaces: dict, menus: dict | None = None) -> dict[tuple[str, str], str]:
     """{(surface, name): what it is} for every CLI or menu action the palette does not offer."""
     out: dict[tuple[str, str], str] = {}
+    offered = {a["id"] for a in surfaces.get("actions", []) if a.get("palette") == "offered" or a.get("palette") in FAMILY}
+    contexts = set(surfaces.get("context_menus") or {})
+    declared = {m.get("name"): m for m in (menus or {}).get("menus", [])}
     for a in surfaces.get("actions", []):
         palette = a.get("palette")
         cli, main_menu, context = a.get("cli") == "offered", a.get("main_menu"), a.get("context_menu") == "offered"
@@ -74,7 +92,8 @@ def gaps(surfaces: dict) -> dict[tuple[str, str], str]:
         where += [f"right-click {','.join(a.get('context_menus') or [])}"] if context else []
         out[("action", a["id"])] = f"{a.get('title')} (palette: {palette}; {'; '.join(where)})"
     for m in surfaces.get("context_menus_not_exported", []):
-        out[("menu", m["name"])] = f"hand-built menu in {m.get('source')}"
+        if (why := menu_gap(m, declared.get(m["name"]), offered, contexts)) is not None:
+            out[("menu", m["name"])] = why
     return out
 
 
@@ -420,7 +439,7 @@ def refresh_cli(binary: str, source: str | None) -> int:
 def report() -> dict:
     keep = json.loads(KEEP.read_text())
     surfaces = json.loads(SURFACES.read_text())
-    found = gaps(surfaces)
+    found = gaps(surfaces, json.loads(MENUS.read_text()))
     if "cli" in keep.get("inventoried", []):
         found |= cli_gaps(surfaces, keep)
     gone = missing(found, keep)
@@ -447,8 +466,15 @@ class Rules(unittest.TestCase):
         self.assertEqual(gaps({"actions": covered}), {})
         self.assertIn(("action", "x"), gaps({"actions": [self.action(palette="liveInput", cli="offered")]}))
 
-    def test_hand_built_menus_are_gaps(self):
-        self.assertIn(("menu", "m"), gaps({"context_menus_not_exported": [{"name": "m", "source": "M.swift"}]}))
+    def test_hand_built_menus_are_gaps_until_their_rows_are_palette_rows(self):
+        surfaces = {"actions": [self.action(id="a", palette="offered"), self.action(id="b")],
+                    "context_menus": {"tab": {}}, "context_menus_not_exported": [{"name": "m", "source": "M.swift"}]}
+        self.assertIn(("menu", "m"), gaps(surfaces))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a", "b"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["pane"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": None}]}))
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": "a page's own"}]}), {})
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["tab"]}]}), {})
 
     def test_keep_entries_name_live_gaps_with_a_reason(self):
         found = {("action", "x"): "X", ("menu", "m"): "M"}
