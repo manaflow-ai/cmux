@@ -1,0 +1,28 @@
+{
+  "envs": [
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "design-system-state-dracula",
+      "entry": "ui.design-system-state",
+      "variant": "board",
+      "width": 1200,
+      "height": 1000,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "today": "",
+        "target": ":root:root{--ui-popup-radius:12px;--ui-row-radius:8px;--ui-popup-padding:4px}:root:root .ui-popup.ui-glass,:root:root .ui-card.ui-glass{border-radius:12px}:root:root .ui-glass.ui-glass-content{border-radius:12px}:root:root .ui-notice[data-placement=\"stack\"]{border-radius:12px;padding:8px 8px 8px 12px;--glass-elevation:var(--elevation-2)}:root:root .ui-tooltip.ui-glass:not(.ui-card),:root:root .ui-title-tooltip.ui-glass{border-radius:8px;--glass-tint:color-mix(in srgb,var(--glass-surface) var(--ds-transient-web-tint),transparent);--glass-backdrop:blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));--glass-elevation:var(--elevation-2)}:root:root .ui-notice[data-placement=\"stack\"]{--glass-tint:color-mix(in srgb,var(--glass-surface) var(--ds-transient-web-tint),transparent);--glass-backdrop:blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));--glass-elevation:var(--elevation-2)}:root:root .ui-dialog.ui-glass{--ui-dialog-padding:12px;padding:12px;border-radius:20px;--glass-elevation:var(--elevation-2)}:root:root [data-ds-bespoke=\"button\"]{border-radius:8px}:root:root .ui-ghost{height:28px}:root:root [data-ds-bespoke=\"chip\"],:root:root .kit-pill[data-size=\"md\"]{border-radius:6px}:root:root .ds-state .acpmux-permission-card.ui-glass-content{border-radius:12px;padding:12px;border:var(--cmux-hairline) solid var(--ds-surface-card-line);background:var(--ds-surface-card);--glass-backdrop:none;--glass-elevation:0 0 transparent;box-shadow:none}:root:root .ds-state .acpmux-permission-buttons button{border-radius:8px;min-height:28px}:root:root .ds-state .cv-link-preview.ui-card.ui-glass{border-radius:12px;--glass-tint:color-mix(in srgb,var(--glass-surface) var(--ds-transient-web-tint),transparent);--glass-backdrop:blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));--glass-elevation:var(--elevation-2)}:root:root .ds-state .cv-link-preview__split{border-radius:8px}"
+      },
+      "armQuery": {
+        "today": {
+          "theme": "Dracula"
+        },
+        "target": {
+          "theme": "Dracula"
+        }
+      }
+    }
+  ]
+}
