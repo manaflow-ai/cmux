@@ -14,6 +14,7 @@ import type { AgentRow, AgentsState } from "./ops";
 import { OPS } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import { agentDetail, agentsStatus } from "./text";
+import { ProviderReadiness, type ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
 
 /** How the agent list is drawn (the gallery compares them; `list` ships). */
 export type AgentsLook = "cards" | "list" | "compact";
@@ -117,13 +118,24 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
   );
 }
 
-export function AgentsStep({ agents, look }: { agents: AgentsState | null; look: AgentsLook }) {
+export function AgentsStep({
+  agents,
+  look,
+  readiness,
+}: {
+  agents: AgentsState | null;
+  look: AgentsLook;
+  /** The providers' readiness rows (logins done right), above the agent list when given. Gallery
+   * only until the host sends them. */
+  readiness?: ProviderReadinessProps;
+}) {
   const { strings } = useOnboarding();
   const status = agentsStatus(strings, agents);
   const rows = agents?.rows ?? [];
   return (
     <div className="onb-agents">
       <div className="onb-scroll">
+        {readiness && <ProviderReadiness {...readiness} />}
         <ul className="onb-agent-list" data-look={look} hidden={rows.length === 0}>
           {rows.map((row) => (
             <AgentListRow key={row.id} row={row} look={look} />

@@ -17,6 +17,7 @@ import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import { mockDevicesState } from "./mockProvider";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -1506,6 +1507,10 @@ Object.assign(variants, {
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-sign-in-in-place": variant("accounts", {
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    note: "A host that signs in in place: GitHub, ChatGPT and Claude accounts; Add account or Sign in shows the code in the row (variant A).",
+  }),
   "accounts-cmux-signing-in": variant("accounts", {
     accounts: accounts({}, { cmux: cmuxSigningIn }),
     note: "Sign In to cmux in progress: open it in the browser, or cancel.",
@@ -1860,6 +1865,7 @@ export default settingsPageEntry({
     "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountSignInSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",

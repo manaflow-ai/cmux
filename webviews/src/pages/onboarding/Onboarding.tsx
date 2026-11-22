@@ -10,6 +10,7 @@ import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
+import type { ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
 import { AgentToolsStep } from "./AgentToolsStep";
 import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
@@ -70,10 +71,12 @@ function Scaffold({
   state,
   agentsLook,
   makeItYoursLook,
+  readiness,
 }: {
   state: OnboardingState;
   agentsLook: AgentsLook;
   makeItYoursLook: MakeItYoursLook;
+  readiness?: ProviderReadinessProps;
 }) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
@@ -98,7 +101,7 @@ function Scaffold({
       </header>
       <div className="onb-body">
         {agents ? (
-          <AgentsStep agents={state.agents} look={agentsLook} />
+          <AgentsStep agents={state.agents} look={agentsLook} readiness={readiness} />
         ) : tools ? (
           <AgentToolsStep tools={state.agentTools} />
         ) : make ? (
@@ -117,11 +120,14 @@ export function OnboardingPage({
   strings,
   agentsLook = DEFAULT_AGENTS_LOOK,
   makeItYoursLook = DEFAULT_MAKE_IT_YOURS_LOOK,
+  readiness,
 }: {
   store: OnboardingStore;
   strings: Strings;
   agentsLook?: AgentsLook;
   makeItYoursLook?: MakeItYoursLook;
+  /** The providers' readiness rows on the agents step (gallery only until the host sends them). */
+  readiness?: ProviderReadinessProps;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   useEffect(() => {
@@ -155,7 +161,7 @@ export function OnboardingPage({
             <ComputerUseStep computerUse={state.computerUse} />
           ) : null
         ) : (
-          <Scaffold state={state} agentsLook={agentsLook} makeItYoursLook={makeItYoursLook} />
+          <Scaffold state={state} agentsLook={agentsLook} makeItYoursLook={makeItYoursLook} readiness={readiness} />
         )}
       </div>
     </OnboardingContext.Provider>

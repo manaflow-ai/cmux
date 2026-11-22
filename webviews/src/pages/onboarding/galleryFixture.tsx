@@ -19,6 +19,7 @@ import table from "./generated/strings.json";
 import { MockOnboardingProvider } from "./mockProvider";
 import { OnboardingPage } from "./Onboarding";
 import { OnboardingStore } from "./store";
+import { READINESS, type ReadinessFixture } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
   step?: "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
@@ -29,6 +30,8 @@ export type OnboardingGalleryProps = {
   look?: AgentsLook;
   makeItYours?: MakeItYoursFixture;
   makeLook?: MakeItYoursLook;
+  /** The providers' readiness rows over the agents step (shared/signIn/galleryFixtures.ts). */
+  readiness?: ReadinessFixture;
 };
 
 export function OnboardingGallery({
@@ -40,6 +43,7 @@ export function OnboardingGallery({
   look,
   makeItYours,
   makeLook,
+  readiness,
 }: OnboardingGalleryProps) {
   const [store] = useState(() => {
     const state =
@@ -55,5 +59,22 @@ export function OnboardingGallery({
     return new OnboardingStore(new MockOnboardingProvider(step), state);
   });
   const [strings] = useState(() => createStrings(table));
-  return <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />;
+  const noop = () => {};
+  return (
+    <OnboardingPage
+      store={store}
+      strings={strings}
+      agentsLook={look}
+      makeItYoursLook={makeLook}
+      readiness={
+        readiness
+          ? {
+              rows: READINESS[readiness],
+              onAction: noop,
+              card: { onCopy: noop, onCancel: noop, onRetry: noop, onDone: noop, onInstall: noop, onSubmitCode: noop },
+            }
+          : undefined
+      }
+    />
+  );
 }

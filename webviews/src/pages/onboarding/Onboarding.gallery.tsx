@@ -17,6 +17,8 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
+    "pages/shared/signIn/ProviderReadiness.tsx",
+    "pages/shared/signIn/galleryFixtures.ts#READINESS",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
   styles: async () => {
@@ -49,6 +51,25 @@ export default componentEntry<OnboardingGalleryProps>({
     "agents-compact": {
       note: "Compact rows on the glass, the sign-in state as a pill and Sign In as a quiet button.",
       props: { step: "agents", agents: "mixed", look: "compact" },
+    },
+    // Provider readiness (logins done right): one row per provider and one action each, over the
+    // agents list. Every state: not installed, installing, sign-in required, signing in with the
+    // code, ready, failed.
+    "agents-readiness-fresh": {
+      note: "First run: GitHub and Claude need a sign-in, Codex is not installed. Sign in or Install.",
+      props: { step: "agents", agents: "mixed", readiness: "fresh" },
+    },
+    "agents-readiness-signing-in": {
+      note: "ChatGPT signing in: the code is in its row, already copied; the page is open beside the window.",
+      props: { step: "agents", agents: "mixed", readiness: "signingIn" },
+    },
+    "agents-readiness-mixed": {
+      note: "GitHub ready, Codex installing (no button: it only waits), Claude failed with Try again.",
+      props: { step: "agents", agents: "mixed", readiness: "mixed" },
+    },
+    "agents-readiness-ready": {
+      note: "All three ready: each offers Add account for another personal account.",
+      props: { step: "agents", agents: "mixed", readiness: "ready" },
     },
     "agents-checking": { props: { step: "agents", agents: "checking" } },
     "agents-signing-in": { props: { step: "agents", agents: "signingIn" } },

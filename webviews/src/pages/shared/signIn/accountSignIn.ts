@@ -22,6 +22,9 @@ export const ACCOUNT_METHODS = {
   cancel: "account.sign_in.cancel",
   switch: "account.switch",
   remove: "account.remove",
+  /** Not in the first wire brief (it named Use, Sign out and Remove but no sign-out method): the
+   * name the page sends until the daemon names its own. */
+  signOut: "account.sign_out",
 } as const;
 
 /** The same gestures as Settings > Accounts run actions (`cmux.settings.accounts.run`), which the
@@ -33,6 +36,7 @@ export const ACCOUNT_ACTIONS = {
   cancel: "signInCancel",
   switch: "accountSwitch",
   remove: "accountRemove",
+  signOut: "accountSignOut",
 } as const;
 
 /** `account.sign_in`'s params. */
@@ -148,10 +152,10 @@ export function parseAccountRow(raw: unknown): AccountRowWire | undefined {
   };
 }
 
-/** The refusal's `reason` (top level, or under `data`), as the card's failure. */
+/** The refusal's `reason` (top level, or under `data` or `details`), as the card's failure. */
 export function signInFailure(error: unknown): SignInFailure {
-  const value = (error ?? {}) as { reason?: unknown; data?: { reason?: unknown } };
-  const reason = value.reason ?? value.data?.reason;
+  const value = (error ?? {}) as { reason?: unknown; data?: { reason?: unknown }; details?: { reason?: unknown } };
+  const reason = value.reason ?? value.data?.reason ?? value.details?.reason;
   switch (reason) {
     case "not_installed":
     case "cli_missing":

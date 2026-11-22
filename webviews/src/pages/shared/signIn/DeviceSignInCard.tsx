@@ -149,7 +149,12 @@ function ActionButtons({
       out.push(button("tryAgain", strings.t("signIn.tryAgain"), props.onRetry, true));
       break;
     case "install":
-      out.push(button("install", strings.t("signIn.install"), props.onInstall, true));
+      // No installer here: the card closes instead of offering a button that does nothing.
+      out.push(
+        props.onInstall
+          ? button("install", strings.t("signIn.install"), props.onInstall, true)
+          : button("done", strings.t("signIn.done"), props.onDone, true),
+      );
       break;
     case "cancel":
       break;

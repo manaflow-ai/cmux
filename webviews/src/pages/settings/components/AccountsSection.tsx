@@ -11,6 +11,7 @@ import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
+import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 
@@ -75,6 +76,7 @@ function AccountsBody() {
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
       <GitHubAccountsCard />
+      <AccountSignInSection />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
