@@ -29,7 +29,7 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct InFlight {
     next: AtomicU64,
-    by_id: Mutex<HashMap<String, Entry>>,
+    by_id: Arc<Mutex<HashMap<String, Entry>>>,
     /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
     gauge: Arc<AtomicUsize>,
 }
@@ -41,6 +41,12 @@ pub(crate) struct Ticket {
     claim: Option<Claim>,
     pub cancel: oneshot::Receiver<()>,
     _slot: Option<OwnedSemaphorePermit>,
+    cleanup: Option<Cleanup>,
+}
+
+struct Cleanup {
+    by_id: Arc<Mutex<HashMap<String, Entry>>>,
+    gauge: Arc<AtomicUsize>,
 }
 
 /// What takes a request's entry for its own answer ([`InFlight::claim`]): its key and
@@ -59,10 +65,25 @@ impl Ticket {
     }
 }
 
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        let Some(claim) = self.claim.as_ref() else { return };
+        if claim.won.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(cleanup) = self.cleanup.as_ref() else { return };
+        let mut map = cleanup.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(&claim.key).is_some_and(|entry| entry.generation == claim.generation) {
+            map.remove(&claim.key);
+            cleanup.gauge.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
 impl InFlight {
     /// A connection's table, counted in the hub's `gauge`.
     pub(crate) fn counted(gauge: Arc<AtomicUsize>) -> Self {
-        Self { next: AtomicU64::new(0), by_id: Mutex::default(), gauge }
+        Self { next: AtomicU64::new(0), by_id: Arc::new(Mutex::default()), gauge }
     }
 
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
@@ -88,7 +109,7 @@ impl InFlight {
         let key = id.to_string();
         let mut map = self.map();
         if id.is_null() || map.contains_key(&key) {
-            return Ticket { claim: None, cancel: rx, _slot: slot };
+            return Ticket { claim: None, cancel: rx, _slot: slot, cleanup: None };
         }
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
@@ -97,7 +118,15 @@ impl InFlight {
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
         let won = Arc::default();
-        Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
+        Ticket {
+            claim: Some(Claim { key, generation, won }),
+            cancel: rx,
+            _slot: None,
+            cleanup: Some(Cleanup {
+                by_id: Arc::clone(&self.by_id),
+                gauge: Arc::clone(&self.gauge),
+            }),
+        }
     }
 
     /// The client cancelled request `id`: its method and dual key when it was in flight. Its
@@ -144,7 +173,9 @@ impl InFlight {
 impl Drop for InFlight {
     /// The connection ended: its requests still in flight leave the hub's count with it.
     fn drop(&mut self) {
-        let left = self.map().len();
+        let mut map = self.map();
+        let left = map.len();
+        map.clear();
         self.gauge.fetch_sub(left, Ordering::Relaxed);
     }
 }
@@ -175,6 +206,45 @@ mod tests {
         assert_eq!(gauge.load(Ordering::Relaxed), 1);
         drop(flights);
         assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
+    }
+
+    #[test]
+    fn dropping_a_request_ticket_abandons_its_entry_and_slot() {
+        let slots = Arc::new(Semaphore::new(1));
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
+        let ticket = flights.begin(
+            &json!(1),
+            "held",
+            Some(slots.clone().try_acquire_owned().unwrap()),
+            None,
+        );
+        assert_eq!(
+            (flights.len(), gauge.load(Ordering::Relaxed), slots.available_permits()),
+            (1, 1, 0)
+        );
+        drop(ticket);
+        assert_eq!(
+            (flights.len(), gauge.load(Ordering::Relaxed), slots.available_permits()),
+            (0, 0, 1)
+        );
+    }
+
+    #[test]
+    fn dropping_a_connection_drains_tickets_without_a_late_gauge_decrement() {
+        let slots = Arc::new(Semaphore::new(1));
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
+        let ticket = flights.begin(
+            &json!(1),
+            "held",
+            Some(slots.clone().try_acquire_owned().unwrap()),
+            None,
+        );
+        drop(flights);
+        assert_eq!((gauge.load(Ordering::Relaxed), slots.available_permits()), (0, 1));
+        drop(ticket);
+        assert_eq!(gauge.load(Ordering::Relaxed), 0);
     }
 
     #[test]

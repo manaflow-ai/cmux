@@ -158,6 +158,7 @@ impl Hub {
                 let events = hub.subscribe();
                 // Handle the gap and reset turn counters off the runtime's threads.
                 let checked = hub.clone();
+                // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
                 let _ = tokio::task::spawn_blocking(move || checked.observe_resume(false)).await;
                 if !hub.resume_needed() {
                     hub.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).park();

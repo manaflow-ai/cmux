@@ -38,6 +38,10 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
+// PR1b wires these shutdown-aware workers into request paths; until that lands,
+// keep the staged helper available without a dead-code red in any build.
+#[allow(dead_code)]
+pub(crate) mod blocking;
 #[path = "cli/bounded_child.rs"]
 pub(crate) mod bounded_child;
 pub mod build_info;

@@ -1285,7 +1285,7 @@ pub async fn serve_ws_until(
             // Answered through the connection's outbound queue once it is made, in order with
             // every other line and counted against its byte bound (`outbound.rs`).
             let (uploads, replies) = tokio::sync::watch::channel(None);
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies, hub.request_stop.clone());
             let read_shutdown = shutdown.clone();
             let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
@@ -1832,6 +1832,13 @@ async fn serve_connection_from(
                         continue;
                     }
                 };
+                if hub.request_stop.is_cancelled() {
+                    // The reader knows this request was not admitted or spawned. Preserve the
+                    // ordered v1 refusal so a caller may retry it on the successor daemon.
+                    drop(slot);
+                    conn.send(&Message::err(id, crate::hub::shutting_down_before_create()));
+                    continue;
+                }
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 if m == method::INITIALIZE
@@ -1840,10 +1847,18 @@ async fn serve_connection_from(
                         params.as_ref().and_then(|p| p.pointer("/_meta/acpmux/callerSession"))
                     && let Some(id) = caller.get("sessionId").and_then(Value::as_str)
                 {
-                    hub.session_meta(id).await;
-                    // Known once adoption has read the earlier run's token (`settle_caller`).
-                    if let Some(token) = caller.get("token").and_then(Value::as_str) {
-                        hub.settle_caller(id, token).await;
+                    let stop = hub.request_stop.clone();
+                    let initialized = crate::request_cancel::until_stop(stop, async {
+                        hub.session_meta(id).await;
+                        // Known once adoption has read the earlier run's token (`settle_caller`).
+                        if let Some(token) = caller.get("token").and_then(Value::as_str) {
+                            hub.settle_caller(id, token).await;
+                        }
+                    })
+                    .await;
+                    if matches!(initialized, crate::request_cancel::WaitOutcome::Stopped) {
+                        drop(slot);
+                        break;
                     }
                 }
                 // The host's sender token (`sender_token.rs`) leaves the request here, before
@@ -1864,7 +1879,9 @@ async fn serve_connection_from(
                 // the copy read first runs it and the other answers with its answer.
                 let seen = dual_requests::key_for(conn.dual_principal, &m, params.as_ref());
                 let dual_key = seen.as_ref().map(|(key, _)| key.clone());
-                let dual = seen.and_then(dual_requests::admit);
+                let dual = seen.and_then(|seen| {
+                    dual_requests::admit_with_fence(seen, hub.request_stop.clone())
+                });
                 let dual_key = dual_key.filter(|_| dual.is_some());
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
@@ -1874,10 +1891,16 @@ async fn serve_connection_from(
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
+                let stop = hub.request_stop.clone();
                 owner.scope.spawn_named("conn-request", async move {
-                    let mut first = match dual_requests::before_run(dual).await {
-                        Ok(first) => first,
-                        Err(answer) => {
+                    let mut first = match crate::request_cancel::until_stop(
+                        stop.clone(),
+                        dual_requests::before_run(dual),
+                    )
+                    .await
+                    {
+                        crate::request_cancel::WaitOutcome::Complete(Ok(first)) => first,
+                        crate::request_cancel::WaitOutcome::Complete(Err(answer)) => {
                             // A cancel's part on this connection is its own (`dual_requests.rs`).
                             if m == method::SESSION_CANCEL {
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
@@ -1885,6 +1908,12 @@ async fn serve_connection_from(
                             if conn.in_flight.finish(&ticket) {
                                 conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                             }
+                            return;
+                        }
+                        crate::request_cancel::WaitOutcome::Stopped => {
+                            return;
+                        }
+                        crate::request_cancel::WaitOutcome::Cancelled => {
                             return;
                         }
                     };
@@ -1901,32 +1930,54 @@ async fn serve_connection_from(
                     };
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
-                    let served = crate::request_cancel::until_either(cancel, also, serve).await;
-                    // Cancelled: the cancel answered it, and a copy sent on another path gets
-                    // that answer too (`dual_requests.rs`).
-                    let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))
-                    else {
-                        // Stopped by a cancel of its copy on another connection: this copy's
-                        // answer here is still owed, and is the cancel's.
-                        if conn.in_flight.finish(&ticket) {
-                            let cancelled = Err(crate::request_cancel::cancelled_error());
-                            conn.send_replying(
-                                &dual_requests::reply(id.clone(), cancelled),
-                                Some(&m),
-                            );
+                    let served =
+                        crate::request_cancel::until_shutdown(cancel, also, stop, serve).await;
+                    // A daemon stop is a third outcome: drop the ticket and unfinished first
+                    // copy without sending a client-cancel answer or notifying an agent.
+                    let (result, sent) = match served {
+                        crate::request_cancel::WaitOutcome::Stopped => return,
+                        crate::request_cancel::WaitOutcome::Complete((result, sent)) => {
+                            let Some(result) =
+                                conn.in_flight.finish(&ticket).then_some((result, sent))
+                            else {
+                                tracing::debug!(
+                                    target: crate::request_cancel::LOG_TARGET,
+                                    conn = %conn.id,
+                                    id = %id,
+                                    method = %m,
+                                    "dropped the answer to a request its client cancelled"
+                                );
+                                dual_requests::finish(
+                                    first,
+                                    Some(&Err(crate::request_cancel::cancelled_error())),
+                                );
+                                return;
+                            };
+                            result
                         }
-                        tracing::debug!(
-                            target: crate::request_cancel::LOG_TARGET,
-                            conn = %conn.id,
-                            id = %id,
-                            method = %m,
-                            "dropped the answer to a request its client cancelled"
-                        );
-                        dual_requests::finish(
-                            first,
-                            Some(&Err(crate::request_cancel::cancelled_error())),
-                        );
-                        return;
+                        crate::request_cancel::WaitOutcome::Cancelled => {
+                            // Stopped by a cancel of its copy on another connection: this copy's
+                            // answer here is still owed, and is the cancel's.
+                            if conn.in_flight.finish(&ticket) {
+                                let cancelled = Err(crate::request_cancel::cancelled_error());
+                                conn.send_replying(
+                                    &dual_requests::reply(id.clone(), cancelled),
+                                    Some(&m),
+                                );
+                            }
+                            tracing::debug!(
+                                target: crate::request_cancel::LOG_TARGET,
+                                conn = %conn.id,
+                                id = %id,
+                                method = %m,
+                                "dropped the answer to a request its client cancelled"
+                            );
+                            dual_requests::finish(
+                                first,
+                                Some(&Err(crate::request_cancel::cancelled_error())),
+                            );
+                            return;
+                        }
                     };
                     // Opt-in usage patterns: methods this daemon serves (an unknown name a client
                     // made up is no key), `/` as `.` so `_acpmux/chat/list` is one key.

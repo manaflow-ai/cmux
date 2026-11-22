@@ -16,6 +16,7 @@ impl StoreLoad {
 impl Hub {
     pub async fn load_store_async(self: &Arc<Self>) {
         let hub = self.clone();
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let result = tokio::task::spawn_blocking(move || {
             hub.load_from_store(true);
             // Before spawns are released, after the index is complete. This sweep must never
@@ -60,6 +61,7 @@ impl Hub {
             return;
         }
         let (hub, id) = (self.clone(), id.to_owned());
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let installed = tokio::task::spawn_blocking(move || {
             if hub
                 .sessions

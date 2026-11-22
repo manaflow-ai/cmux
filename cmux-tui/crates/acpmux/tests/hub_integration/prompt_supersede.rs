@@ -269,17 +269,24 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     let hub = durable_hub(&dir);
     let mut c = Client::open(&hub);
     let session = c.new_session().await;
-    let running = c.busy(&session, None).await;
+    c.busy(&session, None).await;
     hub.shutdown_all().await;
-    // Its prompt answers once its turn's end ran: the order the race let happen, forced.
-    c.reply_to(running).await;
-    let ends = c.records(&session, "turn_result").await;
-    assert!(ends.is_empty(), "the turn the restart handed on wrote an end: {ends:?}");
+    // The stopped request's future is dropped when its task is next polled after the fence,
+    // unless its agent's end had already arrived: then `finish_turn` (`hub/turns.rs`) runs and
+    // writes nothing, because `Hub::end_sessions` (`hub/shutdown.rs`) took the turn and put its
+    // id in `settled_by_shutdown`. Either way the next daemon reads the cut prompt with no end.
     drop(c);
     drop(hub);
 
     let hub = durable_hub(&dir);
     let mut c = Client::open(&hub);
+    let ends = c.records(&session, "turn_result").await;
+    assert_eq!(ends.len(), 1, "the handed-off turn wrote unexpected ends: {ends:?}");
+    // The next daemon's `outcome_unknown` settlement (`log_load.rs`, `settle_open_turn`) exists
+    // only because the old daemon left this turn open; it is the one recovery record, not its end.
+    assert_eq!(ends[0]["_acpmuxRecovery"], true, "old daemon wrote an end: {ends:?}");
+    assert_eq!(ends[0]["detail"], "outcome_unknown", "old daemon wrote an end: {ends:?}");
+    assert_eq!(ends[0]["promptId"], "p-run", "old daemon wrote an end: {ends:?}");
     let queued = c.records(&session, "queued").await;
     assert!(
         queued.iter().any(|m| m["promptId"] == "p-run~resume-1"),

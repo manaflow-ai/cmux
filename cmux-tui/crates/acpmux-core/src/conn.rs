@@ -11,6 +11,8 @@ pub use list::HubSource;
 mod route;
 pub use route::{Resolve, RouteSource};
 use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
@@ -193,7 +195,7 @@ pub trait OfferSink: Send + Sync {
 /// offers its first frame before any of its deltas; readiness may be awaited in
 /// the sid's task after subscribe returns. `NotFed` consumes
 /// the offered frame: the source retains only its last taken cursor until resume.
-pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+pub type CloseFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 pub trait Source: Send + Sync + 'static {
     fn subscribe(
@@ -304,25 +306,62 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    run_with_stop(reader, writer, source, daemon_id, surfaces, role, None).await
+}
+
+/// Runs a v2 connection with an optional daemon stop fence.
+pub async fn run_with_stop<R, W>(
+    reader: R,
+    writer: W,
+    source: Arc<dyn Source>,
+    daemon_id: impl Into<String>,
+    surfaces: &[String],
+    role: Role,
+    stop: Option<crate::life::StopFence>,
+) -> Result<(), ConnError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
     let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
     let cleanup = Cleanup { state: state.clone(), source: source.clone() };
-    let result =
-        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, role, state)
-            .await;
+    let result = run_connection(RunConnectionArgs {
+        reader,
+        writer,
+        source: source.clone(),
+        daemon_id: daemon_id.into(),
+        surfaces,
+        role,
+        state,
+        stop,
+    })
+    .await;
     drop(cleanup);
     source.close().await;
     result
 }
 
-async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    mut reader: R,
-    mut writer: W,
+struct RunConnectionArgs<'a, R, W> {
+    reader: R,
+    writer: W,
     source: Arc<dyn Source>,
     daemon_id: String,
-    surfaces: &[String],
+    surfaces: &'a [String],
     role: Role,
     state: Arc<std::sync::Mutex<ConnectionState>>,
+    stop: Option<crate::life::StopFence>,
+}
+
+async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    args: RunConnectionArgs<'_, R, W>,
 ) -> Result<(), ConnError> {
+    let RunConnectionArgs { reader, writer, source, daemon_id, surfaces, role, state, stop } = args;
+    let mut reader = reader;
+    let mut writer = writer;
+    let mut stop_wait: Pin<Box<dyn Future<Output = ()> + Send>> = match stop {
+        Some(stop) => Box::pin(stop.cancelled()),
+        None => Box::pin(std::future::pending()),
+    };
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
     let mut decoder = crate::wire::FrameDecoder::default();
     let mut buffer = [0_u8; 16 * 1024];
@@ -354,6 +393,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             false
         };
         tokio::select! {
+            _ = stop_wait.as_mut() => return Ok(()),
             // The default select is fair: a perpetually ready writer cannot
             // starve credit, and a request burst cannot starve a partial write.
             result = write_lease(&mut writer, writing.as_mut()), if writing.is_some() => {
@@ -835,7 +875,7 @@ async fn write_lease<W: AsyncWrite + Unpin>(
         };
         // poll_write cannot retain a lock across Pending. A drop that follows
         // this poll either frees an unstarted frame or lets its prefix finish.
-        std::pin::Pin::new(&mut *writer).poll_write(cx, remaining)
+        Pin::new(&mut *writer).poll_write(cx, remaining)
     })
     .await?;
     if writing.cancelled {

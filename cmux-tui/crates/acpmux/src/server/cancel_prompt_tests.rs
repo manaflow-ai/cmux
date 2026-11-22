@@ -129,6 +129,38 @@ async fn a_cancelled_prompt_settles_its_turn_and_the_next_prompt_runs() {
     assert_eq!(s.queued(), 0, "nothing waits in the queue");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_daemon_stop_with_a_prompt_in_flight_sends_the_agent_no_cancel() {
+    let hub = hub();
+    let mut c = Client::connect(&hub);
+    let new =
+        c.call(1, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let sid = new["result"]["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&sid).unwrap();
+    c.send(Message::request(10, "session/prompt", prompt(&sid, "until-cancel", "p-stop"))).await;
+    agent_holds(&hub, &sid, 1).await;
+    let had_turn = session.turn().is_some();
+    hub.request_stop.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(session.turn().is_some(), had_turn);
+    assert_eq!(hub.agent_pending_requests(&sid).await, Some(1), "the agent heard no cancel");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_daemon_stop_sends_no_cancel_error_on_the_connection() {
+    let hub = hub();
+    let mut c = Client::connect(&hub);
+    let new =
+        c.call(1, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let sid = new["result"]["sessionId"].as_str().unwrap().to_owned();
+    c.send(Message::request(10, "session/prompt", prompt(&sid, "until-cancel", "p-stop-reply")))
+        .await;
+    agent_holds(&hub, &sid, 1).await;
+    hub.request_stop.cancel();
+    let answer = c.answer(10, Duration::from_millis(250)).await;
+    assert!(answer.is_none(), "a daemon stop must not send -32800: {answer:?}");
+}
+
 /// Where in a prompt's life its request is cancelled (the detector of the class "a cancel path
 /// skips the cleanup the normal finish takes"): one seam per await stage of a prompt.
 #[derive(Debug, Clone, Copy)]
