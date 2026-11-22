@@ -3,6 +3,27 @@
 
 public import CmuxNextDesign
 
+extension PaneRingConfigParser {
+    /// `focusRing.enabled`.
+    nonisolated static let focusRingEnabledPath = ["focusRing", "enabled"]
+    nonisolated static let focusRingEnabledDefault = false
+    /// `focusRing.style`.
+    nonisolated static let focusRingStylePath = ["focusRing", "style"]
+    nonisolated static let focusRingStyleDefault: FocusRingStyle = .ring
+    /// `focusRing.contrast`.
+    nonisolated static let focusRingContrastPath = ["focusRing", "contrast"]
+    nonisolated static let focusRingContrastDefault: FocusRingContrast = .subtle
+    /// `focusRing.color`.
+    nonisolated static let focusRingColorPath = ["focusRing", "color"]
+    /// `focusRing.width`.
+    nonisolated static let focusRingWidthPath = ["focusRing", "width"]
+    nonisolated static let focusRingWidthDefault: Double = 1
+    nonisolated static let focusRingWidthRange: ClosedRange<Double> = 0.5...8
+    /// `focusRing.showWhenSinglePane`.
+    nonisolated static let focusRingShowWhenSinglePanePath = ["focusRing", "showWhenSinglePane"]
+    nonisolated static let focusRingShowWhenSinglePaneDefault = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AppearanceSettingsSchema {
     static var iconTheme: [SettingDescriptor] {
