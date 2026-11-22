@@ -53,6 +53,8 @@ cancelled, nor is anything that is not a base tier run (a nightly, DEV or promot
 A run whose Mac job waits for a Mac runner keeps its place in the Mac queue and is not cancelled either,
 and while one waits the kick dispatches nothing (KEEP_QUEUED; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 turns
 that off). With a Mac queue wait longer than the window, cancelling queued runs meant none ever reached a Mac.
+That hold has a bound (HOLD_S): a run whose Mac job has waited HOLD_S with no runner is starved, and the kick
+dispatches the tip beside it, cancelling nothing (CMUX_NEXT_BASE_TIER_HOLD_MINUTES=0 holds without a bound).
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -117,6 +119,30 @@ STARTED = time.monotonic()
 # The repository variable CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' (the kick's env) turns it off: queued
 # runs are superseded and cancelled again, as before.
 KEEP_QUEUED = os.environ.get("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", "").strip() != "0"
+# The bound on that hold, default since 2026-11-22. Run 45066513743's generated-files job waited 2h23m with no
+# runner on glaeda-gui-std-xcode-26.6 while 6 newer jobs there got one, and the kick dispatched nothing behind
+# it, so feat-cmux-next had no base tier verdict from 20:31Z until the queue janitor's orphan pass (120 minutes,
+# run from main) cancelled it at 22:57:18Z; the next push's kick dispatched 45080768565 at 22:59:53Z. Now a
+# waiting run holds the kick for HOLD_S at most: past it the run is starved, the kick logs it and dispatches the
+# tip beside it. Nothing is cancelled: the starved run keeps its place, a started job still runs to its verdict,
+# and the janitor's orphan pass still reports it. A newer run that waits holds again, so at most one run is
+# added per HOLD_S. 60 minutes is past the worst real pool wait the janitor's orphan age was set from (a
+# 45-minute outlier, 2026-09-23) and half that orphan age. The repository variable
+# CMUX_NEXT_BASE_TIER_HOLD_MINUTES sets it; '0' holds without a bound, as before.
+DEFAULT_HOLD_MINUTES = 60.0
+
+
+def hold_seconds(value: str | None) -> float | None:
+    """CMUX_NEXT_BASE_TIER_HOLD_MINUTES as seconds: unset, empty or unreadable is the default, '0' (or less)
+    is None, a hold without a bound."""
+    try:
+        minutes = float((value or "").strip() or DEFAULT_HOLD_MINUTES)
+    except ValueError:
+        minutes = DEFAULT_HOLD_MINUTES
+    return None if minutes <= 0 else minutes * 60
+
+
+HOLD_S = hold_seconds(os.environ.get("CMUX_NEXT_BASE_TIER_HOLD_MINUTES"))
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -211,25 +237,36 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
-def mac_state(api: Api, repo: str, run_id: int) -> str:
-    """Where the base tier run's Mac jobs are: "started" (one is running or has a verdict; anything
-    unreadable counts as started), "queued" (none started, one waits for a Mac runner) or "none" (no Mac
-    job yet, or every one skipped or cancelled)."""
+def mac_queue(api: Api, repo: str, run_id: int) -> tuple[str, float | None]:
+    """mac_state(), and for "queued" when its earliest waiting Mac job was created (None: not readable)."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     except (RuntimeError, TimeoutError):  # TimeoutError: no full answer within the client's request bound
-        return "started"
-    queued = False
+        return "started", None
+    queued, since = False, None
     for job in listed.get("jobs") or []:
         if job.get("name") not in MAC_JOBS:
             continue
         if job.get("status") == "in_progress":
-            return "started"
+            return "started", None
         if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
-            return "started"
+            return "started", None
         if job.get("status") in OPEN:
+            try:
+                at = stamp(job["created_at"])
+            except (KeyError, TypeError, ValueError):
+                at = None
+            # One waiting job whose time is unknown makes the whole wait unknown (it holds, as before).
+            since = at if not queued else (None if since is None or at is None else min(since, at))
             queued = True
-    return "queued" if queued else "none"
+    return ("queued", since) if queued else ("none", None)
+
+
+def mac_state(api: Api, repo: str, run_id: int) -> str:
+    """Where the base tier run's Mac jobs are: "started" (one is running or has a verdict; anything
+    unreadable counts as started), "queued" (none started, one waits for a Mac runner) or "none" (no Mac
+    job yet, or every one skipped or cancelled)."""
+    return mac_queue(api, repo, run_id)[0]
 
 
 def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
@@ -237,21 +274,34 @@ def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
     return mac_state(api, repo, run_id) == "started"
 
 
-def waiting_in_mac_queue(api: Api, repo: str) -> tuple[int, str] | None:
+def waiting_in_mac_queue(api: Api, repo: str, now: Callable[[], float] = time.time,
+                         log: Callable[[str], None] = print) -> tuple[int, str] | None:
     """The open base tier run (id, sha) whose Mac jobs wait for a Mac runner with none started, or None.
-    A listing or job list that cannot be read holds nothing back (the dispatch goes ahead, as before)."""
+    A listing or job list that cannot be read holds nothing back (the dispatch goes ahead, as before).
+    A run whose earliest waiting Mac job has waited HOLD_S or longer is starved: it is logged and holds
+    nothing back either (it is not cancelled). A wait whose start cannot be read still holds."""
     try:
         listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
                          f"&event=workflow_dispatch&per_page=100")
     except (RuntimeError, TimeoutError):
         return None
+    starved = []
     for run in listed.get("workflow_runs") or []:
         title = run.get("display_title") or run.get("name") or ""
         sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
         run_id = run.get("id")
-        if SHA.match(sha) and isinstance(run_id, int) and run.get("status") in OPEN \
-                and mac_state(api, repo, run_id) == "queued":
+        if not (SHA.match(sha) and isinstance(run_id, int) and run.get("status") in OPEN):
+            continue
+        state, since = mac_queue(api, repo, run_id)
+        if state != "queued":
+            continue
+        if HOLD_S is None or since is None or now() - since < HOLD_S:
             return run_id, sha
+        starved.append((run_id, sha, now() - since))
+    for run_id, sha, waited in starved:
+        log(f"base tier run {run_id} ({sha[:12]}) is starved: its Mac job has waited {int(waited // 60)} min for "
+            f"a Mac runner (the hold is {int(HOLD_S // 60)} min); it keeps its place and is not cancelled, and "
+            f"it holds no dispatch back")
     return None
 
 
@@ -464,9 +514,10 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
             break
     # A run waiting in the Mac queue keeps its place (KEEP_QUEUED): no run is dispatched to replace it,
     # so at most one base tier run waits for a Mac while the started ones run to their verdicts.
-    if KEEP_QUEUED and (held := waiting_in_mac_queue(api, repo)):
+    if KEEP_QUEUED and (held := waiting_in_mac_queue(api, repo, now, log)):
         log(f"base tier run {held[0]} ({held[1][:12]}) waits for a Mac runner with no Mac job started; not "
-            f"dispatching {tip[:12]} to replace it; the first push's kick after its Mac jobs start dispatches")
+            f"dispatching {tip[:12]} to replace it; the first push's kick after its Mac jobs start, or after "
+            f"it has waited the hold, dispatches")
         return None
     # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
     # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the

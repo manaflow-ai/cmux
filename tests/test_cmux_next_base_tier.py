@@ -212,6 +212,84 @@ class KeepQueued(unittest.TestCase):
         self.assertEqual(step["env"]["CMUX_NEXT_BASE_TIER_KEEP_QUEUED"], "${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}")
 
 
+def waiting(since: float) -> list[dict]:
+    """QUEUED_MAC with every Mac job queued since SINCE."""
+    return [dict(item, created_at=stamp(since)) if item["name"] in tier.MAC_JOBS else item for item in QUEUED_MAC]
+
+
+class HoldBound(unittest.TestCase):
+    """2026-11-22: run 45066513743's generated-files job waited 2h23m with no runner on
+    glaeda-gui-std-xcode-26.6 while 6 newer jobs there got one. The kick held every dispatch behind it, so
+    feat-cmux-next had no base tier verdict from 20:31Z until the queue janitor's orphan pass cancelled it at
+    22:57:18Z. A waiting run now holds the dispatch for HOLD_S at most; past it the tip is dispatched beside it
+    and nothing is cancelled."""
+
+    def setUp(self):
+        tier.KEEP_QUEUED = True
+        self.hold = tier.HOLD_S
+        tier.HOLD_S = 60 * 60
+
+    def tearDown(self):
+        tier.KEEP_QUEUED = False
+        tier.HOLD_S = self.hold
+
+    def kick(self, api: FakeApi, clock: Clock) -> tuple[str | None, list[str]]:
+        lines: list[str] = []
+        out = tier.kick(api, REPO, tier.push_paths(WORKFLOW.read_text()), now=clock.now, sleep=clock.sleep,
+                        log=lines.append)
+        return out, lines
+
+    def test_the_default_is_an_hour_and_zero_holds_without_a_bound(self):
+        code = "import cmux_next_base_tier as t; print(t.HOLD_S)"
+        env = {k: v for k, v in os.environ.items() if k != "CMUX_NEXT_BASE_TIER_HOLD_MINUTES"}
+        for value, expected in ((None, "3600.0"), ("", "3600.0"), ("junk", "3600.0"), ("30", "1800.0"),
+                                ("0", "None")):
+            run_env = dict(env) if value is None else {**env, "CMUX_NEXT_BASE_TIER_HOLD_MINUTES": value}
+            out = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "scripts" / "ci", env=run_env,
+                                 capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(out, expected, value)
+
+    def test_a_run_waiting_less_than_the_hold_still_holds(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 59 * 60)
+        api.open_run(11, OLD, T0, "in_progress", waiting(T0))
+        out, lines = self.kick(api, clock)
+        self.assertIsNone(out)
+        self.assertEqual((api.dispatched, api.cancelled), ([], []))
+        self.assertTrue(any("waits for a Mac runner" in line for line in lines), lines)
+
+    def test_a_starved_run_is_reported_kept_and_the_tip_dispatched_beside_it(self):
+        # 45066513743: generated files queued 2h23m.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 143 * 60)
+        api.open_run(11, OLD, T0, "in_progress", waiting(T0))
+        out, lines = self.kick(api, clock)
+        self.assertEqual(out, TIP)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.cancelled, [])
+        self.assertTrue(any("run 11" in line and "starved" in line and "143 min" in line for line in lines), lines)
+
+    def test_a_newer_run_still_inside_the_hold_holds_again(self):
+        # At most one run is added per hold: the one dispatched beside a starved run holds the next kicks.
+        api, clock = FakeApi([(OLD, T0), (MID, T0 + 70 * 60)], TIP), Clock(T0 + 90 * 60)
+        api.open_run(11, OLD, T0, "in_progress", waiting(T0))
+        api.open_run(12, MID, T0 + 70 * 60, "in_progress", waiting(T0 + 70 * 60))
+        out, _ = self.kick(api, clock)
+        self.assertIsNone(out)
+        self.assertEqual((api.dispatched, api.cancelled), ([], []))
+
+    def test_a_wait_whose_start_is_unreadable_holds(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 143 * 60)
+        api.open_run(11, OLD, T0, "in_progress", QUEUED_MAC)
+        self.assertIsNone(self.kick(api, clock)[0])
+        self.assertEqual(api.dispatched, [])
+
+    def test_zero_holds_a_starved_run_without_a_bound(self):
+        tier.HOLD_S = None
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 143 * 60)
+        api.open_run(11, OLD, T0, "in_progress", waiting(T0))
+        self.assertIsNone(self.kick(api, clock)[0])
+        self.assertEqual(api.dispatched, [])
+
+
 class Previous(unittest.TestCase):
     """A base tier run's checks job compares against the tip the run before it tested (workflow note-26)."""
 
@@ -1317,7 +1395,8 @@ class Workflows(unittest.TestCase):
         kick_step = steps[-1]
         self.assertLess(steps.index(mint), steps.index(kick_step))
         self.assertEqual(kick_step["env"], {"GH_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}",
-                                            "CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}"})
+                                            "CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}",
+                                            "CMUX_NEXT_BASE_TIER_HOLD_MINUTES": "${{ vars.CMUX_NEXT_BASE_TIER_HOLD_MINUTES }}"})
         checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
         self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 

@@ -13,6 +13,8 @@ name: cmux NEXT base tier kick
 # started or queued for a Mac runner (a queued one keeps its place; while one waits nothing is
 # dispatched; vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' cancels queued ones again): the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
 # after a newer base tier run was dispatched). Nothing else is ever cancelled.
+# A waiting run holds the dispatch for 60 minutes at most (vars.CMUX_NEXT_BASE_TIER_HOLD_MINUTES; '0' holds
+# without a bound): past that it is starved, logged and left in place, and the tip is dispatched beside it.
 # vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
 # The kick calls GitHub with its own cmux-bot App token, never github.token: every workflow's
 # GITHUB_TOKEN shares one REST budget an hour, and on 2026-11-10 14 of 40 kicks crashed on HTTP 403 when
@@ -84,4 +86,6 @@ jobs:
           # '0' cancels and replaces base tier runs whose Mac jobs wait for a Mac runner again (the default
           # since 2026-11-22 keeps them: a queued or started generated-files job runs to its verdict).
           CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}
+          # How long a waiting run holds the dispatch back (default 60 minutes since 2026-11-22; '0': no bound).
+          CMUX_NEXT_BASE_TIER_HOLD_MINUTES: ${{ vars.CMUX_NEXT_BASE_TIER_HOLD_MINUTES }}
         run: python3 -I scripts/ci/cmux_next_base_tier.py kick --repo "$GITHUB_REPOSITORY"
