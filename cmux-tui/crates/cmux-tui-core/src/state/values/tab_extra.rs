@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::{Map, Value, json};
 
-use crate::state::{conversation_tabs_store, kept_tab_store};
+use crate::state::{conversation_tabs_store, created_by, kept_tab_store};
 
 /// The `tab_state` columns that `extra` shows, in the order of
 /// [`TAB_STATE_COLUMNS`].
@@ -58,6 +58,8 @@ struct TabRows {
     conversation: Option<Value>,
     /// Null for a tab with no keep-layout record.
     relaunch: Value,
+    /// Who made the tab (`created-by-detail-v1`), when an agent or a script said so.
+    created_by: Option<Value>,
 }
 
 /// The `extra` fields of the tab that has `rows`.
@@ -118,6 +120,9 @@ fn fields(rows: TabRows) -> anyhow::Result<Map<String, Value>> {
     if !rows.relaunch.is_null() {
         fields.insert("relaunch".into(), rows.relaunch);
     }
+    if let Some(created_by) = rows.created_by {
+        fields.insert("created_by".into(), created_by);
+    }
     Ok(fields)
 }
 
@@ -168,6 +173,7 @@ pub(super) fn tab_extra(
         frontend,
         conversation: conversation_tabs_store::tab_conversation_wire(connection, tab_id)?,
         relaunch: kept_tab_store::relaunch_value(connection, tab_id)?,
+        created_by: created_by::made_by(connection, created_by::Made::Tab, tab_id)?,
     })
 }
 
@@ -183,6 +189,7 @@ pub(super) struct SessionTabExtras {
     frontends: HashMap<String, (Option<String>, Option<String>)>,
     conversations: HashMap<String, Value>,
     relaunches: HashMap<String, Value>,
+    made_by: HashMap<String, Value>,
 }
 
 impl SessionTabExtras {
@@ -234,6 +241,7 @@ impl SessionTabExtras {
             frontends,
             conversations: conversation_tabs_store::tab_conversation_wires(connection)?,
             relaunches: kept_tab_store::relaunch_values(connection)?,
+            made_by: created_by::live_tabs_made_by(connection)?,
         })
     }
 
@@ -253,6 +261,7 @@ impl SessionTabExtras {
             frontend: self.frontends.remove(tab_id),
             conversation: self.conversations.remove(tab_id),
             relaunch: self.relaunches.remove(tab_id).unwrap_or(Value::Null),
+            created_by: self.made_by.remove(tab_id),
         })
     }
 }
