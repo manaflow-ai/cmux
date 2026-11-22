@@ -15754,6 +15754,17 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "preview": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Its last reply, one short line as acpmux keeps it (a New Tab card's message); null before the first reply. Kept fresh with updated_ms and, like it, no change signal of its own. Absent from a daemon older than the field."
         }
       },
       "extra": false
@@ -19033,7 +19044,54 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "description": "At most this many chats, the newest first. Omitted: every chat."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChatState"
+            },
+            "description": "Only the chats in this state (input: the ones waiting for the person)."
+          },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The page after a row: that row's updated_ms (its created_ms when updated_ms is null, 0 when both are). Needs before_id."
+          },
+          "before_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's id. Needs before_ms."
+          },
+          "before_machine": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's machine, when it has one (a peer's chat). Needs before_ms and before_id."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -19052,8 +19110,9 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
-        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
+        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, the newest first: by updated_ms, else created_ms, then id, then machine.",
+        "limit, state and the before_ms/before_id/before_machine cursor read only the rows they return from the daemon's ordered chat index: a read of the 5 newest chats costs 5 rows, never a sort of every chat. Page through every chat with limit and the cursor of each page's last row.",
+        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms and preview.",
         "Empty while acpmux is not running."
       ]
     },

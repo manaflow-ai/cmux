@@ -1099,7 +1099,9 @@ impl Worker {
         );
         drop(carrier_held);
         let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
+            log(
+                "bind: waits for the restart gate (a restart of this service is pending, or the gate failed)",
+            );
             self.bind_retry_at = Some(self.now() + 30_000);
             return;
         };
@@ -1367,6 +1369,11 @@ impl Worker {
         let Some(live) = self.live.as_mut() else { return };
         // The updater's block, read on the same tick (a small file; a report only when it changed).
         let reqs = live.session.updater(crate::updater::look::report(&self.paths), now);
+        self.drive(reqs);
+        let Some(live) = self.live.as_mut() else { return };
+        // And the applied machine.toml's idle window (a lane: 300 s), read on the same tick.
+        let window = cmux_cloud_start_core::machine_config::idle::read(self.paths.root());
+        let reqs = live.session.idle_window(window, now);
         self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
         let seen = match super::workload::read_snapshot(self.paths.root(), now) {
