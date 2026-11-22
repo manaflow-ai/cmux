@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Carry a pull request's Mac tiers across a clean base merge whose older head already passed them.
 
-merge_hold asks a feat-cmux-next pull request whose fast-gates green went stale to merge the base in
+land-judge asks a feat-cmux-next pull request whose fast-gates green went stale to merge the base in
 (update-branch), and lands that base merge M on its merged-tree checks alone: cmux-next/fast-gates (Linux),
 cmux-next/compile (the build fleet) and the web compile. Every other check at M is carried from the older head
-H, whose checks passed (merge_hold merged_tree_hold; it only asks for the update-branch once H's checks have all
+H, whose checks passed (land-judge merged_tree_hold; it only asks for the update-branch once H's checks have all
 finished). Yet cmux-next.yml ran every Mac tier again at M: the fast tier, the generated files, the daemon tests,
 the scheme compile, the Swift tests and canary. On 2026-11-16 at 05:44Z, 18 of the 60 open cmux-next pull request
 runs were on such base-merge heads, and 13 more same-tree dispatches tested their trees: Mac jobs nobody waits on,
@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 SHA = re.compile(r"^[0-9a-f]{40}$")
 WORKFLOW = "cmux-next.yml"
 FULL_LABEL = "full-ci"
-# The router outputs of cmux-next.yml's Mac Actions tiers that merge_hold carries from H. `native` (and
+# The router outputs of cmux-next.yml's Mac Actions tiers that land-judge carries from H. `native` (and
 # `mac_release`, `cmuxnext_swift`, which only the Release compile reads) stay as routed: cmux-next/compile is one of
 # M's merged-tree checks.
 CARRIED_TIERS = ("fast_tier", "generated", "scheme", "swift", "daemon", "swift_canary")
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         older, run_id, why = "", None, f"the carry check failed ({type(error).__name__}: {str(error)[:160]})"
     if older:
         line = (f"- base-merge carry: {why}; its run {run_id} passed, so the Mac tiers "
-                f"({', '.join(CARRIED_TIERS)}) are carried from it, as merge_hold carries their checks "
+                f"({', '.join(CARRIED_TIERS)}) are carried from it, as land-judge carries their checks "
                 f"(scripts/ci/cmux_next_base_merge_carry.py).")
         if args.github_output:
             with open(args.github_output, "a", encoding="utf-8") as handle:

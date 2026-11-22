@@ -8,6 +8,60 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderMemberCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
+                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group draws. Folders shows plain folders; Sections shows plain headings."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.folder.rawValue, SettingsText.keyed("settings.choice.groupBackgroundFolder", "Folders")),
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupPalettePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
+                kind: .choice([
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupGradientPath,
                 section: .appearance,
                 group: group,
@@ -202,159 +256,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarNavigationSetting.steppingWrapsDefault),
                 keywords: ["sidebar", "next", "previous", "wrap"]
-            ),
-        ]
-    }
-}
-
-extension SidebarSettingsSchema {
-    static var workspaceRows: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.workspaceRows", "Workspace Rows")
-        return [
-            SettingDescriptor(
-                WorkspaceRowSetting.iconPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.icon", "Icon"),
-                help: SettingsText.keyed("settings.workspaceRow.icon.help", "The icon or emoji you chose for a workspace."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.iconDefault),
-                keywords: ["sidebar", "workspace", "row", "icon"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.directoryPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.directory", "Folder"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.directoryDefault),
-                keywords: ["sidebar", "workspace", "row", "directory"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.branchPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.branch", "Git Branch"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.branchDefault),
-                keywords: ["sidebar", "workspace", "row", "branch"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.processPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.process", "Running Program"),
-                help: SettingsText.keyed("settings.workspaceRow.process.help", "The terminal's title, which the shell or program sets."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.processDefault),
-                keywords: ["sidebar", "workspace", "row", "process"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.agentStatusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status"),
-                help: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status agents and hooks report, one line each."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.agentStatusDefault),
-                keywords: ["sidebar", "workspace", "row", "agentStatus"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.tabCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.tabCount", "Tab Count"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.tabCountDefault),
-                keywords: ["sidebar", "workspace", "row", "tabCount"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.portsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.ports", "Ports"),
-                help: SettingsText.keyed("settings.workspaceRow.ports.help", "Set by a hook: cmux workspace status set ports <text>."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.portsDefault),
-                keywords: ["sidebar", "workspace", "row", "ports"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.lastActivityPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.lastActivityDefault),
-                keywords: ["sidebar", "workspace", "row", "lastActivity"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.pullRequestPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request"),
-                help: SettingsText.keyed("settings.workspaceRow.pullRequest.help", "Set by a hook: cmux workspace status set pr <text>."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.pullRequestDefault),
-                keywords: ["sidebar", "workspace", "row", "pullRequest"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.progressPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.progress", "Progress"),
-                help: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.progressDefault),
-                keywords: ["sidebar", "workspace", "row", "progress"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.workingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.working", "Agent Working"),
-                help: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.workingDefault),
-                keywords: ["sidebar", "workspace", "row", "working"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.logPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.log", "Log"),
-                help: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>."),
-                summary: SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.logDefault),
-                keywords: ["sidebar", "workspace", "row", "log"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.notificationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification"),
-                help: SettingsText.keyed("settings.workspaceRow.notification.help", "The text of the workspace's newest unread notification."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.notificationDefault),
-                keywords: ["sidebar", "workspace", "row", "notification"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.secondLineOrderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
-                help: SettingsText.keyed("settings.workspaceRow.secondLineOrder.help", "The order of the shown items under the workspace name."),
-                kind: .orderedChoices([
-                    SettingChoice("notification", SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")),
-                    SettingChoice("directory", SettingsText.keyed("settings.workspaceRow.directory", "Folder")),
-                    SettingChoice("branch", SettingsText.keyed("settings.workspaceRow.branch", "Git Branch")),
-                    SettingChoice("process", SettingsText.keyed("settings.workspaceRow.process", "Running Program")),
-                    SettingChoice("agentStatus", SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status")),
-                    SettingChoice("ports", SettingsText.keyed("settings.workspaceRow.ports", "Ports")),
-                    SettingChoice("lastActivity", SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity")),
-                ]),
-                default: .array(WorkspaceRowSetting.secondLineOrderDefault.map { .string($0) }),
-                keywords: ["sidebar", "workspace", "row", "order", "subtitle"]
             ),
         ]
     }

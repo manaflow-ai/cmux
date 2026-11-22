@@ -28,6 +28,7 @@ never keeps an artifacts run in progress.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -40,7 +41,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
     DAEMON_LABEL,
@@ -54,7 +54,6 @@ from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
-GATE_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 JOB_NAME = "cmux_next_ daemon tests"
 # The owned GCP labels the nightly path's attempt 1 takes when the runner census found no idle fleet member.
 OWNED_FIRST = ("cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64")
@@ -103,7 +102,9 @@ class DaemonTestsGateTests(unittest.TestCase):
                     # nothing (tests/test_ci_owned_first_not_census_frozen.py); Blacksmith is attempt 2+.
                     self.assertIn(label, OWNED_FIRST, (overrides, context))
                 else:
-                    self.assertEqual(label, GATE_LABEL, (overrides, context))
+                    # Its size's RUNNER_POOLS read (#47603): linux_8, or linux_16 while cloud overflow is saved.
+                    pool = "linux_16" if context.get("vars.CI_CLOUD_OVERFLOW_SAVED") else "linux_8"
+                    self.assertEqual(label, json.loads(context["vars.RUNNER_POOLS"])[pool], (overrides, context))
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
         daemon = jobs()["cmux-next-daemon-tests"]

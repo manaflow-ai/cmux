@@ -24,7 +24,7 @@ extension AppServices {
 
     /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
-        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
+        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, loginKeychain: loginKeychain, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
         serverReach.start()
         updater.start()

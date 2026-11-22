@@ -589,8 +589,11 @@ struct CloudStartSessionTests {
             return
         }
         let request = CloudStartSession.Request(machineID: nil, name: name, agent: "codex", cwd: nil)
-        #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", command: request.command), "\(failure.message)")
-        #expect(failure.message.contains("Continue with ChatGPT") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
+        let link = "\(services.linkScheme)://settings/cloud/chatgpt"
+        #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", family: "codex", localLogin: true, link: link, command: request.command), "\(failure.message)")
+        // The Codex login on this Mac is named as Mac-only, and the refusal opens the exact Settings > Cloud row.
+        #expect(failure.message.hasPrefix("Your Codex login on this Mac works only on this Mac;"), "\(failure.message)")
+        #expect(failure.message.contains("`cmux link open --url \(link)`") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
         // A ChatGPT connection that serves Cloud passes the gate (the unread machine list refuses next).
         services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin, CloudSetup.Connection(id: "chatgpt-plan-1", families: ["codex"])], organization: []) }

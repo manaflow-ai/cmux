@@ -15,6 +15,8 @@ pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit"];
 
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `app publish --include-dirty`: without this it would swallow a following `--json`.
+    "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
     "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
@@ -23,6 +25,12 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "yes",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
     "dry-run",
+    // `agent move`: forwarded to acpmux's session move without swallowing the
+    // following session name during global option scanning.
+    "interrupt",
+    "after-turn",
+    "leave-dirty",
+    "carry-changes",
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
@@ -60,6 +68,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "focus",
     "force",
     "end-terminals",
+    // `daemon stop --if-idle`: stop only while nothing uses the daemon.
+    "if-idle",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.
@@ -121,6 +131,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "new",
     // `terminal <t> close --if-unplaced`: end it only when nothing shows it.
     "if-unplaced",
+    // `workspace list --tree`: each workspace's panes, tabs and creator.
+    "tree",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

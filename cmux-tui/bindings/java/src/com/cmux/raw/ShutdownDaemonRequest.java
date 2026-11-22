@@ -15,6 +15,7 @@ public final class ShutdownDaemonRequest implements WireValue {
     private final Field<Boolean> endTerminals;
     private final Field<Boolean> force;
     private final String generation;
+    private final Field<Boolean> ifIdle;
     private final Field<Boolean> keepLayout;
     private final long pid;
     private final Field<Boolean> restart;
@@ -24,6 +25,7 @@ public final class ShutdownDaemonRequest implements WireValue {
         this.force = builder.force;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
+        this.ifIdle = builder.ifIdle;
         this.keepLayout = builder.keepLayout;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
@@ -35,6 +37,7 @@ public final class ShutdownDaemonRequest implements WireValue {
     public Field<Boolean> endTerminals() { return endTerminals; }
     public Field<Boolean> force() { return force; }
     public String generation() { return generation; }
+    public Field<Boolean> ifIdle() { return ifIdle; }
     public Field<Boolean> keepLayout() { return keepLayout; }
     public long pid() { return pid; }
     public Field<Boolean> restart() { return restart; }
@@ -52,6 +55,10 @@ public final class ShutdownDaemonRequest implements WireValue {
         }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "ShutdownDaemonRequest.generation"));
+        Object rawIfIdle = Wire.optional(object, "if_idle");
+        if (!Wire.isMissing(rawIfIdle)) {
+            builder.ifIdle(Wire.bool(rawIfIdle, "ShutdownDaemonRequest.if_idle"));
+        }
         Object rawKeepLayout = Wire.optional(object, "keep_layout");
         if (!Wire.isMissing(rawKeepLayout)) {
             builder.keepLayout(Wire.bool(rawKeepLayout, "ShutdownDaemonRequest.keep_layout"));
@@ -71,6 +78,7 @@ public final class ShutdownDaemonRequest implements WireValue {
         Wire.put(object, "end_terminals", endTerminals);
         Wire.put(object, "force", force);
         Wire.put(object, "generation", generation);
+        Wire.put(object, "if_idle", ifIdle);
         Wire.put(object, "keep_layout", keepLayout);
         Wire.put(object, "pid", pid);
         Wire.put(object, "restart", restart);
@@ -80,11 +88,11 @@ public final class ShutdownDaemonRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ShutdownDaemonRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(keepLayout, that.keepLayout) && Objects.equals(pid, that.pid) && Objects.equals(restart, that.restart);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(ifIdle, that.ifIdle) && Objects.equals(keepLayout, that.keepLayout) && Objects.equals(pid, that.pid) && Objects.equals(restart, that.restart);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, force, generation, keepLayout, pid, restart); }
+    public int hashCode() { return Objects.hash(endTerminals, force, generation, ifIdle, keepLayout, pid, restart); }
 
     @Override
     public String toString() { return "ShutdownDaemonRequest" + toWire(); }
@@ -94,6 +102,7 @@ public final class ShutdownDaemonRequest implements WireValue {
         private Field<Boolean> force = Field.omitted();
         private String generation;
         private boolean generationSet;
+        private Field<Boolean> ifIdle = Field.omitted();
         private Field<Boolean> keepLayout = Field.omitted();
         private Long pid;
         private boolean pidSet;
@@ -110,6 +119,10 @@ public final class ShutdownDaemonRequest implements WireValue {
         public Builder generation(String value) {
             this.generation = value;
             this.generationSet = true;
+            return this;
+        }
+        public Builder ifIdle(Boolean value) {
+            this.ifIdle = Field.of(value);
             return this;
         }
         public Builder keepLayout(Boolean value) {

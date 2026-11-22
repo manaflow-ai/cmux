@@ -51,9 +51,19 @@ public nonisolated enum NewTabIntent: Equatable, Sendable {
     public static func url(for text: String, home: URL?) -> URL? {
         if let page = ChromiumInternalURL(typed: text) { return page.url }
         if text == "~" || text.hasPrefix("~/"), home == nil { return nil }
-        if looksLikeFileName(text) { return nil }
+        if looksLikeFileName(text) || isSlashCommand(text) { return nil }
         let resolver = BrowserURLResolver(homeDirectory: home ?? URL(filePath: "/"))
         return resolver.url(for: text)
+    }
+
+    /// `/resume <id>`, `/model opus`: a slash command with its arguments,
+    /// whose first word has no second `/`. Never a file (user 2026-11-20:
+    /// New Tab offered `file:///resume%20<id>`); a path with a space after
+    /// a folder (`/Users/me/My Notes.txt`) still is one.
+    public static func isSlashCommand(_ text: String) -> Bool {
+        guard text.first == "/", let space = text.firstIndex(where: \.isWhitespace) else { return false }
+        let word = text[text.index(after: text.startIndex)..<space]
+        return !word.isEmpty && !word.contains("/")
     }
 
     /// `node.js`, `readme.md`: one token, no port, no path, no `www.`,

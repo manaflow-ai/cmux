@@ -6,8 +6,8 @@
 
 pub mod awake;
 pub mod client;
+pub mod daemon_socket;
 pub mod mcp;
-pub mod outdated_daemon;
 
 /// The tool catalog (names, schemas, the server name and its instructions),
 /// for the `cmux` server that folds this one (`cmux mcp serve`).
