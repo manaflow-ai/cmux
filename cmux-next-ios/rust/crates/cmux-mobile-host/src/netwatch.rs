@@ -5,9 +5,20 @@
 //!
 //! macOS reports address and interface changes on a routing socket
 //! (`PF_ROUTE`): no polling. A burst of messages is coalesced over
-//! [`SETTLE`], then signaling and the live endpoints are refreshed, even if the local
-//! address is unchanged (the NAT or interface may have changed).
+//! [`SETTLE`], then judged: signaling and the live endpoints are refreshed
+//! only when the change touched an interface the Mac's sessions use (the
+//! primary one, or the one a session's direct path leaves from), even if
+//! that interface's address is unchanged (its link flapped; the NAT may have
+//! changed). A Mac sits beside many interfaces it never sends a session on
+//! (utun tunnels of VPNs and the system, `awdl0` and `llw0` of AirDrop and
+//! Sidecar, bridges of VMs and Thunderbolt), and they come and go every
+//! minute or two: each used to roam every session onto a fresh socket and
+//! TURN allocation and drop signaling (Leo's NIGHTLY, 2026-11-22: "Mac
+//! network changed" every 1-2 min on a wired Mac, each one dropping the
+//! phone's link to no path and back to TURN).
 
+use std::collections::{BTreeSet, HashMap};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -19,7 +30,8 @@ pub fn changes() -> watch::Receiver<u64> {
     CHANGES.get_or_init(|| watch::channel(0).0).subscribe()
 }
 
-/// Called by the app on wake and the routing socket after network changes.
+/// Called by the app on wake and by the routing socket's watch after a
+/// change it judged relevant ([`resets`]).
 pub fn changed() {
     CHANGES
         .get_or_init(|| watch::channel(0).0)
@@ -41,6 +53,164 @@ pub async fn refresh_endpoints(mut events: watch::Receiver<u64>) {
 /// judged (an interface coming up adds and removes several addresses).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const SETTLE: Duration = Duration::from_millis(400);
+
+/// What the judge reads of this Mac: every interface address, the primary
+/// (default-route) address, and the local addresses the live sessions'
+/// plain UDP leaves from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct View {
+    pub networks: Vec<Network>,
+    pub primary: Option<IpAddr>,
+    pub sources: Vec<IpAddr>,
+    /// Where the sessions' plain UDP goes, for the routes on a subnet of
+    /// one interface (a session that moved after the last judgment).
+    pub destinations: Vec<IpAddr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Network {
+    pub interface: String,
+    pub address: IpAddr,
+    pub prefix: u8,
+}
+
+impl Network {
+    fn contains(&self, ip: IpAddr) -> bool {
+        match (self.address, ip) {
+            (IpAddr::V4(own), IpAddr::V4(other)) => {
+                let bits = u32::from(self.prefix.min(32));
+                let mask = if bits == 0 { 0 } else { u32::MAX << (32 - bits) };
+                u32::from(own) & mask == u32::from(other) & mask
+            }
+            (IpAddr::V6(own), IpAddr::V6(other)) => {
+                let bits = u32::from(self.prefix.min(128));
+                let mask = if bits == 0 { 0 } else { u128::MAX << (128 - bits) };
+                u128::from(own) & mask == u128::from(other) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+impl View {
+    /// This Mac now.
+    pub fn now() -> Self {
+        let networks = cmux_transport::local_networks()
+            .into_iter()
+            .map(|net| Network { interface: net.interface, address: net.address, prefix: net.prefix })
+            .collect();
+        let destinations: Vec<SocketAddr> =
+            cmux_mobile_link::dial::wireguard::route_destinations();
+        Self {
+            networks,
+            primary: cmux_mobile_link::dial::wireguard::primary_local_ip(),
+            sources: destinations.iter().filter_map(|to| source_toward(*to)).collect(),
+            destinations: destinations.iter().map(SocketAddr::ip).collect(),
+        }
+    }
+
+    fn interface_of(&self, ip: IpAddr) -> Option<&str> {
+        self.networks.iter().find(|net| net.address == ip).map(|net| net.interface.as_str())
+    }
+
+    fn addresses_of(&self, interface: &str) -> BTreeSet<IpAddr> {
+        self.networks.iter().filter(|net| net.interface == interface).map(|net| net.address).collect()
+    }
+
+    /// The interfaces a session may be on: the primary one (signaling, TURN,
+    /// every routed path), the ones the sessions' plain UDP leaves from, and
+    /// every one whose subnet holds a session's direct destination.
+    fn in_use(&self) -> BTreeSet<String> {
+        let mut used = BTreeSet::new();
+        for ip in self.primary.iter().chain(&self.sources) {
+            if let Some(interface) = self.interface_of(*ip) {
+                used.insert(interface.to_owned());
+            }
+        }
+        for ip in &self.destinations {
+            for net in self.networks.iter().filter(|net| net.contains(*ip)) {
+                used.insert(net.interface.clone());
+            }
+        }
+        used
+    }
+}
+
+/// The local address the OS sends from toward `to` (a connected UDP socket;
+/// no packet is sent).
+fn source_toward(to: SocketAddr) -> Option<IpAddr> {
+    let bind = if to.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+    let probe = std::net::UdpSocket::bind(bind).ok()?;
+    probe.connect(to).ok()?;
+    probe.local_addr().ok().map(|addr| addr.ip()).filter(|ip| !ip.is_unspecified())
+}
+
+/// Whether a settled burst of routing messages resets the sessions (a roam
+/// onto a new socket and TURN allocation, a new signaling socket), and why.
+/// `links` names the interfaces whose link (up and running) flipped in the
+/// burst. A change on interfaces no session uses resets nothing.
+pub(crate) fn resets(before: &View, after: &View, links: &BTreeSet<String>) -> Option<String> {
+    if before.primary != after.primary {
+        return Some(format!("primary address {:?} -> {:?}", before.primary, after.primary));
+    }
+    let used: BTreeSet<String> = before.in_use().union(&after.in_use()).cloned().collect();
+    if used.is_empty() {
+        // No route anywhere (no primary address either way): nothing to keep.
+        return (before.networks != after.networks).then(|| "no interface in use".to_owned());
+    }
+    for interface in &used {
+        if before.addresses_of(interface) != after.addresses_of(interface) {
+            return Some(format!("addresses of {interface} changed"));
+        }
+        if links.contains(interface) {
+            return Some(format!("link of {interface} changed"));
+        }
+    }
+    None
+}
+
+/// The interfaces a burst touched that the judge let pass (for the log).
+fn changed_interfaces(before: &View, after: &View, links: &BTreeSet<String>) -> Vec<String> {
+    let mut names: BTreeSet<String> = links.clone();
+    for net in before.networks.iter().chain(&after.networks) {
+        if before.addresses_of(&net.interface) != after.addresses_of(&net.interface) {
+            names.insert(net.interface.clone());
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// Link state per interface index, from `RTM_IFINFO` messages: which ones
+/// flipped up or down.
+#[derive(Debug, Default)]
+pub(crate) struct Links {
+    flags: HashMap<u16, i32>,
+}
+
+/// `IFF_UP | IFF_RUNNING`: the bits that say a link carries traffic.
+const LINK_BITS: i32 = 0x1 | 0x40;
+
+impl Links {
+    /// Record an `RTM_IFINFO` message; the interface index whose link flipped.
+    pub fn record(&mut self, message: &[u8]) -> Option<u16> {
+        let (index, flags) = ifinfo(message)?;
+        let bits = flags & LINK_BITS;
+        let old = self.flags.insert(index, bits);
+        old.is_some_and(|old| old != bits).then_some(index)
+    }
+}
+
+/// `if_msghdr`: msglen (2), version (1), type (1), addrs (4), flags (4),
+/// index (2).
+fn ifinfo(message: &[u8]) -> Option<(u16, i32)> {
+    const RTM_IFINFO: u8 = 0xe;
+    if message.len() < 14 || message[3] != RTM_IFINFO {
+        return None;
+    }
+    let flags = i32::from_ne_bytes(message[8..12].try_into().ok()?);
+    let index = u16::from_ne_bytes(message[12..14].try_into().ok()?);
+    Some((index, flags))
+}
 
 /// Watch until the process stops. Does nothing where there is no routing
 /// socket.
@@ -71,11 +241,20 @@ async fn watch() -> std::io::Result<()> {
     }
     let socket = AsyncFd::with_interest(fd, Interest::READABLE)?;
     let mut buffer = vec![0u8; 2048];
+    let mut seen = View::now();
+    let mut links = Links::default();
     loop {
+        let mut flipped = BTreeSet::new();
+        let mut note = |message: &[u8], flipped: &mut BTreeSet<String>| {
+            if let Some(index) = links.record(message) {
+                flipped.insert(interface_name(index).unwrap_or_else(|| format!("index {index}")));
+            }
+        };
         // Wait for a message about addresses or interfaces.
         loop {
             let len = read(&socket, &mut buffer).await?;
             if relevant(&buffer[..len]) {
+                note(&buffer[..len], &mut flipped);
                 break;
             }
         }
@@ -85,12 +264,38 @@ async fn watch() -> std::io::Result<()> {
         loop {
             tokio::select! {
                 () = &mut settle => break,
-                read = read(&socket, &mut buffer) => { read?; }
+                read = read(&socket, &mut buffer) => {
+                    let len = read?;
+                    note(&buffer[..len], &mut flipped);
+                }
             }
         }
-        tracing::info!("the Mac's network changed; refreshing signaling and endpoints");
-        changed();
+        let now = View::now();
+        match resets(&seen, &now, &flipped) {
+            Some(why) => {
+                tracing::info!(why, "the Mac's network changed; refreshing signaling and endpoints");
+                changed();
+            }
+            None => tracing::info!(
+                interfaces = ?changed_interfaces(&seen, &now, &flipped),
+                "network change on interfaces no session uses; nothing reset"
+            ),
+        }
+        seen = now;
     }
+}
+
+#[cfg(target_os = "macos")]
+fn interface_name(index: u16) -> Option<String> {
+    let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
+    // SAFETY: if_indextoname writes at most IF_NAMESIZE bytes, NUL included.
+    let found = unsafe { libc::if_indextoname(u32::from(index), name.as_mut_ptr()) };
+    if found.is_null() {
+        return None;
+    }
+    // SAFETY: on success the buffer holds a NUL-terminated name.
+    let name = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) };
+    name.to_str().ok().map(str::to_owned)
 }
 
 #[cfg(target_os = "macos")]
@@ -138,5 +343,163 @@ mod tests {
         assert!(!relevant(&[0x40, 0, 5, 0x1]));
         assert!(!relevant(&[0x40, 0, 5, 0x7]));
         assert!(!relevant(&[0x40, 0]));
+    }
+
+    fn net(interface: &str, address: &str, prefix: u8) -> Network {
+        Network { interface: interface.into(), address: address.parse().unwrap(), prefix }
+    }
+
+    /// Leo's wired Mac: Ethernet en0 is primary; Wi-Fi en1 joined too; a
+    /// Thunderbolt bridge, a VPN utun and AirDrop's awdl0 and llw0 beside.
+    fn wired_mac() -> Vec<Network> {
+        vec![
+            net("en0", "192.168.1.20", 24),
+            net("en1", "192.168.1.21", 24),
+            net("bridge0", "169.254.10.2", 16),
+            net("utun3", "100.70.1.2", 32),
+            net("awdl0", "fe80::1", 64),
+            net("llw0", "fe80::2", 64),
+        ]
+    }
+
+    /// One session's direct path to the phone on the LAN, from en0; one on
+    /// TURN (no plain UDP destination): the relay hop.
+    fn view(networks: Vec<Network>) -> View {
+        View {
+            networks,
+            primary: Some("192.168.1.20".parse().unwrap()),
+            sources: vec!["192.168.1.20".parse().unwrap()],
+            destinations: vec!["192.168.1.30".parse().unwrap()],
+        }
+    }
+
+    /// One flap of an interface no session uses: it goes away, or comes
+    /// back with another address, or its link flips.
+    fn flap(networks: &[Network], step: usize) -> (Vec<Network>, BTreeSet<String>) {
+        let names = ["utun3", "awdl0", "llw0", "bridge0", "utun7"];
+        let name = names[step % names.len()];
+        let mut after: Vec<Network> = networks.iter().filter(|net| net.interface != name).cloned().collect();
+        let mut links = BTreeSet::new();
+        match step % 3 {
+            0 => {}
+            1 => after.push(net(name, &format!("100.70.1.{}", 10 + step % 200), 32)),
+            _ => {
+                after = networks.to_vec();
+                links.insert(name.to_owned());
+            }
+        }
+        (after, links)
+    }
+
+    #[test]
+    fn a_flap_on_an_interface_no_session_uses_resets_nothing() {
+        let before = view(wired_mac());
+        for step in 0..30 {
+            let (networks, links) = flap(&before.networks, step);
+            let after = view(networks);
+            assert_eq!(resets(&before, &after, &links), None, "step {step}: {links:?}");
+        }
+    }
+
+    #[test]
+    fn a_change_on_an_interface_a_session_uses_resets() {
+        let before = view(wired_mac());
+        // Ethernet unplugged: the primary moves to Wi-Fi.
+        let mut after = view(wired_mac().into_iter().filter(|net| net.interface != "en0").collect());
+        after.primary = Some("192.168.1.21".parse().unwrap());
+        after.sources = vec!["192.168.1.21".parse().unwrap()];
+        assert!(resets(&before, &after, &BTreeSet::new()).is_some());
+        // en0 renewed to another address (the primary address moves with it).
+        let mut renewed = wired_mac();
+        renewed[0] = net("en0", "192.168.1.40", 24);
+        let mut after = view(renewed);
+        after.primary = Some("192.168.1.40".parse().unwrap());
+        assert!(resets(&before, &after, &BTreeSet::new()).is_some());
+        // en0 gained a second address, the primary one unchanged.
+        let mut more = wired_mac();
+        more.push(net("en0", "192.168.1.41", 24));
+        assert_eq!(resets(&before, &view(more), &BTreeSet::new()).as_deref(), Some("addresses of en0 changed"));
+        // en0's link flapped (same address).
+        let links: BTreeSet<String> = ["en0".to_owned()].into();
+        assert!(resets(&before, &view(wired_mac()), &links).is_some());
+        // A session on the Thunderbolt bridge loses it.
+        let mut bridged = view(wired_mac());
+        bridged.sources.push("169.254.10.2".parse().unwrap());
+        bridged.destinations.push("169.254.10.3".parse().unwrap());
+        let mut gone = bridged.clone();
+        gone.networks.retain(|net| net.interface != "bridge0");
+        gone.sources.retain(|ip| ip.to_string() != "169.254.10.2");
+        assert_eq!(resets(&bridged, &gone, &BTreeSet::new()).as_deref(), Some("addresses of bridge0 changed"));
+        // A session on the VPN's utun sees it change.
+        let mut tunneled = view(wired_mac());
+        tunneled.sources.push("100.70.1.2".parse().unwrap());
+        let mut moved = tunneled.clone();
+        moved.networks.retain(|net| net.interface != "utun3");
+        moved.networks.push(net("utun3", "100.70.1.9", 32));
+        assert!(resets(&tunneled, &moved, &BTreeSet::new()).is_some());
+    }
+
+    #[test]
+    fn no_network_at_all_resets_on_any_change() {
+        let before = View { networks: vec![net("lo0", "127.0.0.1", 8)], ..View::default() };
+        let after = View { networks: wired_mac(), ..View::default() };
+        assert!(resets(&before, &after, &BTreeSet::new()).is_some());
+        assert!(resets(&before, &before, &BTreeSet::new()).is_none());
+    }
+
+    /// Resets per 10 minutes under duress: an unrelated interface flaps every
+    /// 60-120 s (seeded), with one session direct on the LAN and one on a
+    /// relay hop (TURN). Before: every settled burst reset every session.
+    #[test]
+    fn resets_per_10_min_under_unrelated_flaps() {
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut at = 0u64;
+        let (mut before_resets, mut after_resets) = (0, 0);
+        let mut seen = view(wired_mac());
+        let mut step = 0;
+        loop {
+            at += 60 + next() % 61;
+            if at > 600 {
+                break;
+            }
+            let (networks, links) = flap(&wired_mac(), step);
+            let now = view(networks);
+            // Before: `relevant` alone decided, and every burst was relevant.
+            before_resets += 1;
+            if resets(&seen, &now, &links).is_some() {
+                after_resets += 1;
+            }
+            seen = now;
+            step += 1;
+        }
+        eprintln!("resets per 10 min (unrelated flap every 60-120 s, relay hop): before {before_resets}, after {after_resets}");
+        assert!(before_resets >= 5);
+        assert_eq!(after_resets, 0);
+    }
+
+    #[test]
+    fn link_flips_come_from_ifinfo_flags() {
+        let message = |flags: i32, index: u16| {
+            let mut m = vec![0u8; 112];
+            m[3] = 0xe;
+            m[8..12].copy_from_slice(&flags.to_ne_bytes());
+            m[12..14].copy_from_slice(&index.to_ne_bytes());
+            m
+        };
+        let mut links = Links::default();
+        assert_eq!(links.record(&message(0x1 | 0x40 | 0x8000, 4)), None, "first sight");
+        assert_eq!(links.record(&message(0x1 | 0x40, 4)), None, "other bits only");
+        assert_eq!(links.record(&message(0x1, 4)), Some(4), "not running");
+        assert_eq!(links.record(&message(0x1 | 0x40, 4)), Some(4), "running again");
+        assert_eq!(links.record(&message(0x1, 5)), None);
+        let mut addr = message(0, 4);
+        addr[3] = 0xc;
+        assert_eq!(links.record(&addr), None, "address messages carry no link state");
     }
 }
