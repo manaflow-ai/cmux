@@ -666,6 +666,19 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
     return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
 
 
+# The idle runners an owned label keeps as headroom: more than this many idle beside a stalled queue and the label is
+# not full (label_evidence()). A few idle runners are a reading's noise (one finishing its job, one about to take the
+# next); hundreds are room the queue is not using. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+OWNED_IDLE_HEADROOM = 4
+
+
+def owned_idle(load: Mapping[str, Any]) -> int | None:
+    """The idle runners the janitor's roster read (queue_janitor.attach_owned_idle()) shows on an owned label's
+    pool entry, or None without a usable reading (an older janitor, no token, a failed read)."""
+    idle = load.get("idle")
+    return idle if isinstance(idle, int) and not isinstance(idle, bool) and idle >= 0 else None
+
+
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
     """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
@@ -720,16 +733,26 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
             except (TypeError, ValueError):
                 continue
             if owned_lead(label):
-                # Our own machines, not a cloud: a job that waited the cutoff there means every VM is taken, so the
-                # pool overflows to its Blacksmith members until the queue drains, even while the VMs start jobs.
+                # Our own machines, not a cloud: a job that waited the cutoff there and no idle runner past
+                # OWNED_IDLE_HEADROOM means every VM is taken, so the pool overflows to its Blacksmith members until
+                # the queue drains, even while the VMs start jobs. Idle runners beside the wait mean the waiting
+                # jobs are ones these runners do not take, so the pool stays (owned_idle()). With no idle reading
+                # the wait alone decides, as before.
                 # The wait is the one the snapshot measured, never that plus the snapshot's age. Adding the age
                 # assumes nothing took the job since, which for our pool (hundreds of idle runners, a start in
                 # seconds) is a guess that sends every x64 pool to Blacksmith. 2026-11-22 09:37Z: the 09:02Z snapshot
                 # read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884 running, a start at 09:03Z; at 35 min old,
                 # 0 + 35 crossed the cutoff, the label was marked full, and linux, linux_2, linux_8, linux_16 and
                 # linux_32 ran on Blacksmith until 10:25Z. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
-                if simple_pool_picker.blacksmith_stalled(queued, oldest):
-                    full.add(label)
+                if not simple_pool_picker.blacksmith_stalled(queued, oldest):
+                    continue
+                idle = owned_idle(load)
+                if idle is not None and idle > OWNED_IDLE_HEADROOM:
+                    started.add(label)
+                    notes.append(f"{label}: {queued} queued, oldest {oldest:g} min, but {idle} runners idle; "
+                                 "not full")
+                    continue
+                full.add(label)
                 continue
             if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
                 continue
