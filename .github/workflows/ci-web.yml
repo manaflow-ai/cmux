@@ -1743,9 +1743,12 @@ jobs:
           retention-days: 3
 
       # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
-      # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
-      # restore-keys prefix takes the newest. A path relative to the workspace in every save and restore: the cache
-      # version hashes the path as written, and runner.temp differs between a VM's runners (runner, runner2).
+      # request. Keyed by the history's own hash: a cache entry is immutable, so one fixed key was never replaced
+      # (2026-11-08); each recorded push changes the history and so the key, and the restore-keys prefix takes the
+      # newest. Saved only from a base branch: a pull request restores only its base's entries, so a save from any
+      # other ref is never read (tests/test_ci_no_run_scoped_cache_keys.py). A path relative to the workspace in
+      # every save and restore: the cache version hashes the path as written, and runner.temp differs between a
+      # VM's runners (runner, runner2).
       - name: Stage the history for the cache
         id: history-stage
         if: ${{ steps.history-record.outcome == 'success' }}
@@ -1753,13 +1756,13 @@ jobs:
         run: mkdir -p .webviews-test-history-cache && cp "$RUNNER_TEMP/webviews-test-history/history.json" .webviews-test-history-cache/history.json
 
       - name: Save the history to the cache
-        if: ${{ steps.history-stage.outcome == 'success' }}
+        if: ${{ steps.history-stage.outcome == 'success' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .webviews-test-history-cache/history.json
-          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: webviews-test-history-${{ github.ref_name }}-${{ hashFiles('.webviews-test-history-cache/history.json') }}
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in

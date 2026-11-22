@@ -236,7 +236,9 @@ class DropJob(unittest.TestCase):
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
         # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
-        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
+        # !cancelled(), not always(): it still waits for a skipped need, and never queues on a cancelled run
+        # (tests/test_ci_workflow_job_bounds.py).
+        for clause in ("!cancelled()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
                        "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)
         self.assertTrue(drop.get("continue-on-error"))
