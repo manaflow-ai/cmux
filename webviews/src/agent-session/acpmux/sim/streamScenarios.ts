@@ -503,16 +503,19 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     owner: own.sim,
     harness: "sim",
     make: turn("se-24", "a plan updated three times", (b) => {
-      b.plan([{ content: "Read" }, { content: "Fix" }]);
+      b.plan([
+        ["Read", "pending"],
+        ["Fix", "pending"],
+      ]);
       msg(b, P1, "m1");
       b.plan([
-        { content: "Read", status: "completed" },
-        { content: "Fix", status: "in_progress" },
+        ["Read", "completed"],
+        ["Fix", "in_progress"],
       ]);
       b.tool("bun test", { ms: 500 });
       b.plan([
-        { content: "Read", status: "completed" },
-        { content: "Fix", status: "completed" },
+        ["Read", "completed"],
+        ["Fix", "completed"],
       ]);
       msg(b, P2, "m2");
       b.turnEnd();

@@ -255,72 +255,6 @@ export class SimBuilder {
     return this;
   }
 
-  /** A steer: the person's prompt sent into the running turn (no new turn); `read` lands it `readMs` later. */
-  steer(value: string, { after = 300, read = true, readMs = 1_500 } = {}): this {
-    this.steers += 1;
-    const promptId = `steer-${this.steers}`;
-    this.record(
-      "mux",
-      "user_message",
-      {
-        text: value,
-        promptId,
-        turnId: this.turnId,
-        client: "pane",
-        steer: true,
-        _meta: { origin: { actor: "person" } },
-      },
-      after,
-      `steer: ${value.slice(0, 40)}`,
-    );
-    if (read) this.record("mux", "steer_read", { promptId }, readMs, "steer_read");
-    return this;
-  }
-  private steers = 0;
-
-  /** A plan (todo list) update. */
-  plan(entries: { content: string; status?: string }[], after = 300): this {
-    return this.record(
-      "in",
-      "plan",
-      update("plan", { entries: entries.map((entry) => ({ priority: "medium", status: "pending", ...entry })) }),
-      after,
-      "plan",
-    );
-  }
-
-  /** A permission card for a call, answered `answerMs` later (`answer: false` leaves it open). */
-  permission(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
-    this.asks += 1;
-    const permissionId = `perm-${this.asks}`;
-    const toolCallId = this.nextCallId();
-    this.record(
-      "mux",
-      "permission_request",
-      {
-        permissionId,
-        request: {
-          toolCall: { toolCallId, title, kind: "execute", rawInput: { command: title } },
-          options: [
-            { optionId: "allow_once", name: "Allow", kind: "allow_once" },
-            { optionId: "reject_once", name: "Reject", kind: "reject_once" },
-          ],
-        },
-      },
-      after,
-      "permission_request",
-    );
-    if (answer)
-      this.record(
-        "mux",
-        "permission_decision",
-        { permissionId, outcome: { outcome: "selected", optionId } },
-        answerMs,
-        "permission_decision",
-      );
-    return this;
-  }
-
   /** An ask card (Claude Code's AskUserQuestion, a permission request), answered `answerMs` later. */
   ask(question: string, options: string[], { after = 300, answerMs = 4_000 } = {}): this {
     this.asks += 1;
@@ -476,7 +410,7 @@ export class SimBuilder {
   }
 
   /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later. */
-  steer(value: string, { readMs = 600, after = 300 } = {}): this {
+  steer(value: string, { read = true, readMs = 600, after = 300 } = {}): this {
     const promptId = `steer-${this.seq + 1}`;
     this.record(
       "mux",
@@ -492,7 +426,8 @@ export class SimBuilder {
       after,
       `steer: ${value.slice(0, 40)}`,
     );
-    return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+    if (read) this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+    return this;
   }
 
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. `tracked`: acpmux also
