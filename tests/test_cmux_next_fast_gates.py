@@ -547,6 +547,19 @@ class WorkflowShape(unittest.TestCase):
             restore = step_named(steps, name)
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
 
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self):
+        # note-553 (2026-11-23): on a runner whose own Bun cache is already filled (a persistent pool runner), the
+        # archive restore spent 400-1,096 s in 12 of 14 jobs cut at their limit. The check runs first, the restore only
+        # when it is not warm, and CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again.
+        steps = job(workflow())["steps"]
+        names = [s.get("name") for s in steps]
+        warm = step_named(steps, "Is this runner's own Bun package cache warm")
+        self.assertEqual(warm["id"], "bun-warm")
+        self.assertIn("CI_BUN_CACHE_RESTORE_WARM", warm["env"]["RESTORE_ON_WARM"])
+        restore = step_named(steps, "Restore the Bun package cache")
+        self.assertIn("steps.bun-warm.outputs.warm != 'true'", restore["if"])
+        self.assertLess(names.index(warm["name"]), names.index(restore["name"]))
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
