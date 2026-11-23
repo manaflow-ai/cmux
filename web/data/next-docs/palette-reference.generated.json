@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1476,
+    "entries": 1480,
     "shortcuts": 205
   },
   "sections": [
@@ -288,6 +288,12 @@
         {
           "id": "home.mcpConnectPlayground",
           "title": "MCP Connect Card Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.meetChief",
+          "title": "Meet Chief",
           "shortcut": null,
           "command": null
         },
@@ -6454,12 +6460,6 @@
           "command": null
         },
         {
-          "id": "chief.importMemories",
-          "title": "Bring Your History",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "palette.captureScreenshotToChat",
           "title": "Capture Screenshot to Chat",
           "shortcut": "⌃⌥⌘S",
@@ -6506,6 +6506,12 @@
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
           "command": "cmux chief memory"
+        },
+        {
+          "id": "chief.toggleComputer",
+          "title": "Chief: Toggle Computer",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "chief.toggleMemoryInspector",
@@ -7180,12 +7186,6 @@
           "command": "cmux agent toggle-minimap"
         },
         {
-          "id": "chief.importMemories.undo",
-          "title": "Undo Last Memory Import",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agent.harness.updateAll",
           "title": "Update Agent CLIs",
           "shortcut": null,
@@ -7232,6 +7232,12 @@
           "title": "Bring Back Local",
           "shortcut": null,
           "command": "cmux cloud bring-back"
+        },
+        {
+          "id": "cloud.computerControl",
+          "title": "Chief Computer Control…",
+          "shortcut": null,
+          "command": "cmux cloud computer-control"
         },
         {
           "id": "cloudPortClose",
@@ -7436,6 +7442,12 @@
           "title": "List Forwarded Machine Ports",
           "shortcut": null,
           "command": "cmux cloud port-list"
+        },
+        {
+          "id": "agent.moveToMachine",
+          "title": "Move Chat to Machine…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "cloudMoveToMachine",
@@ -7682,6 +7694,12 @@
           "title": "Unfollow",
           "shortcut": null,
           "command": "cmux cloud unfollow"
+        },
+        {
+          "id": "cloud.chiefComputer",
+          "title": "Use Chief’s Own Computer…",
+          "shortcut": null,
+          "command": "cmux cloud chief-computer"
         },
         {
           "id": "cloudFileWrite",
@@ -8762,6 +8780,12 @@
           "title": "Toggle Setting…",
           "shortcut": null,
           "command": "cmux settings toggle-setting"
+        },
+        {
+          "id": "debug.tooltipGallery",
+          "title": "Tooltip Gallery",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "help.troubleshooting",
