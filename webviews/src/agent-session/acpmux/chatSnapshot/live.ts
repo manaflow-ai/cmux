@@ -110,8 +110,8 @@ export function swapChatSnapshot(): void {
 }
 
 /// How long the copy may wait over the live page for its code cards' highlighting (swapChatSnapshot).
-/// A card's chunk and Pierre's first answer take ~100-300 ms; a worker that never answers is the
-/// watchdog's (highlightWatchdog.ts) and its card draws plain once the copy has gone.
+/// The page test's busy launch (chunk and worker each 1 s late) lands inside it; a worker that never
+/// answers is the watchdog's (highlightWatchdog.ts) and its card draws plain once the copy has gone.
 export const HIGHLIGHT_HOLD_MS = 1_200;
 
 /// Whether a code card on screen in the live page still draws plain lines while its highlighted card
