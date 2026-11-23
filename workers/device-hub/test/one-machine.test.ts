@@ -86,6 +86,21 @@ describe("one machine, one device", () => {
     expect((await listed(viewer)).find((d) => d.id === daemon.id)).toMatchObject({ macScreenShared: false });
   });
 
+  for (const order of ["off first", "on first"] as const) {
+    it(`an explicit off on any stale identity beats an on, whatever the row order (${order})`, async () => {
+      const account = await signIn();
+      const viewer = await device(account, "Laptop", OTHER_MAC);
+      const first = await device(account, "Studio Mac", MAC);
+      const second = await device(account, "Studio Mac 2", MAC);
+      await first.share(order === "on first");
+      await second.share(order !== "on first");
+      await age(account.userId, first);
+      await age(account.userId, second);
+      const daemon = await device(account, "studio-mac", MAC);
+      expect((await listed(viewer)).find((d) => d.id === daemon.id)).toMatchObject({ macScreenShared: false });
+    });
+  }
+
   it("lists one machineGroup for every device of a machine, never the machine itself", async () => {
     const account = await signIn();
     const app = await device(account, "Studio Mac", MAC);

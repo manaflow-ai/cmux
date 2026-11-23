@@ -695,15 +695,22 @@ export class UserDO extends DurableObject<Env> {
         now,
       )
       .toArray() as unknown as DeviceRow[];
+    // A switch the person set on a stale identity is about this machine too. An explicit off beats
+    // an on whatever the row order, so a Stop never comes back on; else the first choice wins.
+    let chosen = me.mac_screen_chosen === 1;
+    let shared = me.mac_screen_shared;
+    let changed = false;
     for (const stale of siblings) {
       if (this.online(stale.id)) continue;
       this.carryPermissions(stale.id, id);
-      // A switch the person set on the stale identity is about this machine too.
-      if (stale.mac_screen_chosen === 1 && me.mac_screen_chosen !== 1) {
-        this.sql.exec("UPDATE devices SET mac_screen_chosen = 1, mac_screen_shared = ? WHERE id = ?", stale.mac_screen_shared, id);
+      if (stale.mac_screen_chosen === 1 && (!chosen || (stale.mac_screen_shared === 0 && shared !== 0))) {
+        chosen = true;
+        shared = stale.mac_screen_shared;
+        changed = true;
       }
       await this.retire(stale, "superseded");
     }
+    if (changed) this.sql.exec("UPDATE devices SET mac_screen_chosen = 1, mac_screen_shared = ? WHERE id = ?", shared, id);
   }
 
   /** Copies every permission naming `from` to `to` (as host or viewer); the newest answer per pair wins. */
