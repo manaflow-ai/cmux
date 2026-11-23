@@ -9382,6 +9382,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composerMic,
     importFile,
     computerUseAsk,
+    computerUseAsked,
     setUpComputerUse,
     setComputerUseAsked,
     holdsForComputerUseSetup,

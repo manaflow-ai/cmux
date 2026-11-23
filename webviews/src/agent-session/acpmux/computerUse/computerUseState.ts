@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import type { StringKey } from "../i18n";
 import { toolMentionsIn } from "../toolMentions";
+import type { ComposerAttachment } from "../attachments";
 
 export type ComputerUseState = "ready" | "starting" | "needs_setup" | "unavailable" | "disabled";
 
@@ -70,6 +71,15 @@ export function computerUseGate(
 /// this Mac, only says why: no setup on this Mac changes it.
 export function holdOpensSetup(hold: ComputerUseHold): boolean {
   return hold === "setup" || hold === "unavailable";
+}
+
+/// What a send's Computer Use check reads: the words and every pasted-text chip, which goes as text the
+/// agent (and acpmux's note) reads as the person's too (CMUX-682).
+export function sentWords(text: string, attachments: readonly ComposerAttachment[] = []): string {
+  const pasted = attachments.flatMap((attachment) =>
+    attachment.kind === "pasted" && attachment.text ? [attachment.text] : [],
+  );
+  return pasted.length ? [text, ...pasted].join("\n\n") : text;
 }
 
 /// The notice's words for `hold` (ComputerUseSetupNotice.tsx; New Tab's toast is the title alone).

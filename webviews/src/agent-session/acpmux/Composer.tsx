@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
@@ -1742,7 +1743,11 @@ function ComposerFrame({
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
     // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
-    if (sendsPrompt(draftText) && holdsSend?.(draftText, sendResuming.current || submitResumed())) return false;
+    if (
+      sendsPrompt(draftText) &&
+      holdsSend?.(sentWords(draftText, attachments), sendResuming.current || submitResumed())
+    )
+      return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -2784,7 +2789,7 @@ function ComposerFrame({
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
       // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
       const quickDraft = withoutDeadTokens(unwrapped());
-      if (sendsPrompt(quickDraft) && holdsSend?.(quickDraft)) return;
+      if (sendsPrompt(quickDraft) && holdsSend?.(sentWords(quickDraft, attachments))) return;
       if (!owned && holdForAttachments((gesture) => resumeSend(() => sendAndOpen(gesture)))) return;
       sendAndOpen();
       return;

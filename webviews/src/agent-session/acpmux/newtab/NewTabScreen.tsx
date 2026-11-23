@@ -1195,7 +1195,7 @@ export function NewTabScreen(props: Props) {
   const exactRow = exactMatch(typed.trim(), suggested, omnibar);
   // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
   const offered =
-    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home)
+    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home) && !profilePick
       ? suggested.filter((row) => row.type === "ask" || row === exactRow)
       : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
@@ -1588,10 +1588,10 @@ export function NewTabScreen(props: Props) {
       });
       return chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask";
     })();
-    if (!shell && !navigates && holdsSend(prompt)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
+    if (!shell && !navigates && holdsSend(prompt)) return;
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => resumeSend(() => submitNow.current(beside)))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
@@ -1638,8 +1638,8 @@ export function NewTabScreen(props: Props) {
     const prompt = typed.trim();
     if (!prompt && attachments.length === 0) return;
     if (command.intercept(prompt, harness, attachments.length, true)) return;
-    if (holdsSend(prompt)) return;
     if (pairingLinkRefused(typed)) return props.onOpen(prompt);
+    if (holdsSend(prompt)) return;
     if (holdForAttachments(() => resumeSend(() => askNow.current()))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     if (!harness) {

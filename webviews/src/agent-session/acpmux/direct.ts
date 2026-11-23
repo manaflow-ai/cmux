@@ -185,6 +185,7 @@ import {
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { toolMentionContext, toolMentionsIn } from "./toolMentions";
+import { sentWords } from "./computerUse/computerUseState";
 import { promptContext } from "./composer/videoTranscript";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
@@ -11334,7 +11335,7 @@ export class AcpmuxDirectClient {
         () => {
           // Asked before every try, a reconnect's too: Computer Use can stop while the host is away.
           // Its own code, not `transport.*`: never retried, and the bubble says this reason.
-          const hold = this.sendHold?.(text);
+          const hold = this.sendHold?.(sentWords(text, attachments));
           if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
           if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
@@ -12355,7 +12356,7 @@ export class AcpmuxDirectClient {
     const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () => {
       // Asked right before the wire, after the ticket wait and the child attach (a `/side` prompt).
-      const hold = this.sendHold?.(text);
+      const hold = this.sendHold?.(sentWords(text, attachments));
       if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
       return this.request("session/prompt", {
         sessionId,

@@ -361,6 +361,9 @@ export type PaneComposerDeps = {
   importFile: (file: File) => Promise<void>;
   /// The Computer Use setup notice a held `@computer-use` send raised (undefined while none shows).
   computerUseAsk: ComputerUseHold | undefined;
+  /// Where the held send that raised it was going: the notice shows (and its Set Up opens setup) only
+  /// while this composer still sends there, never after a switch to Cloud or another machine.
+  computerUseAsked: ComputerUsePlace | undefined;
   setUpComputerUse: () => void;
   setComputerUseAsked: React.Dispatch<React.SetStateAction<ComputerUsePlace | undefined>>;
   /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
@@ -562,6 +565,7 @@ export function drawPaneComposer({
   composerMic,
   importFile,
   computerUseAsk,
+  computerUseAsked,
   setUpComputerUse,
   setComputerUseAsked,
   holdsForComputerUseSetup,
@@ -585,6 +589,7 @@ export function drawPaneComposer({
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
   };
+  const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -600,10 +605,10 @@ export function drawPaneComposer({
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
-        <Notice id="computer-use-setup" tier="error" when={computerUseAsk}>
-          {computerUseAsk && (
+        <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
+          {shownComputerUseAsk && (
             <ComputerUseSetupNotice
-              hold={computerUseAsk}
+              hold={shownComputerUseAsk}
               onSetUp={setUpComputerUse}
               onDismiss={() => setComputerUseAsked(undefined)}
             />

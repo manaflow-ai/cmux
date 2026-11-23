@@ -572,7 +572,10 @@ export function commandSplice(
 ): { back: number; forward: number; text: string } {
   const word = /^[^\s\uFFFC]*/.exec(after)?.[0] ?? "";
   if (word.length === after.length && cut) return { back: trigger.length, forward: 0, text: insert ?? `/${name} ` };
-  if (insert !== undefined) return { back: trigger.length, forward: word.length, text: insert };
+  // A row that writes its own text (a tool's `@browser-use `) keeps the punctuation that ends the word
+  // (`/brow|.` keeps the sentence's period).
+  if (insert !== undefined)
+    return { back: trigger.length, forward: word.replace(/[.,;:!?)\]"'\u201D\u2019]+$/, "").length, text: insert };
   const forward = word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
   return { back: trigger.length, forward, text: `/${name} ` };
 }
