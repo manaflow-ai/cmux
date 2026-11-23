@@ -2667,6 +2667,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
