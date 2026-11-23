@@ -30,82 +30,83 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
-/// Init script, self-contained: a DevTools hook that records, per commit, the components that rendered
-/// outside the composer and how many rendered inside it.
-function installCommitWatch() {
-  type Fiber = {
-    tag: number;
-    type: any;
-    elementType: any;
-    flags: number;
-    child: Fiber | null;
-    sibling: Fiber | null;
-    alternate: Fiber | null;
-  };
-  type Commit = { at: number; inside: number; outside: string[] };
-  const w = window as any;
-  const commits: Commit[] = [];
-  w.__keystrokeCommits = commits;
-  // Function, class, forwardRef, memo, simple memo components: the ones that run code on a render.
-  const COMPONENT = new Set([0, 1, 11, 14, 15]);
-  const PERFORMED_WORK = 1;
-  const nameOf = (fiber: Fiber) => {
-    const type = fiber.type ?? fiber.elementType;
-    if (!type) return `tag${fiber.tag}`;
-    return (
-      type.displayName ||
-      type.name ||
-      type.render?.displayName ||
-      type.render?.name ||
-      type.type?.displayName ||
-      type.type?.name ||
-      `tag${fiber.tag}`
-    );
-  };
-  const COMPOSER = /^(Composer|ComposerFrame|MemoComposer)(\$\d+)?$/;
-  let renderers = 0;
-  w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-    supportsFiber: true,
-    isDisabled: false,
-    renderers: new Map(),
-    inject(internals: unknown) {
-      renderers += 1;
-      this.renderers.set(renderers, internals);
-      return renderers;
-    },
-    checkDCE() {},
-    onScheduleFiberRoot() {},
-    onCommitFiberUnmount() {},
-    onPostCommitFiberRoot() {},
-    onCommitFiberRoot(_id: number, root: { current: Fiber }) {
-      const commit: Commit = { at: performance.now(), inside: 0, outside: [] };
-      // Depth-first over the subtrees this commit touched: a fiber whose children are the previous
-      // tree's own bailed out whole, and nothing under it rendered.
-      const stack: [Fiber, boolean][] = [];
-      const top = root.current;
-      if (top.child) stack.push([top.child, false]);
-      while (stack.length) {
-        const [fiber, insideParent] = stack.pop()!;
-        if (fiber.sibling) stack.push([fiber.sibling, insideParent]);
-        const component = COMPONENT.has(fiber.tag);
-        const inside = insideParent || (component && COMPOSER.test(nameOf(fiber)));
-        const previous = fiber.alternate;
-        if (component && (previous === null || (fiber.flags & PERFORMED_WORK) !== 0)) {
-          if (inside) commit.inside += 1;
-          else commit.outside.push(nameOf(fiber));
-        }
-        if (fiber.child && (previous === null || fiber.child !== previous.child)) stack.push([fiber.child, inside]);
-      }
-      if (commit.inside || commit.outside.length) commits.push(commit);
-    },
-  };
-}
-
 type Commit = { at: number; inside: number; outside: string[] };
 
 await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-keystroke-isolation-browser", "chromium", chromium))) return;
   setDefaultTimeout(400_000);
+
+  /// Init script, self-contained: a DevTools hook that records, per commit, the components that rendered
+  /// outside the composer and how many rendered inside it.
+  function installCommitWatch() {
+    type Fiber = {
+      tag: number;
+      type: any;
+      elementType: any;
+      flags: number;
+      child: Fiber | null;
+      sibling: Fiber | null;
+      alternate: Fiber | null;
+    };
+    type Commit = { at: number; inside: number; outside: string[] };
+    const w = window as any;
+    const commits: Commit[] = [];
+    w.__keystrokeCommits = commits;
+    // Function, class, forwardRef, memo, simple memo components: the ones that run code on a render.
+    const COMPONENT = new Set([0, 1, 11, 14, 15]);
+    const PERFORMED_WORK = 1;
+    const nameOf = (fiber: Fiber) => {
+      const type = fiber.type ?? fiber.elementType;
+      if (!type) return `tag${fiber.tag}`;
+      return (
+        type.displayName ||
+        type.name ||
+        type.render?.displayName ||
+        type.render?.name ||
+        type.type?.displayName ||
+        type.type?.name ||
+        `tag${fiber.tag}`
+      );
+    };
+    const COMPOSER = /^(Composer|ComposerFrame|MemoComposer)(\$\d+)?$/;
+    let renderers = 0;
+    w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      isDisabled: false,
+      renderers: new Map(),
+      inject(internals: unknown) {
+        renderers += 1;
+        this.renderers.set(renderers, internals);
+        return renderers;
+      },
+      checkDCE() {},
+      onScheduleFiberRoot() {},
+      onCommitFiberUnmount() {},
+      onPostCommitFiberRoot() {},
+      onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+        const commit: Commit = { at: performance.now(), inside: 0, outside: [] };
+        // Depth-first over the subtrees this commit touched: a fiber whose children are the previous
+        // tree's own bailed out whole, and nothing under it rendered.
+        const stack: [Fiber, boolean][] = [];
+        const top = root.current;
+        if (top.child) stack.push([top.child, false]);
+        while (stack.length) {
+          const [fiber, insideParent] = stack.pop()!;
+          if (fiber.sibling) stack.push([fiber.sibling, insideParent]);
+          const component = COMPONENT.has(fiber.tag);
+          const inside = insideParent || (component && COMPOSER.test(nameOf(fiber)));
+          const previous = fiber.alternate;
+          if (component && (previous === null || (fiber.flags & PERFORMED_WORK) !== 0)) {
+            if (inside) commit.inside += 1;
+            else commit.outside.push(nameOf(fiber));
+          }
+          if (fiber.child && (previous === null || fiber.child !== previous.child)) stack.push([fiber.child, inside]);
+        }
+        if (commit.inside || commit.outside.length) commits.push(commit);
+      },
+    };
+  }
+
   const webviews = path.resolve(import.meta.dir, "..");
   const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
   const KEYS = 16;
@@ -158,6 +159,7 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
     await shows(page, "");
     // Debounced work the warm-up keys started (a draft save, a suggestion index) lands before the window.
+    // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
     await page.waitForTimeout(1_500);
     await settled(page);
     return page;
@@ -182,9 +184,11 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     for (let i = 0; i < typed.length; i += 1) {
       await page.keyboard.press(typed[i]!);
       await shows(page, typed.slice(0, i + 1));
+      // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
       await page.waitForTimeout(60);
     }
     // Past the composer's draft-save debounce: work a key defers still counts as the key's.
+    // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
     await page.waitForTimeout(1_500);
     await settled(page);
     return (await page.evaluate(
@@ -325,9 +329,11 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
       if (scrolled) {
         await page.mouse.move(550, 300);
         await page.mouse.wheel(0, -1_200);
+        // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
         await page.waitForTimeout(800);
         await settled(page);
         await page.locator(PROMPT).first().click();
+        // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
         await page.waitForTimeout(300);
       }
       // The latest drawn row's foot against the composer's top: the gap the lift keeps.
@@ -349,8 +355,10 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
         for (let line = 0; line < 3; line += 1) {
           await page.keyboard.press("x");
           await page.keyboard.press("Shift+Enter");
+          // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
           await page.waitForTimeout(400);
         }
+        // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
         await page.waitForTimeout(1_500);
         await settled(page);
       });
@@ -398,6 +406,7 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     const streaming = page.evaluate(() =>
       (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 6, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
     );
+    // fixed-wait: the window is time itself (a debounce, a key cadence or a settle past a commit), measured as it runs
     await page.waitForTimeout(400);
     const commits = await typeKeys(page);
     const run = (await streaming) as Record<string, any>;
