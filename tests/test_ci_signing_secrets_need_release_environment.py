@@ -24,7 +24,8 @@ environments whose deployment policy admits the refs that really release:
 - `billing-nightly`: branch main, the server's App Store In-App Purchase key
   (APPLE_IAP_KEY_ID, _ISSUER_ID, _PRIVATE_KEY) and the billing health token
   (APPLE_NOTIFICATIONS_HEALTH_TOKEN) only, read by billing-nightly.yml's
-  apple-delivery and apple-api jobs. No release signing secret enters it, and
+  apple-delivery, apple-api and apple-post-release jobs. No release signing
+  secret enters it, and
   those jobs check at run time that it admits main alone.
 
 A job without such an environment would read nothing once the repository-level
@@ -56,7 +57,8 @@ TRAIN_ENVIRONMENTS = {"nightly-next-train"}
 TRAIN_READERS = {("nightly-next-train.yml", "drive")}
 BILLING_NIGHTLY_ENVIRONMENTS = {"billing-nightly"}
 BILLING_NIGHTLY_SECRETS = {"APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY", "APPLE_NOTIFICATIONS_HEALTH_TOKEN"}
-BILLING_NIGHTLY_READERS = {("billing-nightly.yml", "apple-delivery"), ("billing-nightly.yml", "apple-api")}
+BILLING_NIGHTLY_READERS = {("billing-nightly.yml", "apple-delivery"), ("billing-nightly.yml", "apple-api"),
+                           ("billing-nightly.yml", "apple-post-release")}
 
 SIGNING_SECRET = re.compile(
     r"^(APPLE_[A-Z0-9_]+"
