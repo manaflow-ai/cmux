@@ -70,6 +70,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             cwd: None,
             from_folder: None,
             environment: None,
+            repo: None,
             account: None,
             machine: Machine::New,
             wait: false,
@@ -857,6 +858,156 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
         // The first message, by the chat's session (#37477's `cmux chat send`).
         assert_eq!(answer["follow_up"]["send"], json!("cmux chat send sess-1 'PROMPT' --wait"));
     }
+}
+
+/// Leo, 2026-11-20: "PLUS ALL THE FUCKIGN COMMANDS ABOUT FUCKING CLOUD". `--repo` takes what `cloud new-machine
+/// --repo` takes (GitHub's OWNER/NAME, any https git URL with its group path, `@REF`), and the chat's folder is the
+/// clone's, `~/work/NAME`. It makes a new machine, so a folder flag or `--target` with it is refused.
+#[test]
+fn parse_takes_a_repository_for_a_new_machine() {
+    for (spec, cwd, written) in [
+        ("acme/api", "/home/cmux/work/api", "acme/api"),
+        ("https://github.com/acme/api.git", "/home/cmux/work/api", "acme/api"),
+        (
+            "https://gitlab.com/group/sub/project@v2",
+            "/home/cmux/work/project",
+            "https://gitlab.com/group/sub/project@v2",
+        ),
+        (
+            "https://git.example.com/team/tools.v2",
+            "/home/cmux/work/tools.v2",
+            "https://git.example.com/team/tools.v2",
+        ),
+    ] {
+        let asked = request(&["--repo", spec, "--prompt", "x"]);
+        assert_eq!(asked.repo.as_deref(), Some(written), "{spec}");
+        assert_eq!(asked.cwd.as_deref(), Some(cwd), "{spec}");
+        assert_eq!(asked.machine, Machine::New, "{spec}");
+    }
+    assert_eq!(request(&["--repo=acme/api", "--name", "n"]).machine, Machine::Named("n".into()));
+    for refused in [
+        &["--repo", "nope"][..],
+        &["--repo", "https://user:tok@gitlab.com/g/p"],
+        &["--repo", "acme/api", "--cwd", "/w"],
+        &["--repo", "acme/api", "--from-folder", "."],
+        &["--repo", "acme/api", "--no-folder"],
+        &["--repo", "acme/api", "--target", "machine:vm-1"],
+        &["--repo", "acme/api", "--repo", "acme/web"],
+    ] {
+        assert!(parse(&strings(refused), || Ok(String::new())).is_err(), "{refused:?}");
+    }
+    assert!(TAKES_VALUE.contains(&"--repo"));
+    assert!(super::super::cloud_help::START_CHAT_USAGE.contains("--repo REPO"));
+    // Asked again before the machine is made: the repository, never its folder (the two are refused together).
+    let asked = request(&["--repo", "https://gitlab.com/g/p", "--prompt", "x"]);
+    let again = again_command(&asked, &Machine::Named("chat-fresh".into()));
+    assert!(again.contains("--repo https://gitlab.com/g/p") && !again.contains("--cwd"), "{again}");
+    assert!(request_of(&again).is_some(), "{again}");
+    // Once it is made: its clone, as `--cwd`, and no second machine.
+    let again = again_command(&asked, &Machine::Target("vm-1".into()));
+    assert!(again.contains("--cwd /home/cmux/work/p") && !again.contains("--repo"), "{again}");
+    assert!(request_of(&again).is_some(), "{again}");
+}
+
+/// `again`'s words after `cmux cloud start-chat`, parsed: a rerun the command takes.
+fn request_of(again: &str) -> Option<Request> {
+    let words: Vec<String> = again
+        .strip_prefix("cmux cloud start-chat")?
+        .split_whitespace()
+        .map(|word| word.trim_matches('\'').to_owned())
+        .collect();
+    match parse(&words, || Ok(String::new())) {
+        Ok(Parsed::Run(request)) => Some(*request),
+        _ => None,
+    }
+}
+
+/// With `--repo` the chat's machine is made first, cloning it (`cloud new-machine --name N --repo R`); the clone is
+/// waited on (clone_wait.rs: one exec per check, `busy` while the bootstrap clones) and the chat starts in it on that
+/// machine (`start-session --target --cwd ~/work/NAME`). One command and one machine, GitLab's URL included.
+#[test]
+fn a_repository_makes_the_chats_machine_and_starts_in_its_clone() {
+    let on_vm_1 = strings(&[
+        "cloud",
+        "start-session",
+        "--target",
+        "machine:vm-1",
+        "--agent",
+        "claude",
+        "--cwd",
+        "/home/cmux/work/project",
+        "--json",
+    ]);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        exec_out("busy\n"),
+        exec_out("ready\n"),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"replies\":[\"ok\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&["--prompt", "x", "--repo", "https://gitlab.com/group/project", "--wait"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(answer["cwd"], "/home/cmux/work/project");
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "new-machine",
+            "--name",
+            "chat-fresh",
+            "--repo",
+            "https://gitlab.com/group/project",
+            "--json"
+        ])
+    );
+    for check in [&fake.ran[2], &fake.ran[3]] {
+        assert_eq!(
+            check[..4],
+            strings(&["cloud", "exec", "--target", "machine:vm-1"]),
+            "{check:?}"
+        );
+        assert!(check[5].contains(".cmux/bootstrap"), "{check:?}");
+    }
+    assert_eq!(fake.ran[4], on_vm_1);
+    assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
+    assert_eq!(fake.ran.len(), 7);
+    // With an environment too: one new-machine with both.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        exec_out("ready\n"),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--prompt", "x", "--repo", "acme/api", "--environment", "env_1"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "new-machine",
+            "--name",
+            "chat-fresh",
+            "--environment",
+            "env_1",
+            "--repo",
+            "acme/api",
+            "--json"
+        ])
+    );
+    // A `--name` that exists already has its folders: nothing is made or started.
+    let mut fake = Fake::new(vec![signed_in()]);
+    let asked = request(&["--name", "dev", "--repo", "acme/api", "--prompt", "x"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("usage.invalid"), 2));
+    assert!(error["message"].as_str().unwrap().contains("--repo makes a new machine"), "{error}");
+    assert_eq!(fake.ran.len(), 1);
 }
 
 /// With `--environment` the chat's machine is made first, in that environment (`cloud new-machine --name
@@ -2723,6 +2874,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         cwd: None,
         from_folder: None,
         environment: None,
+        repo: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -2765,6 +2917,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         cwd: None,
         from_folder: None,
         environment: None,
+        repo: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,

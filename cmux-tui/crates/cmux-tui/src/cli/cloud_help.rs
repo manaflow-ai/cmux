@@ -657,7 +657,8 @@ claude は `claude setup-token` を実行し、トークンを表示せずに取
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
                              [--effort EFFORT] [--mode MODE]
-                             [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
+                             [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder |
+                              --repo REPO]
                              [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room]
@@ -695,6 +696,12 @@ older name; both run the same start.
                      reuses the finished copy.
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files
                      (the files the copy sends), which are refused without it
+  --repo REPO        A new machine that clones REPO into ~/work/NAME, and the
+                     chat in the clone once it is there: OWNER/NAME on GitHub
+                     or any https git URL (GitLab's too), @REF for a branch,
+                     tag or commit (`cloud new-machine --repo`); not with
+                     --target, --cwd or --from-folder. A chat that runs goes
+                     to one with `cmux chat cd SESSION --repo REPO`
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
                      Neither: create a new small machine with a new name.
@@ -731,6 +738,7 @@ EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
   cmux cloud start-chat --agent codex --json
+  cmux cloud start-chat --repo https://gitlab.com/group/project --prompt 'Run the tests' --wait
   cmux cloud start-chat --model claude-sonnet-5-5 --effort high --no-folder --prompt 'What is 1+1?' --wait
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
