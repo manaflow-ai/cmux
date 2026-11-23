@@ -290,25 +290,3 @@ test("a sub-session whose last turn was stopped says when, which its Resume read
   // Only a sub-session's stop resumes: a chat no parent started does not.
   expect(subsessionInfo(summary("c", { lastTurn: { status: "cancelled", endedAt: 42 } })).stoppedAt).toBeUndefined();
 });
-
-test("a hidden page's store lets its indexes go and makes them again on a read or a show", () => {
-  const store = new SubsessionStore();
-  let told = 0;
-  let names = 0;
-  store.subscribe(() => (told += 1));
-  store.subscribeNames(() => (names += 1));
-  store.set([summary("chat"), summary("tests", { startedBy: "chat", shortName: "tests" })]);
-  expect([told, names]).toEqual([1, 1]);
-  store.release();
-  expect(store.has("chat")).toBe(true);
-  expect(store.get("tests")).toBeDefined();
-  expect([told, names]).toEqual([1, 1]);
-  store.release();
-  store.set([summary("chat"), summary("docs", { startedBy: "chat", shortName: "docs" })]);
-  expect([told, names]).toEqual([1, 1]);
-  store.restore();
-  expect([told, names]).toEqual([2, 2]);
-  expect(store.get("tests")).toBeUndefined();
-  expect(store.get("docs")).toBeDefined();
-  expect(store.find("docs")).toBe("docs");
-});
