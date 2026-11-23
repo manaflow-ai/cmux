@@ -286,52 +286,6 @@ impl Doc {
     }
 }
 
-/// Under this much text, one thread searches it all: a thread's start costs more than it saves.
-const PARALLEL_BYTES: usize = 4 * 1024 * 1024;
-
-/// `search` over `docs`, split by their text into contiguous runs of about equal bytes, one per
-/// core (at most 8), as `store.rs`'s listing splits its chats. A query's first key reads every
-/// held chat's text (up to [`TOTAL_BYTES`]); one core reads it at a few GB/s, so the pass is
-/// bound by one core's speed, not by memory. The answer is the same set in any split.
-fn across_cores<'a, F>(docs: Vec<(&'a String, &'a Arc<Doc>)>, search: &F) -> HashMap<String, Found>
-where
-    F: Fn(&String, &Arc<Doc>) -> Option<(String, Found)> + Sync,
-{
-    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
-    let workers = std::thread::available_parallelism().map_or(1, usize::from).min(8);
-    if workers < 2 || bytes < PARALLEL_BYTES || docs.len() < 2 {
-        return docs.into_iter().filter_map(|(key, doc)| search(key, doc)).collect();
-    }
-    let share = bytes.div_ceil(workers);
-    let mut runs: Vec<&[(&String, &Arc<Doc>)]> = Vec::with_capacity(workers);
-    let (mut start, mut held) = (0, 0);
-    for (i, (_, doc)) in docs.iter().enumerate() {
-        held += doc.text.len();
-        if held >= share && runs.len() + 1 < workers {
-            runs.push(&docs[start..=i]);
-            (start, held) = (i + 1, 0);
-        }
-    }
-    runs.push(&docs[start..]);
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = runs
-            .into_iter()
-            .filter(|run| !run.is_empty())
-            .map(|run| {
-                scope.spawn(move || {
-                    run.iter().filter_map(|(key, doc)| search(key, doc)).collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .flat_map(|handle| {
-                handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect()
-    })
-}
-
 /// At most the last `max` bytes of `text`, cut on a character boundary.
 fn newest_tail(text: &str, max: usize) -> &str {
     let start = (text.len().saturating_sub(max)..=text.len())
@@ -714,10 +668,8 @@ impl ChatText {
             Some((key.clone(), Found { doc: doc.clone(), matched }))
         };
         let found: HashMap<String, Found> = match &narrowed {
-            Some(last) => {
-                across_cores(last.iter().map(|(key, found)| (key, &found.doc)).collect(), &search)
-            }
-            None => across_cores(inner.docs.iter().collect(), &search),
+            Some(last) => last.iter().filter_map(|(key, found)| search(key, &found.doc)).collect(),
+            None => inner.docs.iter().filter_map(|(key, doc)| search(key, doc)).collect(),
         };
         #[cfg(test)]
         {
