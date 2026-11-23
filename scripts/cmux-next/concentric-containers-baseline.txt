@@ -71,7 +71,6 @@ webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-tab__clos
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__card { border-radius: var(--ds-radius-xl) }
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__prompt[data-pending] { border-radius: var(--ds-radius-sm) }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-label, .cmux-ui-pointer-hint { border-radius: 6px }
-webviews/src/browser-chrome/cookie-import/cookieImport.css: .ci-card { border-radius: var(--transient-surface-radius) }
 webviews/src/optchat-inspector/styles.css: .card { border-radius: 8px }
 webviews/src/optchat-inspector/styles.css: .term .tip { border-radius: 6px }
 webviews/src/pages/apps/styles.css: .apps-card { border-radius: 12px }
