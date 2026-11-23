@@ -3046,7 +3046,7 @@ function ComposerFrame({
             {...(machineFilesStart ? { start: machineFilesStart } : {})}
             onClose={() => {
               setBrowsingMachine(null);
-              field.current?.focus();
+              focusRoute(field.current, "person", "Browse files on this machine closed: the composer");
             }}
             onOpenFile={(path) => {
               setBrowsingMachine(null);
