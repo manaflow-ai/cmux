@@ -6,7 +6,8 @@ public import Foundation
 import os
 
 /// The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the signed app
-/// `<app> Screen Sharing.app` in `Contents/Library`, whose executable is the cmux.rd/1 host
+/// `<app> Helper.app` in `Contents/Library` (`<app> Screen Sharing.app` in builds before
+/// 2026-11-22; bundle id `<app id>.screen-sharing` in both), whose executable is the cmux.rd/1 host
 /// (`cmux-rd`, cmux-tui/crates/cmux-rd-host). It holds this Mac's Screen Recording and
 /// Accessibility grants for screen sharing, so macOS prompts for, lists and restarts the
 /// helper, never cmux: a grant never relaunches this app. Each use is a fresh helper process
@@ -16,8 +17,11 @@ import os
 public nonisolated final class MacScreenHelper: Sendable {
     /// The helper's executable inside its bundle.
     static let executableName = "cmux-screen-sharing"
-    /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-    static let bundleSuffix = " Screen Sharing.app"
+    /// Every channel's helper bundle ends with one of these, preferred first: `cmux NIGHTLY
+    /// Helper.app` (the name macOS permission alerts show), or `cmux NIGHTLY Screen Sharing.app`
+    /// in an app built before the rename. Another bundle may end in " Helper.app": the helper is
+    /// the one carrying ``executableName``.
+    static let bundleSuffixes = [" Helper.app", " Screen Sharing.app"]
 
     /// The bundled helper app (`CMUX_NEXT_SCREEN_HELPER_APP` in development), its name without
     /// `.app` (what System Settings lists), and the launch that stages and starts it.
@@ -46,11 +50,17 @@ public nonisolated final class MacScreenHelper: Sendable {
             return MacScreenHelper(app: URL(fileURLWithPath: path))
         }
         let library = bundle.bundleURL.appending(path: "Contents/Library", directoryHint: .isDirectory)
-        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path),
-              let found = names.sorted().first(where: { $0.hasSuffix(bundleSuffix) }) else { return nil }
-        let app = library.appending(path: found, directoryHint: .isDirectory)
-        guard FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) else { return nil }
-        return MacScreenHelper(app: app)
+        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path) else { return nil }
+        let sorted = names.sorted()
+        for suffix in bundleSuffixes {
+            for found in sorted where found.hasSuffix(suffix) {
+                let app = library.appending(path: found, directoryHint: .isDirectory)
+                if FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) {
+                    return MacScreenHelper(app: app)
+                }
+            }
+        }
+        return nil
     }
 
     /// The helper did not start because its verified copy could not be made: the copy out of
