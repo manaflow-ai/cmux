@@ -249,6 +249,14 @@
       "scope": "chat:write",
       "class": "mutation"
     },
+    "chief.automation.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -1625,6 +1633,18 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -2149,6 +2169,7 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",

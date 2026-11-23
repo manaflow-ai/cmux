@@ -1127,6 +1127,9 @@ pub(super) async fn handle_request(
     } else {
         heap(|| dispatch_request(hub, conn, m, params, resolved)).await
     };
+    // A session only the hub reaches, for a verb the hub does not carry: said so, never
+    // `no session` (`mesh_read.rs`).
+    super::mesh_relay::read::explain_no_session(hub, conn, m, key.as_deref(), &mut reply);
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
@@ -1758,6 +1761,10 @@ async fn dispatch_request_with_identity(
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
+            // Read-only work in a folder not trusted (`hub/restricted.rs`): review, or narrower.
+            let restricted = crate::hub::restricted::requested(meta)?;
+            let policy =
+                if restricted { crate::hub::restricted::start_policy(policy)? } else { policy };
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1826,6 +1833,7 @@ async fn dispatch_request_with_identity(
                 checked_cwd: None,
                 additional_directories,
                 stop_condition,
+                restricted,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 // Purged by its creator right after its work (the Chief compactor's nodes): its
@@ -1899,6 +1907,10 @@ async fn dispatch_request_with_identity(
             // and does not see it here knows its agent can stop at any turn end.
             if meta.stop_condition.is_some() {
                 summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+            }
+            // Read-only in a folder not trusted (`hub/restricted.rs`).
+            if meta.restricted {
+                summary.set(crate::hub::restricted::FIELD, Value::Bool(true));
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -3287,7 +3299,11 @@ async fn dispatch_request_with_identity(
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    Ok(hub.inbox_thread(&s, thread()?, mark))
+                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
+                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
                 }
                 _ => {
                     let text = text_of("text")
@@ -3714,6 +3730,7 @@ async fn dispatch_request_with_identity(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
+            crate::hub::restricted::refuse_widening(&s.meta(), policy)?;
             heap(|| hub.set_policy_unless_moving(&s, policy)).await?;
             Ok(hub.session_summary(&s))
         }
