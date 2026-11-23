@@ -121,9 +121,9 @@
   position: absolute;
   left: 50%;
   bottom: 6px;
-  width: 32px;
-  height: 20px;
-  margin-left: -16px;
+  width: 24px;
+  height: 16px;
+  margin-left: -12px;
   overflow: visible;
   pointer-events: none;
   opacity: 0;
