@@ -36,7 +36,7 @@ scripts/cmux-next/*allowlist*
 config/vite-plus/*
 
 # the webviews checks are package scripts (check:*), and `check` runs check:pieces through the runner;
-# acpmux-protocol:check's generator
+# the protocol types' generator, which typecheck runs
 webviews/package.json
 scripts/cmux-next/run-check-pieces.py
 webviews/scripts/acpmux-protocol-codegen.ts
