@@ -1,0 +1,44 @@
+# colors_and_attributes_across_wraps: SGR colors and attributes that start mid-line and run across the Mac's and the phone's wraps; a link
+# Mac pane 120x24, phone 54x38
+
+## styled text
+### Mac
+grid 120x24
+s   0|plain bold red that runs on past the phone's edge and the Mac's edge too, rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr|↩
+       ^ 6-9 fg=1 bold; 11-13 fg=1 bold; 15-18 fg=1 bold; 20-23 fg=1 bold; 25-26 fg=1 bold; 28-31 fg=1 bold; 33-35 fg=1 bold; 37-43 fg=1 bold; 45-48 fg=1 bold; 50-52 fg=1 bold; 54-56 fg=1 bold; 58-62 fg=1 bold; 64-67 fg=1 bold; 69-72 fg=1 bold; 74-119 fg=1 bold
+s   1|rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr back to plain|
+       ^ 0-53 fg=1 bold
+s   2| background band across the wrap ________________________________________________________________________________|
+       ^ 0-112 bg=236
+s   3|truecolor underlined italic faint inverse strike|
+       ^ 0-8 fg=#ff8000; 10-19 ul=1; 21-26 faint italic; 28-32 faint italic; 34-40 inverse; 42-47 strike
+s   4|see https://cmux.com/docs - a link whose text crosses the phone's edge end|
+       ^ 4-24 fg=4 link; 26-26 fg=4 link; 28-28 fg=4 link; 30-33 fg=4 link; 35-39 fg=4 link; 41-44 fg=4 link; 46-52 fg=4 link; 54-56 fg=4 link; 58-64 fg=4 link; 66-69 fg=4 link
+s   5|$|
+  (18 blank rows)
+cursor col 2 row 5
+### phone
+grid 54x38
+s   0|plain bold red that runs on past the phone's edge and|↩
+       ^ 6-9 fg=1 bold; 11-13 fg=1 bold; 15-18 fg=1 bold; 20-23 fg=1 bold; 25-26 fg=1 bold; 28-31 fg=1 bold; 33-35 fg=1 bold; 37-43 fg=1 bold; 45-48 fg=1 bold; 50-52 fg=1 bold
+s   1|the Mac's edge too, rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr|↩
+       ^ 0-2 fg=1 bold; 4-8 fg=1 bold; 10-13 fg=1 bold; 15-18 fg=1 bold; 20-53 fg=1 bold
+s   2|rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr|↩
+       ^ 0-53 fg=1 bold
+s   3|rrrrrrrrrrrr back to plain|
+       ^ 0-11 fg=1 bold
+s   4| background band across the wrap _____________________|↩
+       ^ 0-53 bg=236
+s   5|______________________________________________________|↩
+       ^ 0-53 bg=236
+s   6|_____|
+       ^ 0-4 bg=236
+s   7|truecolor underlined italic faint inverse strike|
+       ^ 0-8 fg=#ff8000; 10-19 ul=1; 21-26 faint italic; 28-32 faint italic; 34-40 inverse; 42-47 strike
+s   8|see https://cmux.com/docs - a link whose text crosses|↩
+       ^ 4-24 fg=4 link; 26-26 fg=4 link; 28-28 fg=4 link; 30-33 fg=4 link; 35-39 fg=4 link; 41-44 fg=4 link; 46-52 fg=4 link
+s   9|the phone's edge end|
+       ^ 0-2 fg=4 link; 4-10 fg=4 link; 12-15 fg=4 link
+s  10|$|
+  (27 blank rows)
+cursor col 2 row 10
