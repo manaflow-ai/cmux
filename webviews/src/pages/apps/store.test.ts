@@ -103,6 +103,38 @@ describe("AppsStore update center", () => {
   });
 });
 
+describe("AppsStore double-clicked mutations", () => {
+  // Leo, 2026-11-16: the install button shows a second confirm dialog. Each call to the host asks
+  // for its own native confirmation, so a second click while the first sheet loads must join it.
+  test("a second Install while the first waits on its confirmation sends one install", async () => {
+    const provider = new MockAppsProvider();
+    const originalCall = provider.call.bind(provider);
+    let confirm: (() => void) | undefined;
+    const confirmed = new Promise<void>((resolve) => {
+      confirm = resolve;
+    });
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === AppsOps.install) await confirmed;
+      return originalCall<R>(op, params);
+    };
+    const store = new AppsStore(provider);
+    await store.start();
+    const app = Object.values(provider.details).find((candidate) => !provider.installed[candidate.id]);
+    if (!app) throw new Error("no uninstalled sample app");
+
+    const first = store.install(app.id);
+    const second = store.install(app.id);
+    if (!confirm) throw new Error("install did not start");
+    confirm();
+    await Promise.all([first, second]);
+
+    expect(provider.calls.filter((call) => call.op === AppsOps.install)).toHaveLength(1);
+    await store.install(app.id);
+    expect(provider.calls.filter((call) => call.op === AppsOps.install)).toHaveLength(2);
+    store.stop();
+  });
+});
+
 describe("AppsStore deep link after a catalog failure", () => {
   test("a deep-linked app does not stay Loading when the catalog load fails", async () => {
     const provider = new MockAppsProvider();

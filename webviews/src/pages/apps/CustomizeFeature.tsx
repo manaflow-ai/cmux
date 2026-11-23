@@ -42,6 +42,7 @@ export function CustomizeFeature({
   const more = looks.length - named.length;
   const settings = () => void store.openCustomize();
   const chip = (key: string, label: string, title?: string) => (
+    // tooltip-allow: a look's tagline shows nowhere else; the chip shows its name only
     <button type="button" key={key} className="apps-customize-look" title={title} onClick={settings}>
       {label}
     </button>
