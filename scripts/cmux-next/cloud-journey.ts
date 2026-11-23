@@ -34,6 +34,10 @@
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
+ *   --chaos-move adds the move drills (cloud-chaos-move.ts): a chat moved local→Cloud, Cloud→local and Cloud→Cloud
+ *   (a second machine) with one side killed at a step of the move; --seed S, --runs N (seeded random picks; 0 or
+ *   absent: every direction × step × kill once), --direction/--step/--kill LIST narrow it, --claude-bin PATH is the
+ *   local side's Claude Code. Needs --cmux and --model stub.
  *   --start-via app starts the agent the way the app does (`agent-session-start` over the carrier dial, needs --cmux),
  *   not `acp ensure`: the step passes on a started session and fails with the refusal's code and `data.harness`
  *   (cloud-chat-matrix.ts judges its `start` cells on that, hq#11225); the chat steps after it are skipped.
@@ -128,6 +132,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { MOVE_DIRECTIONS, MOVE_KILLS, MOVE_STEPS, type MoveDirection, type MoveKill, type MoveResult, type MoveStep, moveTable, moveTurnScripts, runMoveChaos } from "./cloud-chaos-move.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -2954,7 +2959,7 @@ export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript(), feltTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript(), ...moveTurnScripts()],
 };
 
 /**
@@ -4045,8 +4050,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
-  const seed = argValue("--seed", argv) ?? "auto";
+  // --chaos-move: the move drills (cloud-chaos-move.ts). Its --seed is the drills' seed (any word but none/auto,
+  // which stay the machine's image seed).
+  const chaosMove = argv.includes("--chaos-move");
+  const seedArg = argValue("--seed", argv) ?? "auto";
+  const seed = chaosMove && seedArg !== "none" ? "auto" : seedArg;
   if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
+  const moveSeed = chaosMove && seedArg !== "none" && seedArg !== "auto" ? seedArg : `${Date.now().toString(36)}`;
+  const moveList = <T extends string>(flag: string, all: readonly T[]): T[] => {
+    const v = argValue(flag, argv);
+    if (!v) return [...all];
+    const xs = v.split(",").filter(Boolean);
+    for (const x of xs) if (!all.includes(x as T)) throw new Error(`${flag} ${x}: one of ${all.join(", ")}`);
+    return xs as T[];
+  };
+  const moveDirections = moveList<MoveDirection>("--direction", MOVE_DIRECTIONS);
+  const moveSteps = moveList<MoveStep>("--step", MOVE_STEPS);
+  const moveKills = moveList<MoveKill>("--kill", MOVE_KILLS);
+  const moveRuns = Number(argValue("--runs", argv) ?? "0");
+  if (!Number.isSafeInteger(moveRuns) || moveRuns < 0) throw new Error(`--runs ${argValue("--runs", argv)}: a count`);
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -4111,6 +4133,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let gatewayMachine: string | null = null;
+  // The move drills' second Cloud machine (--chaos-move, Cloud→Cloud).
+  let moveMachine: string | null = null;
   // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
   let gatewayModeBefore: string | null = null;
   let gatewayMachineBefore: string | null = null;
@@ -4221,6 +4245,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await api.op("install.revoke", { install: own }, `${tag}-install-revoke`).then(
         () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
         (e) => J.record({ step: "revoke install (cleanup)", status: "skip", ms: Date.now() - t0, detail: `${own}: ${String((e as Error)?.message ?? e).slice(0, 300)}` }));
+    }
+    if (moveMachine) {
+      const b: string = moveMachine;
+      await J.step("delete move machine B (cleanup)", async () => {
+        await api.deleteMachine(b, `${tag}-move-b-delete`);
+        return { value: null, detail: b };
+      }).catch(() => undefined);
     }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
@@ -4879,34 +4910,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
+    // The shared model stub on a machine, its port in the harness's settings (again after a power-off ended it,
+    // and on the move drills' second machine).
+    const installStub = async (id: string, exec: Exec): Promise<{ value: null; detail: string }> => {
+      const file = "/home/cmux/.cmux/journey-model-stub.py";
+      const script = "/home/cmux/.cmux/journey-model-stub.json";
+      const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+      const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
+      for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+        const w = await api.raw("POST", `/v1/cloud/machines/${id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+      }
+      // Port 0: the stub binds a free port and writes it to the ready file.
+      const point = provider === "codex"
+        ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
+        : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
+      const r = await exec(
+        `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
+          `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+          `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+          `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
+          `echo "@@port $port"; ` + point,
+      );
+      if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+      const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+      return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
+    };
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
       // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
       // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
-      await J.step("model stub on the machine", async () => {
-        const file = "/home/cmux/.cmux/journey-model-stub.py";
-        const script = "/home/cmux/.cmux/journey-model-stub.json";
-        const ready = "/home/cmux/.cmux/journey-model-stub.ready";
-        const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
-        for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
-          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
-          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
-        }
-        // Port 0: the stub binds a free port and writes it to the ready file.
-        const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
-          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
-        const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
-            `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
-            `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
-            `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
-            `echo "@@port $port"; ` + point,
-        );
-        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-        const port = /@@port (\d+)/.exec(r.stdout)?.[1];
-        return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
-      });
+      await J.step("model stub on the machine", () => installStub(created.id, exec));
     }
     const session = `journey-${tag}`;
     // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
@@ -5278,6 +5312,61 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
         if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+      }
+    }
+
+    // --chaos-move: the move drills (cloud-chaos-move.ts) on this machine (A), a second machine (B) and this runner as
+    // the person's Mac; every result is a step, and move.json / move.md hold the table.
+    if (chaosMove) {
+      if (!cmux || !modelStub || provider !== "claude") J.skip("chaos-move", "--chaos-move needs --cmux PATH and --model stub with Claude Code");
+      else {
+        const needB = moveDirections.includes("cloud-cloud");
+        const b = needB
+          ? await J.step("move machine B", async () => {
+              const v = await api.op("cloud.machine.create", { name: `${machineName} move B`, size: CHAT_START_SIZE }, `${tag}-move-b-create`);
+              moveMachine = v.machine.id as string;
+              const m = await waitMachine(api, moveMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+              return { value: m, detail: `${moveMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
+            }).catch(() => null)
+          : null;
+        const execs = new Map<string, Exec>([[created.id, exec]]);
+        const execFor = (id: string): Exec => {
+          if (!execs.has(id)) execs.set(id, namesUnavailableFirstExec(cliExec(cmux, api, id)));
+          return execs.get(id)!;
+        };
+        if (b) await J.step("model stub on machine B", () => installStub(b.id, execFor(b.id))).catch(() => undefined);
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        const claudeBin = argValue("--claude-bin", argv) ?? (spawnSync("sh", ["-c", "command -v claude"], { encoding: "utf8" }).stdout.trim() || "claude");
+        const results: MoveResult[] = [];
+        const rowsFile = outDir ? path.join(outDir, "move.jsonl") : null;
+        await runMoveChaos({
+          cmux, machines: [created.id, b?.id ?? created.id], team: api.team, execFor, guest: GUEST,
+          credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: login } },
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          pause: async (id) => { await api.op("cloud.machine.pause", { machine: id }, `${tag}-mv-pause-${Date.now()}`); },
+          start: async (id) => {
+            await api.op("cloud.machine.start", { machine: id }, `${tag}-mv-start-${Date.now()}`).catch((e: Error) => { if (!/running|already/i.test(e.message)) throw e; });
+            await waitMachine(api, id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+          },
+          status: async (id) => String((await api.read("cloud.machine.get", { machine: id }))?.status ?? "unknown"),
+          ensureStub: async (id) => {
+            const r = await execFor(id)(`p=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' /home/cmux/.cmux/journey-model-stub.ready 2>/dev/null); [ -n "$p" ] && curl -fsS -m 2 "http://127.0.0.1:$p/__stub/info" >/dev/null && echo @@up`, 30_000).catch(() => ({ stdout: "" } as { stdout: string }));
+            if (!r.stdout.includes("@@up")) await installStub(id, execFor(id));
+          },
+          stubPy: MODEL_STUB_PY, stubScript: JOURNEY_STUB_SCRIPT, claudeBin,
+          tag: `${tag}`.slice(-10), seed: moveSeed, runs: moveRuns, directions: needB && !b ? moveDirections.filter((d) => d !== "cloud-cloud") : moveDirections, steps: moveSteps, kills: moveKills,
+          log: (line) => console.log(scrub(line, J.secrets)),
+          onResult: (r) => {
+            results.push(r);
+            J.record({ step: `move: ${r.direction} ${r.step} ${r.kill}`, status: r.outcome === "pass" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.seen_ms ?? 0, detail: scrub(`seed ${r.seed}: lost ${r.lost.join("; ") || "nothing"}; open ${r.open}; queued ran ${r.queued_runs}; draft ${r.draft}; edit ${r.edit}; commit ${r.commit}; pump ${r.pump_first}${r.pump_retry !== "not run" ? `, retry ${r.pump_retry}` : ""}; ${r.detail}`, J.secrets) });
+            if (rowsFile) appendFileSync(rowsFile, `${scrub(JSON.stringify(r), J.secrets)}\n`);
+          },
+        }).catch((e: Error) => J.record({ step: "move drills", status: "fail", ms: 0, detail: scrub(e.message, J.secrets) }));
+        if (outDir) {
+          writeFileSync(path.join(outDir, "move.json"), `${scrub(JSON.stringify({ backend: backend.name, machines: [created.id, b?.id ?? null], seed: moveSeed, runs: moveRuns, results }, null, 2), J.secrets)}\n`);
+          writeFileSync(path.join(outDir, "move.md"), `${scrub(moveTable(results), J.secrets)}\n`);
+        }
+        console.log(`move drills seed ${moveSeed}: ${results.filter((r) => r.outcome === "pass").length} pass, ${results.filter((r) => r.outcome === "fail").length} fail, ${results.filter((r) => r.outcome === "unmeasured").length} unmeasured`);
       }
     }
 
