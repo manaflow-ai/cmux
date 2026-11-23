@@ -534,6 +534,8 @@ pub enum ResourceOperation {
     SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
+    #[serde(rename = "project.actions.list")]
+    ProjectActionsList,
     #[serde(rename = "project.observe")]
     ProjectObserve,
     #[serde(rename = "project.add")]

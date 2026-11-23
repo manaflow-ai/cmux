@@ -126,6 +126,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
+        | Op::ProjectActionsList
         | Op::ProjectObserve
         | Op::ProjectAdd
         | Op::ProjectUpdate
