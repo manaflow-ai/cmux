@@ -14,7 +14,9 @@
 #    API's token-expiration header gives the token's lifetime (expiry minus now). No `gh auth login`, no PAT.
 # 3. Model: one prompt through the hub's inference gateway route (`<hub>/v1/models`, `/v1/responses`), the
 #    route a joined machine's Codex and Claude take in team mode (acpmux joined_model_plane.rs), with the
-#    machine's own join credential and no Claude or Codex login.
+#    machine's own join credential and no Claude or Codex login. The workflow runs the team's gateway (mode
+#    `joined`) on the runner in front of the model stub (zero-to-agents-gateway.ts) and leaves the stub's nonce in
+#    bin/model-stub-nonce: the reply must carry it, and with it a refusal fails instead of being a hand step.
 # Then the census of this home (credential-census.ts), which must find nothing but the join's own files.
 #
 # Each step ends pass, fail or hand (a hand step remains: the product has no path for it on a joined machine
@@ -95,6 +97,15 @@ s3_model=""
 s3_ttl=-1
 credfile="$HOME/.acpmux/machine-credential.json"
 cred="$(jq -r '.credential // empty' "$credfile" 2>/dev/null)"
+# The nonce of the model stub behind the workflow's gateway (bin/model-stub-nonce, root's, not a secret): the reply
+# must carry it. Without the file (no gateway was started) any reply counts.
+nonce="$(tr -cd 'A-Za-z0-9' <"$bin/model-stub-nonce" 2>/dev/null | cut -c1-32)"
+# `cmux inference setup` is the Cloud machine's path; it takes a vm_ id only (inference_setup.rs), so a joined
+# machine's equivalent is the hub route below. Its answer for this machine is kept in the step details.
+s3_machine="$(jq -r '.machine_id // empty' "$credfile" 2>/dev/null | tr -cd 'A-Za-z0-9_-')"
+setup3_rc=0
+"$cmux" inference setup --machine "${s3_machine:-none}" --path auto --api "$hub" --token-file /dev/null \
+  >"$tmp/setup3.out" 2>&1 </dev/null || setup3_rc=$?
 call() { # METHOD PATH [BODYFILE] -> http code; body in $tmp/resp.json
   local extra=()
   [ -n "${3:-}" ] && extra=(-H 'content-type: application/json' --data-binary "@$3")
@@ -116,7 +127,10 @@ else
     jq -n --arg m "${s3_model:-gpt-5}" '{model: $m, input: "Reply with exactly the word pong.", max_output_tokens: 32}' >"$tmp/req.json"
     resp_code="$(call POST /v1/responses "$tmp/req.json")"
     text="$(jq -r '[.output[]?.content[]?.text? // empty] | join(" ")' "$tmp/resp.json" 2>/dev/null | plain)"
-    if [ "$resp_code" = 200 ] && [ -n "$text" ]; then
+    if [ "$resp_code" = 200 ] && [ -n "$text" ] && [ -n "$nonce" ] && [[ "$text" != *"$nonce"* ]]; then
+      # The workflow's gateway sits in front of the model stub with this nonce: any other reply came from elsewhere.
+      s3_reason="a reply without the gateway stub's nonce: $(printf '%s' "$text" | cut -c1-40)"
+    elif [ "$resp_code" = 200 ] && [ -n "$text" ]; then
       s3_result=pass
       s3_reason="answered through the hub gateway route: $(printf '%s' "$text" | cut -c1-40)"
     else
@@ -127,19 +141,25 @@ else
     ecode="$(jq -r '.error.code // .error.type // empty' "$tmp/resp.json" 2>/dev/null | plain)"
     s3_reason="models HTTP $models_code ${ecode}"
   fi
-  case "$s3_result:$s3_reason" in
-    pass:*) ;;
-    # The route answered but the team has no gateway serving joined machines: nothing on this machine is missing.
-    *gateway* | *offline* | *not_configured* | *unavailable* | *" 503"* | *" 404"*)
-      s3_result=hand
-      s3_reason="hand step remains: $s3_reason: the test team has no inference gateway online for joined machines"
-      ;;
-  esac
+  if [ "$s3_result" != pass ] && [ -n "$nonce" ]; then
+    # The workflow started a gateway for joined machines: a refusal now is a failure, never a hand step.
+    s3_reason="$s3_reason (with the run's gateway online)"
+  else
+    case "$s3_result:$s3_reason" in
+      pass:*) ;;
+      # The route answered but the team has no gateway serving joined machines: nothing on this machine is missing.
+      *gateway* | *offline* | *not_configured* | *unavailable* | *" 503"* | *" 404"*)
+        s3_result=hand
+        s3_reason="hand step remains: $s3_reason: the test team has no inference gateway online for joined machines"
+        ;;
+    esac
+  fi
 fi
 unset cred
 s3_secs="$(secs "$s3_start" "$(now)")"
 {
-  echo "models HTTP ${models_code:-none}; responses HTTP ${resp_code:-none}; model ${s3_model:-none}"
+  echo "models HTTP ${models_code:-none}; responses HTTP ${resp_code:-none}; model ${s3_model:-none}; stub nonce ${nonce:-none}"
+  echo "cmux inference setup --machine ${s3_machine:-none} --path auto: exit $setup3_rc: $(head -1 "$tmp/setup3.out" | cut -c1-160)"
   sed -e 's/::/: :/g' "$tmp/curl.err" 2>/dev/null | cut -c1-200 | head -3
 } >"$out/step3.txt"
 rm -rf "$tmp"
