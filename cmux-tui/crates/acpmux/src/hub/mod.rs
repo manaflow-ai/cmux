@@ -209,6 +209,11 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
     web_url_for_session,
 };
+// RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+#[cfg_attr(not(test), allow(dead_code))]
+mod earned_access;
+#[cfg_attr(not(test), allow(dead_code))]
+mod earned_events;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -353,7 +358,8 @@ mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
-    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+    NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
+    suffixed_name, terminal_harness_refusal,
 };
 pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
