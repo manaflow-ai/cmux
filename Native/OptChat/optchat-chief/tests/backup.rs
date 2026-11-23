@@ -239,7 +239,7 @@ fn a_permanent_push_failure_becomes_visible_and_stops_retrying() {
             backup.run_at(&s.chat, now),
             Outcome::Failed { .. }
         ));
-        now += std::time::Duration::from_secs(60);
+        now = backup.due().unwrap() + std::time::Duration::from_secs(1);
     }
     let Outcome::Blocked { attempts, .. } = backup.run_at(&s.chat, now) else {
         panic!("the retry budget must end in a visible blocked state")
