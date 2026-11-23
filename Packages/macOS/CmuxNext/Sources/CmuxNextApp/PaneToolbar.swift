@@ -91,12 +91,7 @@ final class PaneToolbar: PaneControlsRefreshing {
                   machineID: { [weak pane] in pane?.daemon.machineID }, view: view ?? PaneToolbarView())
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
-            // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
-            Task {
-                do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            Self.write(next, in: settings)
         }
         refreshCurrent = { [weak self, weak pane] in
             if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
@@ -266,13 +261,69 @@ final class PaneToolbar: PaneControlsRefreshing {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off
-            let closure = ActionMenuClosure { [weak self] in self?.writePinned(setting.toggling(id)) }
+            // The palette's Pin or Unpin Tab Bar Button… (one handler); where it does not run, the row's own write.
+            let closure = ActionMenuClosure { [weak self, weak registry] in
+                let invocation = ActionInvocation(arguments: ["button": .string(id)], origin: .user)
+                if registry?.perform(Self.togglePin, invocation: invocation) != true { self?.writePinned((Self.pendingPinned ?? setting).toggling(id)) }
+            }
             row.target = closure
             row.representedObject = closure
             submenu.addItem(row)
         }
         item.submenu = submenu
         return item
+    }
+}
+
+/// Pin or Unpin Tab Bar Button… (`tabs.toolbar.togglePin`, `button`: an action id `tabs.toolbarButtons` takes): the
+/// "…" menu's Show in Tab Bar rows run it, so the row and the palette run one handler. The palette lists the
+/// pinnable actions, the pinned ones marked (`tabBarButtons`).
+extension PaneToolbar {
+    static let togglePin: ActionID = "tabs.toolbar.togglePin"
+
+    static func bindTogglePin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        registry.bindEffect(togglePin, isEnabled: { settings() != nil }, effect: { invocation in
+            guard let settings = settings(), let id = invocation["button"]?.stringValue,
+                  PaneToolbarButtonsSetting.values.contains(id) else { return .done }
+            write(pinnedSetting(in: settings).toggling(id), in: settings)
+            return .done
+        })
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { [weak registry] source in
+            guard source == ActionSuggestions.tabBarButtons else { return other?(source) ?? [] }
+            let pinned = settings().map { pinnedSetting(in: $0).pinned } ?? []
+            return PaneToolbarButtonsSetting.values.compactMap { id in
+                guard let title = registry?.descriptor(for: ActionID(rawValue: id))?.title else { return nil }
+                return ActionEnumCase(value: id, title: title, symbol: pinned.contains(id) ? "pin.fill" : "pin")
+            }
+        }
+    }
+
+    /// The pinned list last asked for, until its write lands. A second quick toggle starts from it: read from the
+    /// file, two toggles both saw the old list and the later write dropped the earlier pin.
+    private static var pendingPinned: PaneToolbarButtonsSetting?
+    /// The write in flight; the next one waits for it, so the file takes the toggles in the order they were asked.
+    private static var lastWrite: Task<Void, Never>?
+
+    /// The pinned list a toggle starts from: the one still being written, else the file's.
+    static func pinnedSetting(in settings: SettingsController) -> PaneToolbarButtonsSetting {
+        pendingPinned ?? PaneToolbarButtonsSetting.current(settings)
+    }
+
+    /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file. Writes go one at a time, in order.
+    static func write(_ next: PaneToolbarButtonsSetting, in settings: SettingsController) {
+        pendingPinned = next
+        let previous = lastWrite
+        let writer = SettingWriter.currentRun() // the menu item's or palette row's gesture is the user's
+        // task-owner: one write, after the one before it (lastWrite); ends when the file has it
+        let task = Task {
+            await previous?.value
+            do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: writer) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
+            }
+            if pendingPinned == next { pendingPinned = nil }
+        }
+        lastWrite = task
     }
 }
 

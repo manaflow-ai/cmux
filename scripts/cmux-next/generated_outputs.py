@@ -51,6 +51,8 @@ SETTINGS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift"
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
+    # A settings row is its JSON source; the SwiftPM plugin writes the Swift (#50929).
+    r"|schemas/settings/source/|scripts/cmux-next/gen-settings-sources\.py$"
 )
 
 
@@ -98,9 +100,16 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # soon as the base changed a default. The base autofix regenerates it after each merge.
     (("schemas/defaults/cmux-next.json",), BOT_ONLY,
      "python3 scripts/ci/defaults_guard.py snapshot; only the base autofix writes it"),
-    (("web/data/cmux-shortcuts.generated.json",),
-     ACTIONS_INPUTS + r"|web/scripts/export-docs-shortcuts\.ts$",
-     "web/scripts/export-docs-shortcuts.ts"),
+    # Bot-only (RFD 0048). The docs copies of the action catalog and the settings schema: the web
+    # tests build the same data from the catalog and the schema at the pull request head and never
+    # compare the copies, and the docs pages only render them, so a copy one base autofix run behind
+    # its inputs lags and never fails. The base autofix regenerates them after each merge
+    # (base-autofix.sh steps 1e, 1e1 and 1e1').
+    (("web/data/cmux-shortcuts.generated.json",), BOT_ONLY,
+     "bun web/scripts/export-docs-shortcuts.ts; only the base autofix writes it"),
+    (("web/data/next-docs/cli-reference.generated.json", "web/data/next-docs/palette-reference.generated.json",
+      "web/data/next-docs/settings-reference.generated.json"), BOT_ONLY,
+     "bun web/scripts/export-next-docs.ts; only the base autofix writes it"),
     (("cmux-tui/crates/cmux-app-host/generated/*",),
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
      r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,

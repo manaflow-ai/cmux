@@ -17,8 +17,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
         // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
-        // each as it checks `cwd`.
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
+        // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -135,6 +136,14 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
@@ -211,6 +220,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in": (["family", "sessionId"], []),
+        "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),

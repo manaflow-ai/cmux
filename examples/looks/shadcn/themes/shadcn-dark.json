@@ -15,7 +15,7 @@
   "colors": {
     "background": "#0a0a0a",
     "foreground": "#fafafa",
-    "selection": "#262626",
+    "selection": "#757575",
     "accent": "#e5e5e5",
     "1": "#ff6467",
     "9": "#ff6467",
@@ -59,7 +59,7 @@
 
   // Sidebar: --sidebar #171717 with --sidebar-border white at 10%, a 1 px border-r.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#171717",
+  "appearance.surfaces.sidebar.color": "#0a0a0a",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.border": true,
   "sidebar.borderWidth": 1,

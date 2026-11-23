@@ -340,7 +340,7 @@ def _pace(t0, index, hz):
     due = t0 + index / float(hz)
     left = due - time.monotonic()
     if left > 0:
-        time.sleep(left)
+        time.sleep(left)  # sleep-ok: paces the drag's events at HZ, as a person's hand moves
 
 
 def step_window_drag(j, step):
@@ -402,8 +402,23 @@ def settle_queue(j, timeout=5.0):
     app cannot make the CGEvents it needs: "no event timestamp".)"""
     before = j.app.rpc("debug.journal", {"last": 1}) or {}
     if not (before.get("stats") or {}).get("enabled"):
-        time.sleep(0.5)  # no journal on this build: nothing observable; the drag's events drain meanwhile
-        return {"settled_by": "wait 0.5 s (input journal off)"}
+        # No journal on this build: the drag's last events are applied once the windows' frames and every
+        # pane's view frame read the same for 0.3 s.
+        def shape():
+            return ([(k, w["frame"]) for k, w in sorted(windows(j).items(), key=lambda kv: str(kv[0]))],
+                    [(p.get("pane"), frame_of(p)) for p in all_panes(j)])
+        t0, last = D.now(), shape()
+        since = t0
+        while D.now() - t0 < timeout:
+            time.sleep(0.05)
+            current = shape()
+            if current != last:
+                last, since = current, D.now()
+            elif D.now() - since >= 0.3:
+                return {"settled_by": "window and pane frames still for 0.3 s (input journal off)",
+                        "ms": round((D.now() - t0) * 1000)}
+        raise D.StepError(f"the window and pane frames were still changing {timeout} s after the drag's mouse-up "
+                          f"(input journal off)")
     last = max([e.get("seq", -1) for e in before.get("entries") or []] or [-1])
     t0 = D.now()
     wid = current_window(j)
