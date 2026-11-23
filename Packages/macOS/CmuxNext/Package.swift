@@ -2622,7 +2622,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Localizable.xcstrings"),
             ],
             swiftSettings: daemonSwiftSettings,
-            // The generated Swift files in Schema (*.generated.swift), from schemas/settings (RFD 0048).
+            // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
@@ -2859,6 +2859,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextKeepAwake",
                 "CmuxNextMobile",
                 "CmuxNextPages",
+                "CmuxNextPhoneAccess",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
