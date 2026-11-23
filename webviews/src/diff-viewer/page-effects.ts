@@ -5,6 +5,7 @@ import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } fro
 import { applyDiffViewerStatusToDocument } from "../status";
 import { type DiffFindController } from "../find/useDiffFind";
 import { renderedDiffOptions, type AppAction, type AppState } from "./state";
+import { diffPageFontZoom } from "./fontZoom";
 
 function setDataset(dataset: DOMStringMap, key: string, value: string): void {
   if (dataset[key] !== value) dataset[key] = value;
@@ -105,6 +106,15 @@ export function useNativeViewerNavigation(
           return true;
         case "diffViewerExpandFile":
           onSetCurrentCollapsed(false);
+          return true;
+        case "diffViewerZoomIn":
+          diffPageFontZoom().run("zoomIn");
+          return true;
+        case "diffViewerZoomOut":
+          diffPageFontZoom().run("zoomOut");
+          return true;
+        case "diffViewerZoomReset":
+          diffPageFontZoom().run("zoomReset");
           return true;
         case "diffViewerOpenFind":
           dispatch({ type: "request-find" });

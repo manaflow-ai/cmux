@@ -126,5 +126,12 @@ pub(crate) fn screen_layout_json(
     if !floating.is_empty() {
         value.insert("floating", floating_panes::floating_json(&floating));
     }
+    // `quick-terminal-v1`: the mark of the quick terminal. Only when the screen has one. It is read from the
+    // list above: the list is settled one time for a screen JSON.
+    if let Some(entry) = cmux_layout_reducer::floating_panes::quick_terminal(&floating)
+        && let Some(mark) = entry.quick
+    {
+        value.insert("quick_terminal", floating_panes::quick_terminal_json(entry.pane, mark));
+    }
     value
 }

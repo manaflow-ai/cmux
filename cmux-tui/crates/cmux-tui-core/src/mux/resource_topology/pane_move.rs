@@ -25,7 +25,7 @@ use super::*;
 
 /// Where `pane.move` puts the pane.
 #[derive(Debug, Clone, Copy)]
-enum Destination {
+pub(super) enum Destination {
     /// A new pane split off `pane` (split direction, the moved pane first).
     Split { pane: PaneId, dir: SplitDir, before: bool },
     /// Into `pane` at `index`; the moved pane closes.
@@ -35,13 +35,22 @@ enum Destination {
 }
 
 /// What the move did, for the result and the work after the commit.
-struct Moved {
+pub(super) struct Moved {
     /// The pane that holds the tabs now.
     pane: PaneId,
     tabs: Vec<SurfaceId>,
     first_index: usize,
     created_screen: Option<ScreenPublicId>,
     closed_screen: Option<ScreenPublicId>,
+}
+
+impl Moved {
+    /// Tells the subscribers of the moved tabs where their pane is now: in `screen` of `workspace`.
+    pub(super) fn update_session_paths(&self, mux: &Mux, workspace: WorkspaceId, screen: ScreenId) {
+        for surface in &self.tabs {
+            mux.subscribers.update_surface_session_path(*surface, workspace, screen, self.pane);
+        }
+    }
 }
 
 fn invalid(field: &str, reason: impl Into<String>) -> anyhow::Error {
@@ -246,7 +255,7 @@ fn focus_pane(mux: &Mux, state: &mut State, pane: PaneId) -> anyhow::Result<()> 
 }
 
 /// Moves `source` to `destination` in `state` (a clone of the live state).
-fn move_pane_in_state(
+pub(super) fn move_pane_in_state(
     mux: &Mux,
     state: &mut State,
     source: PaneId,
@@ -486,14 +495,7 @@ impl Mux {
                     .context("the moved tabs' pane has no public id")?;
                 if moved.pane == source_pane {
                     // Merge moves update their tabs' paths in `move_tab_in_state`.
-                    for surface in &moved.tabs {
-                        mux.subscribers.update_surface_session_path(
-                            *surface,
-                            workspace_slot,
-                            screen_slot,
-                            moved.pane,
-                        );
-                    }
+                    moved.update_session_paths(&mux, workspace_slot, screen_slot);
                 }
                 let tab_ids = moved
                     .tabs

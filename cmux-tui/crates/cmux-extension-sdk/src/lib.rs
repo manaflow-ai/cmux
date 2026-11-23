@@ -184,6 +184,34 @@ impl Manifest {
         self.implement("cmux.newtab/1", export, title, symbol, None)
     }
 
+    /// A widget (`cmux.widget/1`) drawn by the script's `export`: a glanceable tile the person
+    /// places on the New Tab page or in the sidebar from Edit Widgets > Add Widget. `sizes` are
+    /// the sizes it draws (small 1x1, medium 2x1, large 2x2 tiles; the first is the default),
+    /// `every_seconds` how often cmux ticks its `now()` clock (at least 60, only while shown;
+    /// `None` for a widget that never ticks) and
+    /// `places` where it may go (empty means both).
+    pub fn widget(
+        self,
+        export: &str,
+        title: &str,
+        symbol: &str,
+        sizes: &[&str],
+        every_seconds: Option<u32>,
+        places: &[&str],
+    ) -> Self {
+        let mut options = Map::new();
+        if !sizes.is_empty() {
+            options.insert("sizes".into(), json!(sizes));
+        }
+        if let Some(every) = every_seconds {
+            options.insert("refresh".into(), json!({ "everySeconds": every }));
+        }
+        if !places.is_empty() {
+            options.insert("places".into(), json!(places));
+        }
+        self.implement("cmux.widget/1", export, title, symbol, Some(Value::Object(options)))
+    }
+
     /// Appends `entry` to the list `list` in the options of the data-only place `interface`
     /// (no script runs for it, so it adds no activation).
     fn append_data(mut self, interface: &str, list: &str, entry: Value) -> Self {
@@ -206,6 +234,31 @@ impl Manifest {
     pub fn slash_command(self, name: &str, description: &str, insert: &str) -> Self {
         let entry = json!({ "name": name, "description": description, "insert": insert });
         self.append_data("cmux.composer.command/1", "commands", entry)
+    }
+
+    /// Shows an available composer action beside the + menu. Omitting the label uses the
+    /// action's localized title. The current composer's handler handles the click.
+    pub fn composer_toolbar_button(self, action: &str, label: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("action".into(), json!(action));
+        if let Some(label) = label {
+            entry.insert("label".into(), json!(label));
+        }
+        self.append_data("cmux.composer.toolbar/1", "buttons", Value::Object(entry))
+    }
+
+    /// A context chip in the agent chat composer (`cmux.composer.chip/1`): a short `label` the
+    /// person clicks to add `insert` to the draft; `detail` is its tooltip. Data only: the daemon
+    /// lists it (`apps.composer.list`), and a save updates the chips without a restart.
+    pub fn composer_chip(self, id: &str, label: &str, insert: &str, detail: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("id".into(), json!(id));
+        entry.insert("label".into(), json!(label));
+        if let Some(detail) = detail {
+            entry.insert("detail".into(), json!(detail));
+        }
+        entry.insert("insert".into(), json!(insert));
+        self.append_data("cmux.composer.chip/1", "chips", Value::Object(entry))
     }
 
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the

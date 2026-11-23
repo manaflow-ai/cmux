@@ -1,64 +1,64 @@
 // "N new messages" (Leo, 2026-11-15: "we needto properly do somthing like this in the gui somehow",
-// of the terminal chat's rule): the count after the line, its fade once seen, and the line a scroll up
-// places (conversation/unreadState.ts, direct.ts `placeScrolledSince`; design/transcript-overlays.md).
-import { afterEach, beforeEach, expect, test } from "bun:test";
+// of the terminal chat's rule): the count under the line, what it counts, its bound, and that it
+// freezes once the line is read (conversation/sinceNews.ts `sinceCount`, conversation/unreadState.ts
+// `noteUnreadCount`; design/transcript-overlays.md).
+import { beforeEach, expect, test } from "bun:test";
+import { SINCE_COUNT_CAP, sinceCount } from "./conversation/sinceNews";
 import {
-  SINCE_COUNT_CAP,
-  countNewMessages,
+  dissipateUnread,
   noteUnreadCount,
   noteUnreadMounted,
   noteUnreadSide,
   readUnread,
   resetUnreadForTest,
-  SINCE_FADE_MS,
-  setSinceTimersForTest,
-  unreadRead,
 } from "./conversation/unreadState";
-import { SINCE_DIVIDER } from "./model";
+import { MESSAGE_RUN, SINCE_DIVIDER, type AcpmuxRow } from "./model";
+import { SUBAGENT_STARTED } from "./subagents/subagentRows";
 
-/// The fade's timers, fired by hand: what each was armed for, and whether it is still armed.
-let armed: { fn: () => void; ms: number; live: boolean }[] = [];
-beforeEach(() => {
-  armed = [];
-  setSinceTimersForTest({
-    set: (fn, ms) => {
-      const timer = { fn, ms, live: true };
-      armed.push(timer);
-      return timer;
-    },
-    clear: (timer) => void ((timer as { live: boolean }).live = false),
-  });
-  resetUnreadForTest();
+beforeEach(() => resetUnreadForTest());
+
+let next = 0;
+const row = (kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id: kind === SINCE_DIVIDER ? SINCE_DIVIDER : `r${next++}`,
+  version: 1,
+  at: 0,
+  kind,
+  ...(kind === SINCE_DIVIDER && { since: { key: "s:7", seq: 7, turns: 1 } }),
+  ...fields,
 });
-afterEach(() => setSinceTimersForTest());
-const fire = () => {
-  for (const timer of armed.splice(0)) if (timer.live) timer.fn();
-};
+const reply = (text = "Done.") => row("assistant", { text });
+const line = () => row(SINCE_DIVIDER);
 
-const rows = (...kinds: string[]) =>
-  kinds.map((kind, index) => ({ id: kind === SINCE_DIVIDER ? kind : `r${index}`, kind }));
-
-test("the count is the replies, tool runs and messages after the line; status rows never count", () => {
-  expect(
-    countNewMessages(
-      rows("user", "assistant", SINCE_DIVIDER, "activity", "assistant", "turnSummary", "notice", "user", "recap"),
-      SINCE_DIVIDER,
-    ),
-  ).toBe(3);
-  // Straight after the person's own message, nothing new yet.
-  expect(countNewMessages(rows("user", SINCE_DIVIDER), SINCE_DIVIDER)).toBe(0);
-  // No line in the rows: no count.
-  expect(countNewMessages(rows("user", "assistant"), SINCE_DIVIDER)).toBeUndefined();
+test("the count is the news under the line: replies and messages, never status, tool runs or own prompts", () => {
+  const rows = [
+    row("user", { text: "go" }),
+    reply(),
+    line(),
+    row("activity"),
+    reply("Case 1 passes."),
+    row(SUBAGENT_STARTED),
+    row("turnSummary"),
+    row("user", { text: "and the next one" }),
+    reply(""),
+    row("user", { text: "from another agent", incoming: { kind: "message" } as AcpmuxRow["incoming"] }),
+    reply("Case 2 passes."),
+  ];
+  expect(sinceCount(rows, 2)).toBe(3);
+  // A "Received 4 messages" run counts its four.
+  expect(sinceCount([line(), row(MESSAGE_RUN, { messageRun: { received: 4 } as AcpmuxRow["messageRun"] })], 0)).toBe(4);
+  // Nothing new yet, and an index that is not the line.
+  expect(sinceCount([reply(), line()], 1)).toBe(0);
+  expect(sinceCount([reply(), line()], 0)).toBeUndefined();
 });
 
-test("counting stops past the cap, however many rows came", () => {
-  const many = rows(SINCE_DIVIDER, ...Array.from({ length: 5_000 }, () => "assistant"));
-  expect(countNewMessages(many, SINCE_DIVIDER)).toBe(SINCE_COUNT_CAP + 1);
-  // A day of status rows after the line reads a bounded stretch too, not every row, and claims no
-  // number it did not count (the label reads "New").
-  const quiet = rows(SINCE_DIVIDER, "assistant", ...Array.from({ length: 20_000 }, () => "notice"));
-  expect(countNewMessages(quiet, SINCE_DIVIDER)).toBeUndefined();
-  expect(countNewMessages(rows(SINCE_DIVIDER, "assistant", "notice", "notice"), SINCE_DIVIDER)).toBe(1);
+test("counting is bounded: past the cap it reads 999+, and a long run of status claims no number", () => {
+  const many = [line(), ...Array.from({ length: 5_000 }, () => reply())];
+  expect(sinceCount(many, 0)).toBe(SINCE_COUNT_CAP + 1);
+  // A day of tool runs after one reply reads a bounded stretch from the end, not every row, and
+  // answers no number it did not count (the label reads "New").
+  const quiet = [line(), reply(), ...Array.from({ length: 20_000 }, () => row("activity"))];
+  expect(sinceCount(quiet, 0)).toBeUndefined();
+  expect(sinceCount([line(), reply(), row("activity"), row("activity")], 0)).toBe(1);
 });
 
 test("the count follows new rows while the line is unread and freezes once it is read", () => {
@@ -67,34 +67,20 @@ test("the count follows new rows while the line is unread and freezes once it is
   expect(readUnread()?.count).toBe(3);
   noteUnreadCount("s:7", 157);
   expect(readUnread()?.count).toBe(157);
-  // Seen, then scrolled past: read at once, and the fading label keeps its words.
+  // Not counted (past the reach): the last count stands.
+  noteUnreadCount("s:7", undefined);
+  expect(readUnread()?.count).toBe(157);
+  // On screen, then dissipated: the fading label keeps its words.
   noteUnreadSide("s:7", "in");
-  noteUnreadSide("s:7", "above");
-  expect(unreadRead("s:7", readUnread())).toBe(true);
+  dissipateUnread("s:7");
   noteUnreadCount("s:7", 158);
   expect(readUnread()?.count).toBe(157);
 });
 
-test("a line on screen fades a moment later; one never seen stays", () => {
+test("a later mark starts its own count", () => {
   noteUnreadMounted("s:7");
-  noteUnreadSide("s:7", "below");
-  expect(armed).toHaveLength(0);
-  noteUnreadSide("s:7", "in");
-  // On and off screen while it waits: one timer, not one per crossing.
-  noteUnreadSide("s:7", "below");
-  noteUnreadSide("s:7", "in");
-  expect(armed.map((timer) => timer.ms)).toEqual([SINCE_FADE_MS]);
-  expect(unreadRead("s:7", readUnread())).toBe(false);
-  fire();
-  expect(unreadRead("s:7", readUnread())).toBe(true);
-});
-
-test("a later mark starts its own fade; the old mark's timer never reads the new line", () => {
-  noteUnreadMounted("s:7");
-  noteUnreadSide("s:7", "in");
+  noteUnreadCount("s:7", 12);
   noteUnreadMounted("s:9");
-  noteUnreadSide("s:9", "below");
-  fire();
   expect(readUnread()?.mark).toBe("s:9");
-  expect(unreadRead("s:9", readUnread())).toBe(false);
+  expect(readUnread()?.count).toBeUndefined();
 });

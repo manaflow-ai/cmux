@@ -100,7 +100,9 @@ import Testing
             h.settle()
             #expect(row() == atRest, "the row holds still with the line (long: \(long))")
             let frame = h.frame(of: line)
-            #expect(frame.width > 0 && abs(frame.minX - avatar.minX) < 0.5, "at the avatar's leading edge: \(frame)")
+            // The line snaps to the device-pixel grid (`WindowTitlebar.alignedFrame`); the avatar may sit on a half point
+            // (#44449's scaled row), so at 1x the line is half a pixel from it at most, and on it at 2x.
+            #expect(frame.width > 0 && abs(frame.minX - avatar.minX) <= 0.5 / max(1, h.window.backingScaleFactor) + 0.001, "at the avatar's leading edge: \(frame) beside \(avatar), scale \(h.window.backingScaleFactor)")
             #expect(frame.maxY <= avatar.minY, "above the row: \(frame) over \(avatar)")
             #expect(frame.maxX <= h.sidebar.bounds.width, "inside the sidebar")
             h.sidebar.healthIndicator = nil

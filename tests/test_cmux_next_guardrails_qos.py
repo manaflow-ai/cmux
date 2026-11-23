@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """guardrails.py rule `task-priority` (PL-qos): a new detached Task or dispatch queue states its priority.
 
-Not on CI (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the rule:
+Not on CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the rule:
 python3 tests/test_cmux_next_guardrails_qos.py
 """
 import importlib.util

@@ -156,9 +156,19 @@ import Testing
         #expect(!model.canAct)
     }
 
-    @Test func anErroredGitHubConnectionCanConnectAgain() {
+    @Test func anErroredGitHubConnectionSaysSoAndCanConnectAgain() {
         let value = Data(#"{"connections":[{"provider":"github","status":"error"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(value) == .notConnected)
+        #expect(GitHubConnect.state(value) == .error)
+    }
+
+    @Test func aSuspendedOrUninstalledGitHubConnectionNeedsReconnecting() {
+        let value = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(value) == .needsReauth)
+        // An active connection beside it still reads connected, and a pending link reads pending.
+        let both = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"active","account_login":"acme"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(both) == .connected(["acme"]))
+        let linking = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"pending"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(linking) == .pending)
     }
 
     @Test func signedOutSaysSo() async {

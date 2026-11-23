@@ -39,6 +39,8 @@ final class FloatingPaneCardView: NSView {
     }
     /// The clip of the pane's host while this card paints its ground.
     weak var groundOwner: PaneClipView?
+    /// The clip of the pane's host while this card is a solid ground under it.
+    private weak var solidUnder: PaneClipView?
 
     private let shadeView = FloatingPaneLayerView(), surfaceView = FloatingPaneLayerView()
     private var material: FloatingPaneMaterialView?
@@ -136,18 +138,36 @@ final class FloatingPaneCardView: NSView {
 
     /// With a see-through look the card paints the ground of the pane in `host`: the views inside that host paint
     /// none, and the card takes their ground now and at each change of it. Else (also with no host: the pane does
-    /// not float any more) the host that the card painted for paints its own ground again.
+    /// not float any more) the host that the card painted for paints its own ground again. With a solid look the
+    /// host knows that the card's opaque ground is under it, not the window's sheet: a terminal with a background of
+    /// its own paints that background opaque, not at a see-through window's tint (the two would mix under its text).
+    /// The card puts its mark on the host's clip in each pass: a host that a screen's view placed between two passes
+    /// lost its marks there (`PaneHostView.viewDidMoveToSuperview`).
     func paintGround(of host: PaneHostView?, seeThrough: Bool) {
         let clip = seeThrough ? host?.clipView : nil
         if groundOwner !== clip {
-            groundOwner?.onContentGroundChange = nil
-            groundOwner?.ownsContentGround = false
+            if let old = groundOwner, isUnderThisCard(old) {
+                old.onContentGroundChange = nil
+                old.ownsContentGround = false
+            }
             groundOwner = clip
-            clip?.onContentGroundChange = { [weak self, weak host] in self?.contentGround = host?.content.paneGroundColor }
-            clip?.ownsContentGround = true
+        }
+        if let clip, !clip.ownsContentGround {
+            clip.onContentGroundChange = { [weak self, weak host] in self?.contentGround = host?.content.paneGroundColor }
+            clip.ownsContentGround = true
         }
         contentGround = clip == nil ? nil : host?.content.paneGroundColor
+        let solid = seeThrough ? nil : host?.clipView
+        if solidUnder !== solid {
+            if let old = solidUnder, isUnderThisCard(old) { old.hasSolidGroundUnder = false }
+            solidUnder = solid
+        }
+        solid?.hasSolidGroundUnder = true
     }
+
+    /// Whether the host of `clip` is in this card's screen view now. A host that another screen's view took has no
+    /// mark of this card (the host cleared its marks when it moved): a mark that its clip has now is another card's.
+    private func isUnderThisCard(_ clip: PaneClipView) -> Bool { clip.superview?.superview === superview }
 
     /// Paints the shadow, the material, the ground, the tint, the rim and the grip for the card's size, corners and
     /// look, with no implicit animation: a resize follows the pointer in the same frame.

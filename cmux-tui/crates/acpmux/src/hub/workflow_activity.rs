@@ -253,13 +253,13 @@ impl Hub {
                             let pick = |field| {
                                 options.get(field).and_then(Value::as_str).map(str::to_owned)
                             };
-                            let mut env = std::collections::BTreeMap::new();
-                            if let Some(allowed) = &allowed {
-                                env.insert(
-                                    crate::agent_tools::MCP_TOOLS_ENV.into(),
-                                    allowed.join(","),
-                                );
-                            }
+                            // The answer of the Mac that started the workflow's owning chat
+                            // (`cmux_tools_answer.rs`).
+                            let owner_env = self
+                                .resolve(&run.owner_session_id)
+                                .map(|owner| owner.meta().session_env.clone())
+                                .unwrap_or_default();
+                            let env = child_session_env(&owner_env, allowed.as_deref());
                             self.new_session_with_id(
                                 NewRequest {
                                     harness: pick(if restarted {
@@ -361,14 +361,22 @@ impl Hub {
                             // Join its exact prompt outcome without submitting another effect.
                             let mut changes = self.subscribe();
                             while !self.knows_prompt(&session, &waiting_id, true) {
-                                self.workflow_runs
-                                    .store()
-                                    .authorize(&run.id, generation, &run.owner_session_id)
-                                    .map_err(workflow_error)?;
-                                match changes.recv().await {
-                                    Ok(_)
-                                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                                    Err(error) => return Err(workflow_error(error)),
+                                // Asked again on this chat's records only: the admission that
+                                // takes the prompt writes one. Every chat's event read the
+                                // chat's log again (each `knows_prompt` a keyed scan of it).
+                                loop {
+                                    self.workflow_runs
+                                        .store()
+                                        .authorize(&run.id, generation, &run.owner_session_id)
+                                        .map_err(workflow_error)?;
+                                    match changes.recv().await {
+                                        Ok(event) if event.session_id != session.id => {}
+                                        Ok(_)
+                                        | Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                                            _,
+                                        )) => break,
+                                        Err(error) => return Err(workflow_error(error)),
+                                    }
                                 }
                             }
                             let outcome = self.prompt_outcome(&session, &waiting_id);
@@ -986,8 +994,40 @@ fn workflow_next_retry(prompt: &str) -> String {
     format!("{prompt}~resume-1")
 }
 
+/// A workflow child agent's own session env: the answer of the Mac that started the workflow's
+/// owning chat (`cmux_tools_answer::inherited`, from `owner_env`), and the cmux tools the
+/// activity may use (`allowed`, as `MCP_TOOLS_ENV`).
+fn child_session_env(
+    owner_env: &std::collections::BTreeMap<String, String>,
+    allowed: Option<&[String]>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut env = super::cmux_tools_answer::inherited(std::collections::BTreeMap::new(), owner_env);
+    if let Some(allowed) = allowed {
+        env.insert(crate::agent_tools::MCP_TOOLS_ENV.into(), allowed.join(","));
+    }
+    env
+}
+
 #[cfg(test)]
 mod tests {
+    /// A workflow child keeps the answer of the Mac that started its owning chat, beside its
+    /// tool scope; a local owner's child has none.
+    #[test]
+    fn a_workflow_child_keeps_its_owners_answer() {
+        let owner = std::collections::BTreeMap::from([(
+            crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(),
+            "off".to_owned(),
+        )]);
+        let scope = vec!["agents_snapshot".to_owned()];
+        let env = super::child_session_env(&owner, Some(&scope));
+        assert_eq!(env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str), Some("off"));
+        assert_eq!(
+            env.get(crate::agent_tools::MCP_TOOLS_ENV).map(String::as_str),
+            Some("agents_snapshot")
+        );
+        assert!(super::child_session_env(&Default::default(), None).is_empty());
+    }
+
     use super::*;
 
     fn activity_chat() -> (Arc<Hub>, RunRecord, ActivityRecord) {

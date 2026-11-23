@@ -166,6 +166,30 @@ struct AcpmuxChatRowsHostTests {
         #expect(await eventually { fed.receiver.rowIds == Array(1...14) })
     }
 
+    @Test("a batch whose taken never came goes to the page again after a bounded wait, and the stream goes on")
+    func lostTakenSendsAgain() async throws {
+        let fed = FedChatRowsHost()
+        #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
+        try await fed.feed(ChatWire.opening + ChatWire.window(cursor: 10, ids: 1...10), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds.count == 10 })
+
+        // The page's `taken` for the next batch is lost (a failed post, a call that never ran).
+        fed.receiver.hold(true)
+        try await fed.feed(ChatWire.op(11), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds.last == 11 })
+        let lost = try #require(fed.receiver.batches.last)
+        fed.receiver.hold(false)
+        try await fed.feed(ChatWire.op(12), chunk: 1 << 20)
+
+        // The host sends the same batch again under the same number; its taken lets row 12 through.
+        #expect(await eventually(10) { fed.receiver.rowIds.contains(12) }, "the chat's rows stalled on one lost taken")
+        let again = fed.receiver.batches.filter { $0.batch == lost.batch }
+        #expect(again.count == 2 && again.allSatisfy { $0.changes == lost.changes })
+        #expect(fed.receiver.rowIds.filter { $0 == 11 }.count == 2, "the page saw row 11 twice; it applies a batch number once")
+        let counters = await fed.host.snapshotForTesting().counters
+        #expect(counters.resends == 1 && counters.bridgeCalls == fed.receiver.batches.count - 1)
+    }
+
     @Test("names, sids this page opened, and at most 16 subs a pane")
     func refusals() async throws {
         let fed = FedChatRowsHost()

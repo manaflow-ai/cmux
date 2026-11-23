@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
+public import Foundation
 
 /// The Mobile Pairing page's QR code: CoreImage's `CIQRCodeGenerator`, one
 /// pixel per module, dark on white with a quiet zone, as a PNG data URL the
@@ -13,6 +14,11 @@ public struct PairingQRCode {
 
     /// `data:image/png;base64,…` for `payload`, or nil when it cannot be encoded.
     public func pngDataURL(for payload: String, quiet: Int = 2) -> String? {
+        pngData(for: payload, quiet: quiet).map { "data:image/png;base64," + $0.base64EncodedString() }
+    }
+
+    /// The QR of `payload` as PNG data, one pixel per module with a `quiet` zone, or nil when it cannot be encoded.
+    public func pngData(for payload: String, quiet: Int = 2) -> Data? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
@@ -29,6 +35,6 @@ public struct PairingQRCode {
         bitmap.draw(modules, in: CGRect(x: quiet, y: quiet, width: modules.width, height: modules.height))
         guard let image = bitmap.makeImage(),
               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return nil }
-        return "data:image/png;base64," + png.base64EncodedString()
+        return png
     }
 }

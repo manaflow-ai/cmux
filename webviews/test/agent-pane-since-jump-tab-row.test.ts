@@ -247,8 +247,9 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
       const view = document.querySelector(".acpmux-scroll")?.getBoundingClientRect();
       return Boolean(box && view && box.top >= view.top && box.bottom <= view.bottom);
     });
-    // Each turn after the seen record is a prompt and a reply: messages, not turns.
-    await expect(line.locator(".cv-since__words").textContent()).resolves.toMatch(/^\d+ new messages$/);
+    // Each turn after the seen record is a prompt and a reply: messages, not turns. The words are
+    // the line's label in every look (the rule's text on "line", the tag on "worked").
+    await expect(line.locator(".cv-since__line").getAttribute("aria-label")).resolves.toMatch(/^\d+ new messages?$/);
     expect(await page.getByText(LAST).isVisible()).toBe(false);
     await page.close();
   });

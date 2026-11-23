@@ -20,7 +20,7 @@ expect certain things to come in, that dynamism versus like what parts of the UI
 | Zone | Kind | What lives there | Why |
 | --- | --- | --- | --- |
 | Top start of the text column | dynamic | The unread banner | What's new arrives where the eye settles on entering a chat |
-| Bottom center, on the composer's center line | dynamic | Jump to latest (or the Needs you pill), with Jump up stacked on it | Where to go next waits next to where you type |
+| Bottom, over the composer card's end edge (jumpPlace.css; the `jump-latest-place` arm can put it at the start edge, the end corner or the center line) | dynamic | Jump to latest (or the Needs you pill), with Jump up stacked on it | Where to go next waits next to where you type |
 | Top center, under the header | stable | The pinned "Subagent of" pill | Identity of the view, never news |
 | End edge | stable | Session Info | Pushes the column or floats in the gutter; never covers a dynamic zone |
 
@@ -48,31 +48,38 @@ messages", the first new reply under it): "we needto properly do somthing like t
   the reader. Coming back is any of: the chat picked, its tab or window shown again, the reader's hand back
   after stepping away (attention.ts). acpmux keeps the place (`seenSeq`, `unreadTurns`, `lastReturn` in
   `session.json`, `hub/seen.rs`), so it survives a restart.
-- Scrolled up while the chat keeps going: the line goes after the last record the view followed, once a
-  message arrives after it (`direct.ts placeScrolledSince`), unless an unread line is already drawn. It
-  never moves the view; it is in the page only (acpmux counted those rows as seen while the person attended).
-- The look (`count`, chosen): a muted hairline (`--agent-border-strong`) on both sides of a centered, muted
-  "157 new messages" (caption type, `--agent-muted`, tabular figures), the terminal chat's rule in GUI terms.
-- The count is the messages after the line: replies, tool runs and messages (`assistant`, `activity`,
-  `user`, `btw` rows); turn ends, notices, recaps and status never count. It follows new rows live (App.tsx
-  `countNewMessages`, read from the end back to the line, O(the new rows)), reads "999+" past its cap, and
-  freezes once the line is read. Only the label's words change; the row's height never does.
-- A return with new rows lands at the line, not the latest message: the line about a third down the view,
-  what the person had seen above it, the new part below (`sinceLands`, App.tsx). It moves only a view at the
+- Scrolled up while the chat keeps going: the line goes after the last record the view followed, once news
+  arrives after it (`direct.ts placeScrolledSince`), unless an unread line is already drawn. It never moves
+  the view; it is in the page only (acpmux counted those rows as seen while the person attended), and as a
+  mark in place it never draws if it is on screen when placed.
+- No height, no layout shift (Leo, 2026-11-22: "this is a bad new. it shouldnt just do this like this
+  when there's nothing. we need to have better focus/unfocus and dissipation. and probably also not layout
+  shift this. we can maybe even integrate the line into the worked for line area."): the row is 0 px and the
+  mark lies over the gap between the rows it splits (`--cv-since-gap`), the recap's card under it.
+- Drawn only while something new to read is under it (`sinceNews.ts isNews`: replies with text, messages
+  from other agents, inbox, notices, queued messages, questions and permissions; never own prompts, tool
+  runs or status), once its observer answered. A line on screen at a return in place is read by then and
+  never flashes. It fades in on `--agent-motion-calm` and dissipates once a reader at the pane has had it on
+  screen for `SINCE_DWELL_MS` (3 s), or on Mark read.
+- The looks (`sinceLook.experiment.ts`, compared in `agent-pane.since-divider`): `line`, a thin accent
+  hairline across the gap; `worked` (default), folded into the next turn's "Worked for" line, its rule lit
+  in the accent with the words at its end, and no second line (#51029); `pill`, a small New pill alone.
+- The count: "157 new messages", the terminal chat's rule in GUI terms. On `line` the words sit centered
+  between two hairlines (caption type, `--agent-muted`, tabular figures, the rule in the accent); on
+  `worked` they replace "New" at the rule's end; `pill` keeps its one word. It counts the news after the
+  line (`sinceNews.ts sinceCount`, the same `isNews`, so a drawn line counts at least 1; a "Received 4
+  messages" run counts 4), read from the end back to the line and bounded to O(the new rows), reads "999+"
+  past its cap, and claims no number past its reach (the label stays "New"). VirtualTranscript reports it
+  beside the news (`noteUnreadCount`); it follows new rows while unread and freezes once read, so a
+  dissipating label keeps its words. The words are an overlay; nothing else moves.
+- A return with news lands at the line, not the latest message: the line about a third down the view, what
+  the person had seen above it, the new part below (`sinceLands`, App.tsx). It moves only a view at the
   latest message (the reveal's `land`); a reader scrolled up keeps their place. With the unread banner on
-  (the setting), the view stays at the latest and the banner jumps to the line, as before. A return with
-  nothing new places no line and moves nothing.
-- One control row tall (`--ds-control-row`, the 28px `model.ts` estimates), the recap's card under it. It
-  sits in the message rhythm and never overlaps or moves a row.
-- Read: seen and then scrolled past, on screen for `SINCE_FADE_MS` (6 s), Mark read, or seen and then the
-  latest message reached by the reader. The rules and the words fade in place over `--agent-motion-calm`.
-  The row keeps its height, so nothing jumps; the recap stays.
+  (the setting), the view stays at the latest and the banner jumps to the line. A return in place (a chat
+  left on screen) and a return with nothing new move nothing.
 - Right-click: Mark read, and Hide unread banner or Show unread banner (the setting).
-- Looks compared (`agent-pane.since-divider`): `count` (chosen), `count-accent` (the same in the theme's
-  accent), `tag` (the look before: an accent rule with a filled "New" tag at its end), `text` (accent words,
-  no fill), `labelled` (the first look on tokens: "New since you looked · 3 turns" leading the rule). The
-  whole pane (`agent-pane.unread-marker`): `new-few`, `new-many` (157), `after-user-message`,
-  `after-tool-run`.
+- The whole pane (`agent-pane.unread-marker`): `new-few`, `new-many` (157), `new-many-thin-line`,
+  `after-user-message`, `after-tool-run`.
 
 ### The moving view: the unread banner
 
@@ -96,7 +103,10 @@ Leo, 2026-11-10: "having a jump up button, like jumping up since like the last t
 seems like very good. Because it's like, okay, you get jump to bottom, but then jump to, like, the last
 thread."
 
-- **Jump to latest**: a glass control on the composer's center line while the reader is scrolled up.
+- **Jump to latest**: a glass control over the composer card's end edge while the reader is scrolled up,
+  its arrow over the card's last button (the mic or Send), so the tucked hat's count pill has the middle to itself (Leo,
+  2026-11-21, of the arrow on the pill: "didn't we say we wanted to move these to the side"). It takes the
+  start edge when the hat's handle stands at the end (`agentPane.display.trayHandle`).
 - **Jump up** is the same disc with its arrow turned up in place (`jumpPair.css`, One control below): the
   same look, size, glass, focus and fade. So only one of the two ever shows (Leo, 2026-11-12: "after
   clicking the jump to bottom button, this appears... and then it appears again when you went up. which is

@@ -27,6 +27,10 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
+#[cfg(unix)]
+mod agent_turn_end_commits;
+#[cfg(unix)]
+mod agent_turn_end_crash_order;
 pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
@@ -36,6 +40,7 @@ mod column_update;
 mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;
+mod deleted_bytes;
 mod diagnostics;
 mod disk_budget;
 mod disk_usage_read_cost;
@@ -48,6 +53,10 @@ mod history_agent_fold;
 mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
+#[cfg(unix)]
+mod idle_stop_fence;
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod idle_terminal_memory;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
@@ -85,6 +94,7 @@ mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
+mod tab_identity;
 mod tab_update_scoped;
 mod tab_workspace_move;
 mod tabs;

@@ -11,6 +11,7 @@ import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-res
 import { UpstreamError } from "./client.ts";
 import { jsonItemsScanner } from "./json-items.ts";
 import type { UpstreamConfig } from "./live.ts";
+import { timedUpstream } from "./timing.ts";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -77,6 +78,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       },
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
+      timedUpstream,
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.body) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
@@ -120,6 +122,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       },
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
+      timedUpstream,
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.body) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),

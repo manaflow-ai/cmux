@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 import workflow_jobs
+from nightly_workflow_text import nightly_text
 from job_lists_routing import release_environment_jobs, unresolved_environment_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,10 @@ APP_TOKEN_EXEMPT = {
     ),
     "promote-nightly-next-acked": (
         "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
+    ),
+    "sign-live-code-variant": (
+        "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
+        "it writes nothing to a release and sends no github.token"
     ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
@@ -184,16 +189,26 @@ class WorkflowTests(unittest.TestCase):
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploader from
         # .publish-tooling (github.sha) so the App token is read.
+        # republish-nightly-deltas runs its uploader from scripts/ci/nightly-steps/; read that script inline.
+        expanded = workflow_jobs.jobs(nightly_text())
         for name in ("republish-nightly-deltas",):
-            steps = self.jobs[name]["steps"]
+            steps = expanded[name]["steps"]
             tooling = next(s for s in steps if (s.get("with") or {}).get("path") == ".publish-tooling")
             self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", name)
             for script in ("scripts/ci/publish-release-assets.py", "scripts/ci/gh_app_token.sh"):
                 self.assertIn(script, tooling["with"]["sparse-checkout"], name)
-            uploads = [s for s in steps if "publish-release-assets.py" in str(s.get("run", ""))]
+            # The republish run block lives in scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh, run from
+            # .publish-tooling (it is in the sparse list) so it is the workflow commit's copy too.
+            def text(step):
+                run = str(step.get("run", ""))
+                if ".publish-tooling/scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh" in run:
+                    self.assertIn("scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh", tooling["with"]["sparse-checkout"], name)
+                    return (ROOT / "scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh").read_text(encoding="utf-8")
+                return run
+            uploads = [s for s in steps if "publish-release-assets.py" in text(s)]
             self.assertTrue(uploads, name)
             for step in uploads:
-                run = str(step["run"])
+                run = text(step)
                 self.assertIn(".publish-tooling/scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
                 self.assertNotIn("python3 scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
 

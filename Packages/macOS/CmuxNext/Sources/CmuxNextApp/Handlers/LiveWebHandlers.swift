@@ -25,7 +25,7 @@ enum LiveWebHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let bundled = context.services.bundledCLI
-        Task { _ = await bundled.resolve() } // task-owner: none; one bounded file read whose answer bundled keeps
+        Task { await BundledCLIRun.atLaunch(bundled) } // task-owner: none; bounded CLI runs: stale layers off, code layers refreshed once per app commit
         let noCLI: @MainActor () -> String? = { bundled.known == nil ? LiveWebStrings.noCLI : nil }
         registry.bindEffect(startID, unavailable: noCLI, effect: { invocation in
             guard let cli = bundled.known else { return .refused(LiveWebStrings.noCLI) }
@@ -134,7 +134,7 @@ enum LiveWebHandlers {
 
 enum LiveWebStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "LiveWeb", bundle: .module)
+        String(localized: key, defaultValue: value, table: "LiveWeb", bundle: .module.inAppLanguage)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {

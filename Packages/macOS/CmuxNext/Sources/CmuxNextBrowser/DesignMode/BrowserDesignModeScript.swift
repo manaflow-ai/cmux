@@ -1,7 +1,7 @@
 public import Foundation
 
-/// The page side of design mode: classic's `BrowserDesignModeRuntime.js`, copied as is, and the
-/// calls cmux-next makes into it. It runs only in cmux's isolated world, so a page can neither call
+/// The page side of design mode: classic's `BrowserDesignModeRuntime.js` with cmux-next's comment
+/// bubble and numbered pins, and the calls cmux-next makes into it. It runs only in cmux's isolated world, so a page can neither call
 /// it nor post as it.
 public nonisolated struct BrowserDesignModeScript: Sendable {
     /// The handler name the runtime posts to (`webkit.messageHandlers.cmuxDesignMode`).
@@ -24,11 +24,15 @@ public nonisolated struct BrowserDesignModeScript: Sendable {
         return try String(contentsOf: resourceURL, encoding: .utf8)
     }
 
-    /// The script that installs the runtime if needed and turns design mode on; it returns the
-    /// runtime's first snapshot. In Chromium it first gives the world the WebKit-shaped handler the
-    /// runtime posts to, backed by the ``chromiumBinding`` binding.
-    public func enableScript(chromium: Bool) throws -> String {
-        (chromium ? Self.chromiumPrelude : "") + "\n" + (try runtime()) + "\n;globalThis.__cmuxDesignMode.enable();"
+    /// The script that installs the runtime if needed, gives its comment bubble the app's words and
+    /// turns design mode on; it returns the runtime's first snapshot. In Chromium it first gives the
+    /// world the WebKit-shaped handler the runtime posts to, backed by the ``chromiumBinding`` binding.
+    public func enableScript(chromium: Bool, words: BrowserDesignModeStrings = BrowserDesignModeStrings()) throws -> String {
+        let table = ["placeholder": words.commentPlaceholder, "add": words.commentAdd, "save": words.commentSave]
+        let configure = (try? JSONSerialization.data(withJSONObject: table, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return (chromium ? Self.chromiumPrelude : "") + "\n" + (try runtime())
+            + "\n;globalThis.__cmuxDesignMode.configure(\(configure));globalThis.__cmuxDesignMode.enable();"
     }
 
     /// Turns design mode off and restores every edit; harmless when it is not on.

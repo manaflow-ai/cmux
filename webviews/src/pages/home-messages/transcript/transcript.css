@@ -27,7 +27,10 @@
   --mt-avatar-col: 36px;
   --mt-header-avatar: 36px;
   --mt-caption: var(--page-text-2, color-mix(in srgb, var(--page-text) 55%, transparent));
-  --mt-danger: var(--cmux-app-danger, light-dark(#d70015, #ff453a));
+  /* System red, not the theme's ANSI red (--cmux-app-danger is pink in Soft Blue; Leo 2026-11-16:
+     "why is this icon pink lol"): the failed-send mark, Not Delivered and alerts match the native
+     transcript's failure colour (Palette.statusError). */
+  --mt-danger: light-dark(#d70015, #ff453a); /* colour-allow: system red, a status colour that is no theme role (native Palette.statusError) */
   --mt-look-sent: var(--mt-imessage-blue);
   --mt-look-sent-text: #ffffff;
   --mt-look-received: var(--mt-imessage-grey);
@@ -156,7 +159,7 @@
   align-items: center;
   gap: var(--ds-space-1);
   padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
-  border: 0.5px solid color-mix(in srgb, var(--page-text) 12%, transparent);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--page-text) 12%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--page-text) 6%, transparent);
   color: var(--page-text);
@@ -443,7 +446,7 @@
   border-radius: 999px;
   background: currentColor;
   opacity: 0.35;
-  animation: mt-dot var(--mt-typing-period) var(--cmux-ease-out, linear) infinite;
+  animation: mt-dot var(--mt-typing-period) var(--cmux-ease-out, linear) infinite; /* motion-allow: a loop whose no-token fallback is linear, not the scale ease-out (left as found) */
 }
 
 .mt-typing i:nth-child(2) {
@@ -585,4 +588,8 @@
   .mt-header {
     background: var(--cmux-surface-solid, Canvas);
   }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid header. */
+:where(:root[data-glass="off"]) .mt-header {
+  background: var(--cmux-surface-solid, Canvas);
 }

@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // "N new messages" placed by a scroll up (direct.ts `placeScrolledSince`; Leo, 2026-11-15: "we needto
 // properly do somthing like this in the gui somehow"). Scrolled up while the chat keeps going, the line
-// goes after the last record the view followed, once a message comes after it; and a chat that already
+// goes after the last record the view followed, once something new to read (sinceNews.ts) comes after it; and a chat that already
 // draws a line (a return's, with its recap) keeps it where it is, read or not, so no row is taken out
 // above the reader.
 import { expect, test } from "bun:test";
@@ -119,16 +119,20 @@ test("scrolled up while the chat goes on, the line goes after what the view last
     await chat.settled(() => chat.rows().some((row) => row.text === "Reply 2."));
     expect(chat.sinceKey()).toBeUndefined();
     chat.client.setFollowing(false);
-    // A turn that only starts brings no message: no line yet.
-    daemon.push([mux(9, "user_message", { text: "Step 3" })]);
+    // The person's own prompt and a turn that only starts are not news (sinceNews.ts): no line yet.
+    daemon.push([mux(9, "user_message", { text: "Step 3" }), mux(10, "turn_started")]);
     await chat.settled(() => chat.rows().some((row) => row.text === "Step 3"));
+    expect(chat.sinceKey()).toBeUndefined();
+    // A reply is: the line goes after what the view last followed, before the prompt.
+    daemon.push([reply(11, "Reply 3.")]);
+    await chat.settled(() => chat.sinceKey() !== undefined);
     expect(chat.sinceKey()).toBe(`${CHAT}:8`);
     expect(afterLine(chat.rows())?.text).toBe("Step 3");
     // Back at the latest and away again: the one line stays where it was.
     chat.client.setFollowing(true);
     chat.client.setFollowing(false);
-    daemon.push([mux(10, "turn_started"), reply(11, "Reply 3.")]);
-    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 3."));
+    daemon.push([mux(12, "turn_result", { status: "completed" }), ...turn(13, 4)]);
+    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 4."));
     expect(chat.sinceKey()).toBe(`${CHAT}:8`);
   } finally {
     chat.client.close();

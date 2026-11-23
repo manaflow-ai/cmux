@@ -102,7 +102,7 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.width, -0.5);
       expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.left, -0.5);
 
-      const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
+      const newTab = await open("agent-pane.new-tab", "minimal-default", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
       // The New Tab composer takes the transcript's column, so Home's composer and the chat line up
@@ -117,7 +117,7 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     const zooms = [...steps, ...[...steps].reverse()];
     for (const [entry, variant, selector] of [
       ["agent-pane.chat-width", "standard", ".acpmux-row"],
-      ["agent-pane.new-tab", "chats-unavailable", ".nt-box"],
+      ["agent-pane.new-tab", "minimal-default", ".nt-box"],
     ] as const) {
       const page = await open(entry, variant, 1, 1);
       for (const scale of zooms) {

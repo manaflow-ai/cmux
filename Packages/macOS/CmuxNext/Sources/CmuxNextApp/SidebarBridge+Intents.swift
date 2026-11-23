@@ -75,8 +75,8 @@ extension SidebarBridge {
             // The plain "+" in a local window is the person's New Workspace, as Cmd-N (the Cloud toggle applies); a machine turned
             // off by policy (DisabledFeatures) gets nothing, not a local stand-in (`SidebarBridgeRules.newWorkspace`).
             let named = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }, own = services.machines.daemon(machine: state.machineID)
-            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil,
-                                                         localWindow: state.machineID == MachineRegistry.localID, windowDaemon: own != nil)
+            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil, localWindow: state.machineID == MachineRegistry.localID,
+                                                         windowDaemon: own != nil, cloudMachine: machine.flatMap { services.machines.session($0.rawValue) } != nil)
             if plan == .newTab {
                 services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
                 return
@@ -84,14 +84,11 @@ extension SidebarBridge {
             guard let plan, plan != .nothing else { return }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
             // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
-            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : nil
-            let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
-            let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
-            services.windows.newWorkspace(in: state, on: daemon, at: slot)
-        case .viewScreen, .shareScreen:
-            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
-                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
-            }
+            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : plan == .cloudChat ? services.machines.local : nil // cloudChat: here (cmux#46021)
+            let slot = group.map { NewWorkspacePlacements.rule(for: state.id, in: services.windows).slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
+            services.windows.newWorkspace(in: state, on: daemon, at: slot, picksCloud: plan == .cloudChat)
+        case .viewScreen, .shareScreen: // the header's screen button and its menu's View Screen (SidebarScreenIntentActions.bindViewScreen)
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) { services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane) }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {
