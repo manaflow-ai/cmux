@@ -64,6 +64,25 @@ import Testing
         #expect(store.connectionLine == "Connecting to m…")
     }
 
+    /// A chat opened from its kept rows while its Mac is out of reach (the source was made
+    /// with the hub down, so no `.disconnected` reached it): past the bound it says
+    /// Connecting, since the person may need to wake the Mac (cmux#52533 review).
+    @Test func keptRowsFromAMacOutOfReachSayConnecting() {
+        final class Away: AgentSessionSource {
+            let summary = AgentSessionSummary(id: "t", name: "Fix", harness: "codex", agentName: "Codex", cwd: "~/p",
+                                              workspaceTitle: "w", macName: "Mac")
+            var isOffline: Bool { true }
+            var loadsHistory: Bool { true }
+            func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+            func send(_ intent: AgentClientIntent) {}
+        }
+        let store = AgentChatStore(source: Away(), quietStatus: QuietStatusGate(delay: .zero))
+        store.apply(.userMessage(text: "Read this", promptId: "p", turnId: "t", attachments: [], at: Date()))
+        store.apply(.turnResult(turnId: "t", status: .completed, errorText: nil, at: Date()))
+        #expect(store.summary.status != .disconnected)
+        #expect(store.connectionLine == "Connecting to Mac…")
+    }
+
     @Test func aCatchUpNoticeGoesWhenTheCatchUpFinishes() {
         let store = makeStore()
         store.apply(.historyLoading(true))

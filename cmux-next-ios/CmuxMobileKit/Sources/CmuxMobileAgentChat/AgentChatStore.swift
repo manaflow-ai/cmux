@@ -389,7 +389,9 @@ public final class AgentChatStore {
     /// composer takes the chip's place (``AgentChatConnectionLine``).
     public var connectionLine: String? {
         guard quietStatus.isShown, hasTurns, clientError == nil else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
+        if Self.linkDown(summary.status, offline: isOffline, loading: isLoadingHistory) {
+            return "Connecting to \(summary.macName)…"
+        }
         return nil
     }
 
