@@ -130,8 +130,15 @@ fn displays_doctor_and_display_screenshots_parse() {
 }
 
 mod doctor_checks {
-    use super::super::doctor::{Endpoint, Reply, evaluate, human};
+    use super::super::doctor::{
+        Endpoint, Marker, Reply, evaluate, evaluate_with, helper, human, read_marker,
+    };
     use serde_json::json;
+
+    /// Where every build stages the helper (`cmux_signed_bundle::helper_folder`, #50850).
+    const STAGED_EXE: &str = "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing";
+    /// The per-build layout before the fixed path: an older daemon's copy.
+    const LEGACY_EXE: &str = "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly/computer-use/0123456789abcdef/cmux Screen Sharing.app/Contents/MacOS/cmux-screen-sharing";
 
     fn ready() -> Endpoint {
         Endpoint::State(json!({"state": "ready", "pid": 7}))
@@ -144,7 +151,7 @@ mod doctor_checks {
             "mode": "fullAccess",
             "allow_own_machines": true,
             "screen_locked": false,
-            "worker": {"executable": "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly/computer-use/cmux Screen Sharing.app/Contents/MacOS/cmux-screen-sharing", "pid": 9},
+            "worker": {"executable": STAGED_EXE, "pid": 9},
         })
     }
 
@@ -164,9 +171,89 @@ mod doctor_checks {
         assert!(checks.iter().all(|c| c.fix.is_none()));
         let helper = checks.iter().find(|c| c.name == "helper").unwrap();
         assert!(
-            helper.detail.contains("staged") && helper.detail.contains("com.cmuxterm.app.nightly")
+            helper.detail.contains("staged")
+                && helper.detail.contains("com.cmuxterm.app.nightly.screen-sharing")
         );
         assert!(human(&checks, true).contains("can capture and act"));
+    }
+
+    /// A worker running the copy at the fixed helper path passes, whether the marker was read
+    /// and matched or not read at all (another machine); a marker that disagrees fails.
+    #[test]
+    fn the_fixed_path_copy_passes_and_a_differing_marker_fails() {
+        let body = healthy_status();
+        for marker in [Marker::Matches, Marker::Unread] {
+            let check = helper(&body, &|exe| {
+                assert_eq!(exe, STAGED_EXE);
+                marker
+            });
+            assert!(check.ok, "{check:?}");
+        }
+        let check = helper(&body, &|_| Marker::Differs);
+        assert!(!check.ok && check.detail.contains(".verified"), "{check:?}");
+        let checks =
+            evaluate_with(None, &ready(), &Reply::Ok(body), &one_display(), &|_| Marker::Differs);
+        assert_eq!(failing(&checks), ["helper"]);
+    }
+
+    /// A stale copy still fails: an older daemon's per-build copy, or the helper run from
+    /// inside the app. Neither fix says "Restart cmux.": the daemon outlives the app.
+    #[test]
+    fn a_stale_or_unstaged_helper_fails_with_a_fix_that_restarts_the_worker() {
+        for exe in [
+            LEGACY_EXE,
+            "/Applications/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing",
+        ] {
+            let mut body = healthy_status();
+            body["worker"]["executable"] = json!(exe);
+            let check = helper(&body, &|_| Marker::Matches);
+            assert!(!check.ok, "{check:?}");
+            let fix = check.fix.unwrap();
+            assert!(
+                fix.contains("Turn Computer Use off and on") && !fix.contains("Restart cmux."),
+                "{fix}"
+            );
+        }
+        let mut body = healthy_status();
+        body["worker"]["executable"] = json!(LEGACY_EXE);
+        assert!(helper(&body, &|_| Marker::Unread).detail.contains("older cmux"));
+    }
+
+    /// Another platform's worker binary is reported, never judged.
+    #[test]
+    fn a_non_mac_worker_is_reported_as_is() {
+        let mut body = healthy_status();
+        body["platform"]["os"] = json!("linux");
+        body["worker"]["executable"] = json!("/usr/libexec/cmux/cmux-tui");
+        assert!(helper(&body, &|_| Marker::Differs).ok);
+    }
+
+    /// The marker read: the folder's `.verified` against the bundle's own digest, as the
+    /// stager writes it after the swap (the marker newer than the bundle is the normal case).
+    #[test]
+    fn read_marker_compares_the_folder_marker_with_the_bundle_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing");
+        let app = folder.join("cmux NIGHTLY Helper.app");
+        for (part, bytes) in [
+            ("Contents/MacOS/cmux-screen-sharing", "binary"),
+            ("Contents/_CodeSignature/CodeResources", "seal"),
+            ("Contents/Info.plist", "plist"),
+        ] {
+            let path = app.join(part);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let exe = app.join("Contents/MacOS/cmux-screen-sharing");
+        let exe = exe.to_str().unwrap();
+        assert_eq!(read_marker(exe), Marker::Differs, "no marker yet");
+        let parts = cmux_signed_bundle::digest_parts("cmux-screen-sharing");
+        let digest = cmux_signed_bundle::digest_of(&app, &parts).unwrap();
+        std::fs::write(folder.join(".verified"), format!("{digest}\n")).unwrap();
+        assert_eq!(read_marker(exe), Marker::Matches);
+        std::fs::write(app.join("Contents/MacOS/cmux-screen-sharing"), "other").unwrap();
+        assert_eq!(read_marker(exe), Marker::Differs);
+        assert_eq!(read_marker("/usr/bin/cmux-screen-sharing"), Marker::Unread);
     }
 
     #[test]

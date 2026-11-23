@@ -11,11 +11,33 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, caller, legacy, with_machine};
 use crate::cli::OutputMode;
 
-/// The staging root's path segment (cmux-tui-core `computer_use_host/macos.rs`):
-/// `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`.
-const STAGED_SEGMENT: &str = "/cmux-next/screen-sharing/";
-/// The macOS helper's executable (the verified copy runs from the staging root).
+/// The one fixed folder every build stages the helper in (`cmux_signed_bundle::helper_folder`,
+/// the app's `SignedHelperStaging`, cmux-tui-core `computer_use_host/macos.rs`):
+/// `~/Library/Application Support/cmux-next/helper/<bundle id>/<bundle name>.app`.
+const STAGED_SEGMENT: &str = "/Library/Application Support/cmux-next/helper/";
+/// The per-build layout before the fixed path
+/// (`.../cmux-next/screen-sharing/<bundle id>/computer-use/<16 hex>/`): a copy there was
+/// started by an older cmux daemon.
+const LEGACY_SEGMENT: &str = "/cmux-next/screen-sharing/";
+/// The macOS helper's executable (the verified copy runs from the staging folder).
 const MAC_HELPER_EXE: &str = "cmux-screen-sharing";
+/// The marker beside the staged copy: the content digest it was checked to have.
+const MARKER: &str = ".verified";
+/// What makes a running worker use the copy the current cmux stages: Computer Use off stops
+/// the worker, on starts it again through this daemon's stager. Restarting the app alone does
+/// not: the daemon and its worker outlive it.
+const RESTAGE_FIX: &str = "Turn Computer Use off and on again in Settings > Computer Use (or `cmux settings set computerUse.mode off`, then back to your mode) so cmux starts the worker again from its staged copy. If the doctor still says so, the cmux daemon is older than the app: quit cmux, check no `cmux-tui` process is left, and open it again.";
+
+/// What the staged copy's `.verified` marker says about the bundle beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Marker {
+    /// Not read: another machine's worker, or the doctor does not look at disk.
+    Unread,
+    /// The marker holds the copy's own content digest.
+    Matches,
+    /// The marker is missing or holds another digest.
+    Differs,
+}
 
 /// What the daemon's endpoint said, or why it could not be asked.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +106,18 @@ pub(super) fn evaluate(
     endpoint: &Endpoint,
     status: &Reply,
     displays: &Reply,
+) -> Vec<Check> {
+    evaluate_with(machine, endpoint, status, displays, &|_| Marker::Unread)
+}
+
+/// [`evaluate`], with `marker` reading the staged copy's `.verified` marker for the helper
+/// check (the local machine only: a remote worker's disk is not this one's).
+pub(super) fn evaluate_with(
+    machine: Option<&str>,
+    endpoint: &Endpoint,
+    status: &Reply,
+    displays: &Reply,
+    marker: &dyn Fn(&str) -> Marker,
 ) -> Vec<Check> {
     let mut checks = Vec::new();
     let here = machine.map_or("this machine".to_owned(), |m| format!("machine {m:?}"));
@@ -163,7 +197,7 @@ pub(super) fn evaluate(
     };
 
     // The helper: on macOS the worker must be the staged, verified copy.
-    checks.push(helper(body));
+    checks.push(helper(body, marker));
 
     // OS grants, preflight reads only.
     let grants = body.get("permissions").cloned().unwrap_or(Value::Null);
@@ -271,27 +305,67 @@ fn suffix(reason: &str) -> String {
     if reason.is_empty() { String::new() } else { format!(" ({reason})") }
 }
 
-/// The worker's executable, and on macOS whether it is the staged copy.
-fn helper(body: &Value) -> Check {
+/// The worker's executable, and on macOS whether it is the staged, verified copy: under the
+/// fixed helper folder and, when `marker` reads it, matching the folder's `.verified` digest.
+pub(super) fn helper(body: &Value, marker: &dyn Fn(&str) -> Marker) -> Check {
     let os = body.pointer("/platform/os").and_then(Value::as_str).unwrap_or("");
     let Some(exe) = body.pointer("/worker/executable").and_then(Value::as_str) else {
         return pass("helper", "the worker does not name its executable (an older cmux)");
     };
+    if exe.rsplit('/').next() != Some(MAC_HELPER_EXE) {
+        return pass("helper", exe.to_owned());
+    }
     let staged = exe.find(STAGED_SEGMENT).map(|at| {
         let rest = &exe[at + STAGED_SEGMENT.len()..];
         rest.split('/').next().unwrap_or("").to_owned()
     });
-    let is_helper = exe.rsplit('/').next() == Some(MAC_HELPER_EXE);
-    match (os, staged, is_helper) {
-        (_, Some(bundle), _) => {
+    match (staged, marker(exe)) {
+        (Some(bundle), Marker::Matches | Marker::Unread) if !bundle.is_empty() => {
             pass("helper", format!("{exe} (staged, verified copy for {bundle})"))
         }
-        ("macos", None, true) => fail(
+        (Some(bundle), _) if !bundle.is_empty() => fail(
             "helper",
-            format!("{exe} is not the staged, verified copy"),
-            "cmux couldn't start Computer Use. Restart cmux.",
+            format!(
+                "{exe} does not match the digest in its folder's {MARKER} marker (a copy for {bundle} left half replaced)"
+            ),
+            RESTAGE_FIX,
+        ),
+        _ if exe.contains(LEGACY_SEGMENT) => fail(
+            "helper",
+            format!(
+                "{exe} is an older cmux's copy, not the one staged at ~{STAGED_SEGMENT}<bundle id>/"
+            ),
+            RESTAGE_FIX,
+        ),
+        _ if os == "macos" => fail(
+            "helper",
+            format!(
+                "{exe} is not the staged, verified copy (~{STAGED_SEGMENT}<bundle id>/): macOS checks the grants of the app it runs inside"
+            ),
+            RESTAGE_FIX,
         ),
         _ => pass("helper", exe.to_owned()),
+    }
+}
+
+/// Reads the staged copy's marker for the worker executable `exe`
+/// (`<folder>/<name>.app/Contents/MacOS/<exe>`): whether `<folder>/.verified` holds the
+/// bundle's own content digest (`cmux_signed_bundle::digest_of`, as the stager checks).
+pub(super) fn read_marker(exe: &str) -> Marker {
+    let path = std::path::Path::new(exe);
+    let Some(app) = path.ancestors().nth(3).filter(|app| {
+        app.extension().is_some_and(|e| e == "app")
+            && path.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "MacOS")
+    }) else {
+        return Marker::Unread;
+    };
+    let Some(folder) = app.parent() else { return Marker::Unread };
+    let Ok(want) = std::fs::read_to_string(folder.join(MARKER)) else { return Marker::Differs };
+    let parts = cmux_signed_bundle::digest_parts(MAC_HELPER_EXE);
+    match cmux_signed_bundle::digest_of(app, &parts) {
+        Ok(digest) if digest == want.trim() => Marker::Matches,
+        Ok(_) => Marker::Differs,
+        Err(_) => Marker::Unread,
     }
 }
 
@@ -318,7 +392,12 @@ pub(super) fn run(global: &GlobalArgs, machine: Option<&str>, json_flag: bool) -
     };
     let status = call("status");
     let displays = call("list_displays");
-    let checks = evaluate(machine, &endpoint, &status, &displays);
+    // The staged copy's marker is on this machine's disk only for a local worker.
+    let checks = if machine.is_none() {
+        evaluate_with(machine, &endpoint, &status, &displays, &read_marker)
+    } else {
+        evaluate(machine, &endpoint, &status, &displays)
+    };
     let ok = checks.iter().all(|c| c.ok);
     let report = json!({
         "ok": ok,

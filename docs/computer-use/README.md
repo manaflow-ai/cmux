@@ -290,9 +290,14 @@ grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
 only when capture and input would work. It never shows an OS prompt (grants are
 the preflight reads `status` already does) and needs no app window. `helper`
 names the worker's executable (`status.worker.executable`); on macOS a
-`cmux-screen-sharing` outside the staging root
-(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
-fails with the staging fix.
+`cmux-screen-sharing` outside the one fixed helper folder
+(`~/Library/Application Support/cmux-next/helper/<bundle id>/`, every build's
+staged copy) fails, and so does an older daemon's copy under the per-build
+`cmux-next/screen-sharing/` layout. For a local worker the doctor also checks
+the folder's `.verified` marker against the copy's own content digest. The fix
+is to turn Computer Use off and on (the worker starts again from the staged
+copy); restarting the app alone does not, because the daemon and its worker
+outlive it.
 
 ## Trust
 
