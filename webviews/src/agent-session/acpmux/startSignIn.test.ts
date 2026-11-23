@@ -28,6 +28,10 @@ describe("signInRoute", () => {
   test("a chat on another machine without the card never runs a login on this Mac", () => {
     expect(signInRoute({ elsewhere: true, card: false, login: true })).toBeUndefined();
   });
+  test("a chat on this Mac whose daemon runs the agent's login signs in with the card", () => {
+    expect(signInRoute({ elsewhere: false, card: true, login: true })).toBe("card");
+    expect(signInRoute({ elsewhere: false, card: true, login: false })).toBe("card");
+  });
   test("a chat on this Mac runs the agent's login in a terminal tab", () => {
     expect(signInRoute({ elsewhere: false, card: false, login: true })).toBe("terminal");
     expect(signInRoute({ elsewhere: false, card: false, login: false })).toBeUndefined();

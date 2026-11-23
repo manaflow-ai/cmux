@@ -267,6 +267,18 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
   return agentLogin(options);
 }
 
+/// The in-place sign-in for an agent on this Mac (logins done right; Leo, 2026-11-22: "we likewise
+/// want gh auth or device stuff to be much more convienient ui/ux wise ... this is simply logins,
+/// done righr."): the signed-out notice's Log In and a start refused for its sign-in run the agent's
+/// own login here (`_acpmux/agent_login/*`, which this Mac's socket and app may ask) in the card, its
+/// page beside the chat and its code in the card, instead of a terminal tab. Undefined for a chat
+/// elsewhere (``cloudAgentLogin``'s) and wherever ``agentLogin`` is: a daemon without `agent_login`
+/// (or, with no chat, without `agent_login_machine`) keeps the terminal login.
+export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined {
+  if (options.machineID || options.elsewhere) return undefined;
+  return agentLogin(options);
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
