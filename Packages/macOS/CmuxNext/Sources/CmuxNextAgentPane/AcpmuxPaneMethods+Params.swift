@@ -64,9 +64,10 @@ nonisolated extension AcpmuxPaneMethods {
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -136,6 +137,14 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
