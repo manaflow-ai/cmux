@@ -128,7 +128,8 @@ struct FeedWorkingStrip: View {
         VStack(spacing: 0) {
             if !model.agents.isEmpty {
                 ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
+                    // Lazy: with many agents working, only the capsules on screen exist (and spin).
+                    LazyHStack(spacing: 8) {
                         ForEach(model.agents) { agent in
                             Button { open(agent) } label: { WorkingAgentCapsule(agent: agent) }
                                 .buttonStyle(.cmuxPressFillInLabel)
