@@ -94,12 +94,6 @@
           ],
           "prefixes": []
         },
-        "portable-placement": {
-          "exact": [
-            "portable light placement"
-          ],
-          "prefixes": []
-        },
         "remote-daemon": {
           "exact": [],
           "prefixes": [
@@ -226,6 +220,12 @@
         "web-typecheck": {
           "exact": [
             "web / web-typecheck"
+          ],
+          "prefixes": []
+        },
+        "webviews-typecheck": {
+          "exact": [
+            "web / webviews-typecheck"
           ],
           "prefixes": []
         }

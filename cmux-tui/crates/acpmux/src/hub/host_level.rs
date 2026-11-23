@@ -55,6 +55,22 @@ pub(super) fn start_for_creator(person: bool) -> u8 {
     if person { FOR_A_PERSON } else { FOR_NO_PERSON }
 }
 
+/// Whether a chat created by `created_by` (`person`: `NewRequest::person`) is the person's at
+/// creation: the person made it, or it records no creator and the person asked for it. A pooled
+/// Claude Code is taken only by such a chat (`lifecycle.rs` `shaped`): the pool started it for
+/// the person, with suggestions, so a lane's chat that took one kept them for the process's life.
+/// On two Cloud agent machines 81 of the chats scripts made had taken one (sr2 audit,
+/// 2026-11-22: about 20 suggestions an hour through one team gateway).
+pub(super) fn made_for_a_person(
+    created_by: Option<&crate::store::CreatedBy>,
+    person: bool,
+) -> bool {
+    match created_by {
+        Some(c) => c.kind == crate::store::CreatorKind::Person,
+        None => person,
+    }
+}
+
 /// How long a chat whose host must move waits idle first: long enough that what follows its turn
 /// (a queued notice, a script's next prompt) comes first, short against the idle period.
 pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);

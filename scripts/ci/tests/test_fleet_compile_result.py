@@ -77,5 +77,33 @@ class ReadTest(unittest.TestCase):
             self.assertEqual(run([(200, bad)])[0], "none", bad)
 
 
+    def test_a_superseded_push_tip_is_its_own_word_at_once(self):
+        # The controller checks the newest feat-cmux-next push tip instead (2026-11-22 05-09Z: 97 push-tip
+        # checks for 120 pushes, each queued by its own push run's read).
+        word, why, urls, t = run([(200, rec("superseded", superseded_by="b" * 40))])
+        self.assertEqual(word, "superseded")
+        self.assertIn("b" * 40, why)
+        self.assertEqual(len(urls), 1)
+
+    def test_the_workflow_skips_only_a_push_whose_head_moved(self):
+        w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
+        i = w.index('if [[ "$word" == superseded && -z "${PR:-}" ]]; then')
+        block = w[i:w.index("status=0", i)]
+        self.assertIn('"$head" != "$REF"', block)
+        self.assertIn("verdict=superseded", block)
+        self.assertIn("word=none", block)  # a head that did not move, or no answer, compiles as before
+
+class WorkflowCallsIt(unittest.TestCase):
+    def test_every_stub_call_runs_without_gnu_timeout(self):
+        # Mac runners have no GNU timeout: "timeout: command not found" made every stub word "none", so each
+        # head compiled twice (2026-11-21 from 18Z). The script bounds its own wait (--wait) and the job has
+        # timeout-minutes.
+        wf = Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml"
+        calls = [l for l in wf.read_text().splitlines() if "python3 scripts/ci/fleet_compile_result.py" in l]
+        self.assertTrue(calls)
+        for line in calls:
+            self.assertNotRegex(line, r"\btimeout\s+\d", line.strip())
+
+
 if __name__ == "__main__":
     unittest.main()

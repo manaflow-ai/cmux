@@ -1527,7 +1527,7 @@ describe("the zero-touch share", () => {
         rest[0] === "/bin/kill" ||
         a.includes("/bin/kill") ||
         (rest[0] === HOST_RD && rest.slice(1).join(" ") === "linux-host requests") ||
-        (rest[0] === opts.acpmux && ["host join --status --json", "share-host status --json"].includes(rest.slice(1).join(" ")))
+        (rest[0] === opts.acpmux && ["host join --status --json", "host doctor --here --json", "share-host status --json"].includes(rest.slice(1).join(" ")))
       )
     }
     return w.runs.slice(started + 1).filter((r) => r.argv[3] === opts.user && !reads(r.argv)).map((r) => r.argv.slice(14).join(" "))

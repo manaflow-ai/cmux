@@ -138,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
     "sessionCreatedAt",
     "senderHarness",
@@ -164,6 +165,14 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 ];
 
 keyed! {
+    /// `_acpmux/account/sign_in`.
+    AccountSignInParams: ["account", "family", "name"];
+    /// `_acpmux/account/sign_in.finish`.
+    AccountSignInFinishParams: ["loginId", "code"];
+    /// `_acpmux/account/sign_in.cancel`.
+    AccountSignInCancelParams: ["loginId"];
+    /// `_acpmux/account/switch` and `_acpmux/account/remove`.
+    AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
     AgentHoldParams: ["sessionId", "held"];
     /// `_acpmux/agent_login/api_key`.
@@ -182,6 +191,8 @@ keyed! {
     ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
+    /// `_acpmux/turn_shots`.
+    TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -243,7 +254,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit", "recent"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.
