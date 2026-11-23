@@ -4971,6 +4971,26 @@ order; a person's re-run stays on the side label.
 
 ## note-554
 
+Above `SUPERSEDED_GATE` and `superseded="" head_read=""` in compile-status, and above `if [[ "$state" == superseded ]]` in
+release-compile-fast, in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push the controller will not check (its receipt reads `"state": "superseded"`, a newer push tip
+is checked instead: note-551, cmuxterm-hq cmux_next_tip_debounce.go) gets no compile result, ever. compile-status
+did not take that state as final: it read it every 30 s for its whole 40 minutes, then posted
+`[no-verdict] No compile result for this head in 40 minutes` and failed, and release-compile-fast then read it for
+20 more minutes and handed the head to the Mac fallback. 2026-11-21 04Z..11-23 05Z: 159 failed compile-status jobs
+on feat-cmux-next pushes, 5,774 runner-min (p50 40.1 min each), about 4 min per merged PR.
+
+Now both read the branch head once (anonymous `git ls-remote`, no token) when the receipt says superseded and the run
+has no pull request. A head that moved on ends the wait at once: compile-status posts cmux-next/compile `error`
+`[no-verdict] [superseded] ...` (still no verdict to base_red_excuse.py's COMPILE_STATUS_NO_VERDICT) and ends green;
+release-compile-fast ends green with verdict `superseded`, so neither the admission job nor the Mac Release compile
+runs, as for a push the preflight found superseded. A head that has not moved, or that cannot be read, waits as
+before. Nothing that compiles is skipped: the newer tip's check covers these commits, and a red there names them.
+Undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0'.
+
+## note-555
+
 Above `down) ...` in the `case "$word"` of app-compile-fleet, swift-canary-fleet and release-compile-fast in `.github/workflows/cmux-next.yml`.
 
 `down` from scripts/ci/fleet_compile_result.py: the build controller, which serves the tip check's results, was reached and gave no answer for 60 s (the CDN's 524 or the read's own timeout). A compile submits to that same process, so the job gives no verdict at once instead of submitting. 2026-11-23 from 09:30Z the controller answered a plain read in 78 s: 48 of 52 app compile jobs from 10:00 to 10:50Z spent 6.4-7.5 min reading and 5-8.5 min more in `cmux-ci compile-check` (exit 69 or 75), with no verdict at the end.
