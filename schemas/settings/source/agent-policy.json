@@ -1080,6 +1080,14 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
+      ]
+    },
+    {
       "agent": "destructive",
       "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
       "keys": [
@@ -1871,6 +1879,13 @@
       "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
       "keys": [
         "models.spreadUsage"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
+      "keys": [
+        "agentPane.savedPrompts"
       ]
     }
   ]
