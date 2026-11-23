@@ -268,13 +268,16 @@ impl Hub {
                 uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
                     &home, &configs,
                 )),
-                open: Arc::new(move |root| {
-                    if let Some(expected) = released.get(root) {
-                        let open = cmux_worktree_care::procs::open_tree(root)?;
-                        hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
-                        return Ok(open);
+                open: Arc::new({
+                    let home = home.clone();
+                    move |root| {
+                        if let Some(expected) = released.get(root) {
+                            let open = cmux_worktree_care::procs::open_tree(root)?;
+                            hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
+                            return Ok(open);
+                        }
+                        cmux_worktree_care::procs::open_inside(root)
                     }
-                    cmux_worktree_care::procs::open_inside(root)
                 }),
                 settings: CareSettings::default(),
                 apply,
