@@ -225,3 +225,17 @@ fn viewer_input_is_injected_while_a_frame_encodes() {
         "the key press waited for the encode to finish"
     );
 }
+
+/// cmux#50591: a viewer that negotiated `h264.baseline` (OpenH264) gets Constrained Baseline
+/// whatever `--profile` says; any other viewer keeps the host's profile.
+#[test]
+fn an_openh264_viewer_gets_constrained_baseline() {
+    use cmux_rd_core::service::caps::{CLOCK, H264_BASELINE};
+    let high = SessionCfg { profile: "high".into(), ..cfg() };
+    let asked = [CLOCK.to_owned(), H264_BASELINE.to_owned()];
+    assert_eq!(super::session_cfg(&high, &asked).profile, "baseline");
+    assert_eq!(super::session_cfg(&high, &[CLOCK.to_owned()]).profile, "high");
+    assert!(super::offers_h264_baseline("videotoolbox"));
+    assert!(super::offers_h264_baseline("openh264"));
+    assert!(!super::offers_h264_baseline("vp9"));
+}
