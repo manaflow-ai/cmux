@@ -168,6 +168,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_risk_tier_history_admission.py
 
+      - name: Validate the risk check is red only for an unowned takeback
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_risk_tier_takeback_only.py
+
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
       # must stay needs an allowlist entry with its reason.
@@ -871,6 +875,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate iOS simulator selection and per-slot devices
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_select_ios_simulator.py
+
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1162,6 +1170,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
 
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |
@@ -1374,6 +1386,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 ios/tests/test_appstore_review_package.py
 
+      - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_asc_ops.py
+
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
@@ -1531,6 +1547,10 @@ jobs:
       - name: Validate the Cloud chat proof dispatcher outwaits a slow proof and retries a transient error
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/cloud_chat_proof_dispatch.test.mjs
+
+      - name: Validate the Executor journey dispatcher files one issue when red and closes it on green
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/executor_journey_dispatch.test.mjs
 
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}

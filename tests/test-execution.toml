@@ -984,6 +984,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_asc_ops.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 
@@ -2393,9 +2397,21 @@ path = "tests/test_ci_risk_tier_grades_once.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_risk_tier_takeback_only.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_api_call_log_blind_spots.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"

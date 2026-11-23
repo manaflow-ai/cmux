@@ -53,9 +53,9 @@ def gh_fetch(token: str) -> Fetch:
     return fetch
 
 
-def _pages(fetch: Fetch, path: str, key: str) -> list[Mapping[str, Any]]:
+def _pages(fetch: Fetch, path: str, key: str, max_pages: int = MAX_PAGES) -> list[Mapping[str, Any]]:
     found: list[Mapping[str, Any]] = []
-    for page in range(1, MAX_PAGES + 1):
+    for page in range(1, max_pages + 1):
         batch = (fetch(f"{path}{'&' if '?' in path else '?'}per_page={PAGE_SIZE}&page={page}") or {}).get(key) or []
         found.extend(item for item in batch if isinstance(item, Mapping))
         if len(batch) < PAGE_SIZE:
@@ -63,16 +63,21 @@ def _pages(fetch: Fetch, path: str, key: str) -> list[Mapping[str, Any]]:
     return found
 
 
-def roster(fetch: Fetch, repo: str) -> list[Mapping[str, Any]]:
-    """The repository's self-hosted runners and those of every org group visible to it."""
+def roster(fetch: Fetch, repo: str, max_pages: int = MAX_PAGES) -> list[Mapping[str, Any]]:
+    """The repository's self-hosted runners and those of every org group visible to it.
+
+    max_pages bounds each listing (PAGE_SIZE runners a page). The watchdog's default (5) suits its own question; a
+    caller that counts idle runners on a pool of hundreds passes more, or its count is a sample.
+    """
     owner, _, name = repo.partition("/")
-    found = {runner.get("id"): runner for runner in _pages(fetch, f"repos/{repo}/actions/runners", "runners")}
+    found = {runner.get("id"): runner for runner in _pages(fetch, f"repos/{repo}/actions/runners", "runners", max_pages)}
     groups = _pages(fetch, f"orgs/{owner}/actions/runner-groups?visible_to_repository={urllib.parse.quote(name)}",
                     "runner_groups")
     for group in groups:
         if isinstance(group.get("id"), int):
             found.update((runner.get("id"), runner) for runner in
-                         _pages(fetch, f"orgs/{owner}/actions/runner-groups/{group['id']}/runners", "runners"))
+                         _pages(fetch, f"orgs/{owner}/actions/runner-groups/{group['id']}/runners", "runners",
+                                max_pages))
     return list(found.values())
 
 
