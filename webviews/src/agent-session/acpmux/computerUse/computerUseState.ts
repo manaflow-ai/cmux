@@ -64,6 +64,14 @@ export function computerUseGate(
   return computerUseHold(state, place) ?? "free";
 }
 
+/// Whether a `hold` opens the setup page (Lucas, standup 2026-11-20 and 2026-11-22: "if Computer Use is
+/// not set up or not working, the setup page opens"): not set up, and a build that cannot run it, whose
+/// setup page says so and how to get a build that can. Turned off by the organization, or a chat off
+/// this Mac, only says why: no setup on this Mac changes it.
+export function holdOpensSetup(hold: ComputerUseHold): boolean {
+  return hold === "setup" || hold === "unavailable";
+}
+
 /// The notice's words for `hold` (ComputerUseSetupNotice.tsx; New Tab's toast is the title alone).
 export function computerUseHoldText(hold: ComputerUseHold): { title: StringKey; detail?: StringKey } {
   switch (hold) {

@@ -3,6 +3,7 @@
 // still on its way.
 import { expect, test } from "bun:test";
 import {
+  holdOpensSetup,
   computerUseGate,
   computerUseHold,
   computerUseHoldText,
@@ -87,4 +88,10 @@ test("the notice says why with setup only where setup can fix it", () => {
     title: "computerUseSetup.remoteTitle",
     detail: "computerUseSetup.machineDetail",
   });
+});
+
+test("the send's own key press opens the setup page when setup or a build that can run it would help", () => {
+  expect(holdOpensSetup("setup")).toBe(true);
+  expect(holdOpensSetup("unavailable")).toBe(true);
+  for (const hold of ["disabled", "cloud", "machine"] as const) expect(holdOpensSetup(hold)).toBe(false);
 });
