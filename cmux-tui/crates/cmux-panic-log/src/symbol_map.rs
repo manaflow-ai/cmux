@@ -10,13 +10,20 @@
 //! count, one unsigned LEB128 offset delta per symbol (offsets from the
 //! image's Mach-O header), one byte per symbol (how many leading bytes its
 //! name shares with the name before it), then each name's remaining bytes and
-//! a NUL. A Rust legacy name's `17h<hash>E` tail is stored as the one byte
-//! 0x01 and read back as `17h0000000000000000E`: the demangler prints no
-//! hash, and the hashes were 4 MB of the map. The last entry has an empty
+//! a NUL. A Rust legacy name's `17h<hash>E` tail (a `_ZN` name's last path
+//! component) is stored as the one byte 0x01 and read back as
+//! `17h0000000000000000E`: the demangler prints no hash, and the hashes were
+//! 4 MB of the map. A name holding a 0x01 byte, or a client without
+//! the second magic in its binary (an older one), gets the first format. The last entry has an empty
 //! name: the end of `__TEXT,__text`. The first format, `b"CMXSYM1\0"`, held
 //! the whole names joined by NUL; it still reads.
 
 use std::io::Read;
+
+/// The second format's magic. The release strip's writer looks for these bytes in `bin/cmux`
+/// (`write-app-symbol-map.py --reader`) and writes the first format for a client without them:
+/// one built before this format, which a nightly can bundle as its fallback tree.
+static SHARED_PREFIX_MAGIC: [u8; 8] = *b"CMXSYM2\0";
 
 /// One slice's functions: ascending start offsets from the image header and
 /// their (mangled) names.
@@ -33,7 +40,9 @@ impl SymbolMap {
     pub fn parse(blob: &[u8], uuid: &[u8; 16]) -> Option<Self> {
         let mut file = Reader { bytes: blob, at: 0 };
         let magic = file.take(8)?;
-        let shared_prefixes = magic == b"CMXSYM2\0";
+        // Through black_box, so the magic stays in the binary as bytes the writer finds, not an
+        // immediate the compare folds it into.
+        let shared_prefixes = magic == std::hint::black_box(&SHARED_PREFIX_MAGIC);
         if !shared_prefixes && magic != b"CMXSYM1\0" {
             return None;
         }
@@ -161,8 +170,30 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// A map file of one slice, as `write-app-symbol-map.py` writes it.
+    /// Where a Rust legacy name's `17h<hash>E` tail starts, as `write-app-symbol-map.py`'s
+    /// `rust_hash_at` finds it: a `_ZN` name whose last path component is the hash.
+    fn rust_hash_at(name: &[u8]) -> Option<usize> {
+        let mut at = if name.starts_with(b"_ZN") { 3 } else { None? };
+        while name.get(at).is_some_and(u8::is_ascii_digit) {
+            let digits = at + name[at..].iter().take_while(|b| b.is_ascii_digit()).count();
+            let end =
+                digits + std::str::from_utf8(&name[at..digits]).ok()?.parse::<usize>().ok()?;
+            if end + 1 == name.len() && name[end] == b'E' {
+                let hash = &name[digits..end];
+                let is_hash = &name[at..digits] == b"17"
+                    && hash[0] == b'h'
+                    && hash[1..].iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+                return is_hash.then_some(at);
+            }
+            at = end;
+        }
+        None
+    }
+
+    /// A map file of one slice, as `write-app-symbol-map.py` writes it: CMXSYM2, or CMXSYM1
+    /// when a name holds the hash mark byte.
     fn map_file(uuid: [u8; 16], symbols: &[(u64, &str)]) -> Vec<u8> {
+        let v2 = !symbols.iter().any(|(_, name)| name.contains('\u{1}'));
         let mut body = (symbols.len() as u32).to_le_bytes().to_vec();
         let mut previous = 0;
         for (offset, _) in symbols {
@@ -179,14 +210,11 @@ mod tests {
         }
         let mut previous: Vec<u8> = Vec::new();
         let (mut shared, mut rests) = (Vec::new(), Vec::new());
-        for (_, name) in symbols {
+        for (_, name) in symbols.iter().filter(|_| v2) {
             let mut name = name.as_bytes().to_vec();
             // As the writer does: a legacy Rust hash becomes the one byte 0x01.
-            if name.len() >= 20
-                && name.ends_with(b"E")
-                && name[name.len() - 20..].starts_with(b"17h")
-            {
-                name.truncate(name.len() - 20);
+            if let Some(at) = rust_hash_at(&name) {
+                name.truncate(at);
                 name.push(1);
             }
             let same = name.iter().zip(&previous).take_while(|(a, b)| a == b).count().min(255);
@@ -195,13 +223,19 @@ mod tests {
             rests.push(0);
             previous = name;
         }
-        body.extend(shared);
-        body.extend(rests);
+        if v2 {
+            body.extend(shared);
+            body.extend(rests);
+        } else {
+            body.extend(
+                symbols.iter().map(|(_, name)| *name).collect::<Vec<_>>().join("\0").bytes(),
+            );
+        }
         let mut encoder =
             flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
         encoder.write_all(&body).unwrap();
         let payload = encoder.finish().unwrap();
-        let mut file = b"CMXSYM2\0".to_vec();
+        let mut file = if v2 { b"CMXSYM2\0" } else { b"CMXSYM1\0" }.to_vec();
         file.extend(1u32.to_le_bytes());
         file.extend(uuid);
         file.extend((payload.len() as u32).to_le_bytes());
@@ -248,6 +282,48 @@ mod tests {
         assert_eq!(map.function(0x40).unwrap().0, "_ZN4core3fmt3foo");
         assert_eq!(map.function(0x50).unwrap().0, "_ZN4core3fmt3foobar");
         assert_eq!(map.function(0x60), None);
+    }
+
+    #[test]
+    fn only_a_rust_legacy_hash_reads_back_as_zeros() {
+        // cmux#52364 F3: a C++ name can hold `17h<16 hex>E` inside a parameter type, and a Rust
+        // name can hold one before its last component; both read back whole.
+        let names = [
+            "_Z3fooN1A17h0123456789abcdefE",
+            "_ZN1A17h0123456789abcdefE3fooE",
+            "_ZN4core3ptr17h0123456789abcdefE",
+            "_ZN4core3ptr17h0123456789abcdefE.llvm.42",
+            "_ZN4core3ptr17h0123456789ABCDEFE",
+            "_ZN4core3ptr17g0123456789abcdefE",
+        ];
+        let uuid = [7u8; 16];
+        let symbols: Vec<(u64, &str)> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (0x10 * (i as u64 + 1), *n))
+            .chain([(0x100, "")])
+            .collect();
+        let map = SymbolMap::parse(&map_file(uuid, &symbols), &uuid).expect("slice for uuid");
+        assert_eq!(map.function(0x10).unwrap().0, names[0]);
+        assert_eq!(map.function(0x20).unwrap().0, names[1]);
+        assert_eq!(map.function(0x30).unwrap().0, "_ZN4core3ptr17h0000000000000000E");
+        assert_eq!(map.function(0x40).unwrap().0, names[3]);
+        assert_eq!(map.function(0x50).unwrap().0, names[4]);
+        assert_eq!(map.function(0x60).unwrap().0, names[5]);
+    }
+
+    #[test]
+    fn a_name_with_the_hash_mark_byte_reads_back_from_the_first_format() {
+        // cmux#52364 F4: a 0x01 in a name makes the writer fall back to CMXSYM1, not fail.
+        let uuid = [7u8; 16];
+        let file = map_file(
+            uuid,
+            &[(0x10, "odd\u{1}"), (0x20, "_ZN4cmux4main17h0123456789abcdefE"), (0x30, "")],
+        );
+        assert_eq!(&file[..8], b"CMXSYM1\0");
+        let map = SymbolMap::parse(&file, &uuid).expect("slice for uuid");
+        assert_eq!(map.function(0x10).unwrap().0, "odd\u{1}");
+        assert_eq!(map.function(0x20).unwrap().0, "_ZN4cmux4main17h0123456789abcdefE");
     }
 
     #[test]

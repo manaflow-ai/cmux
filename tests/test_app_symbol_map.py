@@ -62,9 +62,9 @@ def expand_names(block: bytes, count: int) -> list[bytes]:
     return names
 
 
-def read_map(path: Path) -> dict[uuid.UUID, list[tuple[int, str]]]:
+def read_map(path: Path, magic: bytes = b"CMXSYM2\x00") -> dict[uuid.UUID, list[tuple[int, str]]]:
     data = path.read_bytes()
-    assert data[:8] == b"CMXSYM2\x00", data[:8]
+    assert data[:8] == magic, data[:8]
     (count,) = struct.unpack_from("<I", data, 8)
     pos = 12
     slices = {}
@@ -86,7 +86,10 @@ def read_map(path: Path) -> dict[uuid.UUID, list[tuple[int, str]]]:
                     break
             offset += delta
             offsets.append(offset)
-        names = [name.decode() for name in expand_names(payload[cursor:], n)]
+        if magic == b"CMXSYM2\x00":
+            names = [name.decode() for name in expand_names(payload[cursor:], n)]
+        else:
+            names = payload[cursor:].decode().split("\x00")
         slices[key] = list(zip(offsets, names))
     return slices
 
@@ -151,16 +154,17 @@ class AppSymbolMapTest(unittest.TestCase):
             app = Path(tmp) / "cmux.app"
             (app / "Contents/Resources/bin").mkdir(parents=True)
             exe = app / "Contents/Resources/bin/cmux"
+            # The client reads CMXSYM2: its reader holds the magic (cmux-panic-log symbol_map.rs).
             exe.write_bytes(macho([
-                ("__ZN4tokio7runtime4park17h0123456789abcdefE", 0x0F, 1, TEXT_VMADDR + 0x1000),  # global, kept by -S -x before
+                ("__ZN5tokio7runtime4park17h0123456789abcdefE", 0x0F, 1, TEXT_VMADDR + 0x1000),  # global, kept by -S -x before
                 ("__ZN8cmux_tui4main17hfedcba9876543210E", 0x0F, 1, TEXT_VMADDR + 0x1200),
-            ]))
+            ]) + b"CMXSYM2\x00")
             exe.chmod(0o755)
             (app / "Contents/Resources/bin/acpmux").symlink_to("cmux")
             self.strip(app)
             symbols = read_map(app / "Contents/Resources/cmux-tui-symbols.bin")
             self.assertEqual(symbols, {SLICE_UUID: [
-                (0x1000, "_ZN4tokio7runtime4park17h0000000000000000E"),
+                (0x1000, "_ZN5tokio7runtime4park17h0000000000000000E"),
                 (0x1200, "_ZN8cmux_tui4main17h0000000000000000E"),
                 (0x2000, ""),
             ]})
@@ -177,6 +181,64 @@ class AppSymbolMapTest(unittest.TestCase):
             (app / "Contents/Resources/cmux-tui-symbols.bin").unlink()
             self.strip(app)
             self.assertFalse((app / "Contents/Resources/cmux-tui-symbols.bin").exists())
+
+    def test_a_client_older_than_cmxsym2_gets_a_cmxsym1_map(self):
+        # cmux#52364 F1: a nightly can bundle a fallback tree's client built before CMXSYM2;
+        # its reader takes only CMXSYM1, so its map keeps whole names (hashes too).
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            (app / "Contents/Resources/bin").mkdir(parents=True)
+            exe = app / "Contents/Resources/bin/cmux"
+            exe.write_bytes(macho([("__ZN8cmux_tui4main17hfedcba9876543210E", 0x0F, 1, TEXT_VMADDR + 0x1200)])
+                            + b"CMXSYM1\x00")
+            exe.chmod(0o755)
+            self.strip(app)
+            symbols = read_map(app / "Contents/Resources/cmux-tui-symbols.bin", b"CMXSYM1\x00")
+            self.assertEqual(symbols, {SLICE_UUID: [(0x1200, "_ZN8cmux_tui4main17hfedcba9876543210E"), (0x2000, "")]})
+
+    def test_only_a_rust_legacy_hash_is_cut(self):
+        # cmux#52364 F3: `17h<16 hex>E` inside a C++ name, before a Rust name's last component,
+        # or with a suffix after it is part of the name and is kept.
+        kept = [
+            "_Z3fooN1A17h0123456789abcdefE",
+            "_ZN1A17h0123456789abcdefE3fooE",
+            "_ZN4core3ptr17h0123456789abcdefE.llvm.42",
+            "_ZN4core3ptr17h0123456789ABCDEFE",
+            "_ZN4core3ptr17g0123456789abcdefE",
+            "_ZN4core3ptr17h0123456789abcdeE",
+            "foo17h0123456789abcdefE",
+        ]
+        names = kept + ["_ZN4core3ptr13drop_in_place17h0123456789abcdefE"]
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Resources").mkdir()
+            exe = app / "Contents/MacOS/cmux"
+            exe.write_bytes(macho([("_" + name, 0x0F, 1, TEXT_VMADDR + 0x1000 + 0x10 * i) for i, name in enumerate(names)]))
+            exe.chmod(0o755)
+            self.strip(app)
+            symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
+            self.assertEqual([name for _, name in symbols[SLICE_UUID]],
+                             kept + ["_ZN4core3ptr13drop_in_place17h0000000000000000E", ""])
+
+    def test_a_name_with_the_hash_mark_byte_falls_back_to_cmxsym1(self):
+        # cmux#52364 F4: 0x01 is CMXSYM2's hash mark; a name holding one keeps the strip going
+        # and the whole file takes CMXSYM1, every name whole.
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Resources").mkdir()
+            exe = app / "Contents/MacOS/cmux"
+            exe.write_bytes(macho([
+                ("_odd\x01", 0x0F, 1, TEXT_VMADDR + 0x1000),
+                ("__ZN4cmux4main17h0123456789abcdefE", 0x0F, 1, TEXT_VMADDR + 0x1200),
+            ]))
+            exe.chmod(0o755)
+            self.strip(app)
+            symbols = read_map(app / "Contents/Resources/cmux-symbols.bin", b"CMXSYM1\x00")
+            self.assertEqual(symbols, {SLICE_UUID: [
+                (0x1000, "odd\x01"), (0x1200, "_ZN4cmux4main17h0123456789abcdefE"), (0x2000, ""),
+            ]})
 
     def test_release_strip_maps_the_framework_behind_the_stub(self):
         # CMUX-629: the code is CmuxNextApp.framework; the stub executable has only main.
