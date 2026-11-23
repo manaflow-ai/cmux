@@ -42,6 +42,7 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
@@ -307,6 +308,7 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
 pub mod stats;
