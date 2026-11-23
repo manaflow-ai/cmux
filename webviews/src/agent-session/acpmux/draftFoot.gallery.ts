@@ -55,7 +55,7 @@ export default agentPaneEntry({
   variants: {
     ghost: variant(
       "ghost",
-      "Selected (ships): the draft runs to the box's bottom edge, fading only to a third of its ink over 18 px.",
+      "Selected (ships): the draft runs to the box's bottom edge, fading only to half its ink over 18 px.",
     ),
     shipped: variant(
       "shipped",

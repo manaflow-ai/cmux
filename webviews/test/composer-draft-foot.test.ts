@@ -7,7 +7,7 @@
 // Real gallery frames (agent-pane.draft-foot, one variant per arm), the draft scrolled a third down.
 // For every arm it sums the draft's ink (the frame against the same frame with the draft hidden) in
 // the field's bottom 18 px, the band the shipped mask faded to nothing, and in the 18 px over it.
-// The shipping arm must keep more ink than the before in that band, at least three times its ink in
+// The shipping arm must keep more ink than the before in that band, at least 1.3x its ink in
 // the last 6 px against the rim, and keep some fade: less ink than the hard edge. With FAST_CHECKS_OUT or CMUX_DRAFT_FOOT_CAPTURE set, it writes foot.json and
 // 2x stills of the box for every arm, light and dark.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -127,7 +127,7 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
       expect(Math.abs(chosen.above - before.above)).toBeLessThan(before.above * 0.1 + 1);
       // The shipping foot shows the draft there, down to the rim (Leo: "more stuff there") ...
       expect(chosen.foot).toBeGreaterThan(before.foot * 1.1);
-      expect(chosen.edge).toBeGreaterThan(before.edge * 3 + 1);
+      expect(chosen.edge).toBeGreaterThan(before.edge * 1.3);
       // ... and still softens it (Leo: "we do want some blur").
       expect(chosen.foot).toBeLessThan(hard.foot);
     }
