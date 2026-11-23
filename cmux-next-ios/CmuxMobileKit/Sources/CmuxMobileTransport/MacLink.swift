@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
@@ -83,6 +87,14 @@ public protocol MacLink: AnyObject, Sendable {
     /// nil when other frames from the Mac came first (the pong trails a busy
     /// queue: alive), a throw only when nothing came back at all.
     func probe(timeout: Duration) async throws -> UInt32?
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// longer on a link whose measured round trip needs it (the Rust link:
+    /// three smoothed round trips, at most 5 s).
+    func probeTimeout(floor: Duration) -> Duration
+    /// The app is in the foreground with a terminal or chat on screen, or
+    /// not. The Rust link probes more often while it is (every 3 s on its
+    /// datagram lane); a link without one ignores it.
+    func setForegroundProbe(_ on: Bool)
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -106,6 +118,8 @@ extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public func probeTimeout(floor: Duration) -> Duration { floor }
+    public func setForegroundProbe(_ on: Bool) {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

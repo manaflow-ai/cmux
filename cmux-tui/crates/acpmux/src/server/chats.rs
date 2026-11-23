@@ -65,6 +65,7 @@ mod offers;
 mod search;
 mod stats;
 mod team_audit;
+pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -98,10 +99,23 @@ pub(super) async fn route(
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
+    // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
+    if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
+        return super::remote_guard::owner_phone_changed(hub, conn, &params).await;
+    }
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
+    if let Some(reply) = super::machine_join_ssh::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     #[cfg(feature = "hub-carrier")]
@@ -161,6 +175,10 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    // The machine's GitHub poller (`github_prs.rs`, `pr_poller.rs`).
+    if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
@@ -237,6 +255,10 @@ pub(super) async fn route(
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            // A chats watch hears every chat's activity (`push_activity`), attached or not.
+            if on {
+                conn.interest.hear_activity();
+            }
             if let Some(service) = &service {
                 if !on {
                     service.watch_off(&conn.id);
@@ -458,6 +480,7 @@ pub(super) async fn route(
             hub.apply_full_access_push(forced).await;
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
+            hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -619,11 +642,46 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     hub.watch_take_over(&s, if_live).await
 }
 
-/// `_acpmux/release_to_watch {sessionId}`: once idle, the chat's harness stops and the chat
-/// watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
-pub(super) async fn release_to_watch(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+/// `_acpmux/release_to_watch {sessionId, terminalPid?}`: once idle, the chat's harness stops and
+/// the chat watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+/// `terminalPid` is the process that runs the conversation next (`acpmux resume-here`, which
+/// becomes the harness): the chat's prompts go into it. It binds only when it is the caller itself
+/// over this machine's unix socket, by the pid the kernel gave at accept. Any other `terminalPid`
+/// (a pid the kernel did not give: a Windows pipe, a credential read that failed, an in-process
+/// caller; another process's pid; a remote origin) is refused whole (`watch.terminal_unverified`):
+/// nothing is released and nothing bound, so a caller never hands a chat to a process it only names.
+pub(super) async fn release_to_watch(
+    hub: &Arc<Hub>,
+    params: &Value,
+    origin: super::Origin,
+    socket_peer: crate::sender_harness::SocketPeer,
+) -> Result<Value, RpcError> {
+    use crate::sender_harness::SocketPeer;
     let s = hub.resolve(super::session_key(params)?)?;
-    hub.release_to_watch(&s).await
+    // Write to a chat a terminal runs off (the default): `terminalPid` is not read at all, and the
+    // chat becomes a View Only watch as before.
+    let named = params.get("terminalPid").filter(|v| !v.is_null() && hub.terminal_chat_writable());
+    let terminal = match named {
+        None => None,
+        Some(named) => {
+            let named = named.as_u64().and_then(|p| u32::try_from(p).ok());
+            match (named, origin, socket_peer) {
+                (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => {
+                    Some(pid)
+                }
+                _ => return Err(terminal_unverified()),
+            }
+        }
+    };
+    hub.release_to_watch(&s, terminal).await
+}
+
+/// A `terminalPid` the daemon cannot prove is its caller's own (`release_to_watch`).
+fn terminal_unverified() -> RpcError {
+    RpcError::invalid_params(
+        "a chat is handed to a terminal only by that terminal's own process over this machine's unix socket",
+    )
+    .with_data(json!({"reason": "watch.terminal_unverified"}))
 }
 
 #[cfg(test)]
