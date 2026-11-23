@@ -521,7 +521,7 @@ class PullRequestShardsTest(unittest.TestCase):
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("unrelated/tool.py")
-        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {}))
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {1: []}))
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
                              capture_output=True, text=True, check=True)
         self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
@@ -546,17 +546,17 @@ class PullRequestShardsTest(unittest.TestCase):
         """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
+        split = {1: set(), 2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
                  4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts"]}))
+            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts"]}))
             # Touched tests in several shards past 1 become one job, under the lowest of them.
             self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts", "test/other.test.ts"]}))
+            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
         self.touched("webviews/package.json")
@@ -575,16 +575,16 @@ class PullRequestShardsTest(unittest.TestCase):
                 sample = ps.sampled_shards(head, 12)
                 self.assertEqual(len(sample), 2)
                 self.assertTrue(set(sample) <= set(range(2, 13)))
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
                 self.assertIn(ps.SAMPLE_WHY, why)
             # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
             self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
             sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
             if 5 in sample:
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
             else:
-                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {5: ["test/leaf.test.ts"]}))
+                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {1: [], 5: ["test/leaf.test.ts"]}))
         finally:
             ps.shard_files = real
         # A build input beside it still runs every shard.
@@ -686,7 +686,7 @@ class PushClassTest(unittest.TestCase):
 
     def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
         cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
-        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {5: ["test/leaf.test.ts"]}))
+        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {1: [], 5: ["test/leaf.test.ts"]}))
         cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
         self.assertEqual((cls, shards), ("sampled", [1]))
         self.assertIn("touches no webviews test", why)

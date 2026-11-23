@@ -171,20 +171,19 @@ GALLERY_HARNESS = {
     "webviews/dev-server/firstPartyPreviews.ts": "a03b66effef3f17a9a6266ceaf7f447fe08c5e3d99366c0ff34d3cd8dd8b60f5",
     "webviews/dev-server/galleryHost.ts": "76c2f1a4d2628a31c29490ba256f20ac457f10e460f59c5d881092f0edad9778",
     "webviews/dev-server/galleryLive.ts": "416f427f016a38ed2a58a7d05cea0dc4496d9a21d749912dfa7f7bdea45748cd",
-    "webviews/dev-server/goldenLooks.ts": "685cf14de0bf9d5aeb7c5a0f51746871f6d2be2d82fa5bb55a8f5156ab50deb6",
+    "webviews/dev-server/goldenLooks.ts": "042104cbaebef90fc8578375b604ff9d18996176be7b64d8525963007f115aa6",
     "webviews/dev-server/markdownHost.ts": "0f089dd4131797750e5f12d6e7db4a82361c9c6403eff6afc43a88135c58f9e1",
     "webviews/dev-server/perfLint.ts": "8fb5e8907322ad2a74bb06a02805df730b295fc8a5f1969823e82a80118a2230",
-    "webviews/dev-server/plugins.ts": "442ebf1eb1febab0f0a7ed5a2e6f81adf3d1b861d952d0ee2597052f207ba747",
+    "webviews/dev-server/plugins.ts": "bdb2657673982829b79b8ff73be9f2552fec1fb0e6dd971256c5b903e8ab562c",
     "webviews/dev-server/viewerEmptyHost.ts": "00d07085fc72ae42a23409117789a397b23e18fd51fa7884dc7c520f07b5a772",
     "webviews/reactCompiler.mjs": "cf69080f14637c1d71ef8defe0b2373072c85ac554eb0e766f628783a396f38d",
     "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs": "3d0b42f53ce581e23083ffeacbdfcce6850563096dacf272e029265abc5e6302",
-    "webviews/scripts/agent-pane/bundle.mjs": "80df1e8d2725dc64b9733c5244a1f1ea4b262f56a3618115e31c095878d43804",
     "webviews/scripts/agent-pane/frameSites.mjs": "c9bf51c01da0196c88d0044e5ae06f82eece1a17ba911d3e259ca0479ce4e913",
     "webviews/scripts/agent-pane/jsonParsePlugin.mjs": "42cfa8b6f0fb61a98a49ccbb3644c20e7ca7fc75964578d19a0033ade435086e",
     "webviews/scripts/agent-pane/katexStylePlugin.mjs": "ac55c5b747f9baa4db25e2a23d4407d336c390499f7f93bdff7c2e453540f9c2",
     "webviews/scripts/agent-pane/reactCompilerPlugin.mjs": "a293c15161984bf6d32a14b865b9859ce46a85fac68c5f20ee93763af21a508d",
     "webviews/scripts/agent-pane/tailwindCompile.mjs": "6a78ccc7e85c6c923c353687765af998adafc94dd5482b0d5b32e8f1c9342d08",
-    "webviews/scripts/pages/gen-design-scale.mjs": "9517347ab61f62caab339a713616586dfdeb24f9ed588e9e1be7610410ef4618",
+    "webviews/scripts/pages/gen-design-scale.mjs": "de97c6b6ac0deea3933079cb7ef1e6ac601ea24cb11f28f187bab4c47c3bb2ee",
     "webviews/scripts/bundle-metafile.mjs": "831962bec2e77c7b0fd92c3a058e4513d3c995b0e6d82981ce8c52389cda4840",
     "webviews/scripts/gallery/entries.ts": "43ae4eb980d25a0745ebc95a70c23a99a51dc464a8c910c8ca350f7ff7be58ea",
     "webviews/scripts/packed-shiki-data.mjs": "334a89d6ac88c7f2b7704aa80687ff946329d408b029042ba61278932d41e88b",
@@ -201,7 +200,6 @@ GALLERY_HARNESS = {
     "webviews/vite.config.settings-page.mjs": "2f522df32899cae1068eef1085ad3309fdeebf08cf9b38d35875c67d74f8b077",
     "webviews/scripts/agent-pane/paneLocales.mjs": "9cc8c34c48d1da374160cf266a19134cd32f67c593e0a803753fa6d356202093",
     "webviews/scripts/pages/split-strings.mjs": "58c8e95e8abcc440e30a36fdb4ab44da20cc203a4c7f5f2a6dd20b063930de5b",
-    "webviews/vite.config.ts": "c8404cad884ee737f7ebb7813a703c5118a73f9e99328e82e4383bc6200a7647",
 }
 # galleryFrame.ts's own test for the file that defines an entry id (galleryEntryPath).
 GALLERY_ID_LINE = re.compile(r'^\s*id:\s*"([^"\n]+)",?\s*$', re.M)
@@ -237,9 +235,6 @@ HTML_SCRIPT = re.compile(r"""<script\b([^>]*)>([\s\S]*?)</script>""", re.I)
 # literal options depends on every entry file, the gallery harness and the files the helper reads: baselines under
 # webviews/, in the gallery zone. Reviewed and pinned like the harness.
 SWEEP_HELPERS = {
-    WEB + "test/support/controlContrast.ts": "18f8ddffd37bec82e625f05eac4c6881416563284d407a851743110ba3b95b07",
-    WEB + "test/support/accentGlassInvariants.ts": "7469d4111b81e47bf16ce255edf42e41e1f929f14131e6800dc932a6622b4b41",
-    WEB + "test/support/galleryControlSurfaces.ts": "df1ece3db5d18cfea966dc529bb156e1a4304e276963bb65fac306be6a67223c",
     WEB + "test/support/controlContrastScan.ts": "7c5586b29d354347f14f0ae35b4d28d4d3b0b53362121b087453ddac53ecce79",
     WEB + "test/support/accentGlassScan.ts": "7dfafa128407921195974f42bee32a240e5e168ef1ae289fd575114c2e8cdfa5",
     WEB + "test/support/stageBrowser.ts": "6cb7b5ec94e3360ba6412da77989118ac64efbd27703caa39acbb5b0b0842a9b",

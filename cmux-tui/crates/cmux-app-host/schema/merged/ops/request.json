@@ -1,0 +1,17 @@
+{
+  "family": "request",
+  "ops": {
+    "request.cancel": {
+      "source": "local",
+      "class": "connection_control",
+      "digest": "e421dbabcd8cff3f"
+    },
+    "request.dismiss": {
+      "source": "cloud",
+      "owner": "cloud:ConversationDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "12d54f6b221a33e9"
+    }
+  }
+}

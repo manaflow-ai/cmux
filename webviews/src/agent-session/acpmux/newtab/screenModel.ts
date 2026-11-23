@@ -20,6 +20,7 @@ import { resumeReference } from "../resumeCommand";
 import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
@@ -720,6 +721,8 @@ export type ChatCard = {
   chatId?: string;
   title: string;
   harness?: string;
+  /// The icon the chat set (acpmux `icon`), drawn over its harness mark.
+  icon?: HarnessIconSpec;
   age: string;
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
@@ -836,6 +839,7 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
+    ...(session.icon ? { icon: session.icon } : {}),
     age: ageLabel(activityTime(session), now, t),
     ...(message ? { message } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),

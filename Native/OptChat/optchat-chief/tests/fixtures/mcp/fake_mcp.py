@@ -19,6 +19,11 @@ tasks = {}
 subscribed = set()
 listen_ids = []
 counter = {"n": 0}
+# --device CLIENT: sign in with a device code (RFC 8628) for CLIENT instead of a redirect (HTTP
+# mode): no registration endpoint; the device token endpoint answers authorization_pending once,
+# then the token.
+DEVICE = sys.argv[sys.argv.index("--device") + 1] if "--device" in sys.argv else None
+device_polls = {"n": 0}
 
 TOOLS = [
     {"name": "echo", "description": "Echo the text back.", "annotations": {"readOnlyHint": True},
@@ -220,6 +225,8 @@ def http(port, token):
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             base = "http://127.0.0.1:%d" % self.server.server_address[1]
+            if DEVICE and self.path in ("/device/code", "/device/token"):
+                return self.device(body, base)
             if self.path == "/register":
                 return self.reply(201, {"client_id": "fake-client", "redirect_uris": json.loads(body)["redirect_uris"]})
             if self.path == "/token":
@@ -250,14 +257,36 @@ def http(port, token):
             self.end_headers()
             self.wfile.write(data)
 
+        def device(self, body, base):
+            from urllib.parse import parse_qs
+            form = parse_qs(body.decode())
+            if form.get("client_id") != [DEVICE]:
+                return self.reply(400, {"error": "invalid_client"})
+            if self.path == "/device/code":
+                if not form.get("scope"):
+                    return self.reply(400, {"error": "invalid_scope"})
+                return self.reply(200, {"device_code": "dev-code-1", "user_code": "WDJB-MJHT",
+                    "verification_uri": base + "/device", "expires_in": 60, "interval": 1})
+            if form.get("grant_type") != ["urn:ietf:params:oauth:grant-type:device_code"] or form.get("device_code") != ["dev-code-1"]:
+                return self.reply(400, {"error": "invalid_grant"})
+            device_polls["n"] += 1
+            if device_polls["n"] == 1:
+                return self.reply(400, {"error": "authorization_pending"})
+            return self.reply(200, {"access_token": token, "token_type": "bearer", "scope": "repo,read:org"})
+
         def do_GET(self):
             base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path.startswith("/.well-known/oauth-protected-resource"):
                 return self.reply(200, {"resource": base + "/mcp", "authorization_servers": [base]})
             if self.path.startswith("/.well-known/oauth-authorization-server"):
-                return self.reply(200, {"issuer": base, "authorization_endpoint": base + "/authorize",
+                meta = {"issuer": base, "authorization_endpoint": base + "/authorize",
                     "token_endpoint": base + "/token", "registration_endpoint": base + "/register",
-                    "code_challenge_methods_supported": ["S256"]})
+                    "code_challenge_methods_supported": ["S256"]}
+                if DEVICE:
+                    del meta["registration_endpoint"]
+                    meta["token_endpoint"] = base + "/device/token"
+                    meta["device_authorization_endpoint"] = base + "/device/code"
+                return self.reply(200, meta)
             if self.path.startswith("/authorize"):
                 from urllib.parse import urlparse, parse_qs
                 q = parse_qs(urlparse(self.path).query)
