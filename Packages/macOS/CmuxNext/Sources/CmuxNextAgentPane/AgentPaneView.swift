@@ -7,6 +7,7 @@ import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 public import WebKit
@@ -84,6 +85,8 @@ public final class AgentPaneView: NSView {
     /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
     /// person, so its prompts would reach the agent as an unverified sender's.
     var personUnprovenNotice: AgentPaneNotice?
+    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
+    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -635,6 +638,9 @@ public final class AgentPaneView: NSView {
         themeFollower.rebind(); redraw.paneWired(self)
         // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
         if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
+        // Parked off screen or back in a pane, in the same window (no window move tells the probe): the socket
+        // hears whether anyone sees it (``AgentPaneFramePacer/parkedAway(_:)``).
+        transportPacer?.visibilityChanged()
         onNativeToolOwnerChange?()
     }
 

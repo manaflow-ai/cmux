@@ -825,6 +825,7 @@ pub static ACTIONS: &[Action] = &[
         id: "file.open",
         group: GROUP,
         title: t("ActionCatalog", "action.file.open", "Open File…"),
+        description: Some("Opens --path (absolute; none opens the Open File picker). --where tab (the default) shows it in the pane's file pages; --where editor opens it in the app the files.textEditor setting names (an app name, bundle ID or .app path), else this Mac's app for source code, and needs no open window. A local chat citation opens at its line when that app is VS Code, Cursor, Windsurf or Zed. --as-text shows HTML, SVG or Markdown as source."),
         keywords: &["file", "editor", "preview", "path"],
         category: "pane",
         symbol: "doc",
