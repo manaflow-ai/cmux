@@ -381,6 +381,35 @@ async fn agent_login_over_the_wire() {
 
 /// Gemini (an API key into `.gemini/.env` and `settings.json`) and Grok (its device flow) over the
 /// wire, with the ways each does not sign in answered `unsupported`, and a team machine refusing.
+/// A new chat that starts on a peer (`host`) signs in there, never here: a host that is no peer is
+/// refused with no sign-in started on this machine, for every step.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_named_host_that_is_no_peer_never_signs_in_here() {
+    let d = dir("host");
+    let hub = hub(&d);
+    let (mut c, _) = C::new(hub.clone(), Origin::Local).await;
+    for (m, p) in [
+        (method::MUX_AGENT_LOGIN_START, json!({"agent": "claude", "host": "nowhere"})),
+        (method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": "x", "host": "nowhere"})),
+        (
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "claude", "key": "k", "host": "nowhere"}),
+        ),
+        (method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": "x", "host": "nowhere"})),
+    ] {
+        let e = c.call(m, p).await.unwrap_err();
+        assert!(e["message"].as_str().unwrap().contains("no peer named"), "{m}: {e}");
+    }
+    // The same call from a peer cannot select a third machine.
+    let (mut peer, _) = C::new(hub, Origin::Peer).await;
+    let e = peer
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude", "host": "nowhere"}))
+        .await
+        .unwrap_err();
+    assert!(reason(&e) == "peer.forward_refused" || reason(&e) == "remote_refused", "{e}");
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn gemini_and_grok_login_over_the_wire() {
