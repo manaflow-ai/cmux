@@ -28,6 +28,7 @@ pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;
+pub mod wake;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -569,6 +570,26 @@ impl Link {
             retry = true;
         }
         Ok(retry)
+    }
+
+    /// Moves a due handshake retry on without sending it or checking the timeout: an
+    /// endpoint with no route yet has nowhere to send it, and its first route gets the
+    /// queued message at once.
+    pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+        }
+    }
+
+    /// This side's last handshake message while the handshake runs, for a
+    /// route learned after it went out (resending it is what a retry does).
+    pub(crate) fn handshake_in_flight(&self) -> Option<&[u8]> {
+        match self.state {
+            State::Handshake(_) => self.last_handshake.as_ref().map(|(packet, _)| &packet[..]),
+            _ => None,
+        }
     }
 
     /// When the caller should call [`Link::poll_transmit`] next without input.
