@@ -976,6 +976,36 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Installing replaces cmux Dev on the phones attached to the Mac, so the channel usually ends
   with the app; the install runs on, and `{"op":"status"}` answers `{"run":{"pr","started_ms",
   "lines","exit"?}|null}`, the last one. Phones only.
+- `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
+  Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
+  content-addressed blobs. No open args; machines need the View grant. Both ways the
+  channel carries frames, each behind its 4-byte big-endian length; a frame is a 1-byte
+  kind, then a body (`cmux-tab-snapshots` `wire.rs`). Phone to Mac (JSON, camelCase):
+  `0x01 viewport {cardPixelWidth, cardAspect, displayScale, screenPixelW, screenPixelH}`,
+  `0x02 want [hash]` (priority order, replaces the last; each named blob is sent even if
+  sent before), `0x03 have [hash]` (once on link-up), `0x04 resume {epoch?, rev}` (first on
+  reconnect; an empty epoch asks for a manifest). Mac to phone: `0x11 manifest {epoch,
+  rev, rows}`, `0x12 delta {epoch, rev, baseRev, changed: [partial row], removed: [tabId],
+  order?}` and `0x13 blob` (binary: 32 raw SHA-256 bytes, 1 mime byte: 0 octet-stream, 1
+  JPEG, 2 PNG, 3 screen text, then the bytes; the phone checks the hash). A row is
+  `{tabId, title, kind ("browser", "terminal", "agent", or a kind the phone shows as
+  other), faviconHash?, thumbHash?, thumbW, thumbH, thumbMime, screenHash?, screenCols,
+  screenRows, frameHash?, capturedAtMs}`; in a partial row an absent field is unchanged
+  and a `null` hash is cleared. `tabId` is the tab's daemon surface id as a decimal
+  string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
+  the host process and the daemon run its tab ids came from: it is new at each hostd start
+  and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
+  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
+  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
+  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
+  "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
+  (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
+  by its magic bytes (any `mime` is ignored); others are logged and dropped. The app sends
+  one when a page's leave picture is taken (576 px wide at most, JPEG) or its favicon
+  changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
+  paired; it skips bytes it sent last for that tab and part, and resends the newest of each
+  to a new hostd.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1067,6 +1097,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `appearance-v1` | hostd `version` | (2026-11-12) The host serves `appearance` and `appearance-wallpaper`: the Mac's theme and wallpaper. |
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
+| `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -1242,6 +1273,25 @@ TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path a
 `direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
 
 ## Terminal size claims
+
+**Projection (2026-11-12, the default).** The phone keeps a VT model of the
+Mac terminal at the Mac's grid, fed the attach stream's bytes
+(`cmux-terminal-projection`, `TerminalProjectingSession`), and re-wraps its
+primary screen (a shell, an inline TUI such as Claude Code) at the phone's
+own width. On the primary screen the phone claims no size: it attaches
+without one and never sends `resize-surface`, so attach, an app switch, a
+lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
+re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
+it claims as below, only while the page claims, and releases when the
+program leaves the alternate screen. On the primary screen, cursor position
+(`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
+in the Mac's cells; on the alternate screen the phone's terminal gets the
+program's bytes unchanged and answers them itself (once). A rotation
+re-wraps the Mac's screen and two phone screens of scrollback above it
+(plus the lines being read); older lines are re-wrapped as the reader
+scrolls up to them.
+Settings → Terminal → Fit to Phone turns projection off: the rest of this
+section then applies to every screen.
 
 When the phone shows a Mac terminal, the shared PTY is sized for the phone too
 (cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
@@ -1877,7 +1927,9 @@ to a phone: it changes the Mac-wide preference only.
   horizontally (it follows the cursor while typing); shorter than the
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
-  It never reflows the host's output to its own width.
+  This applies to the alternate screen, and to every screen with Fit to
+  Phone on; with projection (the default, "Terminal size claims" above)
+  the primary screen is re-wrapped to the phone's width instead.
 
 ## Connectivity incidents (API 0.15.0)
 

@@ -41,6 +41,7 @@ pub const NEEDS_YOU: &str = "needs-you-v1";
 pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
+pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -95,6 +96,10 @@ pub const ALL: &[Capability] = &[
     host(
         PHONE_FRAMES,
         "The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac.",
+    ),
+    host(
+        TAB_SNAPSHOTS,
+        "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
     ),
     host(
         BROWSER_STREAM,
