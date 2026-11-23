@@ -1,4 +1,5 @@
 import CmuxMobileAgentChat
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -346,5 +347,44 @@ import Testing
         }
         await Self.waitUntil { released == nil }
         #expect(released == nil)
+    }
+
+    /// Leo, 2026-11-23 17:14Z, on "Connecting" over a live turn ("Working · 6m 35s") on a
+    /// loaded Mac: "this toast is stupid. because it's false now". The link came back and the
+    /// Mac was slow to answer the reattach's catch-up; the chat kept the `.disconnected` the
+    /// drop set until a catch-up finished, so it said "Connecting" the whole time the link was
+    /// up. Now the link's being up is the chat's state at once, and the slow catch-up says
+    /// nothing.
+    @Test func aSlowCatchUpOnALiveLinkNeverReadsConnecting() async throws {
+        let calls = Calls()
+        let log = Self.log(turns: Chat.turns)
+        // Every reattach waits on a loaded Mac: it is never answered within the test.
+        let link = Self.fake(calls, log: log, reattach: { _, _, _ in [] }, events: { _, _, _ in [] })
+        let hub = AcpmuxHub()
+        defer { withExtendedLifetime(hub) {} }
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .milliseconds(50)))
+        await Self.waitUntil { store.turns.count == Chat.turns }
+        await hub.bind(nil)
+        await Self.waitUntil { store.summary.status == .disconnected }
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await Self.waitUntil { calls.attaches.count == 2 }
+        // Well past the quiet gate, with the catch-up still unanswered.
+        try await Task.sleep(for: .milliseconds(400)) // test: lets the gate's 50 ms pass
+        #expect(calls.attaches == [0, Chat.turns * 5], "the reattach is still waiting on the Mac")
+        #expect(store.summary.status != .disconnected, "the link is up")
+        #expect(store.connectionLine == nil, "no \"Connecting\" over a live link")
+        #expect(store.clientError == nil, "no \"reconnecting to the Mac\" notice")
+        #expect(!store.quietStatus.isShown)
+    }
+
+    /// A notice is a sentence, never a status line's lower-case fragment.
+    @Test func aTimeoutNoticeIsASentence() {
+        for code in ["timeout", "reply_timeout", "write_timeout"] {
+            let text = AcpmuxSessionSource.message(LinkError(code: code, message: "no reply to _acpmux/events"))
+            #expect(text != LinkError.timeoutReason)
+            #expect(text == LinkError.timeoutSentence)
+        }
     }
 }
