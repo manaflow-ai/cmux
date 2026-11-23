@@ -58,9 +58,14 @@ public struct PromptTheme: Codable, Hashable, Sendable {
     /// Writes it atomically (a reader never sees half a file).
     public func write(to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encoded().write(to: url, options: .atomic)
+    }
+
+    /// The file's bytes: sorted-key JSON.
+    public func encoded() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(self).write(to: url, options: .atomic)
+        return try encoder.encode(self)
     }
 
     /// The theme the app last wrote at `url`; nil when there is none or it does not parse (the prompt keeps the
