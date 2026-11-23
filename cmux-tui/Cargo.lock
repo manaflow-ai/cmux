@@ -1364,6 +1364,7 @@ version = "0.1.0"
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
+ "hmac",
  "libc",
  "serde",
  "serde_json",
