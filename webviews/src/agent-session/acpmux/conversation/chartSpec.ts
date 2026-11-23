@@ -107,9 +107,13 @@ export function chartSpec(source: string): string | undefined {
   const spec: Row = {
     ...(title ? { title } : {}),
     // Fixed sizes: Vega draws into a detached element, so "container" would measure nothing; the chat's
-    // `.cv-diagram__chart svg { max-width: 100% }` scales a wide chart down in a narrow pane.
-    width: type === "pie" ? 220 : 480,
-    height: type === "pie" ? 220 : 240,
+    // `.cv-diagram__chart svg { max-width: 100% }` scales a wide chart down in a narrow pane. They are the
+    // whole chart's, axes, legend and title included (autosize fit, diagramBlockModel.ts `sizedChart`),
+    // so the block reserves the chart's box before Vega loads: about what a 480 by 240 plot (a 220 pie)
+    // drew at with its axes and legend.
+    width: type === "pie" ? 320 : 560,
+    height: type === "pie" ? 260 : 300,
+    autosize: { type: "fit", contains: "padding" },
     data: { values: rows },
     ...(folded ? { transform: [{ fold: y, as: ["series", "value"] }] } : {}),
     mark,

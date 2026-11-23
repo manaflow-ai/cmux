@@ -8,7 +8,9 @@
 // viewport; Code shows the source. A source the renderer refuses shows the source and why; a renderer
 // that did not load says so in plain words (never its internal name) above the source. A ```chart
 // fence (small JSON, chartSpec.ts) compiles to a Vega-Lite spec and draws the same way; Code shows what
-// the agent wrote.
+// the agent wrote. A Vega-Lite chart that names its size draws fit to that size, padding included
+// (diagramBlockModel.ts `sizedChart`), so its reserved box is exact; any other fixed-size spec
+// reserves chartBox's estimate.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   cancelDiagram,
@@ -22,6 +24,7 @@ import { useNearViewport } from "../useNearViewport";
 import { postNative } from "../native";
 import { copyText } from "./clipboard";
 import { chartSpec } from "./chartSpec";
+import { sizedChart } from "./diagramBlockModel";
 import { CodeBlock } from "./CodeBlock";
 import { Check, SaveTray } from "./icons";
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
@@ -39,8 +42,12 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const language = lang.toLowerCase();
   const mode = language === "mermaid" ? "mermaid" : language === "vega" ? "vega" : "vega-lite";
   const label = language === "chart" ? "chart" : mode;
-  const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
-  const reserve = useMemo(() => (mode === "mermaid" ? undefined : chartBox(spec)), [mode, spec]);
+  const { spec, box } = useMemo(() => {
+    const written = language === "chart" ? (chartSpec(code) ?? code) : code;
+    return mode === "mermaid" ? { spec: written, box: undefined } : sizedChart(mode, written);
+  }, [language, mode, code]);
+  // A spec fit to its padding names its whole box; any other fixed-size spec gets the estimate.
+  const reserve = useMemo(() => (mode === "mermaid" ? undefined : (box ?? chartBox(spec))), [mode, box, spec]);
 
   useEffect(() => {
     const target = chart.current;

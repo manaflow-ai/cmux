@@ -773,32 +773,12 @@
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.transcript#chart-fence-bar": {
-      "count": 1,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.transcript#chart-fence-line": {
-      "count": 1,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.transcript#chart-fence-pie": {
-      "count": 1,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.transcript#chart-fence-scatter": {
-      "count": 1,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.transcript#math-delimiters": {
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
     "agent-pane.transcript#shell-unwrapped-long-line": {
       "count": 2,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.transcript#vega-lite-chart": {
-      "count": 1,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
     "agent-pane.transcript#web-video-loaded": {
