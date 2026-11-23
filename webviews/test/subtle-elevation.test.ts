@@ -278,11 +278,14 @@ describe("one subtle elevation scale", () => {
     layers(value).flatMap((layer) => {
       const call = tokenCall(layer);
       if (!call) return [];
-      const [, name] = call;
+      const [, name, fallback] = call;
       if ((ELEVATIONS as readonly string[]).includes(name)) return [name];
       if (seen.includes(name)) return [];
+      // A token no sheet defines (a look's --menu-shadow, set only by a look's stylesheet) casts its
+      // fallback, today's step.
       const base = baseDefinitions.get(name) ?? definitions.get(name)?.[0];
-      return base === undefined ? [] : steps(base, [...seen, name]);
+      if (base === undefined) return fallback ? steps(fallback, seen) : [];
+      return steps(base, [...seen, name]);
     });
 
   for (const [file, selector, token] of surfaces) {

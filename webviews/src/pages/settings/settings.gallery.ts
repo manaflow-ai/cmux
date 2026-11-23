@@ -1088,6 +1088,12 @@ Object.assign(variants, {
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
   }),
+  // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
+  "agent-blocked-banner": variant("notifications", {
+    focus: "notifications.delivery.blocked",
+    options: { values: { "notifications.delivery.blocked": "banner" } },
+    note: "Settings > Notifications with Agent Blocked set to Banner: an agent that turns Blocked posts a banner.",
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
