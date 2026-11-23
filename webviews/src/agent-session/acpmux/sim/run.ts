@@ -342,10 +342,26 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       const gap = probe.drawnGap ?? probe.gap;
       const lineAbove = above.incoming !== undefined && above.incoming !== "offer";
       const lineHere = probe.incoming !== undefined && probe.incoming !== "offer";
-      if (!(lineAbove || lineHere) || gap <= RECEIVED_STEP_GAP + 0.5) continue;
+      if (!(lineAbove || lineHere)) continue;
+      // Under its own turn's "Working for" / "Worked for" the line is that turn's first step: flush,
+      // as a tool row is under it; the live line under it stands a step's gap, not a head's.
+      const ownHead = (line: RowProbe | undefined, user: RowProbe) => line?.id === `worked-${user.id}`;
+      if (lineHere && ownHead(above, probe) && gap > 0.5) {
+        flag(
+          "d-received-gap",
+          probe.id,
+          `user (${probe.incoming}) ${gap}px under its own turn's ${above.kind} (want 0)`,
+        );
+        continue;
+      }
+      if (gap <= RECEIVED_STEP_GAP + 0.5) continue;
       const step = (row: RowProbe) =>
         STEP_KINDS.has(row.kind) || (row.incoming !== undefined && row.incoming !== "offer");
-      if ((lineHere && step(above)) || (lineAbove && step(probe) && !probe.live))
+      const underOwnHead = (row: RowProbe & { above?: RowProbe }) => ownHead(row.above, row);
+      if (
+        (lineHere && step(above)) ||
+        (lineAbove && (step(probe) || probe.live) && (!probe.live || underOwnHead(above)))
+      )
         flag(
           "d-received-gap",
           probe.id,

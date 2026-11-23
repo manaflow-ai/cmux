@@ -10,7 +10,7 @@ The simulator plays a chat through the pane's own code on virtual time, with no 
   (`AcpmuxDirectClient.replay` / `seekReplay`, as session replay does);
 - each snapshot is shaped by the real turn view (`turnViewFrom`, built on the last, as `App.tsx` does) and
   placed by the real layout (`layoutConversation`, the gap over each row the virtual stack draws);
-- after every step it probes the drawn rows and checks three rules, and writes one JSONL line per step.
+- after every step it probes the drawn rows and checks four rules, and writes one JSONL line per step.
 
 It runs under plain `bun` (no DOM), so it scales: a 1,800-turn run is 43k steps, 10k+ rows and 40 hours of
 virtual time.
@@ -131,6 +131,11 @@ the escape hatch for any record acpmux writes.
   compaction line inside it) closed with a reply of the same running turn under it: the `runs` arm of
   live-turn-work, where a run stays open until the agent's next paragraph (#48597). A run closed by the
   next call alone is a violation. A reply whose text reappears in another row is `remapped`, not folded.
+- **(d) received lines**: `d-received-gap`: another agent's line (a notice or message) among tool rows sits on
+  their pitch: flush under its own turn's "Working for" / "Worked for", at most 8 from a tool row, a run line
+  or another received line next to it, and the live line a step's gap under it, never a prompt's room (Leo,
+  2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not properly
+  getting treated like the tool call ish thing it should be and instead as if it were a message?").
 - **(c) stillness**: no row two or more turns back is rebuilt (a new row object with the same id, version
   and fold) when nothing changed it. Live lines are exempt.
 

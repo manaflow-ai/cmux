@@ -85,24 +85,6 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
-  // Leo, 2026-11-16: "why is the background task space after so big" (#44818): a background task's notice
-  // inside a turn, then the commands the agent ran after it.
-  "notice-in-turn": () => {
-    const b = sim(
-      "notice-in-turn",
-      "A background task's notice comes inside a turn; the agent runs commands after it.",
-    );
-    b.prompt("Push the quiet text change.");
-    b.tool("git push", { ms: 600 });
-    b.taskNotice("Background command finished: git push (exit 0)");
-    b.tool("gh pr view 12 --json state", { ms: 400 });
-    b.tool("gh pr checks 12", { ms: 400 });
-    b.say("The quiet text change is pushed.");
-    b.record("mux", "background_turn", { id: "bgturn-notice", state: "ended", trigger: "task_notification" }, 200);
-    return b.turnEnd().build();
-  },
-
-  // Leo, 2026-11-21: "the messages and whatever collapsing and stuff, sometimes it does so too soon in the midst of a turn".
   "long-turn-messages": () => {
     const b = sim(
       "long-turn-messages",

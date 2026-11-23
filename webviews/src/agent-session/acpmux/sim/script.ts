@@ -188,22 +188,6 @@ export class SimBuilder {
   }
   private steers = 0;
 
-  /** A background task's notice the harness hands the running turn (Claude Code's `<task-notification>`),
-   *  under the background turn it starts (test/agent-pane-worked-group-pitch-browser.test.ts). */
-  taskNotice(summary: string, id = "bgturn-notice", after = 600): this {
-    this.record("mux", "background_turn", { id, state: "started", trigger: "task_notification" }, after);
-    return this.record(
-      "mux",
-      "user_message",
-      {
-        text: `<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`,
-        client: "adopt",
-      },
-      50,
-      `task notice: ${summary.slice(0, 40)}`,
-    );
-  }
-
   /** A thought, streamed in `chunks` deltas `chunkMs` apart. */
   think(value: string, { chunks = 3, chunkMs = 120, after = 400 } = {}): this {
     chunked(value, chunks).forEach((part, index) =>

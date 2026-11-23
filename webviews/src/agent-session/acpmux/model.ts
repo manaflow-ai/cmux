@@ -1770,10 +1770,12 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
-export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+/// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
+/// from one that opens its turn over that line (`headsIncomingTurn`).
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
-  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0) |
+  (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
 /// Whether `row` is the top of a turn another agent's line opened, right under the turn before's last
 /// reply (transcriptGrid.ts MARK_TOPS_TURN): that notice or message (not a steer into the running turn,
@@ -1793,11 +1795,21 @@ const topsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
 /// running turn's live line right under that notice or message, or the notice or message itself right
 /// under the "Worked for" line of a turn that ended on work (its footer draws nothing), where it stood
 /// flush as that turn's last step. O(1).
-const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+/// Neither when the line sits under its own turn's "Working for" / "Worked for" (`worked-<its id>`,
+/// conversation/turns.ts): that line already heads the turn, and the received line is one step of
+/// its work, flush under it on the tool rows' pitch, with the live line a step's gap under it. The
+/// head gap there drew it as a prompt, 16 under the turn's line and 16 over "Thinking" (Leo,
+/// 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
+/// properly getting treated like the tool call ish thing it should be and instead as if it were a
+/// message?"; sim/scenarios.ts `incoming-message-turn`, rule (d)).
+const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): boolean =>
   prev !== undefined &&
   (prev.kind === "user"
-    ? isLiveLine(row) && isStatusRow(prev)
-    : prev.kind === "worked" && row.kind === "user" && isStatusRow(row));
+    ? isLiveLine(row) && isStatusRow(prev) && !isOwnTurnLine(above, prev)
+    : prev.kind === "worked" && row.kind === "user" && isStatusRow(row) && !isOwnTurnLine(prev, row));
+/// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
+const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
+  line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -3781,7 +3793,11 @@ export function layoutConversation(
     // height), not the last row that is not bookkeeping: a run that draws 0 px (only a thought, a call
     // the live line names, a run split by a steer) between a steer and "Thinking" marked the line a
     // live step while its gap came from the steer, the turn gap (32) where 24 is due.
-    marks[index] = gridMark(row, previousContent >= 0 ? rows[previousContent] : prevDrawn);
+    marks[index] = gridMark(
+      row,
+      previousContent >= 0 ? rows[previousContent] : prevDrawn,
+      beforeContent >= 0 ? rows[beforeContent] : undefined,
+    );
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
