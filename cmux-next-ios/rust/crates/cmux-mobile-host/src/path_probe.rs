@@ -155,7 +155,7 @@ pub mod stun {
             match kind {
                 XOR_MAPPED_ADDRESS => response.mapped = address(value, true, transaction).or(response.mapped),
                 MAPPED_ADDRESS if response.mapped.is_none() => {
-                    response.mapped = address(value, false, transaction)
+                    response.mapped = address(value, false, transaction);
                 }
                 SOFTWARE => response.software = Some(String::from_utf8_lossy(value).into_owned()),
                 _ => {}
