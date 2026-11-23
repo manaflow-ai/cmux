@@ -81,8 +81,10 @@ pub mod cpu_class;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
+pub mod daemon_priority;
 pub mod daemon_skew;
 mod dead_temps;
+pub mod death_route;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
@@ -217,6 +219,7 @@ pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
+pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
@@ -279,6 +282,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;

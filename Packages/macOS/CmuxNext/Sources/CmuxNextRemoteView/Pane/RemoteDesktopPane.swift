@@ -22,6 +22,8 @@ public struct RemoteDesktopPaneHandlers {
     public var selectMode: (RemoteControlMode) -> Void = { _ in }
     /// cmux shortcut matcher: true keeps the chord in the viewer.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// The person's input went to the host (control mode). Runs per event: keep it cheap.
+    public var personInput: () -> Void = {}
 
     public init() {}
 }
@@ -51,6 +53,13 @@ public final class RemoteDesktopPane {
         get { view.capture.controller.releaseChord }
         set { view.capture.controller.releaseChord = newValue }
     }
+
+    /// The session's state changed (an embedding view follows whether frames show).
+    public var onStateChange: (() -> Void)?
+    /// The remote pointer moved, in stream pixels.
+    public var onCursor: ((RemoteCursorState?) -> Void)?
+    /// A session is streaming and has shown a frame.
+    public var isShowingFrames: Bool { state.hasFrame && state.overlay == nil }
 
     /// Upstream media commands (the transport); nil when the source has none.
     public var upstreamControl: (any RemoteUpstreamControl)?
@@ -93,6 +102,7 @@ public final class RemoteDesktopPane {
         view.video.scaling = scaling
         view.capture.controller.sink = inputSink
         view.capture.controller.onReleaseKeyboard = { [weak view] in view?.capture.releaseKeyboard() }
+        view.capture.controller.onInput = { [weak self] in self?.handlers.personInput() }
         self.presenter.onFrameSize = { [weak self] size in
             self?.view.video.setFramePixels(size)
         }
@@ -130,7 +140,10 @@ public final class RemoteDesktopPane {
         })
         let cursors = source.cursorUpdates()
         tasks.append(Task { [weak self] in
-            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+            for await cursor in cursors {
+                self?.view.cursor.setRemoteCursor(cursor)
+                self?.onCursor?(cursor)
+            }
         })
     }
 
@@ -185,6 +198,7 @@ public final class RemoteDesktopPane {
         armReconnectNotice()
         armConnectNotice()
         view.render(state: state, settings: settings)
+        onStateChange?()
     }
 
     /// Whether a lost path reconnects by itself (the owner's `handlers.reconnect` starts the new
