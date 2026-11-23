@@ -17,8 +17,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
         // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
-        // each as it checks `cwd`.
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
+        // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
