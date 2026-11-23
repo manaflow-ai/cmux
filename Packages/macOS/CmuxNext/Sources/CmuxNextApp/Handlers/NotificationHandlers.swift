@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextNotifications
 import CmuxNextWindowRules
 
 /// Notification actions over the daemon's retained unread markers
