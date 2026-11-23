@@ -939,6 +939,25 @@ fn a_failed_routes_line_says_why_in_fixed_codes_only() {
         why_codes("carrier ssh route dropped: cmux-platform answered 403 Token=abc").as_deref(),
         Some("ssh_refused")
     );
+    // A resume that failed on every route: each failure after its route's
+    // scheme, never the route's host.
+    let both = "transport provider failed: all reconnect route providers failed: \
+                relay+do://relay.example/s/1: transport provider failed: slot gone 10.0.0.9; \
+                ssh://cmux@100.64.0.7: transport provider failed: SSH bootstrap failed for \
+                reconnect route ssh://cmux@100.64.0.7: exit 255";
+    assert_eq!(why_codes(both).as_deref(), Some("relay_other,ssh_bootstrap"));
+    let unsupported = "transport provider failed: all reconnect route providers failed: \
+                       ssh://cmux@100.64.0.7: transport scheme \"ssh\" does not support \
+                       carrier-grant client authentication; relay+do://r/s: the carrier route was killed";
+    assert_eq!(why_codes(unsupported).as_deref(), Some("ssh_unsupported_auth,killed"));
+    assert_eq!(
+        why_codes("invalid transport configuration: no reconnect routes configured").as_deref(),
+        Some("no_routes")
+    );
+    assert_eq!(
+        why_codes("service transport failed: connection is closed").as_deref(),
+        Some("closed")
+    );
     let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(all));
     assert_eq!(
         line,
