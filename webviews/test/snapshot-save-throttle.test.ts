@@ -243,6 +243,7 @@ test("clearSnapshot drops a pending write and later saves (a pane failure)", asy
   clearSnapshot();
   expect(store.removed).toBe(1);
   saveSnapshot(longChat(3));
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // The page hides: a save that was kept would be written now.
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   expect(writes.length).toBe(0);
 });

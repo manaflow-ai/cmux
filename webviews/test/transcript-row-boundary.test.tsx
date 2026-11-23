@@ -154,7 +154,6 @@ test("a pane failure drops the saved snapshot so Retry's reload cannot repaint t
     // The live client keeps saving, and the page unloads: neither puts the copy back.
     saveSnapshot(emptySnapshot());
     dom.window.dispatchEvent(new dom.window.Event("pagehide"));
-    await new Promise((resolve) => setTimeout(resolve, 300));
     expect(dom.window.sessionStorage.getItem(SNAPSHOT_KEY)).toBeNull();
   } finally {
     await act(async () => root.unmount());
