@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
@@ -152,8 +152,12 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         // The backlog commits in this frame, before it paints: a state update from a frame callback
         // renders in a later task, so the first frame back showed the reply as the user left it and
         // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
+        // A step while the user watches is a transition: as a default-lane update it rode into the
+        // transcript's flushSync placing a grown line (VirtualTranscript's observer), grew the row
+        // again inside that pass and forced a second whole transcript pass for the line
+        // (test/agent-pane-stream-renders.test.ts).
         if (away) flushSync(() => setShown(next));
-        else setShown(next);
+        else startTransition(() => setShown(next));
       }
       const held = length < target.length;
       if (!current.settled || fresh.length || held) state.handle = revealFrames.request(tick);
