@@ -31,9 +31,8 @@
 #                               (a `gh api` GET, a GraphQL query, or `gh run|workflow|pr|issue|release
 #                               list|view`); every other call, writes and anything this cannot tell,
 #                               runs once with github.token as before, untouched by this wrapper. For a
-#                               job whose writes must stay github.token's (nightly-next-tick.yml: main's
-#                               promote job admits the tick's dispatch by its actor) and whose reads
-#                               should spend another actor's budget.
+#                               job whose writes must stay github.token's and whose reads should
+#                               spend another actor's budget (nightly-next-tick.yml's unstick job).
 
 REAL_GH=gh # --install writes the real gh's path here
 
