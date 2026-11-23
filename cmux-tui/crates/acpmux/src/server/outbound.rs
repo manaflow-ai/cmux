@@ -544,15 +544,6 @@ impl Pump {
         true
     }
 
-    /// A taken line the gate does not send (`durable_gate.rs`: a full disk the journal did not
-    /// reach it on): the queue's counts drop it as if it were sent and read.
-    pub(super) fn skip(&self, line: Line) {
-        let mut state = self.shared.lock();
-        state.taken = state.taken.saturating_sub(1);
-        let held = state.held.saturating_sub(line.text.len());
-        state.set_held(held);
-    }
-
     /// A taken line with its text replaced (`durable_gate.rs`: a reply answered `disk.full`),
     /// the queue's bytes moved by the difference.
     pub(super) fn replace(&self, line: Line, text: String) -> Line {

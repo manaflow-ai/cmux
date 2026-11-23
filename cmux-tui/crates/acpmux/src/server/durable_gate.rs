@@ -28,12 +28,15 @@
 //! most [`crate::store::FULL_WAIT`] (400 ms) for the journal: the writer's first retries write the
 //! records appended before the disk filled into the room its freed reserve leaves, and the line
 //! goes out as on any disk. Past it, and for every later line that has not reached the journal
-//! while the disk stays full, a reply (a response to a request) is answered with the store's
-//! refusal instead, typed `disk.full` with its request id, and any other line (a notification
-//! that may show a change not yet on disk) is not sent. Neither shows a change before it is on
-//! disk, and no client waits on a reply that only space could release: the duress bench's disk
-//! leg had 3 of about 85 `session/prompt` calls a run unanswered at its 30 s limit, the ones whose
-//! records were appended as the disk filled. The first line that reaches the journal ends that.
+//! while the disk stays full, a reply (a response to a client's request) is answered with the
+//! store's refusal instead, typed `disk.full` with its request id: the client waits for it, and
+//! only space could release it. Any other line (a notification, or a request the daemon sends,
+//! such as a permission ask) is not a call anyone waits on: it stays held, aside, and goes out
+//! once the journal reaches it, in its order among the other held ones, before any later line
+//! that reached the journal. Neither shows a change before it is on disk. The duress bench's
+//! disk leg had 3 of about 85 `session/prompt` calls a run unanswered at its 30 s limit, the ones
+//! whose records were appended as the disk filled. The first line that reaches the journal ends
+//! the full wait.
 //!
 //! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: the
 //! connection's plain pump moves its lines (`outbound.rs`).
@@ -177,10 +180,27 @@ async fn run(
     // A line waited out [`crate::store::FULL_WAIT`] while the disk is full and no line reached
     // the journal since: the next lines that have not reached it do not wait again.
     let mut full = false;
+    // Lines that are not replies, held aside on a full disk until the journal reaches them.
+    let mut aside: std::collections::VecDeque<super::outbound::Line> = Default::default();
     'pump: loop {
+        if !send_reached(&pump, &journal, &mut aside).await {
+            break 'pump;
+        }
+        let next = aside.front().map(|line| line.needs);
         tokio::select! {
             biased;
             () = pump.stopped() => break 'pump,
+            reached = async {
+                match next {
+                    Some(needs) => journal.reach(needs).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if !reached {
+                    break 'pump;
+                }
+                continue 'pump;
+            }
             more = pump.take(&mut batch) => {
                 if !more {
                     break 'pump;
@@ -205,18 +225,35 @@ async fn run(
                             Some(Some(answer)) => pump.replace(line, answer),
                             Some(None) => line,
                             None => {
-                                pump.skip(line);
+                                aside.push_back(line);
                                 continue;
                             }
                         }
                     }
                 }
             };
-            if !pump.forward(line).await {
+            // A line's needs only grow, so the held lines before one that reached the journal
+            // reached it too: they go first.
+            if !send_reached(&pump, &journal, &mut aside).await || !pump.forward(line).await {
                 break 'pump;
             }
         }
     }
+}
+
+/// Sends the lines held aside that the journal reached, in order; false when the pump stopped.
+async fn send_reached(
+    pump: &super::outbound::Pump,
+    journal: &Journal,
+    aside: &mut std::collections::VecDeque<super::outbound::Line>,
+) -> bool {
+    while aside.front().is_some_and(|line| journal.reached(line.needs)) {
+        let Some(line) = aside.pop_front() else { break };
+        if !pump.forward(line).await {
+            return false;
+        }
+    }
+    true
 }
 
 /// Until the journal reaches `needs`, asking the store each [`stall_limit`] whether the journal
@@ -256,7 +293,7 @@ async fn wait(
                 if let Some(refusal) = disk() {
                     tracing::warn!(
                         waited = ?started.elapsed(),
-                        "a reply waits for the event journal on a full disk: it is answered disk.full"
+                        "a line waits for the event journal on a full disk: a reply is answered disk.full"
                     );
                     return Waited::Full(refusal);
                 }
@@ -274,7 +311,7 @@ async fn wait(
 /// What goes out instead of `line`, which the journal has not reached on a full disk: for a
 /// reply, the store's refusal under its request id, typed `disk.full` (`Some(Some(text))`), or
 /// the line itself when it is an error already (`Some(None)`: it acknowledges nothing); for any
-/// other line, None (not sent).
+/// other line, None (held aside until the journal reaches it).
 fn refused(line: &super::outbound::Line, refusal: &str) -> Option<Option<String>> {
     let message: serde_json::Value = serde_json::from_str(line.text.trim_end()).ok()?;
     let id = message.get("id").filter(|_| message.get("method").is_none())?;

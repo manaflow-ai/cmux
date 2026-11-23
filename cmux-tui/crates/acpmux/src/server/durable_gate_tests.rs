@@ -462,6 +462,11 @@ async fn a_full_disk_refuses_changes_at_once_answers_reads_and_never_stops_the_d
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(reserve.exists(), "the store never left the full state");
+    // The reserve is written just before the store leaves the state.
+    let full = hub.store.durability().unwrap_or_else(|| panic!("a journal store has one")).full;
+    while full().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     send(&input, Message::request(5, method::MUX_MARK_UNREAD, other)).await;
     let reply = until(&mut outgoing, |line| line["id"] == 5).await;
     assert!(reply.get("error").is_none(), "a change once the disk has room: {reply}");
@@ -518,12 +523,23 @@ async fn prompts_as_the_disk_fills_are_answered_within_a_second() {
         let refused = reply["error"]["data"]["errorKind"] == "disk.full";
         assert!(answered || refused, "prompt {id}: neither its answer nor disk.full: {reply}");
     }
-    // A second connection's read is answered too.
-    let (other, mut heard) = connect(&hub).await;
-    send(&other, Message::request(2, method::SESSION_LIST, json!({}))).await;
-    let started = Instant::now();
-    let listed = until(&mut heard, |line| line["id"] == 2).await;
-    assert!(started.elapsed() < Duration::from_secs(1), "session/list: {listed}");
+    // A second connection is answered too: its lines may show the first one's changes, which
+    // never reach the disk here, so each of its replies is its answer or disk.full, at once.
+    let (other, incoming) = mpsc::channel(64);
+    let (output, mut heard) = mpsc::channel(256);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {},
+        "clientInfo": {"name": "test", "version": "0"}});
+    let calls = [(1, method::INITIALIZE, hello), (2, method::SESSION_LIST, json!({}))];
+    for (id, call, params) in calls {
+        let started = Instant::now();
+        send(&other, Message::request(id, call, params)).await;
+        let reply = until(&mut heard, |line| line["id"] == id).await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(1), "{call} was answered after {took:?}: {reply}");
+        let refused = reply["error"]["data"]["errorKind"] == "disk.full";
+        assert!(reply.get("error").is_none() || refused, "{call}: {reply}");
+    }
     assert_eq!(*stop.borrow(), None, "a full disk asked the daemon to stop");
     journal.fail_all_appends(None);
     crate::store::set_test_free(home.path(), None);
@@ -789,12 +805,12 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
 
 /// On a full disk the journal may never reach what a line waits for: a reply waits at most
 /// `FULL_WAIT` and is answered with the store's refusal under its id, typed `disk.full`; a
-/// notification that may show the same change is not sent; the lines after them do not wait
-/// again; and the queue's counts drop what was not sent, so `daemon status` reads it empty.
+/// notification that may show the same change is held aside, not dropped, and goes out once the
+/// journal reaches it, before any later line; the lines after them do not wait again.
 #[tokio::test]
-async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_dropped() {
+async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_waits() {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    let (_durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (durable_tx, durable) = tokio::sync::watch::channel(0);
     let (_written_tx, written) = tokio::sync::watch::channel(0);
     let disk_full = Arc::new(AtomicBool::new(true));
     let full = Arc::clone(&disk_full);
@@ -835,7 +851,7 @@ async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_dr
         .unwrap_or_else(|| panic!("the transport closed"));
     assert!(started.elapsed() < Duration::from_secs(1), "answered in {:?}", started.elapsed());
     let first: Value = serde_json::from_str(&first).unwrap_or_else(|e| panic!("{e}"));
-    // The notification before it is not sent; the reply is the refusal under its own id.
+    // The notification before it is held aside; the reply is the refusal under its own id.
     assert_eq!(first["id"], json!(7), "{first}");
     assert_eq!(first["error"]["data"]["errorKind"], json!("disk.full"), "{first}");
     assert!(first.get("result").is_none(), "{first}");
@@ -854,13 +870,30 @@ async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_dr
     assert_eq!(rest[1]["id"], json!(9), "{rest:?}");
     assert_eq!(rest[1]["error"]["data"]["errorKind"], json!("disk.full"), "{rest:?}");
     assert!(started.elapsed() < Duration::from_secs(1), "all answered in {:?}", started.elapsed());
+    // The notification is still held, and counted: it never went out before its change.
+    tokio::time::sleep(crate::store::FULL_WAIT).await;
+    assert!(next(&mut reader).is_none(), "a notification went out before its change was durable");
     out.settle();
     let gauge = out.gauge();
-    assert_eq!((gauge.lines, gauge.bytes), (0, 0), "the queue's counts drop the skipped line");
-    // With room again a line waits for the journal as before.
+    assert_eq!(gauge.lines, 1, "the held notification is still queued");
+    // Room again: a new reply waits for the journal as before, behind the held notification.
     disk_full.store(false, Ordering::SeqCst);
     gate.raise();
     assert!(out.push(reply.clone()));
     tokio::time::sleep(crate::store::FULL_WAIT * 2).await;
     assert!(next(&mut reader).is_none(), "a reply went out before its change was durable");
+    // Durable: the held notification goes out, then the reply.
+    durable_tx.send(1).unwrap_or_else(|e| panic!("durable: {e}"));
+    let line = |text: Option<String>| -> Value {
+        let text = text.unwrap_or_else(|| panic!("the transport closed"));
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let within = Duration::from_secs(5);
+    let held = tokio::time::timeout(within, reader.recv()).await;
+    let held = line(held.unwrap_or_else(|_| panic!("the held notification never went out")));
+    assert_eq!(held["method"], json!("session/update"), "{held}");
+    let after = tokio::time::timeout(within, reader.recv()).await;
+    let after = line(after.unwrap_or_else(|_| panic!("the reply never went out")));
+    assert_eq!(after["id"], json!(7), "{after}");
+    assert!(after.get("result").is_some(), "{after}");
 }
