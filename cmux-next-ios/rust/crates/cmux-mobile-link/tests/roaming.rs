@@ -1109,7 +1109,7 @@ async fn detect(
     let noticed = |link: cmux_mobile_link::Link| async move {
         let mut suspect = link.suspect_state();
         let mut closed = link.closed_state();
-        let _ = tokio::time::timeout_at(began + window, async {
+        tokio::time::timeout_at(began + window, async {
             tokio::select! {
                 _ = suspect.wait_for(|suspect| *suspect) => {}
                 _ = closed.wait_for(Option::is_some) => {}

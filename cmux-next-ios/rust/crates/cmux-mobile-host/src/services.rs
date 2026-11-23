@@ -1204,7 +1204,7 @@ async fn acpmux(
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
-    let mut exposure = peer.session_exposure.clone();
+    let exposure = peer.session_exposure.clone();
     // What both directions learn about the sessions this phone touches. Locked only for a
     // moment, never across an await.
     let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
