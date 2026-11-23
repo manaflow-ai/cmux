@@ -19,34 +19,10 @@ nonisolated extension ContextMenuCatalog {
         "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus).",
     ]
 
-    /// Menus built by hand in their views, not from the catalog, so not in
-    /// `context_menus` yet (a known gap; GPUI asks for one when it needs it):
-    /// name and the source that builds it. A new hand-built NSMenu must be
-    /// added here (no source scan checks this).
-    public static let exportHandBuiltMenus: [[String: String]] = [
-        ["name": "remoteHoverToolbar", "source": "CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift"],
-        ["name": "terminalPaste", "source": "CmuxNextTerminal/TerminalSurfaceView+Pasteboard.swift"],
-        ["name": "browserBackForward", "source": "CmuxNextBrowser/UI/BrowserChromeView+BackForwardMenu.swift"],
-        ["name": "browserExtensions", "source": "CmuxNextBrowser/UI/ExtensionsMenu.swift"],
-        ["name": "browserEnginePage", "source": "CmuxNextBrowser/UI/BrowserContextMenuBuilder.swift"],
-        ["name": "browserDevToolsDivider", "source": "CmuxNextBrowser/CEF/CEFDevToolsDivider.swift"],
-        ["name": "browserProfileLink", "source": "CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift"],
-        ["name": "browserToolbar", "source": "CmuxNextApp/Handlers/BrowserToolbarHandlers.swift"],
-        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/UI/BookmarkFolderMenu.swift"],
-        ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
-        ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
-        ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
-        ["name": "paneTabBarRows", "source": "CmuxNextApp/PaneToolbar.swift"],
-        ["name": "browserReload", "source": "CmuxNextBrowser/UI/BrowserReloadMenu.swift"],
-        ["name": "browserDownloads", "source": "CmuxNextApp/Handlers/BrowserDownloadsMenu.swift"],
-        ["name": "browserMedia", "source": "CmuxNextApp/Handlers/BrowserMediaMenu.swift"],
-        ["name": "browserDevice", "source": "CmuxNextBrowser/UI/BrowserDeviceMenu.swift"],
-        ["name": "browserMachineBadge", "source": "CmuxNextApp/AppServices+BrowserTabMachines.swift"],
-        ["name": "remoteBrowserPage", "source": "CmuxNextRemoteBrowser/Native/RemoteBrowserNativeUI.swift"],
-        ["name": "sidebarNoticeCard", "source": "CmuxNextSidebar/Views/SidebarNoticeCardView.swift"],
-        ["name": "sidebarUpdateCard", "source": "CmuxNextSidebar/Views/SidebarUpdateCardView.swift"],
-        ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
-    ]
+    /// Menus built by hand in their views, not from the catalog, so not in `context_menus` yet:
+    /// name and the source that builds it (cmux-action-catalog `hand_built_menus::MENUS`, where a
+    /// new hand-built NSMenu is added).
+    public static var exportHandBuiltMenus: [[String: String]] { RustActionCatalog.shared.handBuiltMenus }
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.
     public func exportObject(descriptors: [ActionDescriptor], titles: ActionTitleCatalog = ActionTitleCatalog()) -> [String: Any] {

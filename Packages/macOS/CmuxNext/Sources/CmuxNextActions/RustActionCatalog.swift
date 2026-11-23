@@ -36,6 +36,8 @@ nonisolated struct RustActionCatalog: Sendable {
     let contextMenus: [ActionMenuContext: (entries: [ContextMenuEntry], selection: [ContextMenuEntry]?)]
     /// The choices rows that end with one more action (`context_menu_choice_trailers`).
     let choiceTrailers: [ActionID: ActionID]
+    /// The menus built by hand in their views, name and source (`hand_built_menus`).
+    let handBuiltMenus: [[String: String]]
     /// Each action's default key routing tier other than navigation (`key_tiers`).
     let keyTiers: [ActionID: ActionKeyTier]
 
@@ -134,6 +136,7 @@ nonisolated struct RustActionCatalog: Sendable {
         }
         self.contextMenus = contextMenus
         choiceTrailers = Self.idMap(root["context_menu_choice_trailers"])
+        handBuiltMenus = root["hand_built_menus"] as? [[String: String]] ?? []
         var keyTiers: [ActionID: ActionKeyTier] = [:]
         for (id, tier) in root["key_tiers"] as? [String: String] ?? [:] { keyTiers[ActionID(rawValue: id)] = ActionKeyTier(configValue: tier) }
         self.keyTiers = keyTiers
