@@ -528,6 +528,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
     }
