@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import { shownCategories } from "../categories";
 import { useSettingsState, useStore } from "../context";
-import { filterRows } from "../search";
+import { filterPlaces, filterRows, joinConsentPlaces } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
@@ -10,11 +10,15 @@ import { GroupList } from "./GroupList";
 
 // The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
 const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
+// Settings > Devices' join consent switches, likewise, when a search first matches one.
+const JoinGroup = lazy(() => import("./DevicesCard").then(({ JoinGroup }) => ({ default: JoinGroup })));
 
 /**
  * Matching rows from every category, editable in place, grouped by category. Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
- * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
+ * opacity) and one that starts matching opens, so the list never jumps between keystrokes. Page-only
+ * places match beside the rows (search.ts `PagePlace`): Settings > Devices' join consent switches show,
+ * live, under Devices.
  */
 export function SearchResults({ query }: { query: string }) {
   const state = useSettingsState();
@@ -33,7 +37,10 @@ export function SearchResults({ query }: { query: string }) {
     [devBuild, query, state],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
-  const empty = shown.size === 0;
+  const join = state.host?.devices_join ?? null;
+  const places = useMemo(() => filterPlaces(query, joinConsentPlaces(join)), [join, query]);
+  const shownPlaces = useMemo(() => new Set(places.map((place) => place.key)), [places]);
+  const empty = shown.size === 0 && places.length === 0;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -48,7 +55,8 @@ export function SearchResults({ query }: { query: string }) {
         </div>
       </div>
       {categories.map((category) => {
-        const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
+        const joinShown = join !== null && places.some((place) => place.category === category.id);
+        const open = joinShown || category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
         const petRows = pet
           ? new Set(
@@ -77,6 +85,11 @@ export function SearchResults({ query }: { query: string }) {
               {petRows && petRows.size > 0 && (
                 <Suspense fallback={null}>
                   <ChiefPetCard query={query} visibleRows={petRows} />
+                </Suspense>
+              )}
+              {joinShown && join && (
+                <Suspense fallback={null}>
+                  <JoinGroup join={join} only={shownPlaces} query={query} />
                 </Suspense>
               )}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />

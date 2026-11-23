@@ -61,7 +61,7 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
   devices: () =>
-    import("./DevicesCard").then(({ DevicesCard }) => () => <DevicesCard />),
+    import("./DevicesCard").then(({ DevicesCard }) => (focus) => <DevicesCard focus={focus} />),
   chiefPet: () =>
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
