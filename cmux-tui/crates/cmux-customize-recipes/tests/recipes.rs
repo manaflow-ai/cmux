@@ -90,6 +90,20 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
     }
 }
 
+/// Leo, 2026-11-22: "should we tuck it in a bit more like claude code? hm. well, we'd better at
+/// least do this for our claude code customization repo". The Claude Code look starts the
+/// transcript's rows on the composer's + column, derived from the composer's lead token.
+#[test]
+fn the_claude_code_look_tucks_the_transcript_to_the_composers_plus() {
+    let profile = find("claude-code-app").expect("no claude-code-app recipe").profile().unwrap();
+    let chat = profile.files.get("agent-pane/theme.css").expect("no chat stylesheet");
+    assert!(chat.contains(":root .acpmux-row"), "the rows keep the composer's edge");
+    assert!(
+        chat.contains("var(--grid-composer-lead-center)"),
+        "the tuck is not derived from the composer's + column"
+    );
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
@@ -181,4 +195,77 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
             .unwrap();
         assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
     }
+}
+
+/// ask-b07eb505f0, Leo: "make repos of customiztion themes that go broad strokes blank cheque on
+/// proper redesigns". Plush brings three tints, each as a light and a dark theme file; every one
+/// reads with no key dropped and no color the contrast guard has to raise, and its chat stylesheet
+/// draws soft raised surfaces with no frost.
+#[test]
+fn plush_brings_every_tint_in_light_and_dark_and_no_glass() {
+    use cmux_config::{Domains, Schema, ThemeFile};
+    let recipe = find("plush").expect("no plush recipe");
+    assert_eq!(recipe.group, Group::Look);
+    let profile = recipe.profile().unwrap();
+    assert_eq!(profile.settings.get("appearance.themeFile"), Some(&serde_json::json!("plush")));
+    for tint in ["plush", "plush-dusk", "plush-clay"] {
+        for (name, scheme) in [(tint.to_string(), "Light"), (format!("{tint}-dark"), "Dark")] {
+            let text = profile
+                .files
+                .get(&format!("themes/{name}.json"))
+                .unwrap_or_else(|| panic!("plush carries no {name}"));
+            let file = ThemeFile::read(
+                &name,
+                Some(Ok(text.as_str())),
+                &serde_json::json!({}),
+                None,
+                Schema::embedded(),
+                &Domains::default(),
+            );
+            assert!(file.is_loaded && !file.is_unparsable, "{name} does not read");
+            let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
+            assert!(problems.is_empty(), "{name}: {problems:?}");
+            assert!(file.corrected.is_empty(), "{name}: the guard raised {:?}", file.corrected);
+            let theme = cmux_config::jsonc::parse(text).unwrap();
+            assert_eq!(theme["appearance.theme"], format!("Builtin {scheme}"), "{name}");
+            assert_eq!(theme["appearance.borders"], "none", "{name}");
+            assert_eq!(theme["appearance.backgroundBlur"], "none", "{name}");
+            assert_eq!(theme["browser.omnibar.glass"], "off", "{name}");
+        }
+    }
+    let chat = profile.files.get("agent-pane/theme.css").expect("plush carries no chat stylesheet");
+    assert!(
+        chat.contains("--plush-raise") && chat.contains("--plush-well"),
+        "no raised or inset shadows"
+    );
+    assert!(chat.contains("--glass-backdrop: none"), "the chat keeps its frost");
+    assert!(
+        profile.files.contains_key("markdown/theme.css"),
+        "plush carries no Markdown stylesheet"
+    );
+}
+
+/// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
+/// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
+/// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.
+#[test]
+fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
+    for name in ["review-desk", "bottom-deck", "workspace-tabs", "leader"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        let profile = recipe.profile().unwrap();
+        for key in profile.settings.keys() {
+            assert!(
+                !key.starts_with("appearance.") && !key.contains("color") && !key.contains("Color"),
+                "{name} sets {key}, a look key"
+            );
+        }
+    }
+    let leader = find("leader").unwrap().profile().unwrap();
+    let parsed = cmux_config::keybindings::parse(&leader.files["keybindings.json"]);
+    assert!(parsed.entries.len() >= 20, "{} leader keys", parsed.entries.len());
+    for entry in &parsed.entries {
+        assert_eq!(entry.keys[0], "cmd+j", "{} does not start with the leader", entry.command);
+        assert!(entry.keys.len() >= 2, "{} is the bare leader", entry.command);
+    }
+    assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
 }

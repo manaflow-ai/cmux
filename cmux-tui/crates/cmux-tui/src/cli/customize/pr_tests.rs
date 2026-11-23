@@ -73,6 +73,91 @@ fn another_web_abi_keeps_the_web_part_out() {
     assert!(layer.needs_build[0].contains("web ABI 3; this app has 4"));
 }
 
+/// The entry as `use` left it: the pointer's layer on an app with its ABI.
+fn entry() -> CodeLayer {
+    layer_of(&pointer_json(true, 3), &App { abi: Some(3), ..App::default() }).unwrap()
+}
+
+/// `refresh_step` on an app whose commit is not known.
+fn step(code: &CodeLayer, layer: &CodeLayer, published: &Published, tip: Option<&str>) -> Step {
+    refresh_step(code, layer, published, tip, None)
+}
+
+#[test]
+fn refresh_asks_for_a_layer_on_this_app_when_the_newest_is_behind() {
+    let code = entry();
+    let app = "c".repeat(40);
+    for published in
+        [Published::Pr(7), Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() }]
+    {
+        assert_eq!(
+            refresh_step(&code, &code, &published, None, Some(&app)),
+            Step::Behind(app.clone()),
+            "{published:?}"
+        );
+        // Built on this app's commit: up to date.
+        assert_eq!(refresh_step(&code, &code, &published, None, Some(&code.base)), Step::Same);
+    }
+    // Our CI never builds a fork: nothing to ask for.
+    let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+    assert_eq!(refresh_step(&code, &code, &fork, None, Some(&app)), Step::Same);
+}
+
+#[test]
+fn refresh_follows_the_design_table() {
+    let pr = Published::Pr(7);
+    let code = entry();
+    assert_eq!(step(&code, &code, &pr, None), Step::Same);
+    // A newer head, or the same head on a newer base: taken in place.
+    let newer = CodeLayer { head: "e".repeat(40), ..code.clone() };
+    assert_eq!(step(&code, &newer, &pr, None), Step::Take);
+    let rebased = CodeLayer { base: "f".repeat(40), ..code.clone() };
+    assert_eq!(step(&code, &rebased, &pr, None), Step::Take);
+    // A branch whose tip moved past the layer: CI is asked.
+    let branch = Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() };
+    let tip = "9".repeat(40);
+    assert_eq!(step(&code, &code, &branch, Some(&tip)), Step::Ask(tip.clone()));
+    assert_eq!(step(&code, &code, &branch, Some(&code.head)), Step::Same);
+    // A fork's newer layer waits for `use`.
+    let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+    assert!(matches!(step(&code, &newer, &fork, None), Step::Wait(_)));
+}
+
+#[test]
+fn refresh_turns_off_a_layer_on_another_web_abi() {
+    let code = entry();
+    // The app moved to ABI 4; the layer, at the same head or a newer one, needs 3.
+    let app = App { abi: Some(4), ..App::default() };
+    let mut newer = pointer_json(true, 3);
+    newer["head"] = json!("e".repeat(40));
+    for pointer in [pointer_json(true, 3), newer] {
+        let layer = layer_of(&pointer, &app).unwrap();
+        for published in [
+            Published::Pr(7),
+            Published::Ref { kind: CodeKind::Sha, name: "a".repeat(40) },
+            Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() },
+        ] {
+            assert_eq!(
+                step(&code, &layer, &published, None),
+                Step::Off("no longer applies: its web part needs web ABI 3; this app has 4".into()),
+                "{published:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn refresh_turns_off_a_head_with_no_web_change_left() {
+    let code = entry();
+    let mut pointer = pointer_json(false, 3);
+    pointer["head"] = json!("e".repeat(40));
+    let layer = layer_of(&pointer, &App { abi: Some(3), ..App::default() }).unwrap();
+    assert_eq!(
+        step(&code, &layer, &Published::Pr(7), None),
+        Step::Off("no longer applies: eeeeeeeeeeee has no web change".into())
+    );
+}
+
 fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut builder =
         tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
