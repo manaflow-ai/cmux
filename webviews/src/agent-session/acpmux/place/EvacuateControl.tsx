@@ -1,8 +1,9 @@
 import { EnvironmentIcon } from "../EnvironmentPicker";
-import { useT, type Translate } from "../i18n";
+import { useT, type StringKey, type Translate } from "../i18n";
 import { useNow } from "./MoveProgress";
 import {
   MOVE_STEPS,
+  bringBackCount,
   evacuateCounts,
   evacuateElapsed,
   evacuateIdle,
@@ -13,6 +14,7 @@ import {
   stepKey,
   type EvacuateChat,
   type EvacuateState,
+  type MoveDirection,
 } from "./placeModel";
 import "./place.css";
 
@@ -30,16 +32,23 @@ export const SHIPPED_EVACUATE: EvacuateLook = "panel";
 
 function summaryText(state: EvacuateState, t: Translate): string {
   const counts = evacuateCounts(state);
-  if (counts.running > 0) return t("place.evacuate.running", { running: counts.running, total: counts.total });
+  const back = state.direction === "toLocal" ? "Back" : "";
+  if (counts.running > 0)
+    return t(`place.evacuate.running${back}` as StringKey, { running: counts.running, total: counts.total });
   return counts.failed > 0
-    ? t("place.evacuate.finishedFailed", { done: counts.done, total: counts.total, failed: counts.failed })
-    : t("place.evacuate.finished", { done: counts.done, total: counts.total });
+    ? t(`place.evacuate.finished${back}Failed` as StringKey, {
+        done: counts.done,
+        total: counts.total,
+        failed: counts.failed,
+      })
+    : t(`place.evacuate.finished${back}` as StringKey, { done: counts.done, total: counts.total });
 }
 
-function chatStatus(chat: EvacuateChat, t: Translate): string {
+function chatStatus(chat: EvacuateChat, t: Translate, direction: MoveDirection): string {
+  if (chat.state === "live" && direction === "toLocal") return t("place.evacuate.state.liveBack");
   if (chat.state === "moving" && chat.step) {
     const index = MOVE_STEPS.indexOf(chat.step);
-    return `${t(stepKey(chat.step, "toCloud"))} ${t("place.evacuate.stepShort", { i: index + 1, n: MOVE_STEPS.length })}`;
+    return `${t(stepKey(chat.step, direction))} ${t("place.evacuate.stepShort", { i: index + 1, n: MOVE_STEPS.length })}`;
   }
   return t(`place.evacuate.state.${chat.state === "moving" ? "queued" : chat.state}`);
 }
@@ -52,6 +61,7 @@ export function EvacuateControl({
   look = SHIPPED_EVACUATE,
   part = "all",
   onEvacuate,
+  onBringBack,
   onCancel,
   now: fixedNow,
 }: {
@@ -60,6 +70,8 @@ export function EvacuateControl({
   part?: EvacuatePart;
   /// All chats on this Mac (no argument), or just the failed ones (Retry).
   onEvacuate(sessions?: readonly string[]): void;
+  /// Bring Back to This Mac: the Cloud chats, or just `sessions` (Retry of a bring back). Omitted: no button.
+  onBringBack?(sessions?: readonly string[]): void;
   onCancel(): void;
   /// Gallery and tests: the clock, so a fixture reads the same on every run.
   now?: number;
@@ -70,6 +82,7 @@ export function EvacuateControl({
   const idle = evacuateIdle(state);
   const head = part !== "body";
   const body = part !== "head";
+  const toLocal = state?.direction === "toLocal";
   const failed = state ? failedSessions(state) : [];
   const elapsed = state ? t("place.evacuate.elapsed", { elapsed: seconds(evacuateElapsed(state, clock)) }) : "";
   const cancel = running && (
@@ -83,7 +96,7 @@ export function EvacuateControl({
       className="acpmux-move-btn"
       data-primary="true"
       data-testid="evacuate-retry"
-      onClick={() => onEvacuate(failed)}
+      onClick={() => (toLocal && onBringBack ? onBringBack(failed) : onEvacuate(failed))}
     >
       {t("place.evacuate.retry")}
     </button>
@@ -100,6 +113,18 @@ export function EvacuateControl({
       {t("place.evacuate.button")}
     </button>
   );
+  const bringBack = !running && onBringBack && bringBackCount(state) > 0 && (
+    <button
+      type="button"
+      className="acpmux-evac-btn"
+      data-testid="evacuate-bring-back"
+      title={t("place.evacuate.bringBackHint")}
+      onClick={() => onBringBack()}
+    >
+      <EnvironmentIcon kind="local" />
+      {t("place.evacuate.bringBack")}
+    </button>
+  );
   const chip =
     look === "chip" && state && !idle ? (
       <span className="acpmux-evac acpmux-evac-chip" data-look="chip" data-running={running ? "true" : undefined}>
@@ -111,6 +136,8 @@ export function EvacuateControl({
       </span>
     ) : null;
   const shown = state && !idle && look !== "chip" ? state : undefined;
+  // The finished panel carries Bring Back itself; the header's button covers the other cases.
+  const panelOwnsBringBack = !!shown && !toLocal;
   const counts = shown ? evacuateCounts(shown) : undefined;
   const summary = shown && (
     <div className="acpmux-evac-line">
@@ -118,6 +145,7 @@ export function EvacuateControl({
       {running && <span className="acpmux-move-clock">{elapsed}</span>}
       {cancel}
       {retry}
+      {panelOwnsBringBack && bringBack}
     </div>
   );
   const progress = shown && counts && (
@@ -125,7 +153,7 @@ export function EvacuateControl({
       className="acpmux-evac"
       data-look={look}
       data-running={running ? "true" : undefined}
-      aria-label={t("place.evacuate.label")}
+      aria-label={t(toLocal ? "place.evacuate.labelBack" : "place.evacuate.label")}
     >
       {summary}
       {look === "bar" && (
@@ -149,7 +177,7 @@ export function EvacuateControl({
             <li key={chat.session || index} data-state={chat.state}>
               <span className="acpmux-move-dot" data-state={dotState(chat)} aria-hidden="true" />
               <span className="acpmux-evac-chat">{chat.title}</span>
-              <span className="acpmux-evac-status">{chatStatus(chat, t)}</span>
+              <span className="acpmux-evac-status">{chatStatus(chat, t, state?.direction ?? "toCloud")}</span>
               {chat.reason && chat.state === "failed" && <span className="acpmux-evac-reason">{chat.reason}</span>}
             </li>
           ))}
@@ -161,6 +189,7 @@ export function EvacuateControl({
     <>
       {head && chip}
       {head && button}
+      {head && !panelOwnsBringBack && bringBack}
       {body && progress}
     </>
   );

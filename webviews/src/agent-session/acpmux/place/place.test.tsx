@@ -15,6 +15,7 @@ import { PlaceControl } from "./PlaceControl";
 import { EVACUATES, MOVES, PLACES, at, evacuateAt } from "./fixtures";
 import {
   elapsedNow,
+  bringBackCount,
   evacuateCounts,
   evacuateElapsed,
   evacuateOf,
@@ -115,7 +116,7 @@ test("place is read from the app's wire shape, and a value that is not one is no
   expect(move?.carries.map((carry) => carry.kind)).toEqual(["turn", "changes"]);
   expect(move?.finishing).toBe(true);
   expect(placeOf({ ...wire, move: { ...wire.move, step: "nope" } })?.move).toBeUndefined();
-  expect(evacuateOf({ running: 1, done: 2, failed: 0, total: 3 })).toEqual({
+  expect(evacuateOf({ running: 1, done: 2, failed: 0, total: 3 })).toMatchObject({
     running: 1,
     done: 2,
     failed: 0,
@@ -304,6 +305,8 @@ test("the calls are the app's actions, bound to the session", async () => {
   list.evacuate();
   list.evacuate(["a", "b"]);
   list.cancelEvacuate();
+  list.bringBack();
+  list.bringBack(["a"]);
   list.setMode("c", "auto");
   expect(calls).toEqual([
     { id: "chatPlace.set", mode: "cloud", session: "s-1" },
@@ -312,6 +315,8 @@ test("the calls are the app's actions, bound to the session", async () => {
     { id: "cloudEvacuate" },
     { id: "cloudEvacuate", sessions: ["a", "b"] },
     { id: "cloudEvacuate.cancel" },
+    { id: "cloudBringBackAll" },
+    { id: "cloudBringBackAll", sessions: ["a"] },
     { id: "chatPlace.set", mode: "auto", session: "c" },
   ]);
 });
@@ -399,7 +404,7 @@ test("a running Evacuate draws every chat with its step or state, the clock, and
   expect(rows[1]!.textContent).toContain("5/8");
   expect(rows[2]!.textContent).toContain("3/8");
   expect(rows[3]!.textContent).toContain("Waiting");
-  expect(rows[4]!.textContent).toContain("No Cloud VM was free.");
+  expect(rows[4]!.textContent).toContain("VM limit is reached.");
   expect(container.querySelector('[data-testid="evacuate-button"]')).toBeNull();
   expect(container.querySelector('[data-testid="evacuate-retry"]')).toBeNull();
   await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-cancel"]')!.click());
@@ -448,4 +453,129 @@ test("Evacuate with counts only still draws the summary and a bar", async () => 
   expect(
     [...container.querySelectorAll(".acpmux-move-bar > span")].map((segment) => segment.getAttribute("data-state")),
   ).toEqual(["live", "moving", "moving", "queued"]);
+});
+
+test("bring back is read from the app: its direction and the count it can bring home", () => {
+  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, canBringBack: 3 })?.canBringBack).toBe(3);
+  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, canBringBack: 0 })?.canBringBack).toBeUndefined();
+  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, direction: "toLocal" })?.direction).toBe("toLocal");
+  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, direction: "sideways" })?.direction).toBeUndefined();
+  expect(bringBackCount(EVACUATES.bringBackIdle)).toBe(3);
+  expect(bringBackCount(EVACUATES.finished)).toBe(4);
+  expect(bringBackCount(EVACUATES.bringBackFinished)).toBe(0);
+  expect(bringBackCount(undefined)).toBe(0);
+});
+
+test("with chats in Cloud the header offers Bring Back to This Mac, one action for all", async () => {
+  const calls: unknown[] = [];
+  const container = await draw(
+    <EvacuateControl
+      part="head"
+      state={EVACUATES.bringBackIdle}
+      onEvacuate={() => calls.push("evacuate")}
+      onBringBack={(sessions) => calls.push(sessions ?? "all")}
+      onCancel={noop}
+    />,
+  );
+  expect(container.querySelector('[data-testid="evacuate-button"]')).not.toBeNull();
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-bring-back"]')!.click());
+  expect(calls).toEqual(["all"]);
+  await act(async () => root!.unmount());
+  root = undefined;
+  const none = await draw(<EvacuateControl part="head" onEvacuate={noop} onBringBack={noop} onCancel={noop} />);
+  expect(none.querySelector('[data-testid="evacuate-bring-back"]')).toBeNull();
+});
+
+test("the finished Evacuate panel carries Bring Back, and the header does not repeat it", async () => {
+  const calls: unknown[] = [];
+  const container = await draw(
+    <EvacuateControl
+      state={EVACUATES.finished}
+      onEvacuate={noop}
+      onBringBack={(sessions) => calls.push(sessions ?? "all")}
+      onCancel={noop}
+    />,
+  );
+  expect(container.querySelectorAll('[data-testid="evacuate-bring-back"]').length).toBe(1);
+  expect(container.querySelector('.acpmux-evac [data-testid="evacuate-bring-back"]')).not.toBeNull();
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-bring-back"]')!.click());
+  expect(calls).toEqual(["all"]);
+});
+
+test("a running Bring Back uses the same panel: the title, the rows, and no Bring Back button", async () => {
+  const container = await draw(
+    <EvacuateControl
+      state={EVACUATES.bringBackRunning}
+      now={evacuateAt(EVACUATES.bringBackRunning)}
+      onEvacuate={noop}
+      onBringBack={noop}
+      onCancel={noop}
+    />,
+  );
+  expect(text(container)).toContain("Bringing 3 of 5 back to This Mac");
+  const rows = [...container.querySelectorAll<HTMLElement>(".acpmux-evac-rows li")];
+  expect(rows[0]!.textContent).toContain("On This Mac");
+  expect(rows[1]!.textContent).toContain("Copying your folder");
+  expect(rows[2]!.textContent).toContain("7/8");
+  expect(container.querySelector('[data-testid="evacuate-bring-back"]')).toBeNull();
+  expect(container.querySelector('[data-testid="evacuate-button"]')).toBeNull();
+});
+
+test("a finished Bring Back says what came home, and Retry runs Bring Back for the failed chats", async () => {
+  const calls: unknown[] = [];
+  const container = await draw(
+    <EvacuateControl
+      state={EVACUATES.bringBackFinished}
+      onEvacuate={() => calls.push("evacuate")}
+      onBringBack={(sessions) => calls.push(sessions)}
+      onCancel={noop}
+    />,
+  );
+  expect(text(container)).toContain("Brought 4 of 5 back to This Mac, 1 failed");
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-retry"]')!.click());
+  expect(calls).toEqual([["e-5"]]);
+});
+
+test("Bring Back draws in every look", async () => {
+  for (const look of ["bar", "chip"] as const) {
+    const container = await draw(
+      <EvacuateControl
+        state={EVACUATES.bringBackRunning}
+        look={look}
+        now={evacuateAt(EVACUATES.bringBackRunning)}
+        onEvacuate={noop}
+        onCancel={noop}
+      />,
+    );
+    expect(text(container)).toContain("Bringing 3 of 5 back to This Mac");
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+});
+
+test("the app's startedMs is its monotonic clock and is ignored: the clock ticks from arrival", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date(Date.UTC(2026, 10, 23, 9, 0, 0)));
+  const arrived = Date.now();
+  for (const startedMs of [0, 123_456, 9_999_999_999_999, -5]) {
+    const move = placeOf({
+      mode: "cloud",
+      at: "local",
+      move: { state: "moving", step: "sync", startedMs, elapsedMs: 4200 },
+    })?.move;
+    expect(move && elapsedNow(move, arrived)).toBe(4200);
+    expect(move && elapsedNow(move, arrived + 3000)).toBe(7200);
+    const state = evacuateOf({
+      running: 1,
+      done: 0,
+      failed: 0,
+      total: 2,
+      startedMs,
+      elapsedMs: 12_000,
+      chats: [{ session: "a", title: "A", state: "moving" }],
+    });
+    expect(state && evacuateElapsed(state, arrived)).toBe(12_000);
+    expect(state && evacuateElapsed(state, arrived + 2000)).toBe(14_000);
+  }
+  jest.useRealTimers();
 });

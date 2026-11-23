@@ -91,7 +91,13 @@ export function PlaceControl({
         <MenuPopup label={t("place.label")} side="top" align="start">
           <MenuRadioGroup value={place.mode} onValueChange={(mode) => onMode(mode as PlaceMode)}>
             {MODES.map((mode) => (
-              <MenuRadioItem key={mode} value={mode} closeOnClick data-value={`place-${mode}`}>
+              <MenuRadioItem
+                key={mode}
+                value={mode}
+                closeOnClick
+                className="acpmux-place-menu-item"
+                data-value={`place-${mode}`}
+              >
                 <span className="acpmux-place-row-text">
                   <span>{modeLabel(mode, t)}</span>
                   {mode === "auto" && <span className="acpmux-place-rule">{rule}</span>}

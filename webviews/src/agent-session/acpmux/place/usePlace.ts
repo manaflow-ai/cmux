@@ -17,6 +17,8 @@ export interface PlaceActions {
 export interface EvacuateActions {
   /// Every chat on this Mac, or just `sessions`.
   evacuate(sessions?: readonly string[]): void;
+  /// Bring the evacuated chats (or all Cloud chats; or just `sessions`) back to This Mac.
+  bringBack(sessions?: readonly string[]): void;
   /// Stop the running Evacuate; chats already in Cloud stay there.
   cancelEvacuate(): void;
   /// A chat's place from the chat list.
@@ -46,6 +48,11 @@ export function evacuateActions(say?: (text: string) => void): EvacuateActions {
       void callNative("action.run", { id: "cloudEvacuate", ...(sessions ? { sessions: [...sessions] } : {}) }).catch(
         fail,
       ),
+    bringBack: (sessions) =>
+      void callNative("action.run", {
+        id: "cloudBringBackAll",
+        ...(sessions ? { sessions: [...sessions] } : {}),
+      }).catch(fail),
     cancelEvacuate: () => void callNative("action.run", { id: "cloudEvacuate.cancel" }).catch(fail),
     setMode: (session, mode) => void callNative("action.run", { id: "chatPlace.set", mode, session }).catch(fail),
   };

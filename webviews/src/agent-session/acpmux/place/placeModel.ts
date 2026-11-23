@@ -70,6 +70,10 @@ export interface EvacuateState {
   readonly failed: number;
   readonly total: number;
   readonly chats?: readonly EvacuateChat[];
+  /// Which way the chats move; `toLocal` is Bring Back to This Mac. Default `toCloud`.
+  readonly direction?: MoveDirection;
+  /// How many chats Bring Back could bring home now (the app counts); none hides the button.
+  readonly canBringBack?: number;
   readonly startedMs?: number;
   readonly elapsedMs?: number;
 }
@@ -128,7 +132,9 @@ export function moveOf(value: unknown): MoveView | undefined {
     step,
     stepIndex: num(raw.stepIndex, MOVE_STEPS.indexOf(step)),
     stepCount: num(raw.stepCount, MOVE_STEPS.length),
-    startedMs: num(raw.startedMs, 0),
+    // The app's `startedMs` is its monotonic clock (uptime), not wall time, so `Date.now() - startedMs`
+    // is meaningless here. Its `elapsedMs` is current when it sends: the page ticks from arrival.
+    startedMs: Date.now() - num(raw.elapsedMs, 0),
     elapsedMs: num(raw.elapsedMs, 0),
     budgetMs: num(raw.budgetMs, 10_000),
     overBudget: raw.overBudget === true,
@@ -186,8 +192,13 @@ export function evacuateOf(value: unknown): EvacuateState | undefined {
     failed: num(raw.failed, 0),
     total: num(raw.total, 0),
     ...(chats ? { chats } : {}),
-    ...(typeof raw.startedMs === "number" && Number.isFinite(raw.startedMs) ? { startedMs: raw.startedMs } : {}),
-    ...(typeof raw.elapsedMs === "number" && Number.isFinite(raw.elapsedMs) ? { elapsedMs: raw.elapsedMs } : {}),
+    ...(raw.direction === "toLocal" ? { direction: "toLocal" as const } : {}),
+    ...(typeof raw.canBringBack === "number" && Number.isFinite(raw.canBringBack) && raw.canBringBack > 0
+      ? { canBringBack: Math.floor(raw.canBringBack) }
+      : {}),
+    // `startedMs` is rebased as in `moveOf`: the app's value is its monotonic clock, so it is ignored.
+    startedMs: Date.now() - num(raw.elapsedMs, 0),
+    elapsedMs: num(raw.elapsedMs, 0),
   };
 }
 
@@ -285,4 +296,12 @@ export function runsAtName(move: MoveView): string {
 /// The Rust gate: a failure at or after `attach` leaves the chat at the new place.
 export function landedOnFailure(move: MoveView): boolean {
   return move.state === "failed" && move.runsAt === (move.direction === "toCloud" ? "cloud" : "local");
+}
+
+/// How many chats Bring Back to This Mac offers: the app's count, else (after an Evacuate to Cloud)
+/// the chats that arrived.
+export function bringBackCount(state: EvacuateState | undefined): number {
+  if (!state) return 0;
+  if (state.canBringBack !== undefined) return state.canBringBack;
+  return state.direction === "toLocal" ? 0 : evacuateCounts(state).done;
 }
