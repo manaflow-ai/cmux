@@ -10,6 +10,8 @@ description = "NEXT Cloud's machine record as the app shows it, and its rules (p
 [dependencies]
 # The platform's typed ConnectionStatus (`github::status`).
 cmux-cloud-wire.workspace = true
+# The app FFI pin scanner follows explicit path dependencies.
+cmux-lifeline = { path = "../cmux-lifeline" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
