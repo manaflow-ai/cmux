@@ -72,7 +72,8 @@ every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
   it); the run writes the commit it used.
 - The body is the Cloud's journaled `steps` body: one step starts the command in the background
   (a replay never starts it twice), then wait steps of up to 280 s each cover `--timeout` (up to
-  228 min). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
+  228 min), each within the provider's 300 s exec (cmux-vm sends an exec past 60 s as a provider
+  background request, so the provider's edge no longer cuts it at about 120 s). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
   passes its time limit is stopped and fails as a timeout.
 - Concurrency 1, skip when one runs (no overlap); `--catch-up latest|all|none`; `--every` becomes a
   cron (minutes that divide 60, or hours that divide 24).
@@ -80,8 +81,17 @@ every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
   `cmux automation logs RUN --target cloud` reads the run's log from its machine; the page shows
   Cloud runs, reasons and logs the same way as runs on this Mac.
 
-Not yet on Cloud: per-automation secrets, a notification for a failed Cloud run, waking a paused
-machine (a stopped machine fails the run), editing the body (delete and make it again).
+- `cmux automation secret set AUTOMATION NAME --target cloud` keeps a value (from a hidden prompt,
+  stdin or `--secret-file`, never an argument) that each machine step of a `--command` run gets as
+  the environment variable NAME; `secret list` shows names and a 4-character hint, never a value.
+  The value is sealed by cmux Cloud and sent on the step's stdin, never on its command line.
+- A failed Cloud run (exit 3: a check failed; 1 or other: it crashed; or it timed out) posts one
+  notice to its creator's Feed, pushed to their devices; skipped runs post nothing.
+- Before a run's first step on a machine, a paused machine is started and waited for (up to 5
+  minutes). A machine that does not come up skips the run with reason `machine_not_running`: it is
+  not a failure, does not notify and does not count toward auto-pause.
+
+Not yet on Cloud: editing the body (delete and make it again).
 
 ## Proof
 

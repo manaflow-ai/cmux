@@ -166,6 +166,17 @@ pub fn prop(name: &str) -> String {
     }
 }
 
+/// How code reaches member `name`: `.name`, or `["name"]` when it is no
+/// identifier (`resolve-library-id`).
+pub fn member(name: &str) -> String {
+    let p = prop(name);
+    if p == name {
+        format!(".{name}")
+    } else {
+        format!("[{p}]")
+    }
+}
+
 /// The TypeScript type of a JSON Schema (the common keywords; else `unknown`).
 pub fn ts_type(schema: &Value, depth: usize) -> String {
     if depth > 6 {
@@ -273,7 +284,17 @@ pub fn declarations(
     flagged: &[String],
     only: Option<&str>,
 ) -> String {
-    let mut out = format!("declare namespace mcp.{} {{\n", prop(server));
+    // A namespace's functions must be identifiers; a server with a tool such as
+    // `resolve-library-id` is declared as a const object, whose methods may be quoted.
+    let quoted = tools
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .any(|n| prop(n) != n);
+    let mut out = if quoted {
+        format!("declare namespace mcp {{\n const {}: {{\n", prop(server))
+    } else {
+        format!("declare namespace mcp.{} {{\n", prop(server))
+    };
     for tool in tools {
         let name = tool["name"].as_str().unwrap_or("");
         if only.is_some_and(|o| o != name) {
@@ -297,12 +318,13 @@ pub fn declarations(
             _ => {}
         }
         out.push_str(&format!(
-            "  /** {description}{} */\n  function {}(args{}: {}): Promise<{}>;\n",
+            "  /** {description}{} */\n  {}{}(args{}: {}): Promise<{}>;\n",
             if notes.is_empty() {
                 String::new()
             } else {
                 format!(" ({})", notes.join(", "))
             },
+            if quoted { "" } else { "function " },
             prop(name),
             if tool["inputSchema"]["required"]
                 .as_array()
@@ -318,7 +340,7 @@ pub fn declarations(
                 .unwrap_or_else(|| "any".into()),
         ));
     }
-    out.push_str("}\n");
+    out.push_str(if quoted { " };\n}\n" } else { "}\n" });
     out
 }
 

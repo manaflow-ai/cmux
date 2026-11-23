@@ -32,7 +32,7 @@ impl Brain {
     /// `stop` and `sleep` while a person message this turn saw has no reply:
     /// refused, so the turn replies now instead of a retry turn later
     /// (reply_ledger.rs). A tapback counts as the reply.
-    fn refuse_unanswered(&self, tool: &str) -> Result<(), String> {
+    pub(super) fn refuse_unanswered(&self, tool: &str) -> Result<(), String> {
         let open = self.unanswered_in_turn();
         if open.is_empty() {
             return Ok(());
@@ -66,6 +66,11 @@ impl Brain {
     /// A second call goes through.
     fn refuse_landed_untold(&mut self, tool: &str) -> Result<(), String> {
         if self.landed_refused {
+            return Ok(());
+        }
+        // The loop guard refuses every send now: telling is impossible until
+        // the person writes, and that turn carries it (budget_hold.rs).
+        if self.budget_held() {
             return Ok(());
         }
         let untold: Vec<String> = self
@@ -107,11 +112,13 @@ impl Brain {
 
     /// Marks the running turn as ended by the Chief's own tool and asks its
     /// runner to stop the session.
-    fn end_turn_by_tool(&mut self, tool: &str) {
+    pub(super) fn end_turn_by_tool(&mut self, tool: &str) {
         if self.tool_stopped {
             return;
         }
         self.tool_stopped = true;
+        // The Chief ended its own turn after its last tool: the session is at
+        // a clean point, so the next turn may go on in it (turn.rs, kept).
         self.interrupt.request_own();
         (self.log)(&format!("the Chief called {tool}: ending the running turn"));
     }
@@ -123,13 +130,14 @@ impl Brain {
             self.refuse_unanswered("sleep")?;
             self.refuse_landed_untold("sleep")?;
         }
+        // Follow-ups (follow_up) are not sleep wakes: follow_ups cancels them.
+        let sleeps = self.state.wakes.iter().filter(|w| w.id.is_none()).count();
         if call.seconds == 0 {
-            let n = self.state.wakes.len();
-            self.state.wakes.clear();
+            self.state.wakes.retain(|w| w.id.is_some());
             self.save();
-            return Ok(format!("outcome: done. cleared {n} pending wake(s)"));
+            return Ok(format!("outcome: done. cleared {sleeps} pending wake(s)"));
         }
-        if self.state.wakes.len() >= WAKES_KEPT {
+        if sleeps >= WAKES_KEPT {
             return Err(format!(
                 "sleep: {WAKES_KEPT} wakes are pending already; clear them with sleep(0) first"
             ));
@@ -140,6 +148,9 @@ impl Brain {
             asked_ms: now,
             note: call.note.unwrap_or_default(),
             until_event: call.until.as_deref() == Some("event"),
+            id: None,
+            loop_path: None,
+            for_person: false,
         };
         self.state.wakes.push(wake);
         self.state.wakes.sort_by_key(|w| w.at_ms);
@@ -176,6 +187,33 @@ impl Brain {
     /// Fires every wake due at `now_ms` (wall clock, ms since the epoch):
     /// each queues its note, which starts a turn.
     pub fn fire_wakes_at(&mut self, now_ms: u64) {
+        // A follow-up the Chief set for itself that comes due in the
+        // person's quiet hours (set or changed after it) moves to their end.
+        let quiet = self.wake_settings.quiet.clone();
+        if quiet.is_some() {
+            let mut moved = false;
+            for w in self
+                .state
+                .wakes
+                .iter_mut()
+                .filter(|w| w.at_ms <= now_ms && w.id.is_some() && !w.for_person)
+            {
+                let at = chrono::DateTime::from_timestamp_millis(now_ms as i64)
+                    .map(|t| t.with_timezone(&chrono::Local).fixed_offset());
+                if let Some(at) = at
+                    && crate::check_in::in_quiet(quiet.as_deref(), at)
+                {
+                    w.at_ms = crate::check_in::after_quiet(quiet.as_deref(), at)
+                        .timestamp_millis()
+                        .max(0) as u64;
+                    moved = true;
+                }
+            }
+            if moved {
+                self.state.wakes.sort_by_key(|w| w.at_ms);
+                self.save();
+            }
+        }
         let due: Vec<Wake> = self
             .state
             .wakes
@@ -196,15 +234,37 @@ impl Brain {
             } else {
                 wake.note.trim().to_owned()
             };
-            let text = format!(
-                "[wake] {note}\n(You asked for this wake with sleep({asked}){}.)",
-                if late > 60 {
-                    format!(", {} late: the host was not running", human(late))
-                } else {
-                    String::new()
+            let late_text = if late > 60 {
+                format!(", {} late: the host was not running", human(late))
+            } else {
+                String::new()
+            };
+            let text = match &wake.id {
+                // A follow-up (memory.rs): its loop is closed when this run
+                // ends with send or ask and the loop says so.
+                Some(id) => {
+                    let when = chrono::DateTime::from_timestamp_millis(wake.at_ms as i64)
+                        .map(|t| {
+                            t.with_timezone(&chrono::Local)
+                                .format("%a %Y-%m-%d %H:%M")
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    // The loop goes in the first token, which the host
+                    // writes before the note's own text (memory.rs reads it).
+                    let tag = match &wake.loop_path {
+                        Some(p) => format!("[follow-up {p}]"),
+                        None => "[follow-up]".to_owned(),
+                    };
+                    format!("{tag} {note}\n(Your follow-up {id}, set for {when}{late_text}.)")
                 }
-            );
+                None => format!(
+                    "[wake] {note}\n(You asked for this wake with sleep({asked}){late_text}.)"
+                ),
+            };
             (self.log)(&format!("a wake is due: {note}"));
+            // Its planned time, for the wake run's `scheduled_at` (memory.rs).
+            self.wake_planned.insert(text.clone(), wake.at_ms as i64);
             self.queue(text, Source::Note);
         }
     }

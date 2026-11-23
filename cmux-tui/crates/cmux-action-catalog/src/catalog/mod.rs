@@ -25,7 +25,6 @@ mod browser_hit;
 mod browser_profile;
 mod browser_toolbar;
 mod certificate_warning;
-mod chief_screen_share;
 mod chrome_style;
 mod cloud;
 mod cloud_port;
@@ -47,6 +46,7 @@ mod home;
 mod home_message;
 mod import;
 mod joined_machine;
+mod key_mode;
 mod layout;
 mod link;
 mod list;
@@ -161,8 +161,8 @@ pub static GROUPS: &[&[Action]] = &[
     history::ACTIONS,
     stash::ACTIONS,
     music::ACTIONS,
+    key_mode::ACTIONS,
     voice_room::ACTIONS,
-    chief_screen_share::ACTIONS,
     now_playing_card::ACTIONS,
     bookmark::ACTIONS,
     sidebar_section::ACTIONS,

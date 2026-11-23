@@ -16,12 +16,16 @@ sha=0123456789abcdef0123456789abcdef01234567
 ok kept "" warm own home "" small || { echo "state=kept front=home refused" >&2; exit 1; }
 ok kept update warm own home "$sha" small || { echo "state=kept case=update front=home refused" >&2; exit 1; }
 ok kept "" cold own home "" small || { echo "state=kept daemon=cold front=home refused" >&2; exit 1; }
+ok kept "" warm own chat "" small || { echo "state=kept front=chat refused" >&2; exit 1; }
+ok kept "" warm own chat "" stress3 || { echo "front=chat session=stress3 refused" >&2; exit 1; }
+! LR_KEYS=1 ok kept "" warm own chat "" small || { echo "keys=1 front=chat accepted" >&2; exit 1; }
+LR_KEYS=1 ok kept "" warm own home "" small || { echo "keys=1 front=home refused" >&2; exit 1; }
 ok kept "" warm unknown "" "" small || { echo "snapshot=unknown refused" >&2; exit 1; }
 ! ok kept "" warm unknown home "" small || { echo "snapshot=unknown front=home accepted" >&2; exit 1; }
 ! ok kept update warm own "" "" small || { echo "case=update without base= accepted" >&2; exit 1; }
 ! ok bare "" cold own "" "" small || { echo "state=fresh daemon=cold accepted" >&2; exit 1; }
 ! ok bare "" warm own home "" small || { echo "state=fresh front=home accepted" >&2; exit 1; }
-! ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 accepted" >&2; exit 1; }
+ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 refused" >&2; exit 1; }
 echo 'launch-ready cases: the case arguments combine as agreed'
 
 # cold_daemon: kills only the pids running from OUT/SIDE/.
@@ -84,6 +88,6 @@ for want in "LR-CASE kept expect=last" "LR-REOPENED base 1/1 case=kept" "LR-REOP
   "LR-SURFACE head first=tabs home_page_drawn=0/1 mix=tabs:1" "LR-SURFACE-DIFF base first=home head first=tabs: not like for like"; do
   grep -qxF "$want" <<<"$summary" || { echo "summary lacks '$want':"; echo "$summary"; exit 1; } >&2
 done
-grep -q '^LR-FAIL head run1 landed on workspace=w tab=t2, last front was Home$' <<<"$summary" \
+grep -qxF 'LR-FAIL head run1 landed on workspace=w tab=t2, last front was Home (judged against the priming launch'"'"'s front)' <<<"$summary" \
   || { echo "summary lacks head's LR-FAIL:"; echo "$summary"; exit 1; } >&2
 echo 'launch-ready cases: the summary flags the A/B not like for like'

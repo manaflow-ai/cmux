@@ -19,6 +19,7 @@ import type { BackgroundCommand } from "../session-info/processes";
 import { phaseAgents, phaseState, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
 import { shownOfCut } from "../conversation/markdownCut";
+import { intl } from "../../../ui/intl";
 
 /// An agent that ended: done, failed or cancelled.
 export const agentEnded = (agent: Pick<WorkflowAgent, "state">): boolean =>
@@ -42,7 +43,7 @@ export function splitAgents(agents: readonly WorkflowAgent[]): {
 /// Names joined as the pane's language lists them ("Latency plan, Swarm synthesis").
 export function listNames(names: readonly string[], language?: string): string {
   try {
-    return new Intl.ListFormat(language, { style: "short", type: "unit" }).format(names);
+    return intl.ListFormat(language, { style: "short", type: "unit" }).format(names);
   } catch {
     return names.join(", ");
   }
