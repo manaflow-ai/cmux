@@ -18,6 +18,7 @@ tokio = ["dep:tokio"]
 
 [dependencies]
 arc-swap.workspace = true
+cmux-config.workspace = true
 cmux-tui-platform.workspace = true
 getrandom.workspace = true
 libc.workspace = true

@@ -370,6 +370,8 @@ impl Hub {
             // (`bridge.rs` `note_unreached`).
             let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
             self.set_tags(&session, tags.as_object(), &unreachable, None);
+            // Its row reads disconnected once this process exits (`app_exit.rs`).
+            self.follow_app(&session, pid);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {

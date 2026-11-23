@@ -774,6 +774,10 @@ impl Desktop for MacDesktop {
         actions::scroll(self, target, dx, dy)
     }
 
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        actions::move_pointer(self, target, delivery)
+    }
+
     fn drag(
         &self,
         window_id: &str,
