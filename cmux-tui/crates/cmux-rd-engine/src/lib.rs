@@ -12,7 +12,7 @@
 
 mod outage;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
@@ -39,6 +39,11 @@ const ACK_RTT_WINDOW_US: u64 = 1_000_000;
 const ACK_RTT_SAMPLES: usize = 64;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
+/// Shortest time before the same datagram is resent again. The viewer re-asks every
+/// feedback interval (50 ms) until the repair lands, and on a queued 8 Mbit/s path a
+/// repair takes most of a second to land: resending on every ask filled the queue
+/// with copies, and the keyframe being repaired never completed (hq#19915).
+pub const MIN_RESEND_INTERVAL_US: u64 = 300_000;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 /// Longest a keyframe's time on the wire holds a recovery ask back (beyond
@@ -369,6 +374,8 @@ struct StreamState {
     /// how long it takes on the wire at the target. A recovery ask that comes in meanwhile
     /// is answered by it.
     keyframe_in_flight: Option<(u32, u64, u64)>,
+    /// When each datagram of a frame in history was last resent.
+    resent_at_us: HashMap<(u32, u16), u64>,
     /// The resolution ladder (main stream only, when the session asks for one).
     ladder: Option<ResolutionLadder>,
     /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
@@ -395,6 +402,7 @@ impl StreamState {
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
             keyframe_in_flight: None,
+            resent_at_us: HashMap::new(),
             refine_due_us: None,
             refine_pending: false,
             ladder: None,
@@ -900,6 +908,8 @@ impl MediaEngine {
             let Some(oldest) = oldest else { break };
             state.history.remove(&oldest);
         }
+        let history = &state.history;
+        state.resent_at_us.retain(|(frame, _), _| history.contains_key(frame));
         // Only a frame asked for as a keyframe (or one that is independent anyway) answers a
         // pending keyframe. A recovery that came in while an older P-frame request was still
         // being encoded (or an outage drop that asked for one while a frame was finishing on
@@ -1007,6 +1017,9 @@ impl MediaEngine {
         // echo lost in the hold would otherwise wait for the path to be proven back).
         let away = self.cc.frozen();
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
+        // A repair still on its way answers a repeated ask: one round trip at least.
+        let hold_us =
+            MIN_RESEND_INTERVAL_US.max(self.ack_rtts.iter().map(|(_, r)| *r).min().unwrap_or(0));
         for nack in &fb.nacks {
             if away && nack.frame != state.last_frame {
                 continue;
@@ -1017,6 +1030,11 @@ impl MediaEngine {
                     break;
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    let last = state.resent_at_us.get(&(nack.frame, i));
+                    if last.is_some_and(|&t| now_us.saturating_sub(t) < hold_us) {
+                        continue;
+                    }
+                    state.resent_at_us.insert((nack.frame, i), now_us);
                     if let Ok((header, _)) = DatagramHeader::decode(d) {
                         self.cc.on_retransmitted(header.transport_seq);
                     }

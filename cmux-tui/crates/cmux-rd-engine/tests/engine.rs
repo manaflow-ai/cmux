@@ -1100,3 +1100,22 @@ fn a_keyframe_still_in_flight_stays_repairable_behind_many_p_frames() {
         "the keyframe's NACK found nothing to resend"
     );
 }
+
+/// The viewer re-asks every feedback interval until a repair lands; on a queued slow path
+/// a repair takes most of a second. One resend answers the asks for a round trip, so
+/// copies do not fill the queue the repair waits in (hq#19915).
+#[test]
+fn a_repeated_nack_within_the_resend_interval_is_not_resent_again() {
+    use cmux_rd_engine::MIN_RESEND_INTERVAL_US;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 6_000, 0);
+    let fb = feedback(&Feedback {
+        nacks: vec![Nack { frame: first.frame, indexes: vec![1, 3] }],
+        ..Feedback::default()
+    });
+    assert_eq!(e.on_datagram(&fb, true, 10_000).datagrams.len(), 2);
+    assert!(e.on_datagram(&fb, true, 60_000).datagrams.is_empty(), "a copy within the interval");
+    let later = e.on_datagram(&fb, true, 10_000 + MIN_RESEND_INTERVAL_US);
+    assert_eq!(later.datagrams, vec![sent[1].clone(), sent[3].clone()]);
+}
