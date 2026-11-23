@@ -1,6 +1,6 @@
 ---
 name: cmux-rich-output
-description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, LaTeX, and Google Slides or Figma files shown live. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, a Google Slides deck or a Figma file, or when a picture would explain better than prose."
+description: "Show work in a cmux chat as more than text: Mermaid diagrams, Vega-Lite and ```chart charts, KaTeX math, live HTML cards (render), slide decks (slides) with Present and PDF or .pptx export, Markdown files in cmux's Markdown page. Load it for a chart, diagram, deck, slides, report, PDF or document, a presentation, LaTeX, a Google Slides deck or a Figma file shown live, or when a picture would explain better than prose."
 ---
 
 # Rich output in a cmux chat
@@ -30,14 +30,19 @@ never because it exists. The person's own instructions win.
      person's Run.
 3. A live page in the chat: the `render` tool (cmux MCP server) with one self-contained HTML page,
    for a chart the person can hover, a small calculator, a three.js scene.
-4. A file beside the chat: a page, deck or document the person keeps, reopens or sends on.
+4. A file beside the chat: a Markdown file, a deck (`slides`), a page or a document the person
+   keeps, reopens or sends on.
 
 ## Open a page or file beside the chat
 
 - `open` (cmux MCP server): `{kind: "page", url}` or `{kind: "file", path}`. It opens in the column
   right of this chat by default. From a shell: `cmux browser open URL`, `cmux file open PATH`.
 - An `.html` file opens as a real Chromium page: its relative CSS, images and scripts load. A PDF
-  opens in Chromium's PDF viewer. A Markdown file opens in cmux's Markdown page.
+  opens in Chromium's PDF viewer. A Markdown file opens in cmux's Markdown page (rendered, with
+  tables and Mermaid diagrams), which follows the file as it changes.
+- A plan, report or notes the person will read: write a `.md` file and `open` it. A `.md` file you
+  write or change also gets Open in the chat's edited-files card, so the person can open it there
+  themselves; there is nothing else to add to your reply.
 - A shown `.html`, SVG, PDF, image or `.pptx` file reloads in its tab when the file changes (`live`,
   on by default for those), so a file you keep writing stays current without another `open`.
 - A `.pptx` file previews in the right pane with `open {kind: "file", path}`: a slide strip on the
@@ -49,18 +54,39 @@ never because it exists. The person's own instructions win.
 
 ## Slide decks
 
-A deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (beside this file)
+Fastest: the `slides` tool (cmux MCP server): `{path: "slides/topic.slides.md", markdown}`.
+Markdown in the common Markdown slide format: optional front matter with `title:`, slides split by a `---` line, a slide
+of only headings is a title slide, `<!-- _class: center -->` centers one, any other
+`<!-- comment -->` or a `Notes:` line is speaker notes, raw HTML (`div.cols`, inline `<svg>`, an
+`<img>` from the deck's folder) passes through. It opens beside the chat with the slide strip,
+Present (F), Export PDF and Export .pptx; call it again with the same path and the open tab
+updates in place. A `.slides.md` file (or front matter `slides: true`) opened with `open` shows as
+slides too.
+
+By hand, for full control of the layout: a deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (beside this file)
 into the project (for example `slides/<topic>.html`), then change only the slides between
 `<main class="deck">` and `</main>`, the `<title>`, and if needed a `--cmux-*` or `--deck-*` value
 at the top of the `<style>`. Keep the `<script>` last and unchanged: it draws the slide strip, the
-arrow keys, Present (F, Esc exits), Present with speaker notes (S: a presenter window with the
-notes, a clock, the time spoken and the next slide), Export PDF and Export .pptx.
+arrow keys, Present (F, Esc exits), Present with speaker notes (S), Export PDF and Export .pptx.
 
 - A slide is 1280 x 720 pixels. One idea per slide, about 40 words at most, text 24px or larger.
 - `<section class="title">` for a title slide, `class="center"` for a quote or one number,
-  `<div class="cols">` for two columns, `<aside class="notes">` for speaker notes (write them as the
-  script the person will say: Present with speaker notes shows them large), `<section data-skip>`
-  for a backup slide Present and the exports pass over (`<!-- skip -->` in a Markdown deck).
+  `<div class="cols">` for two columns.
+- Each layer of a slide is its own element, never mixed into the visible text:
+  - what the audience sees: the slide's content;
+  - what to say: `<aside class="notes">`, sentences to read aloud (the script); Present with
+    speaker notes shows them large;
+  - the pace: `data-seconds="N"` on the `<section>`, the seconds this slide gets;
+  - the appendix: slides from `<section class="appendix-start">` on (numbers, links, method) are
+    outside the timed run but stay one arrow key away;
+  - a backup slide: `<section data-skip>`, which Present, the pace and the exports pass over
+    (`<!-- skip -->` in a Markdown deck).
+- The look follows Claude's launch slides: a warm flat canvas, ink text, one coral accent, a serif
+  headline, monospace labels, no shadows or gradients. Building blocks: `<p class="kicker">` (a
+  monospace label), `<div class="split">` (a label column, then the content), `<ul class="tree">`
+  (a list drawn as a tree), `<div class="transcript">` with `<p class="you">` and `<p class="step">`
+  lines and `<span class="chip">Edited f.ts <ins>+9</ins> <del>-3</del></span>` (the agent at
+  work), and `--deck-mark` for a short mark in each slide's corner.
 - Pictures: inline `<svg>` (draw a chart's bars yourself; `currentColor` follows the theme), or an
   image file beside the deck. Export .pptx carries inline SVG and `data:` images; it leaves out an
   image file the browser will not read, and says so.
@@ -70,6 +96,37 @@ notes, a clock, the time spoken and the next slide), Export PDF and Export .pptx
   One slide per page, in the light theme.
 - Export .pptx is the person's click: it loads a PowerPoint writer (pptxgenjs, about 157 KB) from
   cdn.jsdelivr.net the first time and saves an editable deck: text stays text.
+
+### Present it in cmux
+
+- Present (F; Esc exits): the slide alone, full screen, or filling its pane when the pane cannot go
+  full screen. A slide arrives with a short cross-fade.
+- Present with speaker notes (S, the Present menu, or open the file with `?presenter`): this window
+  presents and a second window, the presenter's, shows the current slide, the next one (skipping
+  backup slides), the script with the sentence to say now marked, the clock, the time spoken (Pause,
+  and T or Reset restarts it), and the pace against the `data-seconds` budget: ahead, on pace or
+  behind, and this slide's time of its budget. A− and A+ size the script. Where a pane blocks a second
+  window, this window becomes the presenter's; its Audience window button opens the slides alone
+  (`?audience`) for the screen you share.
+- In the presenter's window, Laser (L) draws a red pointer that follows the mouse over the slide, and
+  Captions (C) show the script on the presented slide, one sentence at a time, spread over its
+  budget. The windows follow each other's slide, laser and captions; End (Esc) closes both. Two panes
+  on the same file follow each other the same way.
+- The slide is in the URL (`#3`), and the mode, timer, laser and captions survive a reload.
+
+### Edit it while it shows
+
+The open tab reloads when the file changes (`live`), onto the same slide and in the same mode, so
+change the deck while the person watches, with no export and no new `open`:
+
+- Edit the file in place: the tab reloads about 150 ms after the last write settles and shows the
+  change about 50 ms later (about 200 ms edit to visible in a headless Chromium run). Write the whole
+  file at once (write a temp file, then rename it over the deck) so no reload reads half a file.
+- A second window of the deck that cmux does not watch (the audience window) reloads too, about
+  30 ms after the watched one: each window tells the others when it has read a newer file.
+- The bar says "Deck updated" with the time, so the person sees the edit landed.
+- Rewriting a whole deck from a generator works the same way, if it keeps one `<section>` per slide:
+  the slide number in the URL stays put.
 
 ## Documents and PDF
 
