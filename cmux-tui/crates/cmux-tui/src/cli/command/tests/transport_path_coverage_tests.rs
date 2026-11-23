@@ -394,6 +394,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
                         | "cloud.machine.chief_start"
+                        | "cloud.machine.chief_resize"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
@@ -490,6 +491,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Home's Chief settings lists, pauses and deletes
+                        // the Chief's automations; the Chief has its own
+                        // `automation` tool (optchat-chief automations.rs).
+                        | "chief.automation.list"
+                        | "chief.automation.update"
                         | "chief.continue"
                         | "chief.retry"
                         // `cmux chief list|new|adopt|edit|delete` send these

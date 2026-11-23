@@ -25,14 +25,15 @@ struct SignedHelperStagingTests {
     }
 
     /// A fake helper bundle at `url` whose executable holds `body`.
-    static func bundle(at url: URL, body: String, version: String = "1") throws {
+    static func bundle(at url: URL, body: String, version: String = "1",
+                       id: String = "com.cmuxterm.app.test.screen-sharing") throws {
         let contents = url.appending(path: "Contents", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: contents.appending(path: "MacOS"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: contents.appending(path: "_CodeSignature"), withIntermediateDirectories: true)
         try Data(body.utf8).write(to: contents.appending(path: "MacOS/helper"))
         try Data("seal".utf8).write(to: contents.appending(path: "_CodeSignature/CodeResources"))
         let plist: [String: Any] = ["CFBundleExecutable": "helper", "CFBundleVersion": version,
-                                    "CFBundleIdentifier": "com.cmuxterm.app.test.screen-sharing"]
+                                    "CFBundleIdentifier": id]
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
             .write(to: contents.appending(path: "Info.plist"))
     }
@@ -52,9 +53,19 @@ struct SignedHelperStagingTests {
             verify: { _, _ in verified })
     }
 
-    static func staging(home: URL, operations: SignedHelperStaging.Operations) -> SignedHelperStaging {
+    static func staging(home: URL, operations: SignedHelperStaging.Operations,
+                        now: Date = Date().addingTimeInterval(2 * SignedHelperStaging.otherBuildsGrace)) -> SignedHelperStaging {
         let made = SignedHelperStaging.screenSharing(bundleID: "com.cmuxterm.app.test", home: home)
-        return SignedHelperStaging(folder: made.folder, home: home, root: made.root, legacy: made.legacy, operations: operations)
+        var fileSystem = SignedHelperStaging.FileSystem()
+        fileSystem.now = { now }
+        return SignedHelperStaging(folder: made.folder, home: home, root: made.root, legacy: made.legacy,
+                                   operations: operations, fileSystem: fileSystem)
+    }
+
+    /// Records the bundle ids whose privacy rows a stager reset.
+    actor Forgotten {
+        var ids: [String] = []
+        func add(_ id: String) { ids.append(id) }
     }
 
     static func read(_ url: URL) -> String? {
@@ -69,6 +80,26 @@ struct SignedHelperStagingTests {
         #expect(staging.legacy?.path == "/Users/me/Library/Application Support/cmux-next/screen-sharing/73ff36dc45525a51")
         let source = URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app")
         #expect(staging.destination(for: source).lastPathComponent == "cmux NIGHTLY Helper.app")
+    }
+
+    @Test func oneFolderPerChannelNotPerBuild() {
+        let home = URL(fileURLWithPath: "/Users/me", isDirectory: true)
+        let helper = "/Users/me/Library/Application Support/cmux-next/helper/"
+        // Every DEV tag shares the DEV helper's folder.
+        for app in ["com.cmuxterm.app.debug", "com.cmuxterm.app.debug.my-tag", "com.cmuxterm.app.debug.pr.50535"] {
+            #expect(SignedHelperStaging.screenSharing(bundleID: app, home: home).folder.path == helper + "com.cmuxterm.app.debug.screen-sharing")
+        }
+        #expect(SignedHelperStaging.screenSharing(bundleID: "com.cmuxterm.app", home: home).folder.path == helper + "com.cmuxterm.app.screen-sharing")
+        // A NIGHTLY side build carries NIGHTLY's helper: the helper's own id names the folder.
+        let side = SignedHelperStaging.screenSharing(bundleID: "com.cmuxterm.app.nightly.side-glass-f7de48",
+                                                     helperBundleID: "com.cmuxterm.app.nightly.screen-sharing", home: home)
+        #expect(side.folder.path == helper + "com.cmuxterm.app.nightly.screen-sharing")
+        // An id that would make a path falls back to the channel's.
+        let odd = SignedHelperStaging.screenSharing(bundleID: "com.cmuxterm.app.nightly", helperBundleID: "../x", home: home)
+        #expect(odd.folder.path == helper + "com.cmuxterm.app.nightly.screen-sharing")
+        #expect(SignedHelperStaging.isPerTagDevHelperBundleID("com.cmuxterm.app.debug.my-tag.screen-sharing"))
+        #expect(!SignedHelperStaging.isPerTagDevHelperBundleID("com.cmuxterm.app.debug.screen-sharing"))
+        #expect(!SignedHelperStaging.isPerTagDevHelperBundleID("com.cmuxterm.app.nightly.screen-sharing"))
     }
 
     @Test func everyBuildStagesToTheSamePathAndReplacesTheCopyInPlace() async throws {
@@ -128,20 +159,66 @@ struct SignedHelperStagingTests {
         let legacy = try #require(staging.legacy)
         try Self.bundle(at: legacy.appending(path: "cmux TEST Screen Sharing.app"), body: "old")
         try FileManager.default.createDirectory(at: legacy.appending(path: ".staging-dead"), withIntermediateDirectories: true)
-        // Another scope's folder beside it (another build) is not this app's.
-        let other = legacy.deletingLastPathComponent().appending(path: "0123456789abcdef")
-        try Self.bundle(at: other.appending(path: "cmux OTHER Screen Sharing.app"), body: "other")
+        // A folder of another kind beside it (the daemon's per-id folder) is not one of the layout's.
+        let daemon = legacy.deletingLastPathComponent().appending(path: "com.cmuxterm.app.test.screen-sharing/daemon/0123456789abcdef")
+        try Self.bundle(at: daemon.appending(path: "cmux TEST Screen Sharing.app"), body: "daemon")
         let source = home.appending(path: "v1/cmux TEST Helper.app")
         try Self.bundle(at: source, body: "one")
         #expect(await staging.stage(source) != nil)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
-        #expect(FileManager.default.fileExists(atPath: other.appending(path: "cmux OTHER Screen Sharing.app").path))
+        #expect(FileManager.default.fileExists(atPath: daemon.appending(path: "cmux TEST Screen Sharing.app").path))
         // A folder that holds anything but copies keeps it.
         try Self.bundle(at: legacy.appending(path: "cmux TEST Screen Sharing.app"), body: "old")
         try Data("keep".utf8).write(to: legacy.appending(path: "notes.txt"))
         #expect(await staging.stage(source) != nil)
         #expect(FileManager.default.fileExists(atPath: legacy.appending(path: "notes.txt").path))
         #expect(!FileManager.default.fileExists(atPath: legacy.appending(path: "cmux TEST Screen Sharing.app").path))
+    }
+
+    @Test func otherBuildsCopiesGoOnceOldAndPerTagDevIDsAreForgotten() async throws {
+        let home = try Self.home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let forgotten = Forgotten()
+        var operations = Self.operations()
+        operations.forget = { await forgotten.add($0) }
+        let made = Self.staging(home: home, operations: operations)
+        let layout = try #require(made.legacy).deletingLastPathComponent()
+        // The old layout's folders of three builds (two DEV tags, a NIGHTLY side build), and one an
+        // older build just made.
+        let devA = layout.appending(path: "0030a36c0aefb9f7/cmux DEV Screen Sharing.app")
+        try Self.bundle(at: devA, body: "a", id: "com.cmuxterm.app.debug.rszbase.screen-sharing")
+        let devB = layout.appending(path: "020848fe974a9e7c/cmux DEV Screen Sharing.app")
+        try Self.bundle(at: devB, body: "b", id: "com.cmuxterm.app.debug.sendpop.screen-sharing")
+        let side = layout.appending(path: "090b2d550d8ba0a8/cmux NIGHTLY Screen Sharing.app")
+        try Self.bundle(at: side, body: "s", id: "com.cmuxterm.app.nightly.screen-sharing")
+        let fresh = layout.appending(path: "535aecfcfafc8c3c/cmux DEV Screen Sharing.app")
+        try Self.bundle(at: fresh, body: "l", id: "com.cmuxterm.app.debug.tryb0a2.screen-sharing")
+        let young = Date().addingTimeInterval(-60)
+        try FileManager.default.setAttributes([.modificationDate: young], ofItemAtPath: fresh.path)
+        // A per-tag DEV folder of the fixed-path layout beside this one.
+        let tagged = made.root.appending(path: "com.cmuxterm.app.debug.old.screen-sharing/cmux DEV Helper.app")
+        try Self.bundle(at: tagged, body: "t", id: "com.cmuxterm.app.debug.old.screen-sharing")
+        let staging = Self.staging(home: home, operations: operations, now: Date())
+        for old in [devA, devB, side, tagged] {
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * SignedHelperStaging.otherBuildsGrace)],
+                                                  ofItemAtPath: old.path)
+        }
+        let source = home.appending(path: "v1/cmux TEST Helper.app")
+        try Self.bundle(at: source, body: "one")
+        #expect(await staging.stage(source) != nil)
+        for gone in [devA, devB, side, tagged] {
+            #expect(!FileManager.default.fileExists(atPath: gone.deletingLastPathComponent().path))
+        }
+        #expect(FileManager.default.fileExists(atPath: fresh.path))
+        // Only per-tag DEV ids lose their privacy rows; NIGHTLY's id is shared by every NIGHTLY.
+        #expect(await forgotten.ids.sorted() == ["com.cmuxterm.app.debug.old.screen-sharing",
+                                                 "com.cmuxterm.app.debug.rszbase.screen-sharing",
+                                                 "com.cmuxterm.app.debug.sendpop.screen-sharing"])
+        // The young one goes on a later start, once it is past the grace.
+        let later = Self.staging(home: home, operations: operations)
+        #expect(await later.stage(source) != nil)
+        #expect(!FileManager.default.fileExists(atPath: fresh.deletingLastPathComponent().path))
+        #expect(await forgotten.ids.contains("com.cmuxterm.app.debug.tryb0a2.screen-sharing"))
     }
 
     @Test func aStagerWaitsForTheFoldersLock() async throws {
