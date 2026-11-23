@@ -2144,8 +2144,10 @@ async fn dispatch_request_with_identity(
                     .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
                     .flatten()
                     .and_then(|sender| {
-                        let sender: crate::protocol::MessageSender =
+                        let mut sender: crate::protocol::MessageSender =
                             serde_json::from_value(sender.clone()).ok()?;
+                        sender.display_name =
+                            sender.display_name.filter(|n| crate::session_handle::valid(n));
                         (!sender.name.is_empty() && !sender.session_id.is_empty())
                             .then(|| serde_json::to_value(sender).ok())
                             .flatten()

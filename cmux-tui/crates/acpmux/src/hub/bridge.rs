@@ -319,9 +319,14 @@ impl Hub {
         let claude = matches!(target, Target::Claude { .. });
         let name = reply_name(opts);
         let routable = name.as_deref().is_some_and(|n| self.reply_routable(n));
+        // A program's claimed name is all it has: no given name beside it.
+        let given = crate::prompt_provenance::display_name_of(opts.provenance.as_ref())
+            .filter(|_| !unverified)
+            .map(str::to_owned);
         let wire = with_reply_hint(
             &text,
             name.as_deref(),
+            given.as_deref(),
             harness.as_deref(),
             unverified,
             claude,
@@ -531,6 +536,7 @@ impl Hub {
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
+    given: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
     claude: bool,
@@ -541,7 +547,9 @@ fn with_reply_hint(
     };
     let quoted = agent.replace('\'', "'\\''");
     let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
-    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    // Named as people call it, its HOST/NAME (what a reply goes to) beside it.
+    let label = crate::prompt_provenance::display_label(given, agent);
+    let who = super::prompt_attribution::with_harness(&label, provenance.as_ref());
     let line = if unverified {
         super::prompt_attribution::unverified_line(Some(&who))
     } else {

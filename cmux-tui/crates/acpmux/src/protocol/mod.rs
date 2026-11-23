@@ -79,6 +79,9 @@ pub struct MessageEvent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageSender {
+    /// The sender's given name (`session_handle.rs`), shown first: "Mango · HOST/NAME".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     pub name: String,

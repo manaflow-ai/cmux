@@ -4440,6 +4440,13 @@
     },
     "MessageSender": {
       "properties": {
+        "displayName": {
+          "description": "The sender's given name (`session_handle.rs`), shown first: \"Mango · HOST/NAME\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "type": [
             "string",

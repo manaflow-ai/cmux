@@ -785,6 +785,8 @@ export type MessageEvent = {
 export type MessageRole = "agent" | "user";
 
 export type MessageSender = {
+  /** The sender's given name (`session_handle.rs`), shown first: "Mango · HOST/NAME". */
+  displayName?: (string | null);
   host?: (string | null);
   name: string;
   sessionId: string;

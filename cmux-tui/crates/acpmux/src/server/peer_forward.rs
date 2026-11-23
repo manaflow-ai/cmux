@@ -165,13 +165,21 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         return;
     }
     let Some(caller) = conn.caller() else { return };
-    let mut meta = json!({
-        "messageSender": {
-            "name": hub.session_name(caller),
-            "sessionId": caller,
-            "host": crate::hub::host_label(),
-        },
+    let mut message_sender = json!({
+        "name": hub.session_name(caller),
+        "sessionId": caller,
+        "host": crate::hub::host_label(),
     });
+    // Its given name too, so the peer's chat names it as people do (`session_handle.rs`).
+    if let Some(given) = hub
+        .resolve(caller)
+        .ok()
+        .and_then(|s| s.read_meta(|m| m.handle.clone()))
+        .filter(|h| crate::session_handle::valid(h))
+    {
+        message_sender.set("displayName", json!(given));
+    }
+    let mut meta = json!({"messageSender": message_sender});
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         meta.set("fromAgent", json!(hub.session_name(caller)));
     }

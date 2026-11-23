@@ -172,7 +172,7 @@ async fn queue_once(
         print_json(&out);
     } else if state == "delivered" {
         let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-        let mut lines = sent_lines(&accepted, superseding);
+        let mut lines = sent_lines_to(&accepted, superseding, &key);
         lines[0].push_str(&format!(" (delivery {id})"));
         for line in lines {
             println!("{line}");
@@ -231,7 +231,7 @@ async fn queue_direct(
         }
         print_json(&out);
     } else {
-        for line in sent_lines(&accepted, superseding) {
+        for line in sent_lines_to(&accepted, superseding, key) {
             println!("{line}");
         }
     }

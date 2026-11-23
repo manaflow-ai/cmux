@@ -173,7 +173,7 @@ pub(super) fn whole_notice(items: &[&Item]) -> String {
     for item in items {
         text.push_str(&format!(
             "\n\n--- From {} ({}, thread {}):\n{}",
-            item.from,
+            super::display_sender(&item.sender, &item.from),
             kind_of(item.class),
             item.thread,
             item.text
