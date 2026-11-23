@@ -90,6 +90,20 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
     }
 }
 
+/// Leo, 2026-11-22: "should we tuck it in a bit more like claude code? hm. well, we'd better at
+/// least do this for our claude code customization repo". The Claude Code look starts the
+/// transcript's rows on the composer's + column, derived from the composer's lead token.
+#[test]
+fn the_claude_code_look_tucks_the_transcript_to_the_composers_plus() {
+    let profile = find("claude-code-app").expect("no claude-code-app recipe").profile().unwrap();
+    let chat = profile.files.get("agent-pane/theme.css").expect("no chat stylesheet");
+    assert!(chat.contains(":root .acpmux-row"), "the rows keep the composer's edge");
+    assert!(
+        chat.contains("var(--grid-composer-lead-center)"),
+        "the tuck is not derived from the composer's + column"
+    );
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
