@@ -260,6 +260,8 @@ struct Trip {
     /// The machine's folder: the mount.
     folder: PathBuf,
     root: PathBuf,
+    /// The link between them when the case pauses the machine ([`pause::Relay`]).
+    relay: Option<pause::Relay>,
 }
 
 impl Drop for Trip {
@@ -288,6 +290,17 @@ fn trip(case: &str, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
 /// Makes the Mac's folder with `fill`, then starts the chat from it: projected, or (`projected`
 /// false, with projection turned off) copied as before.
 fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
+    trip_with(case, projected, None, fill)
+}
+
+/// [`trip_as`], with the Mac reaching the machine through a [`pause::Relay`] when `relay` says
+/// whether it has a quiet socket.
+fn trip_with(
+    case: &str,
+    projected: bool,
+    relay: Option<bool>,
+    fill: impl FnOnce(&Side, &Path),
+) -> Result<Trip, Skip> {
     if projected && !fuse_here() {
         return Err("no FUSE here".into());
     }
@@ -299,7 +312,12 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
     let local = mac.home.join("Projects/app");
     fs::create_dir_all(&local).unwrap();
     fill(&mac, &local);
-    let machine = Machine::start(&root.join("vm"));
+    let mut machine = Machine::start(&root.join("vm"));
+    let relay = relay.map(|quiet| {
+        let relay = pause::Relay::start(&root.join("relay.sock"), &machine.dial, quiet);
+        machine.dial = relay.path.clone();
+        relay
+    });
     let key = new_key();
     let output = mac
         .cmux()
@@ -322,7 +340,7 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
         .unwrap_or(Value::Null);
     assert_eq!(answer["ok"], true, "start-chat copy: {stdout}{stderr}");
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
-    let trip = Trip { mac, machine, local, folder, root };
+    let trip = Trip { mac, machine, local, folder, root, relay };
     if !projected {
         assert_ne!(answer["mode"], "projected", "{answer}");
         // A held copy answers at its head and sends the rest after: the folder reads ready once
@@ -394,6 +412,60 @@ impl Trip {
                     String::from_utf8_lossy(&output.stderr)
                 )
             })
+    }
+
+    /// Ends the folder's server and serves the folder again, as after this Mac restarted: the
+    /// machine attaches it to the mount it kept, or mounts the Mac's newer listing. The new
+    /// server, ended when it drops.
+    fn restart_server(&self) -> Server {
+        let stopped =
+            self.mac.cmux().args(["link", "project", "stop", "--at"]).arg(&self.folder).output();
+        assert!(stopped.unwrap().status.success());
+        let mut child = self
+            .mac
+            .cmux()
+            .args(["link", "project", "serve", "--socket"])
+            .arg(&self.machine.dial)
+            .arg("--at")
+            .arg(&self.folder)
+            .args(["--name", &self.projection_name()])
+            .arg(&self.local)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(child.stdout.take().unwrap()),
+            &mut line,
+        )
+        .unwrap();
+        let answer: Value = serde_json::from_str(line.trim()).unwrap_or(Value::Null);
+        assert_eq!(answer["ok"], true, "serve again: {line}");
+        eprintln!("serve again: {line}");
+        Server(child)
+    }
+
+    /// The projection's name, as the folder's server recorded it for Bring Back.
+    fn projection_name(&self) -> String {
+        let mut stack = vec![self.mac.state.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "json")
+                    && path.parent().is_some_and(|parent| parent.ends_with("projections"))
+                    && let Ok(record) = serde_json::from_slice::<Value>(&fs::read(&path).unwrap())
+                    && record["remote"].as_str() == self.folder.to_str()
+                    && let Some(name) = record["name"].as_str()
+                {
+                    return name.to_owned();
+                }
+            }
+        }
+        panic!("no projection recorded for {}", self.folder.display());
     }
 
     fn brought_back(&self) -> Value {
@@ -700,6 +772,31 @@ fn a_second_bring_back_takes_the_later_edits() {
     assert_eq!(again["deleted"], 0, "{again}");
 }
 
+/// The folder's server restarted after a Bring Back (this Mac restarted, the app relaunched): the
+/// base that Bring Back moved stays, so the next Bring Back takes the later edits instead of
+/// stopping on `sync_base_mismatch`.
+#[test]
+fn a_bring_back_after_the_server_restarted_takes_the_later_edits() {
+    let t = trip_or_skip!("restart", repo);
+    write(&t.at("src/a.txt"), "alpha, first\n");
+    t.brought_back();
+    let _server = t.restart_server();
+    write(&t.at("src/a.txt"), "alpha, second\n");
+    let answer = t.brought_back();
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, second\n", "{answer}");
+    t.statuses_agree();
+}
+
+/// A server [`Trip::restart_server`] started, ended when it drops.
+struct Server(std::process::Child);
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 /// `~/Projects`' shape (hard case 12): `api` and `web`, two repositories, and `notes.md` beside
 /// them, in a folder that is not a repository itself.
 fn parent_of_repositories(side: &Side, at: &Path) {
@@ -837,6 +934,10 @@ fn nested_commit_fast_forwards(t: &Trip) {
 /// A seeded randomized round trip, after cmux#45882's (the same seeds and promises, adapted to
 /// this pull, which changes nothing on the Mac when any path conflicts): small trees, random
 /// edits, deletes, moves and new files on the machine and edits and deletes on the Mac, then
+/// A machine paused under a live agent and resumed (`projection_roundtrip_matrix/pause.rs`).
+#[path = "projection_roundtrip_matrix/pause.rs"]
+mod pause;
+
 /// Bring Back, twice per trial. After each pull:
 /// - with no path changed on both sides, every machine change landed and every Mac edit stayed;
 /// - otherwise the conflicts are exactly the paths both sides changed, nothing of the Mac's
