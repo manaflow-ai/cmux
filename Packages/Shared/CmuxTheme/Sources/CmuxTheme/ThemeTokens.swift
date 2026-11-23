@@ -121,18 +121,42 @@ public struct ThemeTokens: Hashable, Sendable {
         return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
     }
 
-    /// The most theme tint a glass window (`background-blur` below 0) lays over its glass: the reference's theme
-    /// background at about 40% (hq docs/design/glass-raycast-parity.md), and 0.55 on a light theme, the command
-    /// palette's measured glass tint. Below it the Opacity asked for is kept; at Opacity 1 the glass tinted solid,
-    /// terminals and panes included (Leo, 2026-10-18: "if we're doing glass, we're doing glass, period").
+    /// The least theme tint a glass window (`background-blur` below 0) lays over its glass at Opacity 1: the
+    /// reference's theme background at about 40% (hq docs/design/glass-raycast-parity.md), and 0.55 on a light
+    /// theme, the command palette's measured glass tint. At Opacity 1 the glass tinted solid, terminals and panes
+    /// included (Leo, 2026-10-18: "if we're doing glass, we're doing glass, period"); see
+    /// ``glassFullOpacityTint(background:foreground:isDark:)`` for how far text raises it.
     public static func glassTintCeiling(isDark: Bool) -> Double { isDark ? 0.40 : 0.55 }
     /// ``glassTintCeiling(isDark:)`` for this theme.
     public var glassTintCeiling: Double { Self.glassTintCeiling(isDark: isDark) }
 
-    /// The tint a window of `opacity` and `blur` shows over what is behind it: `opacity`, at most
-    /// ``glassTintCeiling(isDark:)`` for glass.
-    public static func windowTintOpacity(_ opacity: Double, blur: Int, isDark: Bool) -> Double {
-        blur < 0 ? min(opacity, glassTintCeiling(isDark: isDark)) : opacity
+    /// The tint a glass window takes at Opacity 1: ``glassTintCeiling(isDark:)``, raised until `foreground`
+    /// holds ``minimumTextContrast`` over `background` at that tint on the worst desktop for the theme (white
+    /// behind a dark theme, black behind a light one), or as much as the theme itself holds. Clear glass barely
+    /// blurs, so the tint alone stands between the text and the desktop: at 40% Catppuccin Mocha's text read
+    /// 1.6:1 over a white desktop (Leo, 2026-11-23: "I CANT READ THE TEXT").
+    public static func glassFullOpacityTint(background: ThemeRGB, foreground: ThemeRGB, isDark: Bool) -> Double {
+        let bg = background.withAlpha(1)
+        let worst: ThemeRGB = isDark ? .white : .black
+        let target = min(minimumTextContrast, foreground.contrast(with: bg))
+        var tint = glassTintCeiling(isDark: isDark)
+        while tint < 1, foreground.contrast(with: bg.withAlpha(tint).composited(over: worst)) < target {
+            tint = min(tint + 0.01, 1)
+        }
+        return tint
+    }
+    /// ``glassFullOpacityTint(background:foreground:isDark:)`` for this theme's window and text.
+    public var glassFullOpacityTint: Double {
+        Self.glassFullOpacityTint(background: windowBackground, foreground: textPrimary, isDark: isDark)
+    }
+
+    /// The tint a window of `opacity` and `blur` shows over what is behind it. An Opacity below 1 is the
+    /// tint, glass included: the user asked for it (Clear Glass at 0.9 lost its tint to a 40% cap in #50499
+    /// and the desktop drowned the text). Glass at Opacity 1 takes `glassTint` (the theme's
+    /// ``glassFullOpacityTint``; ``glassTintCeiling(isDark:)`` when unknown) instead of a solid fill.
+    public static func windowTintOpacity(_ opacity: Double, blur: Int, isDark: Bool, glassTint: Double? = nil) -> Double {
+        guard blur < 0, opacity >= 1 else { return opacity }
+        return glassTint ?? glassTintCeiling(isDark: isDark)
     }
 
     /// Minimum contrast for primary and secondary chrome text.
@@ -176,8 +200,9 @@ public struct ThemeTokens: Hashable, Sendable {
             .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
         // In a see-through window the quieter inks also hold over the tint on the worst desktop for
         // the theme (sidebar sweep 2026-10-21); the tint stays the opacity asked for (#22566).
+        let glassTint = glassFullOpacityTint(background: bg, foreground: fg, isDark: isDark)
         let seeThrough = seeThroughSurfaces(bg: bg, opacity: windowTintOpacity(input.backgroundOpacity, blur: input.backgroundBlur,
-                                                                                isDark: isDark),
+                                                                                isDark: isDark, glassTint: glassTint),
                                              isDark: isDark, fills: [pressed, selection])
         let (primary, secondary, tertiary) = inks(fg, rows: [worstSurface, bg], seeThrough: seeThrough, background: bg)
 

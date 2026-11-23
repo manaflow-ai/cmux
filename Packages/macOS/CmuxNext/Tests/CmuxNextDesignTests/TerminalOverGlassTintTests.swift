@@ -36,13 +36,20 @@ import Testing
         let backdrop = WindowBackdrop(tokens)
         #expect(!backdrop.isOpaque)
         #expect(backdrop.tintOpacity < 1, "glass at Opacity 1 tints at \(backdrop.tintOpacity)")
-        // The composite under a terminal over the stand-in is not the solid theme colour.
-        #expect(Self.showThrough(tokens, backdrop) > 0.3,
+        // The composite under a terminal over the stand-in is not the solid theme colour (the text floor,
+        // GlassTextContrastTests, keeps at least a quarter of the backdrop on these themes).
+        #expect(Self.showThrough(tokens, backdrop) > 0.2,
                 "only \(Self.showThrough(tokens, backdrop)) of the backdrop shows under a terminal")
     }
 
-    @Test func glassAtFullOpacityMatchesTheReference() {
-        #expect(abs(WindowBackdrop(Self.tokens(Self.dark, blur: -1)).tintOpacity - 0.40) < 0.001)
+    /// At Opacity 1 glass starts from the reference's tint and takes only as much more as its text needs.
+    @Test func glassAtFullOpacityStartsFromTheReference() {
+        for input in [Self.dark, Self.light] {
+            let tokens = Self.tokens(input, blur: -1)
+            let tint = WindowBackdrop(tokens).tintOpacity
+            #expect(tint >= tokens.glassTintCeiling - 0.001)
+            #expect(abs(tint - tokens.glassFullOpacityTint) < 0.001)
+        }
         #expect(abs(WindowBackdrop(Self.tokens(Self.light, blur: -1)).tintOpacity - 0.55) < 0.001)
     }
 
@@ -50,13 +57,15 @@ import Testing
     @Test func glassOverAPictureIsNotASlab() {
         let tokens = Self.tokens(Self.dark, blur: -1)
         let picture = BackdropSelection.art(.vanGoghStarryNight)
-        #expect(WindowBackdrop(tokens, selection: picture).tintOpacity <= tokens.glassTintCeiling)
-        #expect(WindowBackdrop(tokens, selection: picture, tintOpacity: 1).tintOpacity <= tokens.glassTintCeiling)
+        #expect(WindowBackdrop(tokens, selection: picture).tintOpacity <= tokens.glassFullOpacityTint + 0.001)
+        #expect(WindowBackdrop(tokens, selection: picture, tintOpacity: 1).tintOpacity <= tokens.glassFullOpacityTint + 0.001)
     }
 
-    /// Opacity below the ceiling is kept as asked.
-    @Test func glassBelowTheCeilingKeepsItsOpacity() {
-        #expect(WindowBackdrop(backgroundOpacity: 0.25, backgroundBlur: -1, liquidGlass: true).tintOpacity == 0.25)
+    /// An Opacity below 1 is kept as asked, above the ceiling too (Clear Glass at 0.9, 2026-11-23).
+    @Test(arguments: [0.25, 0.5, 0.75, 0.9])
+    func glassBelowFullOpacityKeepsItsOpacity(opacity: Double) {
+        #expect(WindowBackdrop(backgroundOpacity: opacity, backgroundBlur: -1, liquidGlass: true).tintOpacity == opacity)
+        #expect(WindowBackdrop(backgroundOpacity: opacity, backgroundBlur: -2, liquidGlass: true).tintOpacity == opacity)
     }
 
     /// No default flips: the default material, an opaque window and Reduce Transparency stay solid.
@@ -75,7 +84,7 @@ import Testing
     func quieterInksAreDerivedOverTheGlassTint(dark: Bool) {
         let tokens = Self.tokens(dark ? Self.dark : Self.light, blur: -1)
         let bg = tokens.windowBackground.withAlpha(1)
-        let tint = bg.withAlpha(tokens.glassTintCeiling).composited(over: tokens.isDark ? .white : .black)
+        let tint = bg.withAlpha(WindowBackdrop(tokens).tintOpacity).composited(over: tokens.isDark ? .white : .black)
         let floor = min(ThemeTokens.minimumTextContrast, tokens.textPrimary.contrast(with: tint))
         #expect(tokens.textSecondary.contrast(with: tint) >= floor - 0.05,
                 "secondary text reads \(tokens.textSecondary.contrast(with: tint)) on the glass tint, under \(floor)")

@@ -14,7 +14,8 @@ extension ThemeTokens {
     public var sidebarTitle: ThemeRGB {
         let bg = windowBackground.withAlpha(1)
         let surfaces = [bg, selectionFill.composited(over: bg), pressedFill.composited(over: bg)]
-            + Self.seeThroughSurfaces(bg: bg, opacity: Self.windowTintOpacity(backgroundOpacity, blur: backgroundBlur, isDark: isDark),
+            + Self.seeThroughSurfaces(bg: bg, opacity: Self.windowTintOpacity(backgroundOpacity, blur: backgroundBlur, isDark: isDark,
+                                                                                   glassTint: glassFullOpacityTint),
                                      isDark: isDark, fills: [pressedFill, selectionFill])
         let worst = surfaces.min { textPrimary.contrast(with: $0) < textPrimary.contrast(with: $1) } ?? bg
         return Self.muted(textPrimary, toward: bg, upTo: Self.sidebarTitleSoftening, over: worst,
