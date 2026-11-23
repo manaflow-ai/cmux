@@ -278,7 +278,9 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     {
         return AppError::new(Code::Usage, "usage", msg);
     }
-    if lower.contains("timed out") || lower.contains("timeout") {
+    // A step that ran past its bound (`ls`'s "read step stalled after 15s") is a timeout to
+    // retry, not a daemon that is gone.
+    if lower.contains("timed out") || lower.contains("timeout") || lower.contains("stalled after") {
         return AppError::new(Code::Timeout, "timeout", msg);
     }
     let detail = if lower.contains("connection refused") || lower.contains("daemon") {

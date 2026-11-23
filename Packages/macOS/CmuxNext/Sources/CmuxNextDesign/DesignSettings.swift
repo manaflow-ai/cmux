@@ -37,6 +37,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
     /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
     public let motionChanges = MotionChanges()
+    /// The composite tokens a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    let tokenMemos = TokenMemos()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
