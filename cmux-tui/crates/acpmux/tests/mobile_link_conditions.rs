@@ -143,6 +143,10 @@ struct Link {
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
+    /// The `timeBreakdownVersion` the last attach reply named; a reattach sends it back so the
+    /// daemon leaves out a breakdown this side already holds (the app's AcpmuxSessionSource
+    /// keeps it the same way). `None` against a daemon that names none: nothing is sent.
+    time_breakdown_version: Option<String>,
     /// Every frame either way, by message type (the bytes-per-minute bench reads it).
     tap: Arc<Tap>,
 }
@@ -190,6 +194,7 @@ impl Link {
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
+            time_breakdown_version: None,
             tap,
         })
     }
@@ -322,8 +327,15 @@ impl Link {
             }
             Some(after) => params["afterSeq"] = json!(after),
         }
+        if let Some(v) = &self.time_breakdown_version {
+            params["timeBreakdownVersion"] = json!(v);
+        }
         let id = self.post("_acpmux/attach", params).await?;
-        self.answer(id, deadline).await
+        let (at, reply) = self.answer(id, deadline).await?;
+        if let Some(v) = reply.get("timeBreakdownVersion").and_then(Value::as_str) {
+            self.time_breakdown_version = Some(v.to_owned());
+        }
+        Ok((at, reply))
     }
 }
 
