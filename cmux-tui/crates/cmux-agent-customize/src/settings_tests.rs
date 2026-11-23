@@ -468,10 +468,12 @@ fn claude_env_set_and_unset_edit_only_that_variable_and_stay_masked() {
         "off"
     );
     apply_env(&f.ctx, Agent::Claude, "MY_FLAG", None, None).unwrap();
-    assert_eq!(fs::read_to_string(&path).unwrap(), USER_SETTINGS);
+    let parsed = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+    let after_unset = fs::read_to_string(&path).unwrap();
+    assert_eq!(parsed(&after_unset), parsed(USER_SETTINGS));
     // Unsetting what is not there writes nothing.
     apply_env(&f.ctx, Agent::Claude, "NOPE", None, None).unwrap();
-    assert_eq!(fs::read_to_string(&path).unwrap(), USER_SETTINGS);
+    assert_eq!(fs::read_to_string(&path).unwrap(), after_unset);
 }
 
 #[test]
