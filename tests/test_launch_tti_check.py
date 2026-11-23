@@ -106,6 +106,21 @@ class InAppPathTests(unittest.TestCase):
         [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
         self.assertIn("probe_no_key_window", why)
 
+    def test_probe_that_took_the_front_is_measured_and_named(self):
+        # A background runner's launch is never key at the first frame: the probe took the front as a Dock launch.
+        for mark, focus in (("terminal.probe_app_inactive", "app_inactive"),
+                            ("terminal.probe_window_not_key", "window_not_key")):
+            marks = {**self.MARKS, mark: 640.5}
+            row = {"post_access": False, "input": "in_app", **tti.in_app_terminal_reading(marks)}
+            self.assertEqual([], tti.round_failures("terminal", "in_app", row, marks, 30))
+            self.assertEqual(focus, tti.probe_focus(marks))
+            self.assertIn(mark, tti.KEPT_MARKS)
+
+    def test_probe_focus_reads_key_none_and_absent(self):
+        self.assertEqual("key", tti.probe_focus({"terminal.probe_key_typed": 641.0}))
+        self.assertEqual("none", tti.probe_focus({"terminal.probe_no_key_window": 641.0}))
+        self.assertIsNone(tti.probe_focus({"first_window_frame_committed": 640.0}))
+
     def test_chat_without_the_composer_mark_fails_nothing_on_either_path(self):
         for path in ("posted", "in_app"):
             row = {"post_access": path == "posted", "input_ms": None, "no_mark": True}
