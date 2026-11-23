@@ -4235,12 +4235,12 @@
         "action": "agent set-computer-use-approval",
         "args": {
           "appId": "/tmp/contract",
-          "decision": "always"
+          "decision": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux agent set-computer-use-approval --app-id /tmp/contract --decision always"
+      "source": "cmux agent set-computer-use-approval --app-id /tmp/contract --decision /tmp/contract"
     }
   ]
 }
