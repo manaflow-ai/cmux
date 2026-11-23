@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 676,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -303,27 +303,6 @@
             "min": 1,
             "max": 3650,
             "unit": "days"
-          }
-        },
-        {
-          "key": "agents.chats.coldSegments",
-          "title": "Compress Long Chats",
-          "help": "Compresses the older parts of long chats. Run cmux chats warm to undo.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Chats"
-        },
-        {
-          "key": "agents.chats.coldSegmentsLevel",
-          "title": "Long Chat Compression Level",
-          "help": "Higher levels use less disk and take longer to compress.",
-          "kind": "number",
-          "default": 3,
-          "group": "Chats",
-          "range": {
-            "min": 1,
-            "max": 19,
-            "unit": "count"
           }
         },
         {

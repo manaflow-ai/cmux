@@ -306,8 +306,6 @@
     "setting.agents.cacheCompact.minContextPercent": 50,
     "setting.agents.chats.coldArchive": false,
     "setting.agents.chats.coldArchiveAfterDays": 30,
-    "setting.agents.chats.coldSegments": false,
-    "setting.agents.chats.coldSegmentsLevel": 3,
     "setting.agents.chats.discovery": true,
     "setting.agents.chats.enabled": true,
     "setting.agents.chats.roots": [],
