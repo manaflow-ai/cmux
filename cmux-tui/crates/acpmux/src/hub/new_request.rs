@@ -117,6 +117,9 @@ pub struct NewRequest {
     /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `stop_condition.rs`),
     /// already checked by the caller; None for none.
     pub stop_condition: Option<String>,
+    /// `_meta.acpmux.restricted` (`restricted.rs`): read-only work in a folder the person chose
+    /// not to trust; its policy was already held to review by the caller.
+    pub restricted: bool,
     /// The person asks for this chat (`Session::person`): this host's app, or a connection that
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
