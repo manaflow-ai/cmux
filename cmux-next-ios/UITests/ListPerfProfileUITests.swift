@@ -53,7 +53,13 @@ final class ListPerfProfileUITests: XCTestCase {
         let probe = app.staticTexts["list.burst.frames"].firstMatch
         let done = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "inspector-burst "), object: probe)
         _ = XCTWaiter().wait(for: [done], timeout: 90)
-        print("CMUX_LISTPERF_PROFILE burst-at-top \(probe.exists ? probe.label : "no summary")")
+        let summary = probe.exists ? probe.label : "no summary"
+        print("CMUX_LISTPERF_PROFILE burst-at-top \(summary)")
+        // The fleet keeps no console: the window's summary goes in the result bundle.
+        let note = XCTAttachment(string: summary)
+        note.name = "burst-top-frames"
+        note.lifetime = .keepAlways
+        add(note)
         app.terminate()
     }
     // final.sh: "subagent-2000      subagent    LIST_COUNT=2000 LIST_PASSES=1"
