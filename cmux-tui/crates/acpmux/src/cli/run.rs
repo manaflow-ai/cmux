@@ -29,6 +29,7 @@ mod parent;
 mod send_async;
 mod session_move;
 mod sleep_handoff;
+pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;
 
