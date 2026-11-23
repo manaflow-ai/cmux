@@ -171,6 +171,7 @@
         "signing-runner-variables": "43 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 3 job-minutes"
       },
       ".github/workflows/cmux-tui-spec.yml": {
+        "acpmux-tests": "111 runs on 96 pull requests in 11-13Z on 2026-11-23 (the timing feed), 45 of them with a red or a cancel; of 14 reds sampled, about 3 the pull request's own (#52025 a compile error, #52008 permission_matrix, #47706), 5 single timing tests a retry passed elsewhere, 5 mass failures with no base log to compare, and the base itself red (jobs 137642903085, 137664670905): Tier B, fixed forward on the post-merge batch; 2,567 pull request job-minutes in the 2 h. Off: repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on",
         "acpmux-sim": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 98 job-minutes",
         "acpmux-protocol-ir": "8 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 63 job-minutes",
         "clippy": "19 runs on 52 merged pull requests, 3 with a red, 3 of them the pull request's own (#45801, #46459, #46676): Tier B, fixed forward on the push; 414 job-minutes",
