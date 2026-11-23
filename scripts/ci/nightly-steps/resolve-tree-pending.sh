@@ -42,15 +42,26 @@ if (( rc != 1 )); then
   exit 0
 fi
 fallback_out="$(mktemp)"
+fallback_err="$(mktemp)"
+# The first look covers the last CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits, as before. On a miss
+# a second look reaches CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS (default 300); the 24 h age bound
+# (CMUX_TUI_TREE_MAX_AGE_HOURS) still ends it first. Each look stops at its first published tree, so a
+# hit in the last 50 costs what it did. Run 45097887921 (2026-11-23) found no fallback: the newest
+# published tree was 87 commits back (two hours of trees that did not compile, at about 40 merges an
+# hour), so "Bundle the cmux-tui client" waited the full 45 min for a tree nothing published and failed.
+fallback_search() {
+  CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
+    CMUX_TUI_TREE_SEARCH_COMMITS="$1" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null
+}
 set -m
-CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
-  bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null >"$fallback_out" 2>/dev/null &
+{ fallback_search "${CMUX_TUI_TREE_SEARCH_COMMITS:-50}" \
+    || fallback_search "${CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS:-300}"; } >"$fallback_out" 2>"$fallback_err" &
 fallback_pid=$!
 set +m
 fallback_began=$SECONDS
 end_fallback() {
   if [[ -n "${fallback_pid:-}" ]]; then kill -TERM -- "-$fallback_pid" 2>/dev/null || true; wait "$fallback_pid" 2>/dev/null || true; fi
-  rm -f "$fallback_out"
+  rm -f "$fallback_out" "$fallback_err"
 }
 trap end_fallback EXIT
 phase() { echo "phase $1: $(( SECONDS - $2 ))s"; }
@@ -96,6 +107,8 @@ if (( fallback_rc == 0 )); then
     fallback_note="tree \`$fallback_key\` of \`${fallback_source:-?}\`, published by \`$fallback_commit\`"
   fi
 fi
+# Why no fallback: the search's last word (it was discarded, so run 45097887921's miss read as nothing).
+[[ -n "$fallback" ]] || { echo "no fallback tree:"; tail -n 3 "$fallback_err"; } >&2
 {
   echo "tree_pending=true"
   echo "key=$key"
