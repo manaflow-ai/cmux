@@ -59,7 +59,12 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     /// only; it overrides the setting there), else `appearance.cornerFlush` (cmux-next.json, a theme file or a
     /// setup; Leo, 2026-11-18: the gooey look "we have as a toggle maybe, and we can like do more stuff with
     /// that"). Either draws over any chrome; nil leaves the default to ``defaultFits``.
-    @MainActor static var chosen: CornerFlush? { tunable.override ?? DesignSettings.shared.cornerFlush }
+    /// Gooey tabs (`appearance.gooeyTabs` subtle or full) pick flush-goo ahead of both, as an effective value that
+    /// never writes the corner setting.
+    @MainActor static var chosen: CornerFlush? {
+        if DesignSettings.shared.gooeyTabs.isOn { return .goo }
+        return tunable.override ?? DesignSettings.shared.cornerFlush
+    }
 
     /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
     /// `appearance.chromeStyle` fallback, or `default`), tabs on top and above a page's toolbar (a strip
