@@ -514,6 +514,22 @@ impl Journal {
         state.stats.segments_retired = state.stats.segments_retired.saturating_add(retired);
     }
 
+    /// Asks the writer to sync record `lsn` at once, and returns: a daemon's reply or event held
+    /// for a client until `lsn` is durable asks this, so an acked batch does not wait out the rest
+    /// of [`Config::ack_group_window`] while someone waits to see it (the window then groups only
+    /// the records nobody waits for). The listeners say when it is durable.
+    pub fn ask_durable(&self, lsn: Lsn) {
+        let mut state = self.shared.lock();
+        self.ask_locked(&mut state, lsn);
+    }
+
+    fn ask_locked(&self, state: &mut State, lsn: Lsn) {
+        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
+            state.sync_asked = true;
+            self.shared.wake.notify_one();
+        }
+    }
+
     /// Blocks until record `lsn` is durable. For tests, tools and background threads (a
     /// checkpoint): a daemon's request path never blocks on the disk; it holds its reply until a
     /// listener says the LSN is durable. A wait asks the writer to sync what it wrote at once, so
@@ -521,10 +537,7 @@ impl Journal {
     pub fn wait_durable(&self, lsn: Lsn, timeout: Duration) -> Result<(), WaitError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
-        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
-            state.sync_asked = true;
-            self.shared.wake.notify_one();
-        }
+        self.ask_locked(&mut state, lsn);
         loop {
             if state.stats.durable_lsn >= lsn {
                 return Ok(());
