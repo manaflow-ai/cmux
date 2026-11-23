@@ -134,6 +134,7 @@ import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
+import { useOutcomeHints } from "../composerOutcomeHintsModel";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
@@ -421,6 +422,8 @@ const NO_PROJECTS: Project[] = [];
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
+  // Observe Option before the slash menu mounts, just as the chat composer does.
+  useOutcomeHints();
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;

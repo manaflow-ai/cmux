@@ -255,10 +255,16 @@
 .acpmux-slash-actions{display:flex;flex:none;align-items:center;gap:var(--ds-space-1);order:2;margin-left:auto;color:var(--agent-soft);font-size:var(--text-detail)}
 .acpmux-slash-actions .acpmux-slash-keycap{order:0;margin-left:0}
 .acpmux-slash-keycap{flex:none;order:2;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--text-detail);line-height:1;text-align:center}
-/* The outcome hints' `hint` arm (composerOutcomeHintsModel.ts): a quiet "?" before the context ring, the ring's size and ink; pressed, it keeps the keycap's inset. */
+/* The outcome hints' `hint` arm: quiet at rest; hover, selected and pressed follow the ink ladder.
+   Glass takes plain washes. On the opaque card the dark base already carries 7% ink, so the
+   wash is (target - base) / (1 - base). The lifted light card adds no text ink. */
+.acpmux-composer-hints-toggle{--hints-hover:color-mix(in srgb,var(--agent-text) 8%,transparent);--hints-selected:color-mix(in srgb,var(--agent-text) 12%,transparent);--hints-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent)}
+:root:is([data-reduce-transparency],[data-glass="off"]) .acpmux-composer-box .acpmux-composer-hints-toggle{--hints-hover:light-dark(color-mix(in srgb,var(--agent-text) 8%,transparent),color-mix(in srgb,var(--agent-text) calc((8% - 7%) / .93),transparent));--hints-selected:light-dark(color-mix(in srgb,var(--agent-text) 12%,transparent),color-mix(in srgb,var(--agent-text) calc((12% - 7%) / .93),transparent));--hints-pressed:light-dark(color-mix(in srgb,var(--agent-text) 16%,transparent),color-mix(in srgb,var(--agent-text) calc((16% - 7%) / .93),transparent))}
+@media (prefers-reduced-transparency:reduce){.acpmux-composer-box .acpmux-composer-hints-toggle{--hints-hover:light-dark(color-mix(in srgb,var(--agent-text) 8%,transparent),color-mix(in srgb,var(--agent-text) calc((8% - 7%) / .93),transparent));--hints-selected:light-dark(color-mix(in srgb,var(--agent-text) 12%,transparent),color-mix(in srgb,var(--agent-text) calc((12% - 7%) / .93),transparent));--hints-pressed:light-dark(color-mix(in srgb,var(--agent-text) 16%,transparent),color-mix(in srgb,var(--agent-text) calc((16% - 7%) / .93),transparent))}}
 .acpmux-composer-hints-toggle{flex:none;display:grid;place-items:center;width:var(--acpmux-composer-small-control);height:var(--acpmux-composer-small-control);padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:1}
-.acpmux-composer-hints-toggle:hover{background:var(--acpmux-menu-hover)}
-.acpmux-composer-hints-toggle[aria-pressed="true"]{background:var(--ds-surface-inset);color:var(--agent-soft)}
+.acpmux-composer-hints-toggle:hover{background:var(--hints-hover)}
+.acpmux-composer-hints-toggle[aria-pressed="true"]{background:var(--hints-selected);color:var(--agent-soft)}
+.acpmux-composer-hints-toggle:active{background:var(--hints-pressed)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
