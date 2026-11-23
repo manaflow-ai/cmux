@@ -56,8 +56,10 @@ const REPORT_OPERATIONS: [ResourceOperation; 9] = [
 
 /// Legacy commands (`{"cmd": ...}`) an agent may still send on `read`:
 /// reads, streams of reads, connection metadata and its own reports.
-/// Sorted (binary search).
-pub(super) const LEGACY_ALLOWED: [&str; 78] = [
+/// Not `detach-client` (it detaches another viewer) or
+/// `set-terminal-command-history` (it writes a setting). Sorted (binary
+/// search).
+pub(super) const LEGACY_ALLOWED: [&str; 76] = [
     "cloud-attachment-read",
     "cloud-conversation-history",
     "cloud-conversation-run",
@@ -80,7 +82,6 @@ pub(super) const LEGACY_ALLOWED: [&str; 78] = [
     "conversation-search",
     "conversation-snapshot",
     "conversation-thread",
-    "detach-client",
     "export-layout",
     "feed-local-list",
     "feed-local-read",
@@ -121,7 +122,6 @@ pub(super) const LEGACY_ALLOWED: [&str; 78] = [
     "resolve-terminal",
     "server-stats",
     "set-client-info",
-    "set-terminal-command-history",
     "shell-read",
     "snapshot-request",
     "subscribe",

@@ -141,7 +141,25 @@ fn agent_app_control_read_refuses_an_agents_change_and_allows_its_reads() {
         "{response}"
     );
 
-    for read in [legacy("list-workspaces"), legacy("identify"), v2("workspace.list")] {
+    // Off the allow list: each changes the app (a setting, another viewer).
+    for change in ["set-terminal-command-history", "detach-client"] {
+        assert!(LEGACY_ALLOWED.binary_search(&change).is_err(), "{change}");
+        assert_eq!(refuse_line(&rig.mux, client, &legacy(change), &writer), Some(true), "{change}");
+        let response = drain_json(&outbound).pop().expect("a refusal");
+        assert!(response["error"].as_str().unwrap().starts_with(REASON), "{response}");
+    }
+
+    // Reads and streams of reads stay allowed.
+    for read in [
+        legacy("list-workspaces"),
+        legacy("identify"),
+        legacy("conversation-run"),
+        legacy("conversation-live"),
+        legacy("cloud-conversation-run"),
+        legacy("snapshot-request"),
+        legacy("subscribe"),
+        v2("workspace.list"),
+    ] {
         assert!(refuse_line(&rig.mux, client, &read, &writer).is_none(), "{read} is a read");
     }
     assert!(outbound.try_pop().is_none());
