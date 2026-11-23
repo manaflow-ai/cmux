@@ -75,6 +75,11 @@
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
+.nt-chats-evac{margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-2)}
+.nt-chats-evac:empty{display:none}
+.nt-chats-evac + .nt-chats-all{margin-left:0}
+.nt-chats-evac-body{margin-bottom:var(--ds-space-2)}
+.nt-chats-evac-body:empty{display:none}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}

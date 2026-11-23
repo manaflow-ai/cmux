@@ -193,7 +193,12 @@ pub fn carries(cargo: &Cargo) -> Vec<Carry> {
         out.push(Carry { kind: "draft", how: How::Carried, count: None, name: None });
     }
     if let Some(branch) = cargo.branch.as_ref().filter(|b| !b.is_empty()) {
-        out.push(Carry { kind: "branch", how: How::Carried, count: None, name: Some(branch.clone()) });
+        out.push(Carry {
+            kind: "branch",
+            how: How::Carried,
+            count: None,
+            name: Some(branch.clone()),
+        });
     }
     if cargo.dirty_files > 0 {
         out.push(Carry {
@@ -284,7 +289,10 @@ pub enum Next {
 /// panic: a step may only move forward, and an ended move takes no event.
 pub fn reduce(flow: Option<Flow>, event: Event) -> (Option<Flow>, Next) {
     match (flow, event) {
-        (None | Some(Flow { outcome: Some(_), .. }), Event::Begin { session, direction, trigger, from, to, cargo, at_ms }) => (
+        (
+            None | Some(Flow { outcome: Some(_), .. }),
+            Event::Begin { session, direction, trigger, from, to, cargo, at_ms },
+        ) => (
             Some(Flow {
                 session,
                 direction,
@@ -539,8 +547,7 @@ pub fn pressure(signals: &Signals) -> Option<AutoReason> {
     if signals.sleeping {
         return Some(AutoReason::Sleep);
     }
-    if signals.on_battery
-        && signals.battery_percent.is_some_and(|p| p <= rule::LOW_BATTERY_PERCENT)
+    if signals.on_battery && signals.battery_percent.is_some_and(|p| p <= rule::LOW_BATTERY_PERCENT)
     {
         return Some(AutoReason::LowBattery);
     }
@@ -685,9 +692,9 @@ pub enum OwnMachine {
 /// One VM per agent: the VM this chat used before when it is still there and holds no other
 /// chat, else a new one. A shared machine is never picked.
 pub fn own_machine(session: &str, before: Option<&str>, machines: &[Machine]) -> OwnMachine {
-    let reusable = before.and_then(|id| machines.iter().find(|m| m.id == id)).filter(|m| {
-        !m.gone && m.sessions.iter().all(|s| s == session)
-    });
+    let reusable = before
+        .and_then(|id| machines.iter().find(|m| m.id == id))
+        .filter(|m| !m.gone && m.sessions.iter().all(|s| s == session));
     match reusable {
         Some(machine) => OwnMachine::Reuse { machine: machine.id.clone() },
         None => OwnMachine::Create,

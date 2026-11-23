@@ -158,6 +158,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import type { EvacuateState } from "../place/placeModel";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -212,6 +213,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
   /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
   onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
+  /// The chat cards' place and Evacuate menu rows (newtab/ChatCards.tsx); omitted where the page cannot ask the app.
+  onPlace?(sessionId: string, mode: "local" | "cloud" | "auto"): void;
+  onEvacuate?(sessions?: readonly string[]): void;
+  /// The running Evacuate and its Cancel (place/EvacuateControl.tsx).
+  evacuate?: EvacuateState;
+  onCancelEvacuate?(): void;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -2280,6 +2287,10 @@ export function NewTabScreen(props: Props) {
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
           {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
+          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
+          {...(props.onEvacuate ? { onEvacuate: props.onEvacuate } : {})}
+          {...(props.evacuate ? { evacuate: props.evacuate } : {})}
+          {...(props.onCancelEvacuate ? { onCancelEvacuate: props.onCancelEvacuate } : {})}
           onShowAll={props.onShowAll}
         />
       )}

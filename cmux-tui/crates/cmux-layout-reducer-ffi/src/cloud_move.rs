@@ -2,7 +2,9 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, place, seed, targets, wait};
+use cmux_cloud_start_core::moves::{
+    autosize, cli, folder, ledger, pin, place, seed, targets, wait,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -542,7 +544,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 machines: Vec<place::Machine>,
             }
             let request: Request = read(request)?;
-            to_value(place::own_machine(&request.session, request.before.as_deref(), &request.machines))?
+            to_value(place::own_machine(
+                &request.session,
+                request.before.as_deref(),
+                &request.machines,
+            ))?
         }
         b"cloud_move_place_steps" => {
             let steps: Vec<_> = place::Step::ALL

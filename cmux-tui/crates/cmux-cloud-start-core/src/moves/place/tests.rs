@@ -42,7 +42,12 @@ fn steps_run_forward_and_time_each() {
     let times: Vec<_> = shown.steps.iter().map(|s| (s.step, s.ms)).collect();
     assert_eq!(
         times,
-        vec![(Step::Preflight, 200), (Step::Machine, 800), (Step::Sync, 1_000), (Step::Commit, 1_500)]
+        vec![
+            (Step::Preflight, 200),
+            (Step::Machine, 800),
+            (Step::Sync, 1_000),
+            (Step::Commit, 1_500)
+        ]
     );
 }
 
@@ -80,7 +85,8 @@ fn cancel_after_freeze_runs_out_and_says_finishing() {
 fn failure_before_landing_keeps_the_old_place_and_offers_retry() {
     let flow = begin(Cargo::default());
     let (flow, _) = step(flow, Step::Carry, 2_000);
-    let (flow, _) = reduce(Some(flow), Event::Failed { reason: "link dropped".into(), at_ms: 2_500 });
+    let (flow, _) =
+        reduce(Some(flow), Event::Failed { reason: "link dropped".into(), at_ms: 2_500 });
     let flow = flow.expect("flow");
     let shown = view(&flow, 9_000);
     assert_eq!(shown.state, "failed");
@@ -154,24 +160,45 @@ fn busy() -> ChatState {
 #[test]
 fn auto_moves_busy_chats_under_pressure_only() {
     let sleep = Signals { sleeping: true, ..Signals::default() };
-    assert_eq!(auto(Mode::Auto, &busy(), &sleep), AutoDecision::ToCloud { reason: AutoReason::Sleep });
+    assert_eq!(
+        auto(Mode::Auto, &busy(), &sleep),
+        AutoDecision::ToCloud { reason: AutoReason::Sleep }
+    );
     // An idle chat never moves, and Local or Cloud mode never asks.
     assert_eq!(auto(Mode::Auto, &ChatState::default(), &sleep), AutoDecision::Stay);
     assert_eq!(auto(Mode::Local, &busy(), &sleep), AutoDecision::Stay);
     let low = Signals { on_battery: true, battery_percent: Some(10), ..Signals::default() };
-    assert_eq!(auto(Mode::Auto, &busy(), &low), AutoDecision::ToCloud { reason: AutoReason::LowBattery });
+    assert_eq!(
+        auto(Mode::Auto, &busy(), &low),
+        AutoDecision::ToCloud { reason: AutoReason::LowBattery }
+    );
     let charging = Signals { on_battery: false, battery_percent: Some(5), ..Signals::default() };
     assert_eq!(auto(Mode::Auto, &busy(), &charging), AutoDecision::Stay);
     let mem = Signals { memory: Pressure::Critical, ..Signals::default() };
-    assert_eq!(auto(Mode::Auto, &busy(), &mem), AutoDecision::ToCloud { reason: AutoReason::Memory });
+    assert_eq!(
+        auto(Mode::Auto, &busy(), &mem),
+        AutoDecision::ToCloud { reason: AutoReason::Memory }
+    );
     let disk = Signals { disk_free_bytes: Some(1 << 30), ..Signals::default() };
-    assert_eq!(auto(Mode::Auto, &busy(), &disk), AutoDecision::ToCloud { reason: AutoReason::Disk });
+    assert_eq!(
+        auto(Mode::Auto, &busy(), &disk),
+        AutoDecision::ToCloud { reason: AutoReason::Disk }
+    );
     let away = Signals { idle_ms: Some(rule::AWAY_MS), ..Signals::default() };
-    assert_eq!(auto(Mode::Auto, &busy(), &away), AutoDecision::ToCloud { reason: AutoReason::Away });
+    assert_eq!(
+        auto(Mode::Auto, &busy(), &away),
+        AutoDecision::ToCloud { reason: AutoReason::Away }
+    );
     let long = ChatState { turn_ms: rule::LONG_TURN_MS, ..busy() };
-    assert_eq!(auto(Mode::Auto, &long, &Signals::default()), AutoDecision::ToCloud { reason: AutoReason::LongTurn });
+    assert_eq!(
+        auto(Mode::Auto, &long, &Signals::default()),
+        AutoDecision::ToCloud { reason: AutoReason::LongTurn }
+    );
     let queued = ChatState { queued: 1, ..ChatState::default() };
-    assert_eq!(auto(Mode::Auto, &queued, &sleep), AutoDecision::ToCloud { reason: AutoReason::Sleep });
+    assert_eq!(
+        auto(Mode::Auto, &queued, &sleep),
+        AutoDecision::ToCloud { reason: AutoReason::Sleep }
+    );
     let moving = ChatState { moving: true, ..busy() };
     assert_eq!(auto(Mode::Auto, &moving, &sleep), AutoDecision::Stay);
 }
@@ -179,19 +206,37 @@ fn auto_moves_busy_chats_under_pressure_only() {
 #[test]
 fn auto_brings_back_only_its_own_moves_when_all_is_well() {
     let here = Signals { idle_ms: Some(5_000), ..Signals::default() };
-    let parked = ChatState { at: At::Cloud, moved_by_auto: true, idle_ms: rule::BACK_IDLE_MS, ..ChatState::default() };
+    let parked = ChatState {
+        at: At::Cloud,
+        moved_by_auto: true,
+        idle_ms: rule::BACK_IDLE_MS,
+        ..ChatState::default()
+    };
     assert_eq!(auto(Mode::Auto, &parked, &here), AutoDecision::Back);
     // The person put it there: it stays.
     let theirs = ChatState { moved_by_auto: false, ..parked };
     assert_eq!(auto(Mode::Auto, &theirs, &here), AutoDecision::Stay);
     // Busy, away, low or just idle a moment: it stays.
-    assert_eq!(auto(Mode::Auto, &ChatState { turn_running: true, ..parked }, &here), AutoDecision::Stay);
-    assert_eq!(auto(Mode::Auto, &parked, &Signals { idle_ms: Some(rule::PRESENT_MS), ..here }), AutoDecision::Stay);
+    assert_eq!(
+        auto(Mode::Auto, &ChatState { turn_running: true, ..parked }, &here),
+        AutoDecision::Stay
+    );
+    assert_eq!(
+        auto(Mode::Auto, &parked, &Signals { idle_ms: Some(rule::PRESENT_MS), ..here }),
+        AutoDecision::Stay
+    );
     assert_eq!(auto(Mode::Auto, &parked, &Signals { idle_ms: None, ..here }), AutoDecision::Stay);
-    let low = Signals { on_battery: true, battery_percent: Some(rule::BACK_BATTERY_PERCENT), ..here };
+    let low =
+        Signals { on_battery: true, battery_percent: Some(rule::BACK_BATTERY_PERCENT), ..here };
     assert_eq!(auto(Mode::Auto, &parked, &low), AutoDecision::Stay);
-    assert_eq!(auto(Mode::Auto, &ChatState { idle_ms: 1_000, ..parked }, &here), AutoDecision::Stay);
-    assert_eq!(auto(Mode::Auto, &parked, &Signals { memory: Pressure::Warn, ..here }), AutoDecision::Stay);
+    assert_eq!(
+        auto(Mode::Auto, &ChatState { idle_ms: 1_000, ..parked }, &here),
+        AutoDecision::Stay
+    );
+    assert_eq!(
+        auto(Mode::Auto, &parked, &Signals { memory: Pressure::Warn, ..here }),
+        AutoDecision::Stay
+    );
 }
 
 #[test]
@@ -228,9 +273,15 @@ fn own_machine_is_never_shared() {
         sessions: sessions.iter().map(|s| s.to_string()).collect(),
         gone,
     };
-    let machines =
-        vec![machine("m1", &["s1"], false), machine("m2", &["s1", "s2"], false), machine("m3", &[], true)];
-    assert_eq!(own_machine("s1", Some("m1"), &machines), OwnMachine::Reuse { machine: "m1".into() });
+    let machines = vec![
+        machine("m1", &["s1"], false),
+        machine("m2", &["s1", "s2"], false),
+        machine("m3", &[], true),
+    ];
+    assert_eq!(
+        own_machine("s1", Some("m1"), &machines),
+        OwnMachine::Reuse { machine: "m1".into() }
+    );
     assert_eq!(own_machine("s1", Some("m2"), &machines), OwnMachine::Create);
     assert_eq!(own_machine("s1", Some("m3"), &machines), OwnMachine::Create);
     assert_eq!(own_machine("s1", Some("m9"), &machines), OwnMachine::Create);

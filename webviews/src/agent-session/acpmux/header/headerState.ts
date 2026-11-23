@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
 import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
+import { evacuateOf, placeOf, type EvacuateState, type PlaceState } from "../place/placeModel";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -93,6 +94,11 @@ export interface HeaderState {
   /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
   /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
+  /// Where the chat runs and its move, when the app reports them (place/placeModel.ts): the place
+  /// control and the move card read it. Only a `pane.tabState` reply or a push that names `place` carries it.
+  readonly place?: PlaceState;
+  /// This Mac's Evacuate counts, for the chat list.
+  readonly evacuate?: EvacuateState;
   /// The chat is half of a terminal and chat pair (a terminal runs its session): "..." offers Switch to terminal, the
   /// App's Toggle Terminal and Chat. Only a `pane.tabState` reply carries it (read as the menu opens); a push keeps it.
   readonly terminalSwitch: boolean;
@@ -159,6 +165,8 @@ export function setHeaderState(value: unknown): void {
     moveReasons?: unknown;
     moveTargets?: unknown;
     terminalSwitch?: unknown;
+    place?: unknown;
+    evacuate?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -197,6 +205,8 @@ export function setHeaderState(value: unknown): void {
         })
       : current.moveTargets,
     terminalSwitch: typeof raw.terminalSwitch === "boolean" ? raw.terminalSwitch : current.terminalSwitch,
+    place: "place" in raw ? placeOf(raw.place) : current.place,
+    evacuate: "evacuate" in raw ? evacuateOf(raw.evacuate) : current.evacuate,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
