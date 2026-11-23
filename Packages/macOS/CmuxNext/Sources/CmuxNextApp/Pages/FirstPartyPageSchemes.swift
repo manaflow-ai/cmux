@@ -78,7 +78,6 @@ enum FirstPartyPageSchemes {
         .homeChannels,
         .homeMessages,
         .iconPicker,
-        .importHistory,
         .keybindings,
         .machines,
         .markdown,

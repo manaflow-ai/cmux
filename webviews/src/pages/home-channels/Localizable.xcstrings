@@ -7887,127 +7887,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home is offline."
+            "value" : "Chief is offline."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "الصفحة الرئيسية غير متصلة."
+            "value" : "Chief غير متصل."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Početna je van mreže."
+            "value" : "Chief je van mreže."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hjem er offline."
+            "value" : "Chief er offline."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Home ist offline."
+            "value" : "Chief ist offline."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Inicio está sin conexión."
+            "value" : "Chief está sin conexión."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’accueil est hors ligne."
+            "value" : "Chief est hors ligne."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Home è offline."
+            "value" : "Chief è offline."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ホームはオフラインです。"
+            "value" : "Chief はオフラインです。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទំព័រដើមគ្មានអ៊ីនធឺណិត។"
+            "value" : "Chief គ្មានអ៊ីនធឺណិត។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "홈이 오프라인입니다."
+            "value" : "Chief가 오프라인입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hjem er frakoblet."
+            "value" : "Chief er frakoblet."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start jest offline."
+            "value" : "Chief jest offline."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Início está offline."
+            "value" : "Chief está offline."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Главная не в сети."
+            "value" : "Chief не в сети."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "หน้าหลักออฟไลน์"
+            "value" : "Chief ออฟไลน์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ana Sayfa çevrimdışı."
+            "value" : "Chief çevrimdışı."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Головна не в мережі."
+            "value" : "Chief не в мережі."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Trang chủ đang ngoại tuyến."
+            "value" : "Chief đang ngoại tuyến."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "主页已离线。"
+            "value" : "Chief 已离线。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "主頁已離線。"
+            "value" : "Chief 已離線。"
           }
         }
       }
@@ -13258,127 +13258,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home"
+            "value" : "Chief"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "الرئيسية"
+            "value" : "Chief"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Početna"
+            "value" : "Chief"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hjem"
+            "value" : "Chief"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Home"
+            "value" : "Chief"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Inicio"
+            "value" : "Chief"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Accueil"
+            "value" : "Chief"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Home"
+            "value" : "Chief"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ホーム"
+            "value" : "Chief"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទំព័រដើម"
+            "value" : "Chief"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "홈"
+            "value" : "Chief"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hjem"
+            "value" : "Chief"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start"
+            "value" : "Chief"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Início"
+            "value" : "Chief"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Главная"
+            "value" : "Chief"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "หน้าหลัก"
+            "value" : "Chief"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ana Sayfa"
+            "value" : "Chief"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Головна"
+            "value" : "Chief"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Trang chủ"
+            "value" : "Chief"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "主页"
+            "value" : "Chief"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "主頁"
+            "value" : "Chief"
           }
         }
       }

@@ -470,6 +470,8 @@ pub enum ResourceOperation {
     KeybindingsRemove,
     #[serde(rename = "keybindings.reset")]
     KeybindingsReset,
+    #[serde(rename = "language_packs.ensure")]
+    LanguagePacksEnsure,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -668,6 +670,8 @@ pub enum ResourceOperation {
     CloudMachineChatAccess,
     #[serde(rename = "cloud.machine.share_chat")]
     CloudMachineShareChat,
+    #[serde(rename = "cloud.machine.chief_start")]
+    CloudMachineChiefStart,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

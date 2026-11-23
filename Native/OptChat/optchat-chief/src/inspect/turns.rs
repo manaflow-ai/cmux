@@ -98,7 +98,9 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     // The turn's subagents-at-work line and its Home workspace block went before its messages.
     // The clock line (newer turns) came first.
     let now = start["layout"]["now"].as_str();
-    let memory = start["layout"]["memory_block"].as_str();
+    let memory = start["layout"]["memory_block"]
+        .as_str()
+        .filter(|_| start["layout"]["memory_block_sent"] != false);
     let at_work = start["layout"]["at_work"].as_str();
     let home = start["layout"]["home_workspace"].as_str();
     let tail = now

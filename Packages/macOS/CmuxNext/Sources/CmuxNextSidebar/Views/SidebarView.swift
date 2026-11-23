@@ -156,6 +156,7 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
     /// The sections the list showed at the last render (for the provisional check).
@@ -164,6 +165,10 @@ public final class SidebarView: NSView {
     var bandsDirty = true
     /// The size the bands were laid out for (app sections take a share of the height).
     private var bandsSize: CGSize?
+    /// The last `updateBands` gave an app section a height from the sidebar's (`appHeights`): only then does a new
+    /// height alone change the bands. Without one a window resize step (the width stays, the height moves) makes no
+    /// band content again; the width, the model and the tokens (`bandsDirty`) still do.
+    var bandsFollowHeight = true
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -301,7 +306,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.longPressOpensMenu = false
         newWorkspaceOptionsButton.symbolPointSize = { SidebarStyle.toolbarMenuChevronPointSize }
         // The chooser opens under the whole split button, from the +'s leading edge, as a
@@ -310,7 +315,7 @@ public final class SidebarView: NSView {
             let anchor: NSView = self?.newButton ?? button
             menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: Metrics.space1), in: anchor)
         }
-        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.target = self
         newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
         newButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
@@ -439,13 +444,11 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        // Keep the profile mark visible even for one space: it identifies the
-        // current space and gives a narrow footer a hover target for +.
+        // The strip shows from the second space on (`ProfileBarLogic.isVisible`), at the bottom or the top.
         // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
         // `sidebar.noFade` (Lawrence 2026-10-26) hides the bottom profile and search bar and every edge fade.
         let noFade = design.sidebarSections.noFade
-        let spaceCount = model.profiles.count
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: spaceCount) && (spacesPosition == .bottom || spaceCount > 1)
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
             && design.sidebarSections.showSpaces && !noFade
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
@@ -461,7 +464,7 @@ public final class SidebarView: NSView {
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
         let spacesChanged = bandsDirty
-        if bandsDirty || bandsSize != b.size {
+        if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
         }

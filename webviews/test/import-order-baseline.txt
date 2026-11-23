@@ -162,7 +162,6 @@ test/home-transcript.test.tsx
 test/host-glass.test.ts
 test/hover-intent-cards.test.tsx
 test/imessage-connector.test.tsx
-test/import-history-tools.test.tsx
 test/inbox-thread-in-place.test.tsx
 test/incoming-minimal-collapse.test.tsx
 test/incoming-sender-chip.test.tsx

@@ -713,6 +713,20 @@ export default componentEntry<GalleryProps>({
     "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
     // The columns as the model button opens them, and the same on a short harness list.
     "quick-menu": { props: quick, play: openColumns },
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
+    // "medium" half typed: the list keeps Opus 5.5 instead of flashing No matching models.
+    "search-half-typed-effort": {
+      props: quick,
+      play: async (ctx) => {
+        await openColumns(ctx);
+        await ctx.type("opus 5.5 m", { selector: ".acpmux-cols-search input[type=search]" });
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector(".acpmux-cols [role=listbox]");
+          if (list?.querySelector(".acpmux-cols-note")) throw new Error("a half-typed effort word emptied the list");
+          return list?.querySelector("[role=option]");
+        });
+      },
+    },
     "relevant-few": { props: relevantFew, play: openColumns },
     "relevant-many": { props: relevantMany, play: openColumns },
     "reported-claude-menu": { props: reportedClaude, play: openColumns },

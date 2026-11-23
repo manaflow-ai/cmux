@@ -65,7 +65,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "settle".into(),
-                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
                 );
                 props.insert(
                     "observe".into(),
@@ -109,7 +109,7 @@ fn delivery() -> Value {
 }
 
 fn window_id() -> Value {
-    json!({"type": "string", "description": "The window, from list_windows or a screenshot."})
+    json!({"type": "string", "description": "The window: its id from list_windows or a screenshot, or its title or app name (no list_windows needed; several matches are refused with the matches)."})
 }
 
 pub static TOOLS: &[Tool] = &[
@@ -344,6 +344,52 @@ pub static TOOLS: &[Tool] = &[
             )
         },
     },
+    Tool {
+        name: "list_alerts",
+        access: Access::Observe,
+        description: "System alerts on screen that list_windows hides (macOS: iCloud and crash notices, \"can't be opened\", Gatekeeper, privacy asks, keychain and password panels, the out-of-memory panel): alert_id, owner, bundle_id, pid, title, text, buttons, class, and put_off (the buttons dismiss_alert would press, preferred first; empty when a person must answer). Read through accessibility only: no pixels, never a field's value. Refused with alerts_off unless the person turned on the computerUse.alerts setting (off by default; no Computer Use tool changes it).",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
+        name: "dismiss_alert",
+        access: Access::Act,
+        description: "Put off one system alert from list_alerts by pressing one of its put_off buttons (Later, Not Now, OK, Cancel, Ignore, Don't Allow, Deny, Close, as its class allows) with an accessibility press: no pointer, no focus change. It never presses a button that allows, grants, opens Settings, reports, resets or submits, and never any button on a password panel: those are refused with alert_button_refused, and an alert with no put-off rule with alert_unknown (tell the person; do not try another tool). Refused with alerts_off unless the person turned on computerUse.alerts.",
+        schema: || {
+            obj(
+                json!({
+                    "alert_id": {"type": "string", "description": "The alert, from list_alerts."},
+                    "button": {"type": "string", "description": "The button's title, one of the alert's put_off."}
+                }),
+                &["alert_id", "button"],
+            )
+        },
+    },
+    Tool {
+        name: "list_displays",
+        access: Access::Discover,
+        description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
+        name: "record",
+        access: Access::Observe,
+        description: "Record a display to an MP4 (H.264) video file on the machine. With seconds: records that long and returns when the file is complete. With action \"start\": returns at once with a recording_id and keeps recording, with no connection held, until action \"stop\" or max_seconds; action \"stop\" returns the finished file. The result has path, duration_ms, frames, bytes, width, height and why it ended. One recording runs at a time. Denied apps are left out of every frame as in a display screenshot, and a recording ends by itself when the screen locks or Computer Use is turned off. action \"read\" returns a finished file's bytes in pieces (data_base64, next_offset, eof) when the caller is on another machine.",
+        schema: || {
+            obj(
+                json!({
+                    "action": {"type": "string", "enum": ["record", "start", "stop", "read"], "description": "record (the default): record for seconds and return the file. start, stop: a recording that runs between two calls. read: bytes of a finished recording."},
+                    "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": crate::record::MAX_SECONDS, "description": "How long to record (action record)."},
+                    "max_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": crate::record::MAX_SECONDS, "description": "action start: the recording ends by itself after this long (default 300)."},
+                    "display": {"type": "string", "description": "A display id; omit for the main display."},
+                    "fps": {"type": "integer", "minimum": 1, "maximum": crate::record::MAX_FPS, "description": "Frames per second to aim for (default 10)."},
+                    "max_edge": {"type": "integer", "minimum": crate::record::MIN_MAX_EDGE, "maximum": crate::record::MAX_MAX_EDGE, "description": "The picture's long edge in pixels at most (default 1920)."},
+                    "recording_id": {"type": "string", "description": "stop: the recording to stop (default: this session's). read: the finished recording to read."},
+                    "offset": {"type": "integer", "minimum": 0, "description": "read: where to read from (the last next_offset)."},
+                }),
+                &[],
+            )
+        },
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static Tool> {
@@ -371,7 +417,15 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Element ids stay the same across looks. App menu commands are in the tree's menu bar: click a menu's id to list its items, then click the item to run it. Every action returns the window after acting: what changed since your last look (+ added, ~ changed, - removed, windows opened or closed) and a screenshot when it changed. Read it before you say a step worked: \"No change\" means the action did nothing visible, so try another way instead of reporting it done. For a fixed run of steps on one window (open a sheet, wait for it, fill it, save), batch does them in one call: each step reports its own outcome, wait_for waits for an element or value, target names an element by role and label, and require: \"confirmed\" stops at a step that did not read back. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
+reaches your other machines). Use the fewest calls: a window_id can be the window's title or app \
+name, and each action returns what changed and a screenshot, so no look is needed before or after \
+it. When the task names the window and its controls, act at once: one batch whose steps name \
+elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
+commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
+saying it worked. Act in the background; use delivery foreground only when status says the person \
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell the person which Settings > Computer Use \
+setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {

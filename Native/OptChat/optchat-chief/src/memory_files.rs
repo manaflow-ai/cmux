@@ -29,8 +29,9 @@ pub const FILE: &str = "memory-files.sqlite3";
 pub const RULES: &str = "notes/standing-rules.md";
 /// Most bytes of the index in a turn; the rest is counted.
 pub const INDEX_BLOCK_BYTES: usize = 6_000;
-/// Most bytes of the standing rules in a turn.
-pub const RULES_BLOCK_BYTES: usize = 4_000;
+/// Most bytes of the standing rules in a turn (about 2,500 tokens; the
+/// nightly review keeps the file under 8 KB, so every rule is read).
+pub const RULES_BLOCK_BYTES: usize = 10_000;
 /// Longest file body.
 pub const BODY_MAX: usize = 16_000;
 /// Longest one-line description.
@@ -58,6 +59,39 @@ impl Trust {
         }
     }
 }
+
+/// One wake run (a turn only notes started: a check-in, a follow-up, a
+/// sleep wake, a watch), with the field names of the shared automations
+/// spec (chief-cohesion AUTOMATIONS-SPEC.md section 4): what woke it, how it
+/// ended (`send`, `ask`, `nothing`, `cut`, or `none` when it ended with none
+/// of them), and what it cost.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WakeRun {
+    pub id: String,
+    /// When the run started (ms since the epoch).
+    pub started_at: i64,
+    /// When its wake was planned (a follow-up's or sleep's time, a check-in
+    /// slot), when it had one.
+    pub scheduled_at: Option<i64>,
+    /// What woke it: one line per wake note (`[check-in] ...`).
+    pub wake_reasons: String,
+    pub outcome: String,
+    /// What a `send` run posted.
+    pub result: String,
+    /// A `nothing` run's reason or an `ask` run's question.
+    pub outcome_text: String,
+    /// What the run cost in dollars.
+    pub cost_usd: Option<f64>,
+    /// The person's cost limit for the run.
+    pub limit_usd: Option<f64>,
+    /// `succeeded`, `failed` or `cancelled` (the spec's run states).
+    pub state: String,
+    /// Why it failed or was cancelled: `cost_limit`, `superseded`,
+    /// `error: ...`; empty for a run that succeeded.
+    pub reason: String,
+}
+
+const WAKE_SETTINGS_KEY: &str = "wake.settings";
 
 /// One file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,7 +166,50 @@ CREATE TABLE IF NOT EXISTS memory_forgotten (path TEXT PRIMARY KEY, words TEXT N
 CREATE TABLE IF NOT EXISTS memory_dreams (day TEXT PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS message_authors (key TEXT PRIMARY KEY, kind TEXT NOT NULL);
+
 ";
+
+/// The first wake_runs table (landing 3) had `at`, `reasons`, one `text`
+/// and `stopped`: moved to the automations spec's names (`started_at`,
+/// `wake_reasons`; `text` into `result` for a send, into `outcome_text` for
+/// nothing and ask; `stopped` into `state` and `reason`) in one transaction.
+fn migrate_wake_runs(conn: &mut Connection) -> Result<(), String> {
+    // Immediate: the write lock first, then the check, so a second process
+    // that opens the store at the same time waits and then finds the new
+    // layout.
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(sql)?;
+    let old: bool = tx
+        .prepare("SELECT 1 FROM pragma_table_info('wake_runs') WHERE name = 'at'")
+        .and_then(|mut s| s.exists([]))
+        .map_err(sql)?;
+    if !old {
+        return tx.commit().map_err(sql);
+    }
+    tx.execute_batch(&format!(
+        "ALTER TABLE wake_runs RENAME TO wake_runs_v1;
+         {}
+         INSERT INTO wake_runs (id, started_at, scheduled_at, wake_reasons, outcome, result, outcome_text,
+             cost_usd, limit_usd, state, reason)
+           SELECT id, at, NULL, reasons, outcome,
+             CASE WHEN outcome = 'send' THEN text ELSE '' END,
+             CASE WHEN outcome IN ('nothing', 'ask') THEN text ELSE '' END,
+             cost_usd, limit_usd,
+             CASE WHEN stopped = 'cost limit' OR outcome = 'cut' THEN 'cancelled' ELSE 'succeeded' END,
+             CASE WHEN stopped = 'cost limit' THEN 'cost_limit' WHEN outcome = 'cut' THEN 'superseded' ELSE '' END
+           FROM wake_runs_v1;
+         DROP TABLE wake_runs_v1;",
+        WAKE_RUNS_TABLE.replace("IF NOT EXISTS ", "")
+    ))
+    .map_err(sql)?;
+    tx.commit().map_err(sql)
+}
+
+/// The wake_runs table, field names as AUTOMATIONS-SPEC.md sections 4 and 5.
+const WAKE_RUNS_TABLE: &str = "CREATE TABLE IF NOT EXISTS wake_runs (id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, scheduled_at INTEGER,
+  wake_reasons TEXT NOT NULL, outcome TEXT NOT NULL, result TEXT NOT NULL DEFAULT '', outcome_text TEXT NOT NULL DEFAULT '',
+  cost_usd REAL, limit_usd REAL, state TEXT NOT NULL DEFAULT 'succeeded', reason TEXT NOT NULL DEFAULT '');";
 
 impl MemoryFiles {
     /// Opens (or makes) the store at `path`, mode 0600.
@@ -149,7 +226,11 @@ impl MemoryFiles {
             .map_err(sql)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")
             .map_err(sql)?;
+        let mut conn = conn;
+        // An old wake_runs table is renamed before SCHEMA would see it.
+        migrate_wake_runs(&mut conn)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
+        conn.execute_batch(WAKE_RUNS_TABLE).map_err(sql)?;
         Ok(MemoryFiles {
             conn: Mutex::new(conn),
             path: path.to_owned(),
@@ -487,6 +568,80 @@ impl MemoryFiles {
         .map_err(sql)
     }
 
+    /// The wake settings (check_in.rs `WakeSettings`), as stored.
+    pub fn wake_settings(&self) -> crate::check_in::WakeSettings {
+        self.meta(WAKE_SETTINGS_KEY)
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn put_wake_settings(
+        &self,
+        settings: &crate::check_in::WakeSettings,
+    ) -> Result<(), String> {
+        let text = serde_json::to_string(settings).map_err(|e| format!("memory files: {e}"))?;
+        self.put_meta(WAKE_SETTINGS_KEY, &text)
+    }
+
+    /// Records (or replaces) one wake run's row.
+    pub fn record_wake_run(&self, run: &WakeRun) -> Result<(), String> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO wake_runs (id, started_at, scheduled_at, wake_reasons, outcome, result, outcome_text, \
+             cost_usd, limit_usd, state, reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                run.id,
+                run.started_at,
+                run.scheduled_at,
+                run.wake_reasons,
+                run.outcome,
+                run.result,
+                run.outcome_text,
+                run.cost_usd,
+                run.limit_usd,
+                run.state,
+                run.reason
+            ],
+        )
+        .map(|_| ())
+        .map_err(sql)?;
+        conn.execute(
+            "DELETE FROM wake_runs WHERE started_at < ?1",
+            params![now_ms() - HISTORY_MS],
+        )
+        .map(|_| ())
+        .map_err(sql)
+    }
+
+    /// The newest `n` wake runs, newest first.
+    pub fn wake_runs(&self, n: usize) -> Result<Vec<WakeRun>, String> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, started_at, scheduled_at, wake_reasons, outcome, result, outcome_text, cost_usd, limit_usd, \
+                 state, reason FROM wake_runs ORDER BY started_at DESC LIMIT ?1",
+            )
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![n as i64], |r| {
+                Ok(WakeRun {
+                    id: r.get(0)?,
+                    started_at: r.get(1)?,
+                    scheduled_at: r.get(2)?,
+                    wake_reasons: r.get(3)?,
+                    outcome: r.get(4)?,
+                    result: r.get(5)?,
+                    outcome_text: r.get(6)?,
+                    cost_usd: r.get(7)?,
+                    limit_usd: r.get(8)?,
+                    state: r.get(9)?,
+                    reason: r.get(10)?,
+                })
+            })
+            .map_err(sql)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql)
+    }
+
     /// The open loops (path, description, body).
     pub fn loops(&self) -> Vec<Row> {
         self.list()
@@ -584,7 +739,7 @@ pub fn block_text(rows: &[Row]) -> Option<String> {
             rules.body.clone()
         };
         out.push_str(&format!(
-            "\n{RULES}: rules your person gave in chat, in their words. Follow them like the rules in their profile:\n{body}"
+            "\n{RULES}: rules your person gave in chat, in their words. Follow them like the rules in their profile, and copy each rule that applies into a task or tell you write (agents never see this file):\n{body}"
         ));
     }
     out.push_str("\n</chief-memory>");

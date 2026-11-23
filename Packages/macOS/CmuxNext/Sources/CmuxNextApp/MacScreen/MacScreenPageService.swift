@@ -112,7 +112,7 @@ final class MacScreenPageService: InternalPageProvider {
     func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
-        pages.prepare(key, record: record, byPerson: byPerson)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
         var onCreated: (@MainActor (SurfaceID) -> Void)?
@@ -156,7 +156,7 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain), work: services.work)
         pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.
@@ -197,7 +197,7 @@ extension AppServices {
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
         CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
                                     window: { [weak self] in self?.windows.active?.window },
-                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting { [weak self] in self?.settings })
     }
 
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen

@@ -235,8 +235,16 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 pids=()
 cleanup() {
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  # A run cut short leaves the current target's host (and iphone-sim's simulator) running: its
+  # host-stop ends them. host-stop is a no-op for a host that already stopped.
+  if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
+    bash "$script" host-stop >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+# A signal ends the run through EXIT, so cleanup runs then too.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
@@ -489,11 +497,16 @@ PY
 
   # A target whose `caps` verb prints window-only (cu-png, rd-window: no input path to time) skips
   # the latency stage, and eval.py then judges it on its window rows alone. Every other target
-  # answers `caps` with nothing or an error and runs both stages.
-  window_only=0
-  if bash "$script" caps 2>/dev/null | grep -qx window-only; then
+  # answers `caps` with nothing or an error and runs both stages. latency-only (iphone-sim: its
+  # viewer has no passive window yet) is the other way round: latency, and no window or OCR repeats.
+  window_only=0 latency_only=0
+  caps=$(bash "$script" caps 2>/dev/null || true)
+  if grep -qx window-only <<<"$caps"; then
     window_only=1
     : >"$dir/window-only"
+  elif grep -qx latency-only <<<"$caps"; then
+    latency_only=1
+    : >"$dir/latency-only"
   fi
 
   # Latency: the marker (cmux-rd-host/scripts/mac-marker) above everything, then the host.
@@ -526,6 +539,7 @@ PY
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
   # each time); eval.py reports each number's median and keeps every repeat's.
   for rep in $(seq 1 "$repeats"); do
+    [[ "$latency_only" == 1 ]] && break
     echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
@@ -645,6 +659,6 @@ finish
 # A run with no successful measured target is not a baseline a later run should
 # diff against. Apple transport kbps, decoded FPS and first-frame latency can be
 # unavailable; its OCR or sampled-change evidence still counts when the target
-# itself completed successfully.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
+# itself completed successfully. A latency-only target (iphone-sim) counts by its latency.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
 exit 0
