@@ -39,7 +39,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, collections, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -227,14 +227,15 @@ PARTS = [
     {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tab_scale,tab_close,surfaces_scale"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs", "run_seconds": 1500},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
-    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571). Its
+    # settled samples (150 s after the launch and after the last open, memory.app_agents.settled.) add about 5 minutes.
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
-     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
+     "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -283,6 +284,16 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # Typing in an agent chat's composer under load (typing-frame-bench.py --modes, the load modes every under-load
+    # harness shares in webviews/bench/load-modes.json; Leo, 2026-11-16: "but typing under load is not good enough"):
+    # 200 keys per mode, L0 idle to L5 everything at once, against the real agent. Rows typing.agentpane.<mode>.*: the
+    # native key dispatch to the page's after-frame callback p95 (16 ms) and p99 (33 ms), and keys lost or reordered
+    # (0). A mode whose run is not complete, or that the native bench cannot fully load (its mode_missing), has no
+    # row: its number would read as the whole mode. The rows behind cmuxterm-hq NOW's typing-under-load rows.
+    # run_seconds: step 3b72dd7b ran all six modes in about 3200 s with its queue and build (cmux20-bench, 2026-11-20).
+    {"name": "typing-load", "args": [*MEASURE, "--suite=typing-frame", "--modes=all", "--surfaces=agentpane",
+                                     "--chat-agent=real", "--rounds=1", "--samples=200"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing_frame", "needs": "typing-load", "run_seconds": 3600},
     # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
     # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
     # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
@@ -382,6 +393,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
@@ -741,6 +753,38 @@ def refresh_ms_of(report):
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
+# The typing-load part's budgets (Leo's target for typing under load): key dispatch to after-frame p95 and p99.
+TYPING_P95_MS = 16.0
+TYPING_P99_MS = 33.0
+
+
+def typing_frame_rows(report):
+    """typing.<surface>.<mode>.{after_frame, after_frame_p99, lost_keys} from typing-frame-bench.py's --modes runs: one
+    set per complete run whose mode the native bench loads in full (mode_missing empty). A mode with several rounds
+    keeps its worst round. An incomplete run, or a mode the bench loads only in part, gives no row."""
+    out = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or not run.get("mode") or run.get("complete") is not True or run.get("mode_missing"):
+            continue
+        p50, p95 = run.get("dispatch_to_after_frame_p50_ms"), run.get("dispatch_to_after_frame_p95_ms")
+        p99 = run.get("dispatch_to_after_frame_p99_ms")
+        if not all(isinstance(v, (int, float)) for v in (p50, p95, p99)):
+            continue
+        expected, observed = run.get("expected_keys"), run.get("observed_keys")
+        lost = expected - observed if isinstance(expected, int) and isinstance(observed, int) else None
+        if run.get("text_exact") is not True or run.get("key_order_ok") is not True:
+            lost = max(lost or 0, 1)
+        prefix = f"typing.{run.get('surface') or 'agentpane'}.{run['mode']}"
+        rows = {f"{prefix}.after_frame": {"p50": p50, "p95": p95, "unit": "ms", "budget": TYPING_P95_MS, "floor": 2.0},
+                f"{prefix}.after_frame_p99": {"p50": p99, "p95": p99, "unit": "ms", "budget": TYPING_P99_MS, "floor": 4.0}}
+        if lost is not None:
+            rows[f"{prefix}.lost_keys"] = {"p50": lost, "p95": lost, "unit": "keys", "budget": 0, "floor": COUNT_FLOOR}
+        for name, row in rows.items():
+            if name not in out or row["p95"] > out[name]["p95"]:
+                out[name] = row
+    return out
+
+
 def rows_of_part(part, report, budgets_mod, budgets):
     """{row name: {p50, p95, unit, budget, floor}} from one part's report."""
     out = {}
@@ -789,6 +833,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
+    elif part["kind"] == "typing_frame":
+        out.update(typing_frame_rows(report))
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
 
@@ -2420,6 +2466,11 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
+        elif need == "typing-load":
+            # The load modes (--modes) and the agent chat surface arrived together with load_modes.py (cmux#44479).
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--modes" in text and "agentpane" in text and has_path(sha, "scripts/cmux-next/load_modes.py")
         elif need == "tabs":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
@@ -3645,13 +3696,20 @@ def plan(o):
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
     linux_request, route = "", ""
     if d.get("linux_part") and state.get("current"):
-        route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
-                            commit_has(d["sha"], LINUX_SCRIPT))
-        if route != "runner":
-            linux_request = d["linux_part"] if route == "request" else ""
-            print(f"perf-cron: Linux part {d['linux_part']}: "
-                  + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
-            d["linux_part"] = ""
+        cur = state["current"]
+        order = [d["linux_part"]] + [p for p in part_order(state, cur["parts_todo"], t)
+                                     if is_linux_part(p) and p != d["linux_part"]]
+        runner, linux_request, waiting = linux_picks(cur, order, t, bool(getattr(o, "linux_controller", False)),
+                                                     commit_has(d["sha"], LINUX_SCRIPT))
+        for part in waiting:
+            print(f"perf-cron: Linux part {part}: its request to the build controller waits for an answer")
+        if linux_request:
+            print(f"perf-cron: Linux part {linux_request}: asked of the build controller")
+        if runner != d["linux_part"]:
+            d["reason"] += (f"; Linux: {runner or 'none'} on the runner, {linux_request or 'none'} asked of the "
+                            f"controller, {len(waiting)} waiting for its answer")
+        d["linux_part"] = runner
+        route = "go" if runner or linux_request else "wait"
     cur = state.get("current")
     if cur and route == "wait" and not d.get("part"):
         # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
@@ -4673,6 +4731,31 @@ def linux_route(cur, part, t, controller, has_script):
         ask["fell_back_at"] = iso(t)
         return "runner"
     return "request"
+
+
+def linux_picks(cur, order, t, controller, has_script):
+    """This tick's Linux parts (runner part, controller request, parts waiting), taking ORDER's parts in turn: a part
+    whose request is in its answer window (linux_route 'wait') holds back only itself. The linux and linux-request
+    jobs are separate, so one tick may run a part on the runner and ask the controller for another. linux_route
+    keeps state, so it runs on a copy to look and on CUR only for the parts picked. Before 2026-11-23 the first part
+    in order alone was routed: while coord-sim's request waited (about 3 h a window), no Linux part ran, and a
+    superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
+    look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
+    runner, request, waiting = "", "", []
+    for part in order:
+        how = linux_route(look, part, t, controller, has_script)
+        if how == "wait":
+            waiting.append(part)
+        elif how == "runner" and not runner:
+            runner = part
+        elif how == "request" and not request:
+            request = part
+        if runner and (request or not controller or not has_script):
+            break
+    for part in (runner, request):
+        if part:
+            linux_route(cur, part, t, controller, has_script)
+    return runner, request, waiting
 
 
 def commit_has(sha, path):

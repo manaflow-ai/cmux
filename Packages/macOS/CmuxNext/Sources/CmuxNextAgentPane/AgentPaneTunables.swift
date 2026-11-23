@@ -402,6 +402,7 @@ public nonisolated struct AgentPaneTunables {
             headerControls.descriptor,
             headerMotion.descriptor,
             headerIcons.descriptor,
+            topRightLayout.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
