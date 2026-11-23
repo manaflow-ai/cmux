@@ -283,32 +283,3 @@ extension AgentPaneView: PanePaintHoldUnseen {
         needsLayout = true
     }
 }
-
-/// A chat or New Tab page in Chromium that drew before and is shown again under a pane's paint hold, at another size
-/// than it drew at (its tab moved to another pane, or back into the pane it came from). The hold keeps the tab before
-/// it on screen until this page drew at the new size. In place the page's window is hidden for the hold and draws no
-/// frame, so the hold lasted its whole limit. The page lies outside the window for the hold, at the size its pane
-/// rests at, where it draws; the hold's end puts it back in the transaction that shows it.
-extension AgentPaneView: PanePaintHoldUnseen {
-    public func drawUnseenForPaintHold() -> Bool {
-        guard pageDrawsOverCovers, model.hasPainted, !holdsPageAway, chromiumMove == nil, chromiumMoveWait == nil else { return false }
-        holdsPageAway = true
-        drawsUnseenForHold = true
-        pageContent.frame = heldPageFrame(of: topBar.pageFrame(in: bounds))
-        page?.chromiumWindowMoved()
-        needsLayout = true
-        return true
-    }
-
-    public func endDrawingUnseen() {
-        guard drawsUnseenForHold else { return }
-        drawsUnseenForHold = false
-        guard holdsPageAway else { return }
-        holdsPageAway = false
-        pageContent.frame = topBar.pageFrame(in: bounds)
-        applyNativeRects() // the tab row's holes, taken while it was away, follow it back
-        pageContent.layoutSubtreeIfNeeded()
-        page?.chromiumWindowMoved()
-        needsLayout = true
-    }
-}
