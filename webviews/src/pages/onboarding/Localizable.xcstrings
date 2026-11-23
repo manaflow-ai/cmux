@@ -6820,91 +6820,91 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Imported: %@"
+            "value": "Imported: %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "読み込み済み: %@"
+            "value": "読み込み済み: %@。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم الاستيراد: %@"
+            "value": "تم الاستيراد: %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uvezeno: %@"
+            "value": "Uvezeno: %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importeret: %@"
+            "value": "Importeret: %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importiert: %@"
+            "value": "Importiert: %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importado: %@"
+            "value": "Importado: %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importé : %@"
+            "value": "Importé : %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importato: %@"
+            "value": "Importato: %@."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បាននាំចូល៖ %@"
+            "value": "បាននាំចូល៖ %@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "가져옴: %@"
+            "value": "가져옴: %@."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importert: %@"
+            "value": "Importert: %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaimportowano: %@"
+            "value": "Zaimportowano: %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importado: %@"
+            "value": "Importado: %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Импортировано: %@"
+            "value": "Импортировано: %@."
           }
         },
         "th": {
@@ -6916,31 +6916,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İçe aktarıldı: %@"
+            "value": "İçe aktarıldı: %@."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Імпортовано: %@"
+            "value": "Імпортовано: %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã nhập: %@"
+            "value": "Đã nhập: %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已导入：%@"
+            "value": "已导入：%@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已匯入：%@"
+            "value": "已匯入：%@。"
           }
         }
       }
@@ -7999,91 +7999,91 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passwords skipped: %@"
+            "value": "Passwords skipped: %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "スキップしたパスワード: %@"
+            "value": "スキップしたパスワード: %@。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كلمات السر التي تم تخطيها: %@"
+            "value": "كلمات السر التي تم تخطيها: %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Preskočene lozinke: %@"
+            "value": "Preskočene lozinke: %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sprungne adgangskoder: %@"
+            "value": "Sprungne adgangskoder: %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Übersprungene Passwörter: %@"
+            "value": "Übersprungene Passwörter: %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Contraseñas omitidas: %@"
+            "value": "Contraseñas omitidas: %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mots de passe ignorés : %@"
+            "value": "Mots de passe ignorés : %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Password saltate: %@"
+            "value": "Password saltate: %@."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពាក្យសម្ងាត់ដែលបានរំលង៖ %@"
+            "value": "ពាក្យសម្ងាត់ដែលបានរំលង៖ %@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "건너뛴 암호: %@"
+            "value": "건너뛴 암호: %@."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Passord hoppet over: %@"
+            "value": "Passord hoppet over: %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pominięte hasła: %@"
+            "value": "Pominięte hasła: %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Senhas ignoradas: %@"
+            "value": "Senhas ignoradas: %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пропущено паролей: %@"
+            "value": "Пропущено паролей: %@."
           }
         },
         "th": {
@@ -8095,31 +8095,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Atlanan parolalar: %@"
+            "value": "Atlanan parolalar: %@."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пропущено паролів: %@"
+            "value": "Пропущено паролів: %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mật khẩu đã bỏ qua: %@"
+            "value": "Mật khẩu đã bỏ qua: %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已跳过的密码:%@"
+            "value": "已跳过的密码:%@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已略過的密碼:%@"
+            "value": "已略過的密碼:%@。"
           }
         }
       }

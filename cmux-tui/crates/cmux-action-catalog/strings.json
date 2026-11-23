@@ -23347,6 +23347,29 @@
     "vi": "Tùy chỉnh cmux theo ý bạn",
     "zh-Hans": "打造你的 cmux",
     "zh-Hant": "打造你的 cmux"
+   },
+   "action.agentChat.renameSession": {
+    "ar": "إعادة تسمية جلسة الوكيل…",
+    "bs": "Preimenuj sesiju agenta…",
+    "da": "Omdøb agentsession…",
+    "de": "Agent-Sitzung umbenennen…",
+    "en": "Rename Agent Session…",
+    "es": "Renombrar sesión del agente…",
+    "fr": "Renommer la session de l’agent…",
+    "it": "Rinomina sessione agente…",
+    "ja": "エージェントセッション名を変更…",
+    "km": "ប្ដូរឈ្មោះវគ្គភ្នាក់ងារ…",
+    "ko": "에이전트 세션 이름 변경…",
+    "nb": "Gi nytt navn til agentøkt…",
+    "pl": "Zmień nazwę sesji agenta…",
+    "pt-BR": "Renomear sessão do agente…",
+    "ru": "Переименовать сеанс агента…",
+    "th": "เปลี่ยนชื่อเซสชันเอเจนต์…",
+    "tr": "Ajan oturumunu yeniden adlandır…",
+    "uk": "Перейменувати сеанс агента…",
+    "vi": "Đổi tên phiên tác tử…",
+    "zh-Hans": "重命名代理会话…",
+    "zh-Hant": "重新命名代理工作階段…"
    }
   },
   "AgentChatMenu": {
