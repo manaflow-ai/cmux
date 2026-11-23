@@ -57,7 +57,9 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
             window.cmuxAfterPaint(() => {
               const t = performance.now() - start;
               const dock = document.querySelector<HTMLElement>(".acpmux-dock");
-              const line = dock?.querySelector(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group");
+              const line = dock?.querySelector(
+                ":scope > .acpmux-host-slot > .acpmux-host-line, :scope > .acpmux-host-slot > .acpmux-host-line-group",
+              );
               const restart = line?.querySelector<HTMLElement>(".acpmux-host-line-quiet");
               const now = tops();
               let moved = 0;

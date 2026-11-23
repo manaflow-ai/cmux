@@ -160,7 +160,6 @@
     "pages/home-channels/RunSteps.tsx#RunSteps",
     "pages/home-channels/RunTranscript.tsx#RunTranscript",
     "pages/home-channels/presentation.tsx#PresentationToggle",
-    "pages/home-messages/App.tsx#MessagesApp",
     "pages/markdown/MarkdownFindBar.tsx#MarkdownFindBar",
     "pages/markdown/linkOverlays.tsx#LinkBubbleView",
     "pages/markdown/linkOverlays.tsx#LinkEditView",
