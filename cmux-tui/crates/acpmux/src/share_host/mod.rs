@@ -39,6 +39,8 @@ mod route;
 mod session;
 #[cfg(unix)]
 mod state;
+#[cfg(unix)]
+mod verbs;
 
 #[cfg(all(test, unix))]
 mod tests;
@@ -248,6 +250,21 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
             Err(e) => tracing::warn!("{LOG}: the hub link did not start: {e}"),
         }
     });
+}
+
+/// What the device hub says of machine `host`'s screen (`peers`' `deviceHub` on a row only the
+/// mesh hub reaches): read from the running share host's device list; None when no share host
+/// runs here or it has not read the list yet.
+pub(crate) fn device_hub_of(host: &str) -> Option<serde_json::Value> {
+    #[cfg(unix)]
+    {
+        state::device_hub_of(host)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = host;
+        None
+    }
 }
 
 /// `_acpmux/share_host_status`: what `acpmux share-host status` prints.

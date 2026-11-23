@@ -240,30 +240,6 @@ fn restart_for_new_grant() {
     });
 }
 
-#[cfg(test)]
-mod grant_tests {
-    use super::parse_screen_recording;
-
-    #[test]
-    fn reads_the_permissions_snapshot() {
-        assert_eq!(
-            parse_screen_recording(b"{\"screen_recording\":true,\"accessibility\":false}\n"),
-            Some(true)
-        );
-        assert_eq!(
-            parse_screen_recording(b"{\"screen_recording\":false,\"accessibility\":true}\n"),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn anything_else_is_no_answer() {
-        assert_eq!(parse_screen_recording(b""), None);
-        assert_eq!(parse_screen_recording(b"not json\n"), None);
-        assert_eq!(parse_screen_recording(b"{\"accessibility\":true}\n"), None);
-    }
-}
-
 /// An Objective-C object this code owns (+1), released on drop.
 struct Owned(Id);
 
@@ -534,4 +510,28 @@ fn rgba_of(image: sys::CGImageRef) -> DResult<(u32, u32, Vec<u8>)> {
         cg::CGContextRelease(context);
     }
     Ok((width, height, rgba))
+}
+
+#[cfg(test)]
+mod grant_tests {
+    use super::parse_screen_recording;
+
+    #[test]
+    fn reads_the_permissions_snapshot() {
+        assert_eq!(
+            parse_screen_recording(b"{\"screen_recording\":true,\"accessibility\":false}\n"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_screen_recording(b"{\"screen_recording\":false,\"accessibility\":true}\n"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn anything_else_is_no_answer() {
+        assert_eq!(parse_screen_recording(b""), None);
+        assert_eq!(parse_screen_recording(b"not json\n"), None);
+        assert_eq!(parse_screen_recording(b"{\"accessibility\":true}\n"), None);
+    }
 }
