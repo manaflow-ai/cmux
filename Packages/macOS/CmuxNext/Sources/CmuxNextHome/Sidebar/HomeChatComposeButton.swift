@@ -35,5 +35,5 @@ final class HomeChatComposeButton: ClickableButton {
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() ?? super.menu(for: event) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(contextMenu?() ?? super.menu(for: event)) }
 }

@@ -199,6 +199,8 @@ export type LaunchMark =
   | "transcriptMount";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
+/// How many of a page's start states `startStateTrail` keeps (the newest).
+const START_TRAIL = 8;
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
@@ -247,7 +249,7 @@ export class AcpmuxPerf {
   private agentMarks: Partial<Record<AgentMark, number>> = {};
   /// A new chat's start state as its frames show it (the New Tab chip's folder, the hero's project
   /// and its Do not work in a project check): the first one drawn, and when it last changed.
-  private startState: { shown: string; first: number; final: number; changes: number } | undefined;
+  private startState: { shown: string; first: number; final: number; changes: number; trail: string[] } | undefined;
   private launchMarks: Partial<Record<LaunchMark, number>> = {};
   private handshakeAttempts = 0;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
@@ -336,14 +338,25 @@ export class AcpmuxPerf {
   /** The start state a frame shows (`shown`, any stable text); recorded always, a string compare per change. */
   noteStartState(shown: string, now = performance.now()): void {
     const state = this.startState;
-    if (!state) this.startState = { shown, first: now, final: now, changes: 0 };
+    if (!state) this.startState = { shown, first: now, final: now, changes: 0, trail: [shown] };
     else if (state.shown !== shown)
-      this.startState = { shown, first: state.first, final: now, changes: state.changes + 1 };
+      this.startState = {
+        shown,
+        first: state.first,
+        final: now,
+        changes: state.changes + 1,
+        trail: [...state.trail, shown].slice(-START_TRAIL),
+      };
   }
 
   /** The start the frames show now (`noteStartState`), for a bench to compare runs. */
   startStateShown(): string | undefined {
     return this.startState?.shown;
+  }
+
+  /** Each start the frames showed, first to now (the last few), for a bench to see a flash in between. */
+  startStateTrail(): string[] {
+    return this.startState ? [...this.startState.trail] : [];
   }
 
   /** A New Tab page adopted again (Cmd-T on a spare): its start state is measured from there. */
