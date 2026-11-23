@@ -46,6 +46,17 @@ public final class MenuTracking {
         }
     }
 
+    /// Runs `work` at each menu that begins tracking, on the main actor's next turn (as ``onFirstMenu(_:)``): work made
+    /// ahead of something a menu item opens that is freed again when unused (the app's web overlay pages), so `work`
+    /// makes it again or keeps it, and costs little when it is already made.
+    public func onMenus(_ work: @escaping @MainActor () -> Void) {
+        subscribe { change in
+            guard case .began = change else { return }
+            // task-owner: one ordering hop past the menu's begin-tracking post; it ends with `work`
+            Task { @MainActor in work() }
+        }
+    }
+
     private func send(_ change: Change) {
         for subscriber in subscribers { subscriber(change) }
     }

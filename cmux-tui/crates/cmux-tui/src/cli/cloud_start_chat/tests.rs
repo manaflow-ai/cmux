@@ -19,8 +19,14 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "drill_start_tests.rs"]
+mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "fresh_tests.rs"]
+mod fresh;
+#[path = "send_wait_tests.rs"]
+mod send_wait;
 
 /// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
 /// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
@@ -59,9 +65,10 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
             model: None,
+            effort: None,
+            mode: None,
             cwd: None,
             from_folder: None,
-            login: None,
             environment: None,
             account: None,
             machine: Machine::New,
@@ -70,6 +77,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             make_room: false,
             until: None,
             allow_large: false,
+            timings: false,
+            no_focus: false,
         }
     );
     let parsed = request(&[
@@ -120,28 +129,11 @@ fn an_output_flag_after_the_separator_is_the_prompt() {
     }
 }
 
-/// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with
-/// nothing at all": `--login` takes the words `cloud start-session` takes, in any case.
-#[test]
-fn parse_takes_the_harness_login() {
-    for (word, login) in
-        [("pass", "pass"), ("machine", "machine"), ("none", "none"), ("None", "none")]
-    {
-        assert_eq!(
-            request(&["--prompt", "x", "--login", word]).login.as_deref(),
-            Some(login),
-            "{word}"
-        );
-    }
-    assert_eq!(request(&["--prompt", "x", "--login=machine"]).login.as_deref(), Some("machine"));
-    assert_eq!(request(&["--prompt", "x"]).login, None);
-}
-
 /// Leo (2026-11-06): "Like with an initial ... prompts. Or not?": with no --prompt the command starts the chat
 /// and sends nothing. An empty --prompt is still a mistake, not "no prompt".
 #[test]
 fn parse_takes_no_prompt() {
-    for words in [vec![], vec!["--name", "dev"], vec!["--wait", "--login", "none"]] {
+    for words in [vec![], vec!["--name", "dev"], vec!["--wait"]] {
         assert!(
             matches!(parse(&strings(&words), || Ok(String::new())), Ok(Parsed::Run(_))),
             "{words:?}"
@@ -224,40 +216,16 @@ fn again_command_quotes_every_word() {
         again_command(&asked, &Machine::Named("chat-1".into())),
         "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt TEXT --wait --json"
     );
-    let asked = request(&["--prompt", "x", "--login", "none"]);
+    let asked = request(&["--prompt", "x"]);
     assert_eq!(
         again_command(&asked, &Machine::Target("vm-1".into())),
-        "cmux cloud start-chat --target machine:vm-1 --login none --prompt TEXT --json"
+        "cmux cloud start-chat --target machine:vm-1 --prompt TEXT --json"
     );
 }
 
+/// start-session is told about no login: the machine reaches models through its edge, and the app copies none.
 #[test]
-fn the_login_goes_to_start_session() {
-    for (agent, login) in [("claude", "pass"), ("codex", "machine"), ("claude", "none")] {
-        let mut fake = Fake::new(vec![
-            signed_in(),
-            started(),
-            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
-        ]);
-        let asked =
-            request(&["--prompt", "x", "--name", "dev", "--agent", agent, "--login", login]);
-        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-        assert_eq!(
-            fake.ran[1],
-            strings(&[
-                "cloud",
-                "start-session",
-                "--name",
-                "dev",
-                "--agent",
-                agent,
-                "--login",
-                login,
-                "--json"
-            ])
-        );
-    }
-    // No --login: start-session gets none, so the app's default holds.
+fn no_login_goes_to_start_session() {
     let mut fake = Fake::new(vec![
         signed_in(),
         started(),
@@ -266,7 +234,11 @@ fn the_login_goes_to_start_session() {
     let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
         panic!()
     };
-    assert!(!fake.ran[1].contains(&"--login".to_owned()));
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "dev", "--agent", "claude", "--json"])
+    );
+    assert!(!fake.ran.iter().flatten().any(|word| word == "--login"), "{:?}", fake.ran);
 }
 
 /// A fake app: answers each step from a queue and records what ran.
@@ -281,15 +253,35 @@ struct Fake {
     slow: Vec<(usize, Duration)>,
     /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
     stream: Option<Result<Value, Value>>,
+    /// Per app method, its answer, before `stream`.
+    app_answers: Vec<(&'static str, Result<Value, Value>)>,
+    /// The link sends' answers, in order; none left: no link ([`link_wait::SendFailure::NotSent`]).
+    link_sends: VecDeque<Result<Value, link_wait::SendFailure>>,
     /// The link waits' answers, in order.
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
     called: Vec<(String, Value)>,
     /// [`Runner::until`].
     until: Option<Instant>,
+    /// Each copy estimate asked: how many steps had run then, and the folder.
+    estimated: Vec<(usize, String)>,
+    /// The progress lines the run said ([`Runner::say`]).
+    said: Vec<String>,
 }
 
 impl Fake {
+    /// How long the next step (`args`, at `ran`'s length) takes: a few seconds, or what `slow` says for it, or
+    /// `costs` for its verb.
+    fn cost(&self, args: &[String]) -> Duration {
+        let index = self.ran.len();
+        let verb = args.get(1).map(String::as_str);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
+        cost.unwrap_or(Duration::from_secs(5))
+    }
+
     fn new(answers: Vec<Ran>) -> Self {
         Self {
             answers: answers.into(),
@@ -299,25 +291,40 @@ impl Fake {
             costs: Vec::new(),
             slow: Vec::new(),
             stream: None,
+            app_answers: Vec::new(),
+            link_sends: VecDeque::new(),
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
+            estimated: Vec::new(),
+            said: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let index = self.ran.len();
+        self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
-        let verb = args.get(1).map(String::as_str);
-        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
-        let cost = cost.or_else(|| {
-            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
-        });
-        self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
+    }
+    /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
+    /// is used up and never seen.
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if self.clock + self.cost(args) <= until {
+            return self.cmux(args);
+        }
+        self.ran.push(args.to_vec());
+        self.answers.pop_front().expect("an answer for every step");
+        self.clock = self.clock.max(until);
+        Ran {
+            code: internal::bounded::PAST_DEADLINE,
+            stdout: String::new(),
+            stderr: internal::bounded::past_deadline().to_string(),
+        }
+    }
+    fn say(&mut self, line: &str) {
+        self.said.push(line.to_owned());
     }
     fn pause(&mut self, duration: Duration) {
         self.paused += duration;
@@ -340,6 +347,9 @@ impl Runner for Fake {
     ) -> Option<Result<Value, Value>> {
         self.called.push((method.to_owned(), params));
         self.clock += Duration::from_millis(5);
+        if let Some((_, answer)) = self.app_answers.iter().find(|(name, _)| *name == method) {
+            return Some(answer.clone());
+        }
         self.stream.clone()
     }
     fn observe(
@@ -355,6 +365,27 @@ impl Runner for Fake {
         ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
+    fn send_link(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        _prompt_id: &str,
+        text: &str,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::SendFailure> {
+        self.called.push((
+            "send_link".to_owned(),
+            json!({"socket": socket, "surface": surface, "text": text}),
+        ));
+        self.clock += Duration::from_millis(100);
+        self.link_sends
+            .pop_front()
+            .unwrap_or_else(|| Err(link_wait::SendFailure::NotSent("no link".into())))
+    }
+    fn estimate(&mut self, folder: &str) -> Value {
+        self.estimated.push((self.ran.len(), folder.to_owned()));
+        json!({"mode": "first_pass", "files": 3, "bytes": 30, "seconds": 1})
     }
 }
 
@@ -466,11 +497,66 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
     assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
-    // No exec after the send; the second wait starts after the first one's newest seq.
+    // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
+    // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
     assert_eq!(fake.called[0], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
-    assert_eq!(fake.called[1].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
-    assert_eq!(fake.called[2].1["after_seq"], 3);
+    assert_eq!(fake.called[1].0, "send_link");
+    assert_eq!(fake.called[2], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
+    assert_eq!(fake.called[3].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
+    assert_eq!(fake.called[4].1["after_seq"], 3);
+}
+
+/// The first prompt of a chat this run started goes over the machine's link in one round trip: no `cloud exec`
+/// for the send, and the turn is then read from the same link from the first record.
+#[test]
+fn the_first_prompt_goes_over_the_link_not_cloud_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p", "turn_id": "t", "queued": false})));
+    let update = json!({"seq": 2, "at": 1_500, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "pong"}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update,
+        {"seq": 3, "at": 2_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 3, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "no cloud exec: {:?}", fake.ran);
+    let sent = fake.called.iter().find(|(name, _)| name == "send_link").unwrap();
+    assert_eq!(sent.1["surface"], 7);
+    assert_eq!(sent.1["text"], "pong");
+}
+
+/// Without `--wait` the link send is the whole step: sent, no exec.
+#[test]
+fn a_link_send_without_wait_is_done_with_no_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+/// A link that took the prompt and never answered may have delivered it: no second send by exec.
+#[test]
+fn an_unanswered_link_send_is_not_sent_again() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("timeout".into())));
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
 /// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
@@ -627,6 +713,33 @@ fn the_start_sessions_own_stages_are_its_parts() {
     assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
 }
 
+/// Leo, 2026-11-19: "do we have tools for measuring cloud startup at various stages?". The answer's `stages` are
+/// cloud-journey.ts's marks, each the milliseconds from the command's start: start-session's own parts in order
+/// (a dotted sub-step is inside the step after it), then the send this run marked itself.
+#[test]
+fn the_answer_names_the_journeys_start_marks() {
+    let parts = json!([{"step": "machine", "ms": 2_000}, {"step": "connect", "ms": 1_500},
+                       {"step": "login.machine", "ms": 200}, {"step": "login", "ms": 500},
+                       {"step": "tab", "ms": 300}, {"step": "start", "ms": 600}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts;
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // The list 0-5 s, the start from 5 s, the send's exec 10-15 s; no --wait, so no turn was read.
+    assert_eq!(
+        answer["stages"],
+        json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
+               "send": 10_000, "sent": 15_000, "total": 15_000})
+    );
+}
+
 #[test]
 fn a_failure_carries_the_steps_it_ran() {
     let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
@@ -695,7 +808,7 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
             ),
         ]);
-        let mut words = vec!["--login", "machine"];
+        let mut words = vec![];
         if wait {
             words.push("--wait");
         }
@@ -713,8 +826,6 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                     "chat-fresh",
                     "--agent",
                     "claude",
-                    "--login",
-                    "machine",
                     "--json"
                 ]),
             ]
@@ -1098,7 +1209,12 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(error["message"].as_str().unwrap().contains("acp wait sess-1"));
+    assert!(
+        error["message"].as_str().unwrap().contains(
+            "cmux cloud chat status --target machine:vm-1 --session sess-1 --after 0 --wait 20"
+        ),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1165,6 +1281,52 @@ fn a_reply_that_cannot_be_read_is_an_error_not_an_empty_reply() {
         panic!()
     };
     assert_eq!(error["code"], "chat.read_failed");
+}
+
+/// A turn that failed has no reply to read: the answer is `chat.turn_failed` with the turn's own
+/// reason, not `chat.read_failed`.
+#[test]
+fn a_failed_turn_without_a_reply_is_a_turn_failure_with_its_reason() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"endedAt\":9,\"status\":\"failed\",\
+             \"error\":\"model provider refused the request\"}]}\n\
+             @@last\nno reply\n@@lastexit 1\n",
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert_eq!(error["message"], "model provider refused the request");
+    assert!(error["details"].get("reply").is_none(), "{error}");
+}
+
+/// The pushed route: a turn that ends `cancelled` with no reply is `chat.turn_failed`, too.
+#[test]
+fn a_pushed_turn_that_ends_cancelled_without_a_reply_is_a_turn_failure() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "cancelled"}},
+    ], "last_seq": 2, "ended": "turn_end"})));
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert_eq!(error["message"], "the turn ended cancelled");
 }
 
 #[test]
@@ -2055,7 +2217,7 @@ fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
     // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
     // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
     let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
-        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        Set one up with `cmux inference setup`, then send the message again. \
         (Claude said: Not logged in · Please run /login)";
     for error in [
         json!({"code": "cloud_start_failed", "message": claude}),
@@ -2474,6 +2636,57 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     }
 }
 
+/// Leo's account, 2026-11-21: `cmux chat --on vm:new --harness claude --no-folder --wait` with no Cloud connection
+/// serving claude. The app refuses before any machine (CloudStartSession's Set up Cloud gate), and its retry named
+/// this run's fresh name (`cmux vm start-session --name chat-7626761eda3c4404`), a machine `cmux vm ls` never listed.
+/// The refusal comes at once, nothing is made, and its retry is this run's own command, which names no machine. A
+/// name some machine has, or a list that cannot be read, keeps the app's words.
+#[test]
+fn a_start_refused_before_its_fresh_machine_retries_with_no_machine_named() {
+    let setup = "No Cloud connection serves claude yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), \
+                 then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+    };
+    let asked = request(&["--prompt", "x", "--wait"]);
+    let mut fake = Fake::new(vec![signed_in(), refused(), signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let message = error["message"].as_str().unwrap();
+    assert_eq!(exit, 1, "{error}");
+    assert!(message.starts_with("No Cloud connection serves claude yet."), "{message}");
+    assert!(
+        message.contains("then run `cmux cloud start-chat --prompt TEXT --wait --json` again."),
+        "{message}"
+    );
+    assert!(!message.contains("chat-fresh"), "{message}");
+    // At once: one start-session and the list reads, no wait, no new-machine and no second start.
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs, ["list-machines", "start-session", "list-machines"], "{:?}", fake.ran);
+    assert_eq!(fake.paused, Duration::ZERO);
+
+    // A machine has the name now: the app's command is the one that reaches it.
+    let has = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![signed_in(), refused(), has]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // The list is not read: never refused on an unknown, the app's words stay.
+    let unread = Ran { code: 1, stdout: String::new(), stderr: "boom".into() };
+    let mut fake = Fake::new(vec![signed_in(), refused(), unread]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // A start on a named machine is the person's own retry: no list is read for it.
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["message"], setup);
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
 /// The real runner's fresh name: the run's prefix and 16 hex characters from the OS's random source, so two runs
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
@@ -2505,9 +2718,10 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
@@ -2516,6 +2730,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2544,9 +2760,10 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         prompt: Some(prompt),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
@@ -2555,6 +2772,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -2663,6 +2882,158 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
         error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
         "{error}"
     );
+}
+
+#[test]
+fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    // A spelling with `.` and `..` parts is the folder's canonical path.
+    let spelled = format!("{}/./sub/..", dir.path().display());
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let parsed = request(&["--prompt", "x", "--from-folder", spelled.as_str()]);
+    assert_eq!(parsed.from_folder.as_deref(), Some(canonical.as_str()));
+    assert_eq!(parsed.cwd, None);
+    let inline = format!("--from-folder={canonical}");
+    assert_eq!(
+        request(&["--prompt", "x", inline.as_str()]).from_folder.as_deref(),
+        Some(canonical.as_str())
+    );
+    let file = dir.path().join("file.txt");
+    std::fs::write(&file, "x").unwrap();
+    let missing = dir.path().join("gone");
+    for words in [
+        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder"],
+        // `--cwd` is a folder on the machine; `--from-folder` already names where the chat starts.
+        vec!["--prompt", "x", "--from-folder", canonical.as_str(), "--cwd", "/home/cmux/work"],
+        vec!["--prompt", "x", "--cwd", "/home/cmux/work", "--from-folder", canonical.as_str()],
+    ] {
+        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
+    }
+    // `--from-folder --json`: the output flag is never taken as its value.
+    let mut output = OutputMode::Human;
+    let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
+    assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+#[test]
+fn from_folder_goes_to_start_session_as_its_own_argument() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&[
+        "--prompt",
+        "Run the tests",
+        "--from-folder",
+        folder.as_str(),
+        "--name",
+        "dev",
+        "--wait",
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+    // The start names the folder as its own argument.
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--name",
+            "dev",
+            "--agent",
+            "claude",
+            "--from-folder",
+            folder.as_str(),
+            "--json"
+        ])
+    );
+    assert_eq!(
+        again_command(&asked, &asked.machine),
+        format!(
+            "cmux cloud start-chat --name dev --from-folder {} --prompt TEXT --wait --json",
+            shell_quote(&folder)
+        )
+    );
+}
+
+/// The folder's copy is estimated and decided before any machine is made or taken for it, on every
+/// machine a start can name (Leo's 2026-11-10 start at ~/Projects began a 20 GB copy after a machine
+/// was already leased): right after the sign-in check, before `cloud new-machine` and `cloud
+/// start-session`, and the answer carries it.
+#[test]
+fn a_folder_start_estimates_its_copy_before_any_machine() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let cwd = || exec_out("@@cwd\n[]\n");
+    for (words, answers, lease) in [
+        (vec![], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--name", "dev"], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--target", "machine:vm-1"], vec![signed_in(), started(), cwd()], "start-session"),
+        (
+            vec!["--environment", "env_1"],
+            vec![signed_in(), made(), started(), cwd()],
+            "new-machine",
+        ),
+    ] {
+        let mut fake = Fake::new(answers);
+        let mut asked = vec!["--from-folder", folder.as_str()];
+        asked.extend(words.iter().copied());
+        let Outcome::Done(answer) = run(&mut fake, &request(&asked)) else {
+            panic!("{words:?}: {:?}", fake.ran)
+        };
+        assert_eq!(fake.estimated, vec![(1, folder.clone())], "{words:?}: {:?}", fake.ran);
+        assert_eq!(fake.ran[0], strings(&["cloud", "list-machines", "--json"]), "{words:?}");
+        assert_eq!(fake.ran[1][1], lease, "{words:?}: the first step after the estimate");
+        assert_eq!(answer["estimate"]["mode"], "first_pass", "{words:?}: {answer}");
+    }
+    // No folder: nothing to estimate, and the answer says nothing of one.
+    let mut fake = Fake::new(vec![signed_in(), started(), cwd()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&[])) else { panic!("{:?}", fake.ran) };
+    assert!(fake.estimated.is_empty());
+    assert!(answer.get("estimate").is_none(), "{answer}");
+}
+
+/// A start signed out stops before the estimate: nothing is listed for a start that cannot run.
+#[test]
+fn a_signed_out_folder_start_lists_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--from-folder", folder.as_str()]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.signed_out");
+    assert!(fake.estimated.is_empty());
+}
+
+#[test]
+fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(json!({"machines": [{"title": "dev", "machine_id": "vm-9", "status": "running"}]})),
+    ]);
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-9", "--from-folder", folder.as_str()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
+    assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
 }
 
 /// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
@@ -2831,28 +3202,59 @@ fn the_folder_kind_and_the_session_folder_read() {
     assert_eq!(answer["cwd"], "/home/cmux/work/api");
 }
 
-/// The carrier fault drill's start runs inside the drill's one `--timeout` deadline (`Request::until`), prompt or
-/// not: a start-session that answers past it ends the drill there, before the app's credential is asked, any
-/// carrier is dialed or anything is sent.
+/// `cmux chat read SESSION` of a chat on a Cloud VM reads its records there (one exec of `acp tail`, no
+/// attach) and answers `cmux chat read`'s page: the prompt and the reply as items.
 #[test]
-fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
-    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
-    let mut fake = Fake::new(vec![signed_in(), started()]);
-    fake.costs = vec![("start-session", Duration::from_secs(120))];
-    let asked = request(&["--prompt", "count", "--wait", "--timeout", "60"]);
-    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
-    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
-    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
-    let until = fake.now() + Duration::from_secs(60);
-    let global = GlobalArgs::default();
-    let Err(Outcome::Failed { error, .. }) =
-        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
-    else {
-        panic!("a late start went on: {:?}", fake.ran)
+fn a_vm_chats_read_is_its_transcript_from_the_machine() {
+    let records = [
+        json!({"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "hi"}}),
+        json!({"seq": 2, "at": 1_100, "dir": "in", "kind": "update",
+               "msg": {"method": "session/update",
+                       "params": {"update": {"sessionUpdate": "agent_message_chunk",
+                                             "content": {"type": "text", "text": "hello"}}}}}),
+        json!({"seq": 3, "at": 1_200, "dir": "mux", "kind": "turn_result", "msg": {"status": "completed"}}),
+    ];
+    let lines: Vec<String> = records.iter().map(Value::to_string).collect();
+    let mut fake =
+        Fake::new(vec![exec_out(&format!("@@events\n{}\n@@exit 0\n", lines.join("\n")))]);
+    let Outcome::Done(page) = read_on(&mut fake, "vm-1", "s-1", 0, 50) else {
+        panic!("{:?}", fake.ran)
     };
-    assert_ne!(error["code"], "carrier_fault.no_credential", "{error}");
-    assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
-    assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+    let script = fake.ran[0].last().cloned().unwrap_or_default();
+    assert!(fake.ran[0].iter().any(|word| word.contains("acp tail s-1 --last 2000")), "{script}");
+    assert_eq!(page["machine_id"], "vm-1");
+    assert_eq!(page["chat"], "s-1");
+    let items = page["items"].as_array().cloned().unwrap_or_default();
+    let texts: Vec<&str> = items.iter().filter_map(|item| item["text"].as_str()).collect();
+    assert!(texts.contains(&"hi") && texts.contains(&"hello"), "{page}");
+}
+
+/// A chat the machine cannot read is `chat.read_failed` naming the VM, not an empty page.
+#[test]
+fn a_vm_chat_the_machine_cannot_read_is_an_error() {
+    let mut fake = Fake::new(vec![exec_out("@@events\nno session s-9\n@@exit 1\n")]);
+    let Outcome::Failed { error, exit } = read_on(&mut fake, "vm-1", "s-9", 0, 50) else {
+        panic!()
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.read_failed");
+    assert!(error["message"].as_str().unwrap_or_default().contains("vm:vm-1"), "{error}");
+}
+
+/// `cmux chat wait SESSION` of a chat on a Cloud VM waits there for its newest turn and answers its reply.
+#[test]
+fn a_vm_chats_wait_answers_the_newest_turns_reply() {
+    let mut fake = Fake::new(vec![exec_out(
+        "@@wait 0\n@@history\n{\"turns\":[{\"seq\":4,\"endedAt\":9,\"status\":\"completed\"}]}\n\
+         @@last\n{\"sessionId\":\"s-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+    )]);
+    let Outcome::Done(answer) = wait_on(&mut fake, "vm-1", "s-1", Duration::from_secs(60)) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "done");
+    assert_eq!(answer["session_id"], "s-1");
+    assert_eq!(answer["machine_id"], "vm-1");
 }
 
 /// The drill's prompt send past its deadline sends nothing: it never runs a step.
@@ -3182,4 +3584,127 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
+}
+
+/// Leo: "you guys kept fighting focus". `--no-focus` is an agent's or a probe's start that leaves the
+/// person's app as it is: every app step it runs (`new-machine`, `start-session`) says `--no-focus`, and
+/// so does the command to ask again. Without it every step is today's, word for word.
+#[test]
+fn no_focus_reaches_every_app_step_and_the_command_again() {
+    let app_steps = |asked: &Request| {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            made(),
+            started(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        ]);
+        let Outcome::Done(_) = run(&mut fake, asked) else { panic!("{:?}", fake.ran) };
+        let steps: Vec<Vec<String>> = fake
+            .ran
+            .into_iter()
+            .filter(|step| matches!(step[1].as_str(), "new-machine" | "start-session"))
+            .collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        steps
+    };
+    let quiet = request(&["--prompt", "x", "--environment", "python-dev", "--no-focus"]);
+    for step in app_steps(&quiet) {
+        assert!(step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(again_command(&quiet, &Machine::Target("vm-1".into())).contains(" --no-focus"));
+
+    let plain = request(&["--prompt", "x", "--environment", "python-dev"]);
+    for step in app_steps(&plain) {
+        assert!(!step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(!again_command(&plain, &Machine::Target("vm-1".into())).contains("--no-focus"));
+    // `cmux cloud start-chat --help` lists it: an install that keys on it finds it there.
+    assert!(super::super::cloud_help::START_CHAT_USAGE.contains("[--no-focus]"));
+}
+
+/// cmux#46701: the composer's Cloud start picks the harness, model, effort and mode, and a folder
+/// or No folder; `cloud start-chat` (and `cmux chat --on cloud`) takes each of them.
+#[test]
+fn effort_mode_and_no_folder_are_parsed_checked_and_asked_again() {
+    let asked = request(&[
+        "--agent",
+        "codex",
+        "--model",
+        "gpt-x",
+        "--effort",
+        "high",
+        "--mode",
+        "plan",
+        "--no-folder",
+        "-p",
+        "go",
+    ]);
+    assert_eq!(asked.agent, "codex");
+    assert_eq!(asked.effort.as_deref(), Some("high"));
+    assert_eq!(asked.mode.as_deref(), Some("plan"));
+    assert_eq!((asked.cwd.as_deref(), asked.from_folder.as_deref()), (None, None));
+    let again = again_command(&asked, &Machine::Target("vm-1".into()));
+    assert!(again.contains("--effort high") && again.contains("--mode plan"), "{again}");
+    assert_eq!(request(&["-p", "go"]).effort, None);
+    let long = "e".repeat(65);
+    for bad in ["", "-x", "a b", "$(id)", "a'b", long.as_str()] {
+        assert!(parse(&strings(&["--effort", bad, "-p", "go"]), || Ok(String::new())).is_err());
+        assert!(parse(&strings(&["--mode", bad, "-p", "go"]), || Ok(String::new())).is_err());
+    }
+    let refused =
+        parse(&strings(&["--no-folder", "--cwd", "/w", "-p", "go"]), || Ok(String::new()));
+    assert_eq!(refused.unwrap_err().0, NO_FOLDER_WITH_FOLDER);
+    assert!(TAKES_VALUE.contains(&"--effort") && TAKES_VALUE.contains(&"--mode"));
+    assert!(!TAKES_VALUE.contains(&"--no-folder"));
+}
+
+#[test]
+fn the_settings_script_sets_mode_then_effort_quoted() {
+    assert_eq!(settings_script(&request(&["-p", "go"]), "sess-1"), None);
+    let script =
+        settings_script(&request(&["--effort", "xhigh", "--mode", "plan", "-p", "go"]), "s 1")
+            .unwrap();
+    assert!(script.starts_with(GUEST_PRELUDE));
+    let mode = script.find("acp session set 's 1' mode=plan").expect(&script);
+    let effort = script.find("acp session set 's 1' effort=xhigh").expect(&script);
+    assert!(mode < effort, "{script}");
+    assert!(script.contains("&&"), "the first refusal stops it: {script}");
+}
+
+/// A Cloud start with an effort: the session is set before the prompt is sent, in its own exec,
+/// and the answer names the effort and the fresh folder.
+#[test]
+fn a_cloud_start_sets_effort_and_mode_before_the_first_prompt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nok\nok\n@@exit 0\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--effort", "low", "--mode", "plan", "--no-folder", "-p", "1+1?"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((answer["effort"].as_str(), answer["mode"].as_str()), (Some("low"), Some("plan")));
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["sent"], true);
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "exec", "--target", "machine:vm-1"]));
+    assert!(fake.ran[2][5].contains("acp session set sess-1 effort=low"), "{:?}", fake.ran[2]);
+    assert!(!fake.ran[2][5].contains("acp send"), "set before, never with, the send");
+    assert!(fake.ran[3][5].contains("acp send --no-wait sess-1 -"));
+}
+
+/// A refused effort: the chat started, nothing is sent, and the answer says how to go on.
+#[test]
+fn a_refused_effort_sends_nothing_and_names_the_chat() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nError: unknown value turbo for effort\n@@exit 1\n"),
+    ]);
+    let asked = request(&["--effort", "turbo", "-p", "1+1?"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.settings_refused"), 1));
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("unknown value turbo") && message.contains("sess-1"), "{message}");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 3, "no send after the refusal: {:?}", fake.ran);
 }

@@ -30,7 +30,7 @@ SURFACES = [
     ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceHoverCardContent.swift", r"Self\.machineSymbol\(remote\)"),
     # Screen Sharing's Your Devices and Settings > Devices: the device-hub record's `kind`, through the
     # generated `DeviceGlyphKind` (the crate's table, written by its test).
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHomeDevices.swift", r"DeviceGlyphKind\(name: device\.kind\)"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHomeDevices.swift", r"device\.glyph\?\.symbol"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenDevicesSettings.swift", r"kind: device\.kind"),
 ]
 

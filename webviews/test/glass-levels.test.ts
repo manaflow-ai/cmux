@@ -35,17 +35,18 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
 
 // Leo, 2026-11-11: "The point is, the styles mix and they don't look good. So they need to look good."
 // Every floating popup and card (menus, popovers, pickers, hover cards, the context card) is one
-// material: the menu level, and one veil on the App's glass. No surface keeps a tint of its own.
-test("every popup and hover card is one material: the menu level and one veil on the App's glass", () => {
+// material: the shared transient token, and on the App's glass the App's own surface with its veil (the
+// page lays none: Glass.makeHostSurface). No surface keeps a tint of its own.
+test("every popup and hover card uses the transient material and lays no veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
+  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass,");
   expect(at).toBeGreaterThanOrEqual(0);
   const rule = glass.slice(at, glass.indexOf("}", at));
-  expect(rule).toContain("var(--ds-glass-menu-tint)");
-  expect(rule).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+  expect(rule).toContain("var(--ds-transient-web-tint)");
   expect(rule).toContain(
-    "--host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent)",
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
   );
+  expect(rule).toContain("--host-glass-fill: transparent");
   // No popup names the popover level, and no menu a second rule of its own.
   expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);
   // The surfaces that kept a tint of their own (the model menu's 92%, the + menu's and New Tab
@@ -162,7 +163,7 @@ test("the native GlassLevel names the design scale's levels, and the roles map o
   const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
   expect(cases).toEqual(levels);
   // The overlay tint tunable defaults to the popover level's strength.
-  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const popover = designScale.transientMaterial.nativeTintStrength;
   const tunables = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
     "utf8",
@@ -199,7 +200,7 @@ test("the native check fails a glass view or tint scale outside the levels and p
 test("a level surface outside .ui-glass turns solid under Reduce Transparency: the New Tab box", () => {
   const css = source("agent-session/acpmux/styles.css");
   expect(css).toMatch(
-    /:root\[data-reduce-transparency\] \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
+    /:root:is\(\[data-reduce-transparency\], \[data-glass="off"\]\) \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
   );
   expect(css).toMatch(
     /@media \(prefers-reduced-transparency:reduce\)\{\.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,

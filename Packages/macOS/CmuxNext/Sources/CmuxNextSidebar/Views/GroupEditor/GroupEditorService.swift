@@ -5,7 +5,8 @@ import CmuxNextWakeups
 
 /// Draws the sidebar's workspace group editor (``SidebarGroupEditorSurface``): the React page
 /// webviews/src/pages/group-editor in one warm glass panel, made once (at the first menu, the first hover over
-/// a group header, or the first open; never at launch) and kept for every later open, like the icon picker.
+/// a group header, or the first open; never at launch) and kept for every later open, like the icon picker,
+/// until it has gone ``idleLimit`` with no open: ``release()`` then frees the page, and the next sign of intent makes it again.
 ///
 /// Group editors are menus and open at once, fully drawn (#26400, #27056). While closed the panel stays
 /// ordered in over its window with its card transparent and click-through, so the page keeps painting
@@ -19,6 +20,9 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     static let readyDeadline: Duration = .milliseconds(150)
     /// The card's height before the page first reports one.
     static let firstHeight: CGFloat = 360
+    /// How long the warm page stays with no open before it is freed (its WebContent and WebKit GPU memory).
+    /// `debug.overlay_open_bench` shortens it for a measurement; nil keeps the page for good.
+    public var idleLimit: Duration? = .seconds(10 * 60)
 
     /// One editor open.
     struct Open {
@@ -55,6 +59,9 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     private var height = firstHeight
     private var sessions = 0
     private let deadline = DemandTimer(owner: "GroupEditorService.ready")
+    private let idle = DemandTimer(owner: "GroupEditorService.idleRelease")
+    /// When the page last answered ready for an open: the group is drawn (`debug.overlay_open_bench`).
+    private(set) var lastReady: ContinuousClock.Instant?
     /// The app's overlay pages' shared web content process (``PageOverlayProcess``); nil gives the page its own.
     private let overlayProcess: PageOverlayProcess?
 
@@ -69,9 +76,39 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     var panel: NSPanel? { warm?.panel }
     var provider: GroupEditorProvider? { warm?.provider }
 
+    /// Whether the panel and page exist, so an open reuses them; `isPageReady`: the page also loaded and listens.
+    public var isWarm: Bool { warm != nil }
+    public var isPageReady: Bool { warm?.provider.isSubscribed == true }
+    /// An editor is open and its card shows on screen (`debug.overlay_open_bench`).
+    public var isCardShown: Bool { open?.shown == true && warm?.panel.isVisible == true }
+    /// An editor is open (shown or still waiting for its page).
+    public var isOpen: Bool { open != nil }
+    /// The open card shows with the group the open that started at `start` pushed drawn by the page.
+    public func drawn(since start: ContinuousClock.Instant) -> Bool { isCardShown && (lastReady.map { $0 >= start } ?? false) }
+    /// Closes the open editor as a click outside does.
+    public func cancelOpen() { dismiss() }
+
     /// Makes the warm panel and page ahead of the first open.
     public func prepare() {
         _ = warmed()
+        if open == nil { scheduleRelease() }
+    }
+
+    /// Frees the panel and its page while no editor is open; the next sign of intent or open makes them again.
+    public func release() {
+        idle.cancel()
+        guard open == nil, let warm else { return }
+        self.warm = nil
+        warm.provider.onCall = nil
+        warm.panel.onDismiss = nil
+        warm.panel.parent?.removeChildWindow(warm.panel)
+        warm.panel.orderOut(nil)
+        warm.page.close()
+    }
+
+    private func scheduleRelease() {
+        guard let limit = idleLimit, warm != nil else { return }
+        idle.schedule(after: limit) { @MainActor [weak self] in self?.release() }
     }
 
     private func warmed() -> Warm? {
@@ -92,6 +129,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     public func present(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: PopupAnchor, parent: NSWindow,
                  themeAnchor: NSView, ordersFront: Bool, events: SidebarGroupEditorEvents) {
         if open != nil { dismiss() }
+        idle.cancel()
         guard let warm = warmed() else { return }
         sessions += 1
         let opened = Open(session: "group-editor-\(sessions)", revision: 1, group: group, items: items, anchor: anchor,
@@ -137,6 +175,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
             }
         }
         open.events.close()
+        scheduleRelease()
     }
 
     // MARK: The page
@@ -153,6 +192,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         switch call {
         case let .ready(revision, height):
             guard revision == open.revision else { return }
+            lastReady = .now
             self.height = CGFloat(height)
             if open.shown, let parent = open.parent {
                 warm?.panel.place(frame(anchor: open.anchor, parent: parent))

@@ -491,15 +491,6 @@
     "agent-pane.composer-context#folder-pinned-search": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-short-note": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-de": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-fr": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.composer-context#framework-marks": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
@@ -538,11 +529,9 @@
     "agent-pane.composer-height#thirty-percent-normal": [],
     "agent-pane.composer-height#thirty-percent-short": [],
     "agent-pane.composer-look#claude-chat": [],
-    "agent-pane.composer-look#claude-chat-dots": [],
     "agent-pane.composer-look#codex-chat": [],
     "agent-pane.composer-look#codex-chat-alt-in-box-row": [],
     "agent-pane.composer-look#codex-chat-alt-send-after-mic": [],
-    "agent-pane.composer-look#codex-chat-dots": [],
     "agent-pane.composer-look#codex-new-chat": [],
     "agent-pane.composer-look#codex-new-chat-alt-plain-strip": [],
     "agent-pane.composer-look#codex-new-chat-alt-text-row": [],
@@ -1132,6 +1121,10 @@
     "agent-pane.home-lists#long-values": [],
     "agent-pane.home-lists#refused": [],
     "agent-pane.host-error#automatic": [],
+    "agent-pane.host-error#chip": [],
+    "agent-pane.host-error#chip-corner": [],
+    "agent-pane.host-error#chip-dot": [],
+    "agent-pane.host-error#chip-restoring": [],
     "agent-pane.host-error#enable": [],
     "agent-pane.host-error#long": [],
     "agent-pane.host-error#peer-connecting": [],
@@ -1775,13 +1768,9 @@
     "agent-pane.new-tab-start-cancel#start-refused-shows-notice": [],
     "agent-pane.new-tab#attachment-menu": [],
     "agent-pane.new-tab#attachment-menu-pills": [],
-    "agent-pane.new-tab#calm-default": [],
     "agent-pane.new-tab#catalog-fast-menu": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
-    "agent-pane.new-tab#chats-filter-open": [],
-    "agent-pane.new-tab#chats-loading": [],
-    "agent-pane.new-tab#chats-unavailable": [],
     "agent-pane.new-tab#composer-background": [],
     "agent-pane.new-tab#composer-focus": [],
     "agent-pane.new-tab#composer-holds-its-place": [],
@@ -1814,9 +1803,7 @@
     ],
     "agent-pane.new-tab#layout-claude-chips-below": [],
     "agent-pane.new-tab#layout-codex-tabs-above": [],
-    "agent-pane.new-tab#long-title": [],
     "agent-pane.new-tab#machines-fleet": [],
-    "agent-pane.new-tab#many-chats": [],
     "agent-pane.new-tab#minimal-default": [],
     "agent-pane.new-tab#model-picker-open": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -1831,14 +1818,9 @@
     "agent-pane.new-tab#now-playing-off": [],
     "agent-pane.new-tab#now-playing-paused": [],
     "agent-pane.new-tab#omnibar-row-kinds": [],
-    "agent-pane.new-tab#projects": [],
     "agent-pane.new-tab#reasoning-chip": [],
-    "agent-pane.new-tab#reasoning-chip-stage": [],
-    "agent-pane.new-tab#recently-closed": [],
     "agent-pane.new-tab#split-open-tabs": [],
     "agent-pane.new-tab#split-open-tabs-context-menu": [],
-    "agent-pane.new-tab#stage-hover": [],
-    "agent-pane.new-tab#stage-layout": [],
     "agent-pane.new-tab#start-refused": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -1872,15 +1854,8 @@
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.new-tab#template-cards": [],
-    "agent-pane.new-tab#template-cards-typed": [
-      "menu-fit:div[aria-label=\"Suggestions\"]",
-      "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
-    ],
     "agent-pane.new-tab#template-classic": [],
     "agent-pane.new-tab#template-composer": [],
-    "agent-pane.new-tab#template-console": [],
-    "agent-pane.new-tab#template-threads": [],
     "agent-pane.new-tab#typed-address": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -1890,8 +1865,7 @@
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
     "agent-pane.new-tab#typed-hover": [
-      "menu-fit:div[aria-label=\"Suggestions\"]",
-      "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
+      "menu-fit:div[aria-label=\"Suggestions\"]"
     ],
     "agent-pane.new-tab#typed-hover-return": [],
     "agent-pane.new-tab#typed-keywords": [
@@ -1919,7 +1893,6 @@
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.new-tab#typed-tab-match-stage": [],
     "agent-pane.new-tab#workspace-switch-animation-audit": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"

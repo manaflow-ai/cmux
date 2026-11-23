@@ -1,6 +1,7 @@
 use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC,
     MAX_ORIGINS_BYTES, PAGE_BYTES, SEEK_BYTES, SnapshotMeta, TRAILER_BYTES,
+    kin_table::{self, Builder as KinTableBuilder},
 };
 use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row};
 use std::fs::{self, File};
@@ -9,6 +10,25 @@ use std::path::Path;
 use std::sync::Arc;
 
 pub struct SortedSnapshot;
+
+#[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))] // Phase diagnostics are consumed by the gate.
+pub(in crate::index) struct KinWriteStats {
+    pub stream_ns: u128,
+    pub closure_ns: u128,
+    pub pages_ns: u128,
+}
+
+pub(in crate::index) struct StreamGeneration<'a, Rows> {
+    pub path: &'a Path,
+    pub seq: u64,
+    pub log_offset: u64,
+    pub log_name: Option<&'a str>,
+    pub covered_generation: u64,
+    pub meta: SnapshotMeta,
+    pub rows: Rows,
+    pub table_path: Option<&'a Path>,
+}
 
 impl SortedSnapshot {
     pub const VERSION: u32 = 3;
@@ -66,8 +86,38 @@ impl SortedSnapshot {
         meta: impl Into<SnapshotMeta>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
-        let path = path.as_ref();
-        let SnapshotMeta { origins, marks } = meta.into();
+        Self::write_stream_generation_with_table(StreamGeneration {
+            path: path.as_ref(),
+            seq,
+            log_offset,
+            log_name,
+            covered_generation,
+            meta: meta.into(),
+            rows,
+            table_path: None,
+        })
+        .map(|_| ())
+    }
+
+    pub(in crate::index) fn write_stream_generation_with_table<Rows>(
+        request: StreamGeneration<'_, Rows>,
+    ) -> io::Result<KinWriteStats>
+    where
+        Rows: IntoIterator<Item = io::Result<Arc<Summary>>>,
+    {
+        let StreamGeneration {
+            path,
+            seq,
+            log_offset,
+            log_name,
+            covered_generation,
+            meta,
+            rows,
+            table_path,
+        } = request;
+        let started = std::time::Instant::now();
+        let mut stats = KinWriteStats::default();
+        let SnapshotMeta { origins, marks } = meta;
         if marks.len() > 256 {
             return Err(codec::invalid("snapshot mark limit"));
         }
@@ -118,6 +168,23 @@ impl SortedSnapshot {
         let mut last_len = 0;
         let mut previous = None;
         let mut first_lengths = Vec::new();
+        let workspace = table_path.and_then(|path| match kin_table::WorkDirectory::new(path) {
+            Ok(workspace) => Some(workspace),
+            Err(error) => {
+                kin_table::write_failure(&error);
+                None
+            }
+        });
+        let mut table =
+            workspace.as_ref().and_then(|workspace| {
+                match KinTableBuilder::in_directory(workspace.path()) {
+                    Ok(builder) => Some(builder),
+                    Err(error) => {
+                        kin_table::write_failure(&error);
+                        None
+                    }
+                }
+            });
         for row in rows {
             let row = match row {
                 Ok(row) => row,
@@ -137,6 +204,12 @@ impl SortedSnapshot {
             };
             let bytes = codec::encode(&record)?;
             let len = bytes.len() + TRAILER_BYTES;
+            if let Some(builder) = table.as_mut()
+                && let Err(error) = builder.push(&row, offset, len)
+            {
+                kin_table::write_failure(&error);
+                table = None;
+            }
             last_len = len;
             if last_checkpoint.is_none_or(|(start, ordinal)| {
                 count - ordinal == 256 || offset + len as u64 - start > SEEK_BYTES as u64
@@ -203,14 +276,26 @@ impl SortedSnapshot {
         header.extend_from_slice(&(json.len() as u32).to_le_bytes());
         header.extend_from_slice(&json);
         header.resize(HEADER_BYTES - 4, 0);
-        header.extend_from_slice(&crc32fast::hash(&header).to_le_bytes());
+        let head_crc = crc32fast::hash(&header);
+        header.extend_from_slice(&head_crc.to_le_bytes());
         writer.seek(SeekFrom::Start(0))?;
         writer.write_all(&header)?;
         writer.flush()?;
         writer.get_ref().sync_all()?;
+        stats.stream_ns = started.elapsed().as_nanos();
+        if let (Some(table), Some(table_path)) = (table, table_path) {
+            let binding = kin_table::Binding { head_crc, seq, count, data_end: origins_offset };
+            match kin_table::finish_table(table, table_path, binding) {
+                Ok((closure_ns, pages_ns)) => {
+                    stats.closure_ns = closure_ns;
+                    stats.pages_ns = pages_ns;
+                }
+                Err(error) => kin_table::write_failure(&error),
+            }
+        }
         fs::rename(&temp, path)?;
         File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
-        Ok(())
+        Ok(stats)
     }
 
     /// Explicit full materialization for tools/tests, never used by the opener.

@@ -2,47 +2,87 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Billing/PaidPlanUpgrade.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/GitHubConnections+Entrypoints.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsHarnesses+Accounts.swift": {
   "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsTailnet.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityHostView.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityRequests.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursor/AgentCursorInputBridge.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPriorityMarks.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentSessionParents.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentTurnStateFeed+Follow.swift": {
+  "JSON / property-list encode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentTurnStateFeed+Pages.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentTurnStateFeed.swift": {
+  "JSON / property-list encode": 1,
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/ChatsFeed.swift": {
+  "JSON / property-list encode": 2,
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/SidebarLaneStatus.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+CloudConnections.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageTerminations.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift": {
   "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneChatRows.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudRepositoryRequest.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudReservationRequest.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 2,
+  "JSON encode with sorted keys": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudTurnRewindHost.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContextMenu.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDictation.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneEnvironmentRequest.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitReviewThreads.swift": {
   "line split of a whole input": 1
@@ -54,14 +94,19 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift": {
-  "JSON / property-list decode": 1,
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabText.swift": {
+  "JSON / property-list encode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift": {
   "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectInstructions.swift": {
   "synchronous file write or file-system change": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSandboxRuns.swift": {
   "JSON / property-list decode": 1
@@ -70,7 +115,8 @@
   "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneScrollAnchors.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
@@ -78,8 +124,15 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTailCache+Bridge.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+EnrollRetry.swift": {
   "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Frames.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+QuestionKeys.swift": {
   "JSON / property-list decode": 1
@@ -87,11 +140,35 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Trust.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+AgentAvatar.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+ContextMenu.swift": {
+  "JSON / property-list encode": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+DebugClick.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+DebugReads.swift": {
   "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+HoverPrefetch.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+Links.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+NewTab.swift": {
+  "JSON / property-list encode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+Popup.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+SessionAdopt.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+Transport.swift": {
   "JSON / property-list decode": 1
@@ -100,19 +177,24 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentUnsentDrafts.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Approvals/AcpmuxApprovalAnswerer.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/DaemonPageValue.swift": {
-  "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/HarnessIconBook.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/UIPointerNativeElement.swift": {
+  "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift": {
   "synchronous file write or file-system change": 5
@@ -124,10 +206,23 @@
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkChromiumSync.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserHost/AppBrowserHost.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileService+Lifecycle.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserTabService+Emulation.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChatSettingsPush.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
@@ -135,21 +230,45 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMove/ChiefMoveHandlers.swift": {
   "synchronous file write or file-system change": 2
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudFrontedChats.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveAsks.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPresenter.swift": {
-  "JSON / property-list decode": 1,
   "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudService+AppServer.swift": {
+  "JSON / property-list encode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
   "synchronous file write or file-system change": 4
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAXFrame.swift": {
   "Accessibility IPC (waits up to 6 s on an app that does not answer)": 8
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentCursor.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPane.swift": {
   "JSON / property-list decode": 2,
@@ -161,10 +280,18 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugChatOpenTrace.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugCloudMove.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugToast.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWindowRecord.swift": {
+  "JSON / property-list encode": 1,
   "synchronous file write or file-system change": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Crash/AppRunMarker.swift": {
@@ -172,19 +299,23 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/AcpmuxPermissionFeedBridge.swift": {
   "JSON / property-list decode": 2,
+  "JSON / property-list encode": 1,
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/AgentDialogDesk.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedApproveProofCheck.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedService.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugPaletteCapture.swift": {
   "synchronous file write or file-system change": 1
@@ -192,8 +323,11 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugPaletteEntries.swift": {
   "synchronous file write or file-system change": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/OnboardingHandlers.swift": {
-  "line split of a whole input": 1
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDeviceHandlers.swift": {
+  "JSON / property-list encode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefInspectorPage.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/SettingsHandlers.swift": {
   "synchronous file write or file-system change": 2
@@ -211,7 +345,8 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+StopAll.swift": {
   "JSON / property-list decode": 1
@@ -223,7 +358,8 @@
   "JSON / property-list decode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/HandoffNotices.swift": {
   "JSON / property-list decode": 1,
@@ -242,8 +378,12 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/PasswordCSVFiles.swift": {
   "synchronous file write or file-system change": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ChangelogPageProvider.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift": {
-  "JSON / property-list decode": 3
+  "JSON / property-list decode": 3,
+  "JSON / property-list encode": 7
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider+Backdrop.swift": {
   "synchronous file write or file-system change": 1
@@ -251,8 +391,15 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift": {
   "directory walk": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsSharedLinks.swift": {
+  "JSON / property-list encode": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Passwords/SamplePasswordStore.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Phone/PhoneHandlers.swift": {
+  "JSON / property-list encode": 2,
+  "JSON encode with sorted keys": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Popups/DebugPopups.swift": {
   "synchronous file write or file-system change": 2
@@ -273,19 +420,34 @@
   "string scan inside a loop": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift": {
   "process launch": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/TerminalThemeStore.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/WorkspaceBackgroundStore.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/ViewerRecents.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/IncognitoWorkspaceLedger.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppFailureCopy.swift": {
   "regular expression": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/ProgramStatusSeen.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarDocBridging.swift": {
+  "JSON / property-list encode": 5
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFBookmarkBridge.swift": {
   "JSON / property-list decode": 1
@@ -298,6 +460,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+BrowsingData.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFLinkText.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFMediaBridge.swift": {
   "JSON / property-list decode": 1
@@ -318,19 +483,33 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserEmulation+Wire.swift": {
-  "JSON / property-list decode": 3
+  "JSON / property-list decode": 3,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserRestoredSession.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/MockBrowserEngine.swift": {
   "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/BrowserSearchEngine+Chromium.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/PageInfo/UI/PageInfoWindows.swift": {
   "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDebugWindow.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1,
   "synchronous file write or file-system change": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitDesignModeHandler.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/WebKitDriver+Cookies.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserExtensionMenuSource+Manifest.swift": {
   "JSON / property-list decode": 2
@@ -338,57 +517,66 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorModel.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/Import/MemorySource.swift": {
-  "JSON / property-list decode": 2
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
   "line split of a whole input": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Broker/CloudCodexHolder.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift": {
   "JSON / property-list decode": 2,
+  "JSON / property-list encode": 2,
   "process launch": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsService.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
-  "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseConsentHost.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CatalogRequestHandlers.swift": {
+  "JSON / property-list encode": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudEnvironmentRunner.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudRepositoryLocalRunner.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/GroupHoverCardView.swift": {
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionFrameTrace.swift": {
+  "JSON / property-list encode": 1,
   "synchronous file write or file-system change": 4
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelMakeHistory.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/DeclarativePopupHost.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupModel+Validation.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipContentView.swift": {
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPageProvider.swift": {
   "line split of a whole input": 1
@@ -412,27 +600,36 @@
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeSidebarSource.swift": {
-  "JSON / property-list decode": 3
+  "JSON / property-list decode": 3,
+  "JSON / property-list encode": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/HostedChiefCopy.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/HostedChiefMigration.swift": {
   "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/BrowserImportOfferState.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ImportCardJSON.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefLauncherPanel.swift": {
   "string scan inside a loop": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHubDebug.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenStore.swift": {
+  "JSON / property-list encode": 1,
   "keychain call (securityd IPC; can wait on a prompt)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneBrowserHosts.swift": {
@@ -440,6 +637,7 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobileHostApproverSync.swift": {
   "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1,
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier.swift": {
@@ -455,8 +653,18 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BackdropImagesPageProvider.swift": {
   "synchronous file write or file-system change": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageInputReadiness.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Chromium.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Debug.swift": {
+  "JSON / property-list encode": 1,
   "synchronous file write or file-system change": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Evaluate.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsThemeFileOpener.swift": {
   "line split of a whole input": 1
@@ -468,7 +676,12 @@
   "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FrecencyPersistence.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Scopes/PaletteController+RankFixture.swift": {
+  "JSON / property-list encode": 1,
+  "JSON encode with sorted keys": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidScreenStream.swift": {
   "process launch": 1
@@ -484,17 +697,30 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/ActionRegistry+WorkspaceLocalhost.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/DeviceDirectory.swift": {
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/JoinConsent.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/AutoArchive/AutoArchiveLedger.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarLookedStore.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+PendingChief.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore.swift": {
+  "JSON / property-list encode": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarMirror.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 6
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/DebugNativeRowToolsFixtureView.swift": {
   "window-server list query (CGWindowList*)": 1
@@ -505,6 +731,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyKeyClaims.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLaunchFrames.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalPasteboard+Image.swift": {
   "synchronous file write or file-system change": 3
  },
@@ -513,6 +742,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateDropBack.swift": {
   "process launch": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+SurfaceHighlights.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift": {
   "synchronous file write or file-system change": 1

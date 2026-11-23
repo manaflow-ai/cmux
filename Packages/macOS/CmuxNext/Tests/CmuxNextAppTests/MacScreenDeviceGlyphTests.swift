@@ -12,8 +12,8 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct MacScreenDeviceGlyphTests {
     private func row(_ name: String, platform: DevicePlatform, kind: String?) -> MacScreenHomeSnapshot.Device {
-        MacScreenHomeSnapshot.Device(HubDevice(id: name, name: name, platform: platform, macScreenShared: true, kind: kind, online: true),
-                                     access: MacScreenAccess(.ask))
+        MacScreenHomeSnapshot.device(HubDevice(id: name, name: name, platform: platform, macScreenShared: true, kind: kind, online: true),
+                                     access: MacScreenAccess(.ask), hubConnected: true)
     }
 
     /// Every MacScreenGlyph under `root`, depth first.
@@ -39,12 +39,15 @@ struct MacScreenDeviceGlyphTests {
 
     @Test func yourDevicesDrawsEachDevicesGlyph() {
         let home = MacScreenHomeView(host: MacScreenShareHost(work: BackgroundWork()), actions: MacScreenHomeActions())
-        let section = home.yourDevices(.list([
+        let devices = MacScreenHomeSnapshot.Devices.list([
             row("Laptop", platform: .macos, kind: "macbook"),
             row("Mini", platform: .macos, kind: "mac-mini"),
             row("Old", platform: .macos, kind: nil),
             row("Phone", platform: .ios, kind: nil),
-        ]))
-        #expect(glyphs(under: section) == ["macbook.gen2", "macmini", "desktopcomputer", "iphone"])
+        ])
+        for look in [MacScreenDevicesLook.quiet, .classic] {
+            let section = home.yourDevices(devices, look: look)
+            #expect(glyphs(under: section) == ["macbook.gen2", "macmini", "desktopcomputer", "iphone"])
+        }
     }
 }

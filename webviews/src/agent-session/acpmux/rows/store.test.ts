@@ -1,8 +1,16 @@
 // The page's thin store for a chat's rows, fed hand-written change strings of the shapes the
 // client core gives (acpmux-client chat.rs `ChatChange`, its shape tests in chat/tests.rs) through
-// the host client, as the host's event carries them.
+// the document's receiver, as the host's event carries them.
 import { describe, expect, test } from "bun:test";
-import { ChatRowsHost, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import {
+  ChatRowsHost,
+  CHAT_ROWS_LOST,
+  CHAT_ROWS_OFF,
+  CHAT_ROWS_OTHER_SID,
+  type ChatRowsPost,
+  chatRowsNamer,
+} from "./host";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
 
@@ -26,23 +34,17 @@ function harness(answer: (call: Call) => unknown = echo) {
   const calls: Call[] = [];
   const falls: ChatFall[] = [];
   const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      const call = { method, params };
-      calls.push(call);
-      const value = await answer(call);
-      if (value instanceof Error) throw value;
-      return value;
-    },
-    store,
-    testNamer(),
-  );
-  let batch = 0;
+  const post: ChatRowsPost = async (method, params) => {
+    const call = { method, params };
+    calls.push(call);
+    const value = await answer(call);
+    if (value instanceof Error) throw value;
+    return value;
+  };
+  const host = new ChatRowsHost(post, store, testNamer());
+  const feed = chatRowsFeed(host, post);
   const send = (...changes: unknown[]) =>
-    host.receive({
-      batch: ++batch,
-      changes: changes.map((change) => (typeof change === "string" ? change : JSON.stringify(change))),
-    });
+    feed(changes.map((change) => (typeof change === "string" ? change : JSON.stringify(change))));
   return { calls, falls, store, host, send };
 }
 
@@ -498,6 +500,16 @@ describe("the fall to v1", () => {
       }),
       CHAT_ROWS_OFF,
     ],
+    ["the old bridge's unsupported", Object.assign(new Error("no"), { code: "unsupported" }), CHAT_ROWS_OFF],
+    ["a lost link, with no code", new Error("lost"), CHAT_ROWS_LOST],
+    [
+      "invalid params",
+      Object.assign(new Error("bad"), {
+        code: "native.invalid_request",
+        details: { protocol: "cmux.protocol.invalid_params" },
+      }),
+      "native.invalid_request",
+    ],
   ] as const)
     test(`an open refused (${name}) falls with its code and holds no sid`, async () => {
       const { host, store } = harness((call) => (call.method === "chat.rows.open" ? error : {}));
@@ -505,9 +517,15 @@ describe("the fall to v1", () => {
       expect(store.has("c")).toBe(false);
     });
 
-  test("an open answered with another sid is a host without the operation", async () => {
-    const { host, store } = harness((call) => (call.method === "chat.rows.open" ? { sid: "theirs" } : {}));
+  test("an open answered with no sid is a host without the operation", async () => {
+    const { host, store } = harness(() => ({}));
     expect(await host.open("chat-1")).toEqual({ fallen: CHAT_ROWS_OFF });
+    expect(store.has("c")).toBe(false);
+  });
+
+  test("an open answered with another sid falls that chat only", async () => {
+    const { host, store } = harness((call) => (call.method === "chat.rows.open" ? { sid: "theirs" } : {}));
+    expect(await host.open("chat-1")).toEqual({ fallen: CHAT_ROWS_OTHER_SID });
     expect(store.has("c")).toBe(false);
     expect(store.has("theirs")).toBe(false);
   });
