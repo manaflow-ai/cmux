@@ -243,93 +243,14 @@ struct EventInspectorScreen: View {
     @State private var filter = ""
     @State private var copied = false
     @State private var memo = EventInspectorRows()
-    /// The pill's jump: the newest row, scrolled to once the held records are drawn.
-    @State private var jumpTo: Int?
 
     var body: some View {
         Group {
             if let journal {
-                // Kept as records arrive (one redraw per frame; a record costs one match, a
-                // drop costs itself), not filtered and reversed over every record per redraw.
-                let rows = memo.rows(journal)
-                let total = journal.count
-                let held = memo.heldCount
-                ScrollViewReader { proxy in
-                    List {
-                        Section {
-                            ForEach(rows.reversed()) { event in
-                                NavigationLink {
-                                    EventInspectorDetail(event: event)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
-                                        Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .accessibilityIdentifier("chat.inspector.row")
-                            }
-                        } header: {
-                            // Its own view: a filter starting redraws the header, not the list.
-                            EventInspectorCount(memo: memo, shown: rows.count, total: total, dropped: journal.dropped)
-                        }
-                    }
-                    .overlay {
-                        if total == 0 {
-                            ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
-                                                   description: Text("Records from the Mac show here as they arrive."))
-                        }
-                    }
-                    // Away from the top the list holds still: new records wait behind the pill (a
-                    // burst inserted rows above the reader every frame), and land together when the
-                    // reader taps it or scrolls back to the top.
-                    .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 24 } action: { _, away in
-                        memo.setHolding(away, journal: journal)
-                    }
-                    .overlay(alignment: .top) {
-                        if held > 0 {
-                            Button {
-                                let newest = memo.newestHeldID
-                                memo.setHolding(false, journal: journal)
-                                jumpTo = newest
-                            } label: {
-                                Label(String(localized: "mobile.agentChat.inspector.newEvents \(held)", bundle: .module),
-                                      systemImage: "arrow.up")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.capsule)
-                            .padding(.top, 8)
-                            .accessibilityIdentifier("chat.inspector.newEvents")
-                        }
-                    }
-                    .onChange(of: jumpTo) {
-                        guard let id = jumpTo else { return }
-                        jumpTo = nil
-                        withAnimation { proxy.scrollTo(id, anchor: .top) }
-                    }
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Menu {
-                                Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
-                                    // Raw tool output: kept on this iPhone (no Universal Clipboard) and
-                                    // gone from the pasteboard after ten minutes.
-                                    UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(memo.rows(journal)))]],
-                                                                  options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
-                                    copied = true
-                                }
-                                // While a new filter runs the rows are the last filter's: copy waits for it.
-                                .modifier(DisabledWhileFiltering(memo: memo, empty: rows.isEmpty))
-                                Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
-                                    .disabled(total == 0)
-                            } label: {
-                                Label("More", systemImage: "ellipsis")
-                            }
-                            .accessibilityIdentifier("chat.inspector.more")
-                        }
-                    }
+                // The list is its own view: a keystroke changes this body (the filter text),
+                // not the list, which redraws only when the query's rows land.
+                EventInspectorList(memo: memo, journal: journal, copied: $copied)
                     .onChange(of: filter, initial: true) { memo.setQuery(filter, journal: journal) }
-                }
             } else {
                 ContentUnavailableView("No events for this chat", systemImage: "list.bullet.rectangle",
                                        description: Text("This chat's records don't come from a Mac."))
@@ -347,6 +268,107 @@ struct EventInspectorScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+}
+
+/// The inspector's list: rows newest first, the count header, the "N new events" pill, More.
+/// It reads only the memo's rows (and the journal's count), so it redraws when a query's rows
+/// land or records come, not on a keystroke.
+struct EventInspectorList: View {
+    let memo: EventInspectorRows
+    let journal: AgentEventJournal
+    @Binding var copied: Bool
+    /// The pill's jump: the newest row, scrolled to once the held records are drawn.
+    @State private var jumpTo: Int?
+    #if DEBUG
+    /// Body evaluations (tests: one per keystroke's landing, none for the keystroke itself).
+    static var bodies = 0
+    #endif
+
+    var body: some View {
+        #if DEBUG
+        let _ = Self.bodies += 1
+        #endif
+        // Kept as records arrive (one redraw per frame; a record costs one match, a
+        // drop costs itself), not filtered and reversed over every record per redraw.
+        let rows = memo.rows(journal)
+        let total = journal.count
+        let held = memo.heldCount
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    ForEach(rows.reversed()) { event in
+                        NavigationLink {
+                            EventInspectorDetail(event: event)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
+                                Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityIdentifier("chat.inspector.row")
+                    }
+                } header: {
+                    // Its own view: a filter starting redraws the header, not the list.
+                    EventInspectorCount(memo: memo, shown: rows.count, total: total, dropped: journal.dropped)
+                }
+            }
+            .overlay {
+                if total == 0 {
+                    ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
+                                           description: Text("Records from the Mac show here as they arrive."))
+                }
+            }
+            // Away from the top the list holds still: new records wait behind the pill (a
+            // burst inserted rows above the reader every frame), and land together when the
+            // reader taps it or scrolls back to the top.
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 24 } action: { _, away in
+                memo.setHolding(away, journal: journal)
+            }
+            .overlay(alignment: .top) {
+                if held > 0 {
+                    Button {
+                        let newest = memo.newestHeldID
+                        memo.setHolding(false, journal: journal)
+                        jumpTo = newest
+                    } label: {
+                        Label(String(localized: "mobile.agentChat.inspector.newEvents \(held)", bundle: .module),
+                              systemImage: "arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("chat.inspector.newEvents")
+                }
+            }
+            .onChange(of: jumpTo) {
+                guard let id = jumpTo else { return }
+                jumpTo = nil
+                withAnimation { proxy.scrollTo(id, anchor: .top) }
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
+                            // Raw tool output: kept on this iPhone (no Universal Clipboard) and
+                            // gone from the pasteboard after ten minutes.
+                            UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(memo.rows(journal)))]],
+                                                          options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
+                            copied = true
+                        }
+                        // While a new filter runs the rows are the last filter's: copy waits for it.
+                        .modifier(DisabledWhileFiltering(memo: memo, empty: rows.isEmpty))
+                        Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
+                            .disabled(total == 0)
+                    } label: {
+                        Label("More", systemImage: "ellipsis")
+                    }
+                    .accessibilityIdentifier("chat.inspector.more")
+                }
+            }
+        }
+    }
 }
 
 /// The inspector's count header ("N events", "N of M events", dropped, "Filtering…"). It reads

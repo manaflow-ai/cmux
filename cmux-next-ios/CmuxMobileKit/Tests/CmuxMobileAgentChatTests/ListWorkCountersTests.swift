@@ -61,6 +61,36 @@ import UIKit
         #expect(perKeystroke.allSatisfy { $0 <= 1 }, "redraws of the list per keystroke: \(perKeystroke)")
     }
 
+    /// The same keystrokes, counted where SwiftUI's List is built: the inspector's list view in
+    /// a window, its body evaluations per keystroke (`EventInspectorList.bodies`). The filter
+    /// text lives in the screen above it, so a keystroke itself does not evaluate the list.
+    @Test func aKeystrokeEvaluatesTheListViewOnce() async {
+        let journal = AgentEventJournal()
+        journal.nextFrame = nil
+        let pad = String(repeating: "output line of a long tool result\n", count: 200)
+        for n in 0..<500 { journal.record(EventInspectorCoalesceTests.record(n, body: n % 25 == 24 ? pad : nil)) }
+        let rows = EventInspectorRows(offMainAbove: 0)
+        rows.setQuery("", journal: journal)
+        let host = UIHostingController(rootView: NavigationStack { EventInspectorList(memo: rows, journal: journal, copied: .constant(false)) })
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.isHidden = false
+        ChatTranscriptSourceTests.settle(window)
+        #expect(EventInspectorList.bodies > 0, "the list view was drawn")
+        var perKeystroke: [Int] = []
+        for query in ["t", "to", "too", "tool", "tool_", "tool_call"] {
+            let before = EventInspectorList.bodies
+            rows.setQuery(query, journal: journal)
+            await rows.settled()
+            await Self.settle()
+            ChatTranscriptSourceTests.settle(window)
+            perKeystroke.append(EventInspectorList.bodies - before)
+        }
+        window.isHidden = true
+        #expect(perKeystroke.allSatisfy { $0 <= 1 } && perKeystroke.contains(1),
+                "list view body evaluations per keystroke: \(perKeystroke)")
+    }
+
     /// The events-burst case: 2000 records over 50 frames reach the list as at most one redraw
     /// a frame, with and without a filter.
     @Test(arguments: ["", "tool_call"])
