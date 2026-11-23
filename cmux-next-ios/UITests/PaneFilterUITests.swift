@@ -40,7 +40,8 @@ final class PaneFilterUITests: XCTestCase {
         attach(app, "1-default")
 
         filter.tap()
-        let browsers = app.switches["Show Browsers"].firstMatch
+        // A Toggle inside a menu is a menu button, not a switch.
+        let browsers = app.buttons["Show Browsers"].firstMatch
         XCTAssertTrue(browsers.waitForExistence(timeout: 5), "Show Browsers\n\(app.debugDescription)")
         attach(app, "2-menu")
         browsers.tap()
@@ -67,7 +68,7 @@ final class PaneFilterUITests: XCTestCase {
     /// A menu stays open after a toggle; a tap outside it closes it.
     @MainActor
     private func dismissMenu(_ app: XCUIApplication) {
-        guard app.switches["Show Browsers"].exists else { return }
+        guard app.buttons["Show Browsers"].exists else { return }
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.95)).tap()
     }
 

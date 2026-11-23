@@ -135,6 +135,26 @@ struct MacScreenSharingSectionTests {
         }
     }
 
+    /// The simple look (the default, Leo 2026-11-16: "i hate the "you approve each one" ... it's too many ... steps"):
+    /// no "approve each one", no per-permission rows; one Grant Access while a permission is missing, and
+    /// who is connected with one Stop.
+    @Test func simpleLookIsOneSwitchOneGrantAndStop() throws {
+        #expect(MacScreenTunables.sharingLook.defaultValue == .simple)
+        try withHome { home in
+            let open = L.t("macScreen.home.openSettings", "Open System Settings")
+            let missing = home.sharingSection(sharing(screenRecording: false, accessibility: false), look: .simple)
+            #expect(!texts(under: missing).contains { $0.localizedCaseInsensitiveContains("approve each") })
+            #expect(views(under: missing).filter { $0.accessibilityIdentifier() == "macScreen.home.grantAccess" }.count == 1)
+            #expect(!views(under: missing).contains { ($0 as? NSButton)?.title == open })
+            let granted = home.sharingSection(sharing(screenRecording: true, accessibility: true), look: .simple)
+            #expect(!views(under: granted).contains { $0.accessibilityIdentifier() == "macScreen.home.grantAccess" })
+            let session = MacScreenHubHost.Session(id: "s", viewerID: "v", viewerName: "Laptop", scope: .full, connected: true)
+            let connected = home.sharingSection(sharing(screenRecording: true, accessibility: true, session: session), look: .simple)
+            #expect(texts(under: connected).contains("Connected: Laptop · Controlling"))
+            #expect(views(under: connected).filter { $0.accessibilityIdentifier() == "macScreen.home.stop" }.count == 1)
+        }
+    }
+
     /// With both permissions and no viewer, the status says this Mac is ready.
     @Test func statusIsReadyWithBothPermissions() throws {
         try withHome { home in
