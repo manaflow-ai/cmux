@@ -271,7 +271,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
         let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook,
-                                            usesTransientMaterial: spec.usesTransientMaterial, overApps: overApps)
+                                            usesTransientMaterial: dialog.usesTransientMaterial, overApps: overApps)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface

@@ -34,4 +34,15 @@ extension NSView {
             ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
             : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
     }
+
+    /// The theme ink at `ink`, moved toward its pole until it reads at `minimum` on every ground of the glass this view
+    /// sits on (``buttonGround(_:)``: a menu's glass over the theme's window, a white and a black page), or nil off
+    /// glass, where the theme's ink is fit to the page already. An icon button's secondary glyph on a popover read
+    /// 1.71:1 over a black page (Rose Pine Dawn, NativeControlContrastAuditTests). Call it inside `performWithTheme`.
+    func glassInk(_ ink: KeyPath<ThemeTokens, ThemeRGB>, minimum: Double) -> NSColor? {
+        guard let surface = enclosingOverlaySurface, !surface.drawsNoMaterial, surface.material != .opaque else { return nil }
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let ground = buttonGround(tokens)
+        return CmuxDialogButtonLook.readable(tokens[keyPath: ink].composited(over: ground[0]), over: ground, minimum: minimum).nsColor
+    }
 }
