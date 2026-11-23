@@ -422,15 +422,17 @@
   padding-right: calc(var(--wn-close) + var(--wn-gap));
   white-space: nowrap;
 }
+/* The title never gives its words up for the link beside it (Leo 2026-11-23: "updated to ellipsis"). */
 .wn-updated .wn-card-title {
-  min-width: 0;
+  flex: none;
   padding-right: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
 .wn-card-link {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   appearance: none;
   margin: 0;
   padding: 0;
@@ -444,7 +446,8 @@
   transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .wn-card-link:hover { color: var(--page-text); }
-.wn-updated:is([data-placement="top-right"], [data-shape="row"]) .wn-card-link { margin-left: auto; }
+/* The link follows the title; the x (the host's, on hover) owns the line's end, so no gap is drawn there. */
+.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
 /* The top change on the title's line (`row-change`): after the title, in the quiet ink, cut at the
    edge; the title keeps its words. */
 .wn-updated[data-shape="row-change"] .wn-card-title { flex: none; }

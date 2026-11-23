@@ -462,7 +462,6 @@ export function UpdatedCard({
           {(placement === "top-right" || shape === "row") && (
             <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
-              <span aria-hidden="true"> ↗</span>
             </button>
           )}
         </div>
