@@ -201,4 +201,18 @@ struct OverviewLayoutTests {
         #expect(narrow > at)
         #expect(abs(folded.offset(keepingPlace: narrow, in: unfolded) - at) < 1e-9)
     }
+
+    /// A host that changes the width and then the column count (two updates)
+    /// lands where one update would: each step keeps the leading card.
+    @Test func twoStepUnfoldKeepsThePlace() {
+        let folded = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 40)
+        var wideTwo = folded
+        wideTwo.size = CGSize(width: 800, height: 700)
+        let unfolded = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 62, safeBottom: 34, count: 40, columns: 4)
+        let atTwenty = folded.card(20).minY - folded.top
+        let oneStep = folded.offset(keepingPlace: atTwenty, in: unfolded)
+        let twoSteps = wideTwo.offset(keepingPlace: folded.offset(keepingPlace: atTwenty, in: wideTwo), in: unfolded)
+        #expect(abs(oneStep - twoSteps) < 1e-9)
+        #expect(abs(unfolded.card(20).minY - unfolded.pinnedTop - twoSteps) < 1e-9)
+    }
 }

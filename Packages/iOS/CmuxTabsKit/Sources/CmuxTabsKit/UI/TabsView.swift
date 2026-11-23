@@ -616,14 +616,15 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// A foldable folding or unfolding under the settled grid changes its
     /// width and column count: the card that led the screen leads it again,
     /// instead of the old scroll offset landing on other tabs in the reflowed
-    /// grid. (Off the grid, `prepareOverview` reveals the active card on the way in.)
+    /// grid. Every shape change keeps the place, so a host that changes the
+    /// width and the column count in two updates still lands on the same card.
+    /// (Off the grid, `prepareOverview` reveals the active card on the way in.)
     private func keepGridPlace(from old: GridShape) {
         guard zoomState.phase == .overview else { return }
         let resized = overviewLayout
         var before = resized
         before.size.width = old.width
         before.columns = old.columns
-        guard before.columnCount != resized.columnCount else { return }
         let offset = before.offset(keepingPlace: overviewScroll, in: resized)
         guard abs(offset - overviewScroll) > 0.5 else { return }
         var t = Transaction()
