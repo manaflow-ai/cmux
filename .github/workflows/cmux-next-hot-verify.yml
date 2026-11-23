@@ -246,11 +246,23 @@ jobs:
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
+      # CI_POOL_FIRST: the dispatch goes out on a CI pool App first (each its own installation hour), then cmux-bot,
+      # then the other pools, then github.token (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES).
+      # The base branch's scripts/ checkout above carries both helpers.
+      - name: Mint the CI pool's tokens
+        if: ${{ steps.plan.outputs.eligible == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
       # Run 45060092627 (2026-11-22 19:22Z): the dispatch went out on github.token alone, whose hour (one of the
       # repository's GITHUB_TOKEN buckets, every workflow's job token) read 5000 used, 0 left, reset 19:52:36Z; the
       # 20-minute retry ended before the reset and the PR got no look. The cmux-bot App's installation has its own
-      # hour: a rate-limited dispatch moves to it at once (gh_budget_wait.sh, GH_TOKEN_SPARE), and only when both
-      # pools refuse does it wait for a reset.
+      # hour: a rate-limited dispatch moves to it at once (gh_budget_wait.sh, GH_TOKEN_SPARE), and only when every
+      # pool refuses does it wait for a reset.
       - name: Mint the dispatch's spare token
         id: cmux-bot-token
         if: ${{ steps.plan.outputs.eligible == 'true' && vars.CMUX_BOT_APP_ID != '' }}
@@ -270,8 +282,9 @@ jobs:
       - name: Dispatch the look
         if: ${{ steps.plan.outputs.eligible == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           GH_BUDGET_WAIT_MAX_SECONDS: 3900
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
@@ -282,7 +295,7 @@ jobs:
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
           # A dispatch that fails is a PR with no look, and ends this job red. gh is gh_budget_wait.sh: a rate
-          # limit moves to the spare pool at once and waits for a reset only when every pool is spent. This loop
+          # limit moves to the next pool at once and waits for a reset only when every pool is spent. This loop
           # retries other failures (a 5xx), at most 3 tries, 30 s doubling.
           pause=30
           for attempt in 1 2 3; do
