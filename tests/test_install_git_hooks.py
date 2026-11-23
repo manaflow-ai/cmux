@@ -83,10 +83,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
-            *self.copy_input_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -108,15 +110,17 @@ class InstallGitHooksTests(unittest.TestCase):
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
 
     @staticmethod
-    def copy_input_sources():
-        """Every file scripts/git-hooks/checks-copy-inputs names, so a new line there never leaves the fixture behind.
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
 
-        a37b6194810 added scripts/ci/generated_files_guard.py and ci_process_tree.py there, and the stamp test failed
-        with "No such file" on every branch until the fixture copied them; reading the list keeps the two in step.
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
         """
-        text = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8")
-        paths = (line.split("->")[0].strip() for line in text.splitlines() if line.strip() and not line.startswith("#"))
-        return sorted({path for path in paths if not path.endswith("/")})
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
