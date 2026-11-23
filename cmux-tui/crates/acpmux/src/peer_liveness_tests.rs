@@ -346,3 +346,55 @@ async fn a_request_waits_for_a_peer_whose_round_trip_is_measured_slow() {
     serving.abort();
     answering.abort();
 }
+
+/// Duress count, run by hand on any commit (it uses nothing newer than the link loop):
+/// `cargo test -p acpmux duress_link_drops -- --ignored --nocapture`. A live peer, and this
+/// computer stalls 60 times for 3 to 9 s (cosmic-gray at load 80 to 100), a request before each:
+/// how many times its link drops and is redialed.
+#[tokio::test(start_paused = true)]
+#[ignore = "a duress count for a PR's Duress line, not a check"]
+async fn duress_link_drops_under_this_computers_stalls() {
+    use futures_util::StreamExt;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let stalls = [3u64, 9, 5, 7, 4, 8, 6, 3, 9, 7].repeat(6);
+    let mut next = 0;
+    let mut why: Vec<String> = Vec::new();
+    while next < stalls.len() {
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+        let serving = peer.serve(client, &mut out_rx);
+        tokio::pin!(serving);
+        // The loop runs in this task: while this task stalls, so does the link's loop.
+        loop {
+            tokio::select! {
+                ended = &mut serving => {
+                    why.push(format!("{ended:?}"));
+                    break;
+                }
+                () = tokio::time::sleep(Duration::from_secs(2)) => {
+                    let line = Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() };
+                    let _ = peer.out.try_send(line);
+                    tokio::time::advance(Duration::from_secs(stalls[next])).await;
+                    next += 1;
+                    if next == stalls.len() {
+                        break;
+                    }
+                }
+            }
+        }
+        answering.abort();
+    }
+    let probe = why.iter().filter(|w| w.contains("after a request")).count();
+    let silence = why.iter().filter(|w| w.contains("stopped answering")).count();
+    println!(
+        "DURESS link drops under {} stalls of 3-9 s, live peer: {} ({probe} by a request's probe, {silence} for silence)",
+        stalls.len(),
+        why.len()
+    );
+}
