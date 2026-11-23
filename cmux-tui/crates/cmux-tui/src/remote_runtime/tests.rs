@@ -1738,6 +1738,7 @@ fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
         }
     };
     assert!(error.to_string().contains("did not become ready"), "{error:#}");
+    assert!(error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
     // The daemon's own startup wait is fixed (DAEMON_STARTUP_TIMEOUT): no flag lengthens it, so its
     // error names none; the client's first connect names --connect-timeout-seconds
     // (client_startup_timeout_returns_while_the_socket_path_lock_is_held).

@@ -195,6 +195,16 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// Carries a signed `cmux.share-approval.v1` (`approvalJSON`, one JSON object) to the host
+    /// `target`: `POST /v1/devices/:target/share-approval {approval}` (cmuxterm-hq#18912 cut 2). The
+    /// hub pushes it to the target, which admits it and turns its own sharing on.
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        struct Delivered: Decodable { var delivered: Bool? }
+        let body = Data("{\"approval\":".utf8) + Data(approvalJSON.utf8) + Data("}".utf8)
+        _ = try await call("POST", "/v1/devices/\(segment(target))/share-approval", query: [], bodyData: body,
+                           as: Delivered.self)
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions

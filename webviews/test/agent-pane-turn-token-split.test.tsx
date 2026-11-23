@@ -37,7 +37,9 @@ for (const [name, line] of Object.entries(tokenLines))
       expect(html).not.toContain("cv-worked__sep");
       expect(text(html)).not.toMatch(/↓|↑|tokens|12\.4K|60K/);
       // The time is in its own quieter span.
-      expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+      expect(html).toMatch(
+        /<span class="(?:ui-clock )?cv-worked__(label-)?time"(?: data-clock-size="[^"]*")?>35s<\/span>/,
+      );
     });
 
 test("standalone token formatting still shows output and uncached input with the full split on hover", async () => {

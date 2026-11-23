@@ -17,6 +17,11 @@ import Testing
 /// is focused and on the registry, not on the page: a page that shows while the last list still holds needs no
 /// read at all. These rows hold that by counts (``AgentPaneNewTabActions/Counts``), never by a clock: the row
 /// fires each display frame itself.
+///
+/// Each row prints its frames (the lines `new-tab-list:`) and what the lister's tasks cost in them (the lines
+/// `new-tab-list-tasks:`, ``printTasks(_:since:in:)``). A listing reads actions for 0.5 ms in each task, so its
+/// frames are its time. The second line has the time of a fixed work on the same Mac: a Mac that is slow now makes
+/// that time and the frames larger, and a read that costs more makes only the frames larger.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .closesItsWindows)
 struct NewTabCommandListKeptTests {
     typealias Listed = AgentPaneNewTabActions.Listed
@@ -58,6 +63,7 @@ struct NewTabCommandListKeptTests {
         let lister = services.newTabActions
         let page = try Self.openPage(app)
         let start = lister.counts
+        let cost = Self.tasks(services)
         page.loadPaletteActions()
         // The row is the display. No turn of the main thread ends between these frames, and the hand-over needs one (the
         // list's JSON is made off the main thread). The count rises in the task that reads the last action.
@@ -68,6 +74,9 @@ struct NewTabCommandListKeptTests {
             fired += 1
         }
         let read = lister.counts
+        // The line of these tasks has the fixed work, so it prints at the row's end, after each check of the row.
+        let slices = Spent("\(#function): a listing to its last slice, \(fired) frames of the row", since: cost, in: services)
+        defer { slices.printLine() }
         try #require(read.actionsRead > start.actionsRead, "no listing was read to its end in \(fired) frames: \(read)")
         try #require(page.page.omnibar.actions.isEmpty, "the list was handed over in the frame of its last slice")
 
@@ -146,6 +155,7 @@ struct NewTabCommandListKeptTests {
         let services = app.services
         let lister = services.newTabActions
         let start = lister.counts
+        let cost = Self.tasks(services)
         let limit = Self.frameLimit(services)
         let hold = Hold()
         let (lists, feed) = AsyncStream.makeStream(of: Listed.self)
@@ -196,6 +206,7 @@ struct NewTabCommandListKeptTests {
         print("new-tab-list: a hold with no list yet: \(hold.asks) asks, one each 2 frames, until the hand-over; "
             + "\(end.started - start.started) listings started, "
             + "\(end.actionsRead - start.actionsRead) catalog actions read, \(hold.frames) frames with a lister task")
+        Self.printTasks("\(#function): a hold to its hand-over, \(hold.frames) frames with a lister task", since: cost, in: services)
         let list = try #require(got, "\(hold.failure ?? "no hand-over"); \(hold.asks) asks; listings started = \(now.started - start.started)")
         let without = hold.pages.filter { $0.page.omnibar.actions != list.actions }.count
         #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings in \(hold.asks) asks")
@@ -320,10 +331,12 @@ struct NewTabCommandListKeptTests {
         return model
     }
 
-    /// What one ask gave: the list (nil when no hand-over came), and the frames the lister had a task for.
+    /// What one ask gave: the list (nil when no hand-over came), the frames the lister had a task for, and the
+    /// lister's tasks from the ask to its hand-over.
     struct Asked {
         var list: Listed?
         var frames: Int
+        var tasks: Spent
     }
 
     /// The lister's frame queue, as the frame scheduler names its clients.
@@ -348,16 +361,23 @@ struct NewTabCommandListKeptTests {
         return (lists, feed)
     }
 
-    /// Asks for the list as a page does, and is the display until the lister hands it over.
-    static func listed(_ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
-        await handOver(to: ask(services), services, inFrame: inFrame)
+    /// Asks for the list as a page does, and is the display until the lister hands it over. `row` is the name in the
+    /// printed line of the lister's tasks: the function that asks. `prints`: see ``handOver(to:_:row:prints:inFrame:)``.
+    static func listed(_ services: AppServices, row: String = #function, prints: Bool = true,
+                       inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
+        await handOver(to: ask(services), services, row: row, prints: prints, inFrame: inFrame)
     }
 
     /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No hand-over
-    /// in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each of those frames.
-    static func handOver(to waiter: Waiter, _ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
+    /// in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each of those frames. Prints
+    /// its frames and what the lister's tasks cost in them (``Spent/printLine()``), under the name `row`. That line
+    /// has the fixed work: a row that measures a time to after its ask gives `prints` false and prints
+    /// ``Asked/tasks`` itself, after it read its values.
+    static func handOver(to waiter: Waiter, _ services: AppServices, row: String = #function, prints: Bool = true,
+                         inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
         let (lists, feed) = waiter
         let limit = frameLimit(services)
+        let cost = tasks(services)
         // The row's display link: it ends only when the row cancels it.
         let frames = Task { @MainActor () -> Int in
             var working = 0
@@ -383,7 +403,97 @@ struct NewTabCommandListKeptTests {
             let counts = services.newTabActions.counts
             Issue.record("no hand-over in \(working) frames with a lister task (the limit is \(limit)); listings started = \(counts.started)")
         }
-        return Asked(list: got, frames: working)
+        let spent = Spent("\(row): an ask to its hand-over, \(working) frames with a lister task", since: cost, in: services)
+        if prints { spent.printLine() }
+        return Asked(list: got, frames: working, tasks: spent)
+    }
+
+    /// The lister at one moment: its counts, and its tasks in the always-on record of the main thread's budget
+    /// (`MainFrameBudget.ownerTimes`: how many ran, and their own time). For a print, never for a row's verdict.
+    struct Tasks {
+        var counts: AgentPaneNewTabActions.Counts
+        var ran: Int
+        var nanos: UInt64
+        /// The median and the longest of the lister's tasks since the app's start, in microseconds.
+        var median: UInt64
+        var longest: UInt64
+    }
+
+    static func tasks(_ services: AppServices) -> Tasks {
+        let name = lister
+        let times = services.mainWork.budget.ownerTimes.first { $0.owner == name }
+        return Tasks(counts: services.newTabActions.counts, ran: times?.count ?? 0, nanos: times?.totalNanos ?? 0,
+                     median: (times?.p50Nanos ?? 0) / 1000, longest: (times?.maxNanos ?? 0) / 1000)
+    }
+
+    /// The steps of ``fixedWork()``.
+    static let fixedSteps: UInt64 = 200_000
+
+    /// The time of one fixed piece of work on this Mac now, in microseconds (the least of 3 runs of the same
+    /// arithmetic), and the sum that the 3 runs made. It reads nothing of the app. A Mac that is slow or busy now
+    /// takes longer for it, and a change of the app's code does not. The sum is the same number in each run, and the
+    /// line prints it: a build with optimization must do the work to have it.
+    static func fixedWork() -> (micros: Int64, sum: UInt64) {
+        let clock = ContinuousClock(), steps = fixedSteps
+        var least = Duration.seconds(3600)
+        var sum: UInt64 = 1
+        for _ in 0..<3 {
+            let took: Duration = clock.measure {
+                var step: UInt64 = 0
+                while step < steps {
+                    sum = sum &* 6_364_136_223_846_793_005 &+ step
+                    step += 1
+                }
+            }
+            if took < least { least = took }
+        }
+        let (seconds, attoseconds) = least.components
+        return (seconds * 1_000_000 + attoseconds / 1_000_000_000_000, sum)
+    }
+
+    /// The lister's tasks in one span of a row, from `before` to the span's end (the values are read at the make).
+    /// Its line prints apart (``printLine()``): the line has the fixed work, and that runs in no measured part of a
+    /// row, only after the row read its own values.
+    @MainActor struct Spent {
+        var what: String
+        var before: Tasks
+        var now: Tasks
+
+        init(_ what: String, since before: Tasks, in services: AppServices) {
+            self.what = what
+            self.before = before
+            now = NewTabCommandListKeptTests.tasks(services)
+        }
+
+        /// Prints what the lister's tasks cost in the span, for the record of a run. A listing's task reads actions
+        /// until 0.5 ms after its start (``AgentPaneNewTabActions/slice``), so each task's time says little and the
+        /// frames of a listing are its time. What a later read can part with this line: the actions that one task
+        /// read are fewer on a Mac that is slow now AND after a change that makes a read cost more; the fixed work is
+        /// slower only on the Mac that is slow now. The line of a span that read no action to its end has no fixed
+        /// work.
+        func printLine() {
+            let ran: Int = max(now.ran - before.ran, 0)
+            let micros: UInt64 = (now.nanos >= before.nanos ? now.nanos - before.nanos : 0) / 1000
+            let each: UInt64 = ran > 0 ? micros / UInt64(ran) : 0
+            let started: Int = now.counts.started - before.counts.started
+            let read: Int = max(now.counts.actionsRead - before.counts.actionsRead, 0)
+            var line = "new-tab-list-tasks: \(what): \(ran) tasks of the lister in the main thread's record, \(micros) microseconds of own time, "
+            line += "\(each) for each task (a task's reads end 500 microseconds after their start); since the app's start the median task took "
+            line += "\(now.median) microseconds and the longest \(now.longest); \(started) listings started, \(read) catalog actions read"
+            if read > 0, ran > 0, micros > 0 {
+                let inATask: Int = read / ran
+                let inAMillisecond: UInt64 = UInt64(read) * 1000 / micros
+                let fixed = NewTabCommandListKeptTests.fixedWork()
+                line += ", \(inATask) for each task and \(inAMillisecond) for each millisecond of the tasks; the fixed work of "
+                line += "\(NewTabCommandListKeptTests.fixedSteps) steps took \(fixed.micros) microseconds on this Mac now (its sum is \(fixed.sum))"
+            }
+            print(line)
+        }
+    }
+
+    /// Prints the line of the lister's tasks from `before` to now (``Spent``).
+    static func printTasks(_ what: String, since before: Tasks, in services: AppServices) {
+        Spent(what, since: before, in: services).printLine()
     }
 
     /// Prints what one listing cost and what the catalog's rules read, for the record of a run.
