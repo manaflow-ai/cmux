@@ -778,9 +778,13 @@ export function turnViewFrom(
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
-    // Only the last turn can still be running.
+    // Only the last turn can still be running, and not once it settled: a turn whose end (its summary)
+    // is its last row, under at most prompts not yet written and the typing placeholder, is over, even
+    // while the chat reads running. acpmux lists the chat running, or opens the next turn, before the
+    // next prompt's record comes, and the person's prompt on its way sits in this turn until then (Leo,
+    // 2026-11-22: "it forgot it just folded and settled and then it acted as if the turn was still going").
     const last = at === starts.length - 1;
-    const live = working && last;
+    const live = working && last && !settledTail(rows, start, end);
     dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     const shaped = shapedTurn(
       rows,
@@ -1292,7 +1296,7 @@ function shapedTurn(
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
-    shaped = [...date, ...drawnUser, line];
+    shaped = [...date, ...drawnUser, ...sentHeading(user, line, foldStyle.conclusion, sessionStatus)];
   } else {
     const shapedBody = shapeTurn(
       user,
@@ -1337,7 +1341,7 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    const line = sent ? [sentLine(sent)] : liveLine;
+    const line = sent ? sentHeading(sent, sentLine(sent), foldStyle.conclusion, sessionStatus) : liveLine;
     // Other agents' messages that started a finished turn are its "Worked for"'s first entries
     // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
     // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
@@ -1673,6 +1677,23 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
+
+/// Whether the turn in `rows[start..end)` ended and nothing of a new stretch came after its end: its
+/// summary is its last row but for prompts not written yet (``isUnsent``) and the typing placeholder
+/// a turn's start leaves. Work the agent starts on its own after an ended stretch comes as rows after
+/// the summary, and runs again; so does a turn a prompt sent now stopped (its summary `continued`).
+export function settledTail(rows: readonly AcpmuxRow[], start: number, end: number): boolean {
+  for (let at = end - 1; at > start; at -= 1) {
+    const row = rows[at]!;
+    // A stop the person's prompt made goes on under that prompt (``hidesContinuedSummary``).
+    // Only under what the person's send drew: a bare summary with the chat running is the turn going
+    // on after it (ContinueAfterStop.test.tsx).
+    if (row.kind === "turnSummary") return !row.continued && at < end - 1;
+    if (row.kind === "typing" || (row.kind === "user" && isUnsent(row))) continue;
+    return false;
+  }
+  return false;
+}
 
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
 /// (another agent's, a notice) steered into the turn, with the reply that asked it: the newest such,
@@ -2179,6 +2200,31 @@ function shapeTurn(
               }),
           })),
         );
+    } else if (
+      style.conclusion &&
+      first &&
+      segments.length === 1 &&
+      final &&
+      summary.status === "completed" &&
+      headedPrompt(user)
+    ) {
+      // The person's turn that only replied keeps its heading's slot too: its "Working for" stood over
+      // the reply from the send (shapeLiveTurn `headedPrompt`), so its end swaps the words in place and
+      // draws an inert "Worked for", with nothing to open (Leo, 2026-11-22: "accounting for space for
+      // the worked for/working heading should always be there anyways"). A turn that stopped or failed
+      // ends on its card alone (emptyWorkedFold.test.ts: "the error card has to stand alone").
+      folded = true;
+      shaped.push({
+        id,
+        version: version * 2,
+        at: segment.anchor.at,
+        kind: WORKED,
+        foldOpen: false,
+        inert: true,
+        status: summary.status,
+        durationMs: workedDurationMs,
+        ...(summary.tokens && { tokens: summary.tokens }),
+      });
     }
     // Context and actionable rows stay available beside the fold. Render cards keep their
     // source order among them, before or after the answer exactly where the call happened.
@@ -3035,7 +3081,17 @@ function shapeLiveRows(
   // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
   // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
   // 2026-11-17: "the jostles and shifts and spacing are still bad here").
-  if (!foldsPrompt && !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  // The person's own prompt holds its heading from the turn's first frame too (``headedPrompt``): drawn
+  // only at the first call, it came in over the Thinking line and the reply already drawn and moved
+  // them down, and read as the heading leaving and coming back (Leo, 2026-11-22: "accounting for space
+  // for the worked for/working heading should always be there anyways so it disappearing means there's
+  // multiple problems"). A turn of only a reply ends on an inert "Worked for" in its place (shapeTurn).
+  if (
+    !foldsPrompt &&
+    !headedPrompt(user) &&
+    !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)
+  )
+    return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
@@ -3046,6 +3102,20 @@ function shapeLiveRows(
 
 /// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
 export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
+
+/// A prompt whose turn holds its "Working for" / "Worked for" heading from the send to the turn's end,
+/// work or not: the person's own visible prompt. The heading's slot never comes and goes under it.
+const headedPrompt = (user: AcpmuxRow) =>
+  sentByPerson(user) && user.incoming?.kind !== "hidden" && !isVisiblyEmptyMessage(user);
+
+/// The "Working for" a sent prompt draws over its Thinking line before its turn opens (`waiting`,
+/// ``sentLine``), under the id the opened turn's heading takes, so the row stays from the send on. Only
+/// where the opened turn draws one: the clock on top, a family that folds its turn, no activity line.
+function sentHeading(sent: AcpmuxRow, line: AcpmuxRow, conclusion: boolean, sessionStatus: boolean): AcpmuxRow[] {
+  if (!conclusion || sessionStatus || !headedPrompt(sent) || experimentArm(liveTurnClock) !== "top") return [line];
+  line.untimed = true;
+  return [{ id: workingHeaderId(sent.id), version: 1, at: sent.at, kind: WORKING }, line];
+}
 const isWorkingHeader = (user: AcpmuxRow) => (row: AcpmuxRow) => row.id === workingHeaderId(user.id);
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did

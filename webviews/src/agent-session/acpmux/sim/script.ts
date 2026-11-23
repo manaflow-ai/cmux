@@ -113,9 +113,23 @@ export class SimBuilder {
     return this.record("mux", "turn_started", { turnId: this.turnId, promptId: this.promptId }, 0, "turn_started");
   }
 
-  /** The person's prompt, and the turn it starts. */
-  prompt(value: string, after = 1_000): this {
+  /** The person's prompt, and the turn it starts. `early` writes the turn's start before the prompt's
+   *  record, as acpmux can: it lists the chat running (`status`), or opens the turn (`turn_started`, or
+   *  `both`), before the prompt's `user_message` reaches the pane. */
+  prompt(value: string, after = 1_000, early?: "status" | "turn_started" | "both"): this {
     this.newTurn();
+    if (early) {
+      if (early !== "turn_started") this.record("mux", "status", { status: "running" }, after, "status running");
+      if (early !== "status")
+        this.record(
+          "mux",
+          "turn_started",
+          { turnId: this.turnId, promptId: this.promptId },
+          early === "both" ? 0 : after,
+          "turn_started",
+        );
+      after = 300;
+    }
     this.record(
       "mux",
       "user_message",
@@ -129,6 +143,10 @@ export class SimBuilder {
       after,
       `prompt: ${value.slice(0, 40)}`,
     );
+    if (early === "both") return this;
+    if (early === "turn_started") return this.record("mux", "status", { status: "running" }, 10, "status running");
+    if (early === "status")
+      return this.record("mux", "turn_started", { turnId: this.turnId, promptId: this.promptId }, 300, "turn_started");
     return this.started(300);
   }
 

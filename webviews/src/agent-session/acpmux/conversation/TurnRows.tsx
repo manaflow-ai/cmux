@@ -100,6 +100,15 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
+  // A turn that only replied has nothing to open: its line holds the heading's slot alone.
+  if (row.inert)
+    return (
+      <div className="cv-worked has-divider is-inert">
+        <span className="cv-worked__label">
+          <WorkedLabel row={row} />
+        </span>
+      </div>
+    );
   return (
     <button
       type="button"

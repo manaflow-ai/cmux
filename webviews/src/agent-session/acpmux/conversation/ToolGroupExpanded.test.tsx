@@ -496,7 +496,8 @@ test("a finished turn whose only work is hidden discovery folds nothing under Wo
   ];
   for (const agentFamily of ["codex", "claude"]) {
     const projected = turnView(turn, new Set(), { agentFamily });
-    expect(projected.some((row) => row.kind === WORKED)).toBe(false);
+    // The person's turn keeps its heading's slot: an inert "Worked for" that opens nothing (Leo, 2026-11-22).
+    expect(projected.filter((row) => row.kind === WORKED).every((row) => row.inert)).toBe(true);
     expect(projected.some((row) => row.kind === "activity")).toBe(false);
     expect(projected.some((row) => row.text === "The repo tools.")).toBe(true);
   }
