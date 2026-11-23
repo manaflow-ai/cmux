@@ -681,7 +681,12 @@ mod tests {
     #[test]
     fn a_pr_that_writes_a_row_has_no_placeholder_left() {
         let names = names_in_sources();
-        let written = |row: &GateRow| names.iter().any(|(name, _)| spells(name, row.name));
+        // The page group's rows are written by its entry script, not by a Rust source.
+        let page = page_gates();
+        let written = |row: &GateRow| {
+            names.iter().any(|(name, _)| spells(name, row.name))
+                || page.iter().any(|name| name == row.name)
+        };
         for row in GATE_ROWS {
             if written(row) {
                 continue;
@@ -715,16 +720,58 @@ mod tests {
     /// A crate and one of its test targets: `lib`, or a test binary's name.
     type Target = (String, String);
 
+    /// The page's gate entry script, from the repository's root: the `page` group's runner.
+    const PAGE_ENTRY: &str = "webviews/bench/v2-gate.ts";
+
+    /// The page row store, whose caps bound `v2.pr06.page_store_held`.
+    const PAGE_STORE: &str = "webviews/src/agent-session/acpmux/rows/store.ts";
+
+    /// The target the `page` group's runner runs: the rows of the entry script's table.
+    fn page_target() -> Target {
+        ("webviews".to_owned(), PAGE_ENTRY.to_owned())
+    }
+
+    /// The row names of the entry script's `PAGE_GATES` table: each key on the line that opens
+    /// its entry (`  "v2.pr06.page_store_apply": {`).
+    fn page_gates() -> Vec<String> {
+        let path = repository().join(PAGE_ENTRY);
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let table = text
+            .split_once("export const PAGE_GATES")
+            .and_then(|(_, rest)| rest.split_once("\n};\n"))
+            .unwrap_or_else(|| panic!("{path:?} has no PAGE_GATES table"))
+            .0;
+        let key = regex::Regex::new(r#"^  "(v2\.pr[0-9]+[a-z0-9]*\.[a-z0-9_]+)": \{$"#).unwrap();
+        let names: Vec<String> = table
+            .lines()
+            .filter_map(|line| key.captures(line))
+            .map(|found| found[1].to_owned())
+            .collect();
+        assert!(!names.is_empty(), "{path:?}: the scan read no PAGE_GATES entry");
+        names
+    }
+
+    /// Whether a line of the `page` group runs this row: the table holds it and its name holds
+    /// the filter, as v2-gate.ts's `pickRows` picks.
+    fn page_runs_row(row: &str, filter: &str) -> bool {
+        row.contains(filter) && page_gates().iter().any(|name| name == row)
+    }
+
     /// A function of a source: its name, its first line and its last.
     type Function = (String, usize, usize);
 
     /// The script's gate lines, each as the target it runs and its filter. A runner is a shell
     /// function whose `cargo test` names a crate and `--lib` or one `--test`; a line of a
     /// runner's name and one word runs that target's tests whose names hold the word.
+    /// A runner whose `bun` starts the page's entry script runs the target `PAGE_TARGET`: the rows
+    /// of its table (`page_gates()`) whose names hold the filter.
     fn gate_script_filters(script: &str) -> Vec<(Target, String)> {
         let opened = regex::Regex::new(r"^(run_[a-z_]+)\(\) \{$").unwrap();
         let cargo =
             regex::Regex::new(r#"cargo test .*-p (\S+) (?:--lib|--test (\S+)) "\$1""#).unwrap();
+        let page =
+            regex::Regex::new(&format!(r#"^\s*run bun \S*/{}" "\$1"$"#, regex::escape(PAGE_ENTRY)))
+                .unwrap();
         let mut runners: HashMap<&str, Target> = HashMap::new();
         let mut current = None;
         let mut filters = Vec::new();
@@ -737,6 +784,10 @@ mod tests {
             } else if let (Some(runner), Some(found)) = (current, cargo.captures(line)) {
                 let target = found.get(2).map_or("lib", |target| target.as_str());
                 runners.insert(runner, (found[1].to_owned(), target.to_owned()));
+            } else if let Some(runner) = current
+                && page.is_match(line)
+            {
+                runners.insert(runner, page_target());
             } else if let [runner, filter] = words[..]
                 && let Some(target) = runners.get(runner)
             {
@@ -1033,7 +1084,7 @@ mod tests {
         let script =
             fs::read_to_string(&script_path).unwrap_or_else(|e| panic!("{script_path:?}: {e}"));
         let groups = gate_groups(&script);
-        assert_eq!(groups.len(), 6, "the gate script's group table: {groups:?}");
+        assert_eq!(groups.len(), 7, "the gate script's group table: {groups:?}");
         let dir = root.join("scripts/cmux-next/v2-gates.d");
         let mut files: Vec<PathBuf> = fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{dir:?}: {e}"))
@@ -1091,6 +1142,9 @@ mod tests {
 
     /// Whether a gate line starts a test that writes this row.
     fn runs_row(sources: &[(&Path, Source<'_>)], row: &str, target: &Target, filter: &str) -> bool {
+        if *target == page_target() {
+            return page_runs_row(row, filter);
+        }
         sources.iter().any(|(file, source)| {
             target_of(file).as_ref() == Some(target)
                 && source.reaches(row).iter().any(|function| function.contains(filter))
@@ -1109,7 +1163,9 @@ mod tests {
         let sources: Vec<(&Path, Source<'_>)> =
             texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
         for row in GATE_ROWS.iter().filter(|row| row.measured) {
-            let mut run = false;
+            let mut run = filters
+                .iter()
+                .any(|(of, filter)| *of == page_target() && page_runs_row(row.name, filter));
             let mut writers = Vec::new();
             for (file, source) in &sources {
                 let mut reached: Vec<String> = source.reaches(row.name).into_iter().collect();
@@ -1207,6 +1263,57 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The page group's runner is read as the entry script's target, and every row of its table is
+    /// a registered row: a name the home does not know would fail the nightly's report.
+    #[test]
+    fn the_page_group_runs_registered_rows_of_its_entry_script() {
+        let script = [
+            "run_page() {",
+            "  run bun \"$repo_root/webviews/bench/v2-gate.ts\" \"$1\"",
+            "}",
+            "run_page page_store_apply",
+        ]
+        .join("\n");
+        assert_eq!(gate_script_filters(&script), [(page_target(), "page_store_apply".to_owned())]);
+        let names = registered_names();
+        for row in page_gates() {
+            assert!(
+                names.contains(row.as_str()),
+                "{PAGE_ENTRY} runs {row}, which has no registry row"
+            );
+        }
+        assert!(page_runs_row("v2.pr06.page_store_held", "page_store_held"));
+        assert!(!page_runs_row("v2.pr06.page_store_held", "page_store_apply"));
+        assert!(!page_runs_row("v2.pr06.hold_attach", "hold_attach"));
+    }
+
+    /// `v2.pr06.page_store_held`'s bound and ratio come from the page row store's caps: the row
+    /// file writes them as the store writes its own, and this reads the store's and compares.
+    #[test]
+    fn the_page_store_caps_match_the_store() {
+        let path = repository().join(PAGE_STORE);
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let cap = |name: &str| -> f64 {
+            let pattern = format!(r"(?m)^export const {name} = ([0-9_]+(?: \* [0-9_]+)*);$");
+            let found = regex::Regex::new(&pattern).unwrap().captures(&text);
+            let found = found.unwrap_or_else(|| panic!("{path:?} has no {name} of the form N * N"));
+            found[1]
+                .split(" * ")
+                .map(|part| part.replace('_', "").parse::<f64>().unwrap())
+                .product()
+        };
+        assert_eq!(
+            rows::pr06::STORE_MAX_ROWS,
+            cap("STORE_MAX_ROWS"),
+            "rows/pr06.rs STORE_MAX_ROWS"
+        );
+        assert_eq!(
+            rows::pr06::STORE_MAX_BYTES,
+            cap("STORE_MAX_BYTES"),
+            "rows/pr06.rs STORE_MAX_BYTES"
+        );
     }
 
     #[test]

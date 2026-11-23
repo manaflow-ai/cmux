@@ -100,6 +100,14 @@ jobs:
         timeout-minutes: 30
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The gate script's page group runs webviews/bench/v2-gate.ts under the webviews bun pin
+      # (webviews/package.json devEngines); the script checks it and fails that group by name without it.
+      - name: Set up Bun for the v2 page rows
+        if: steps.done.outputs.done != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
       - name: Run v2 gate measures
         if: steps.done.outputs.done != 'true'
         continue-on-error: true

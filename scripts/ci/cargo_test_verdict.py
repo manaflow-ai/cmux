@@ -55,9 +55,16 @@ ALWAYS = (
     "tests/test_cargo_test_verdict.py",
 )
 # Files a crate's tests read at test time, not with include_str! (a path ending in / is a
-# directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines.
+# directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines,
+# the page group's entry script, whose table names the rows that group runs, and the page row
+# store, whose caps bound one of them.
 READ_AT_TEST_TIME = {
-    "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
+    "cmux-tui/crates/acpmux": (
+        "scripts/cmux-next/run-v2-gates.sh",
+        "scripts/cmux-next/v2-gates.d/",
+        "webviews/bench/v2-gate.ts",
+        "webviews/src/agent-session/acpmux/rows/store.ts",
+    ),
 }
 # include!/include_str!/include_bytes! of a literal path, from the source's directory.
 INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*"([^"]+)"')

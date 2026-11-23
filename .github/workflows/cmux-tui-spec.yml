@@ -74,6 +74,8 @@ on:
       - "scripts/cmux-next/tests/run-v2-gates.test.sh"
       - "scripts/cmux-next/v2-gates.d/**"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
+      - "webviews/bench/v2-gate.ts"
+      - "webviews/src/agent-session/acpmux/rows/store.ts"
       - "webviews/src/agent-session/acpmux/rows/parity/*.changes.jsonl"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
