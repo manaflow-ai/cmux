@@ -548,6 +548,7 @@ def round_(copy: Copy, n: int, out: Path, seconds: float, before: dict, session:
     film.mkdir(parents=True, exist_ok=True)
     if not copy.quit_for_update():
         raise SystemExit(f"round {n}: the copy did not quit within 60 s")
+    say(f"round {n}: quit through the updater; relaunching, filmed for {seconds:g} s")
     began = copy.launch(film, seconds)
     if not copy.answers():
         raise SystemExit(f"round {n}: the relaunched copy never answered")
@@ -631,8 +632,16 @@ def main() -> int:
         copy.answers()
         if not show_chat(copy, report["seed"]["session"]):
             raise SystemExit("the seeded chat has no tab")
-        hv.until("the chat page", 60, lambda: "first_content_ms" in (
-            rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 300}) or {}))
+        say("relaunched onto the ref; the seeded chat is shown")
+        asked: list = []
+
+        def page_answers() -> bool:  # a page that is not shown yet answers with an error (or not in 20 s): ask again
+            asked.append(rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 300}, timeout=20))
+            return isinstance(asked[-1], dict) and "frames" in asked[-1]
+        try:
+            hv.until("the chat page", 120, page_answers)
+        except hv.LookError:
+            raise SystemExit(f"the chat page never answered layout_watch: {json.dumps(asked[-1:], default=str)[:400]}")
         # The person read it: at the bottom, settled.
         time.sleep(10)
         before = page_state(copy)
