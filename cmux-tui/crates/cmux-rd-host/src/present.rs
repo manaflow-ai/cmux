@@ -3,8 +3,8 @@
 //! path to the viewer's screen (glass to glass), not only to the decoder.
 //!
 //! The window is override-redirect at (0,0), the size of the stream (no scaling), so it needs no
-//! window manager. Each frame is converted from I420 (BT.601, video range, what the host encodes)
-//! to BGRX in a MIT-SHM segment and put with `ShmPutImage`; a round trip then waits until the X
+//! window manager. Each frame is converted from I420 to BGRX with the matrix and range its SPS
+//! tags (`cmux_encode::color`; untagged means BT.601 video range) in a MIT-SHM segment and put with `ShmPutImage`; a round trip then waits until the X
 //! server has copied it, so the frame is on the display when `show` returns and the segment can be
 //! reused.
 //!
@@ -14,6 +14,7 @@
 
 use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
+use cmux_encode::color::Yuv;
 use openh264::formats::YUVSource;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -112,7 +113,8 @@ impl Presenter {
     }
 
     /// Shows one decoded picture and returns once the X server has it.
-    pub fn show(&mut self, yuv: &impl YUVSource) -> Res<()> {
+    /// `color`: the conversion the stream's SPS asks for (`cmux_encode::color::sps_vui`).
+    pub fn show(&mut self, yuv: &impl YUVSource, color: Yuv) -> Res<()> {
         let (w, h) = yuv.dimensions();
         if (w, h) != self.size || self.window.is_none() {
             self.resize(w, h)?;
@@ -120,33 +122,13 @@ impl Presenter {
         let (Some((win, gc)), Some(shm)) = (self.window, self.shm.as_mut()) else {
             return Err("--present: no shared memory segment for the window".into());
         };
-        i420_to_bgrx(yuv, shm.pixels_mut(), w, h);
+        i420_to_bgrx(yuv, color, shm.pixels_mut(), w, h);
         // Returns once the server has copied the segment into the window.
         shm.put_image(&self.conn, win, gc, (w as u16, h as u16), 24)
     }
 }
 
-/// I420 (BT.601 video range) to BGRX, integer math (16-bit fixed point).
-fn i420_to_bgrx(yuv: &impl YUVSource, out: &mut [u8], w: usize, h: usize) {
-    let (ys, us, vs) = yuv.strides();
-    let (y, u, v) = (yuv.y(), yuv.u(), yuv.v());
-    for row in 0..h {
-        let yr = &y[row * ys..row * ys + w];
-        let ur = &u[(row / 2) * us..];
-        let vr = &v[(row / 2) * vs..];
-        let o = &mut out[row * w * 4..(row + 1) * w * 4];
-        for col in 0..w {
-            let c = (i32::from(yr[col]) - 16) * 76284;
-            let d = i32::from(ur[col / 2]) - 128;
-            let e = i32::from(vr[col / 2]) - 128;
-            let r = (c + 104595 * e) >> 16;
-            let g = (c - 25624 * d - 53280 * e) >> 16;
-            let b = (c + 132186 * d) >> 16;
-            let px = &mut o[col * 4..col * 4 + 4];
-            px[0] = b.clamp(0, 255) as u8;
-            px[1] = g.clamp(0, 255) as u8;
-            px[2] = r.clamp(0, 255) as u8;
-            px[3] = 0;
-        }
-    }
+/// The decoded picture to BGRX with the stream's own matrix and range.
+fn i420_to_bgrx(yuv: &impl YUVSource, color: Yuv, out: &mut [u8], w: usize, h: usize) {
+    cmux_encode::color::i420_to_bgrx(yuv.y(), yuv.u(), yuv.v(), yuv.strides(), w, h, color, out);
 }
