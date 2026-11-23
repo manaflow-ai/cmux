@@ -1563,6 +1563,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1766,6 +1767,7 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -1946,6 +1948,7 @@ dependencies = [
  "base64",
  "cmux-apps",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
@@ -2214,6 +2217,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "serde",
+ "serde_json",
  "sha1",
  "sha2 0.10.9",
  "tempfile",
@@ -2602,6 +2606,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-theme-pack"
+version = "0.1.0"
+dependencies = [
+ "cmux-config",
+ "cmux-file-lock",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 dependencies = [
@@ -2651,6 +2666,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-daemon-launch-core",
  "cmux-device-kind",
  "cmux-fault",
  "cmux-file-lock",
@@ -2678,6 +2694,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-terminal-client",
+ "cmux-theme-pack",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-core",

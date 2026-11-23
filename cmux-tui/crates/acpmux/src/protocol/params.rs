@@ -138,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
     "sessionChangedDelta",
     "sessionCreatedAt",
