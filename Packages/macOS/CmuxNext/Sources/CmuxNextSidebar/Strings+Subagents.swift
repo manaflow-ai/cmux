@@ -4,11 +4,12 @@ import Foundation
 // VoiceOver says of each line. A line itself draws only its mark and title: no "Subagent" word on
 // every child (design/sidebar.md, "Never repeat a type label on every child row").
 extension Strings {
-    /// The stacked line: what runs, else what finished, and what failed ("3 running · 1 failed", "8 done").
+    /// The stacked line: how many run (the marks show they run, so no state word), else what finished, and
+    /// what failed ("3 subagents · 1 failed", "8 done").
     static func subagentStack(_ strip: SidebarSubagentStrip) -> String {
         var parts: [String] = []
         if strip.running > 0 {
-            parts.append(String(localized: "sidebar.subagents.stack.running", defaultValue: "\(strip.running) running", bundle: .localizedModule))
+            parts.append(String(localized: "sidebar.subagents.stack.count", defaultValue: "\(strip.running) subagents", bundle: .localizedModule))
         } else if strip.done > 0 {
             parts.append(String(localized: "sidebar.subagents.stack.done", defaultValue: "\(strip.done) done", bundle: .localizedModule))
         }

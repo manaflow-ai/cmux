@@ -57,7 +57,7 @@ import Testing
         #expect(strip.mode == .stack)
         #expect(strip.lineCount == 1)
         #expect(strip.marks.first == .running)
-        #expect(Strings.subagentStack(strip) == "2 running")
+        #expect(Strings.subagentStack(strip) == "2 subagents")
         let finished = try #require(Self.layout(Self.subagents([.done, .done, .failed], total: 9), tree: tree)?.content?.subagents)
         #expect(Strings.subagentStack(finished) == "8 done · 1 failed")
         let stopped = try #require(Self.layout(Self.subagents([.done, .stopped, .stopped]), tree: tree)?.content?.subagents)

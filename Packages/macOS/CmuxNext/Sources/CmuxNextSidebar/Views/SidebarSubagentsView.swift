@@ -83,7 +83,7 @@ final class SidebarSubagentsView: NSView {
         let width = bounds.width
         switch strip.mode {
         case .stack:
-            stackLine.frame = NSRect(x: textX, y: 0, width: max(0, width - textX - trailingInset), height: line)
+            stackLine.frame = NSRect(x: textX, y: 0, width: max(0, width - textX - trailingInset), height: SidebarLayoutMetrics.standard.subagentStackHeight)
         case .rows:
             var y: CGFloat = 0
             for row in strip.rows {
