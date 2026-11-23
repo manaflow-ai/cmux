@@ -1184,6 +1184,8 @@ fn rotate(
         create_bucket: false,
         expire_objects_days: None,
         stores,
+        via: None,
+        reply_to: None,
     };
     let already_revoked = !old["revoked_at"].is_null();
     let account = text("account")?;
