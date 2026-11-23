@@ -478,6 +478,8 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
         // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
         // a submit resumed after its files only holds and says why (`sendResuming`).
         if (holdsSend?.(row.text.trim(), sendResuming.current)) return;

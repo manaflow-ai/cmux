@@ -93,6 +93,7 @@ import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices } from "./startedProject";
 import {
+  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -1189,16 +1190,13 @@ export function NewTabScreen(props: Props) {
   // Return reads `offered` too once the rows are dismissed, so Escape never brings back a Run or a search.
   // A prompt naming a plugin lists its Ask rows, no web search; an open tab or workspace named exactly
   // what was typed (`QA @computer-use`) stays, so Return still goes there.
-  const typedTitle = text.trim().toLowerCase();
-  const exactly = (value: string | undefined) => value?.trim().toLowerCase() === typedTitle;
+  // The ranking's own exact match (a workspace or tab named what was typed, read unescaped, a full tab
+  // title too): Return still goes there.
+  const exactRow = exactMatch(typed.trim(), suggested, omnibar);
   // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
   const offered =
-    toolMentionsIn(text).length > 0 && !isAddress(text.trim(), home)
-      ? suggested.filter(
-          (row) =>
-            row.type === "ask" ||
-            ((row.type === "tab" || row.type === "workspace") && (exactly(row.title) || exactly(row.detail))),
-        )
+    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home)
+      ? suggested.filter((row) => row.type === "ask" || row === exactRow)
       : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.

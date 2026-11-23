@@ -768,7 +768,8 @@ function mentionAround(state: EditorState): { from: number; to: number; query: s
   const after = block.textBetween(offset, hi, undefined, leaf);
   // The word ends at punctuation that ends a mention too (`@bro|, please` keeps its comma); a `.` stays
   // part of it, as a file name's.
-  const rest = /^[^\s@\uFFFC,;:!?)\]"'\u201D\u2019]*/.exec(after)![0];
+  // A trailing `.` is the sentence's (`@bro|. Next`), not the word's.
+  const rest = /^[^\s@\uFFFC,;:!?)\]"'\u201D\u2019]*/.exec(after)![0].replace(/\.+$/, "");
   const query = found[2]!;
   return {
     from: $from.pos - query.length - 1,

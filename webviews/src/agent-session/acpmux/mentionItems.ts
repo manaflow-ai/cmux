@@ -10,7 +10,7 @@ import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
-import { TOOL_MENTIONS, toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
+import { TOOL_MENTIONS, toolMentionsFor, toolMentionsIn, type ToolMention, type ToolMentionId } from "./toolMentions";
 
 /// The built-in tools' words (`@computer-use`, `@browser-use`) are theirs alone: a harness with the same id
 /// is never a guest row nor a guest @ (its pick would write the tool's token and lose the tool's note).
@@ -373,5 +373,6 @@ export function mentionInsert(item: MentionItem): { markdown: string; shown: str
 /// A root file or folder named like a built-in tool (`computer-use`) goes as `./computer-use`, so the
 /// send never reads it as the tool's word: the @ picker and Search Files both write it so.
 export function mentionPath(path: string): string {
-  return TOOL_IDS.has(path.toLowerCase()) ? `./${path}` : path;
+  // As the send reads it: `computer-use`, `computer-use,notes.md` would name the tool, `computer-use.md` not.
+  return toolMentionsIn(`@${path}`).length > 0 ? `./${path}` : path;
 }

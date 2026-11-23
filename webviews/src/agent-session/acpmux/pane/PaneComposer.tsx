@@ -580,7 +580,7 @@ export function drawPaneComposer({
   // Cloud notice, never this Mac's setup (commandPlace.ts reads the `--on` the command handler reads).
   const sendPlace = (text: string): ComputerUsePlace => {
     // Read without the attachments placed in the text (U+FFFC tokens), as the command's dispatch reads it.
-    const words = text.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, " ").trim();
+    const words = text.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, "").trim();
     const side = /^\/side(?:\s+([\s\S]*))?$/i.exec(words);
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
