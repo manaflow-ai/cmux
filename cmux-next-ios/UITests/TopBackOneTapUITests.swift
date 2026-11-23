@@ -45,6 +45,9 @@ final class TopBackOneTapUITests: XCTestCase {
                 row.tap()
                 let page = app.descendants(matching: .any)["workspace.\(workspace)"]
                 XCTAssertTrue(page.waitForExistence(timeout: 15), "\(step): workspace not shown")
+                let candidates = app.buttons.matching(identifier: "Back").allElementsBoundByIndex
+                print("CMUX_TOP_BACK \(step) candidates: " + candidates.map { "\($0.frame) hittable=\($0.isHittable)" }
+                    .joined(separator: " | "))
                 // Keyboard down first: Back already sits at the top of the screen.
                 let restingBack = app.buttons["Back"].firstMatch
                 let restingTop = restingBack.waitForExistence(timeout: 5) && restingBack.isHittable
