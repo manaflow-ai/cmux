@@ -365,7 +365,7 @@ impl Desktop for LinuxDesktop {
                 let (x, y, n) = (x.to_string(), y.to_string(), amount.to_string());
                 self.xdotool(&["mousemove", "--sync", &x, &y, "click", "--repeat", &n, button])?;
             }
-            Action::OpenUrl { url, wait_ms } => {
+            Action::OpenUrl { url, .. } => {
                 self.xdotool(&["key", "ctrl+l"])?;
                 // The omnibox takes focus a moment after ctrl+l; keys typed before it are lost
                 // (a run typed "7.0.0.1" for "127.0.0.1").
