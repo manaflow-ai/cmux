@@ -67,7 +67,7 @@ fn lost() -> bool {
 
 /// Relayed: through this side's TURN allocation, or plain UDP from a TURN
 /// relayed port (the peer's allocation).
-fn impair(via_turn: bool, from: &SocketAddr) -> Option<Duration> {
+fn impair(via_turn: bool, from: &SocketAddr, _len: usize) -> Option<Duration> {
     if lost() {
         return None;
     }

@@ -884,3 +884,12 @@ describe("the machine at a stall", () => {
     }
   });
 });
+
+test("the restart timeline names each startup phase of the new daemon at its start", () => {
+  const dir = mkdtempSync(join(tmpdir(), "crn-phases-"));
+  const c = join(dir, "c");
+  writeFileSync(c, `#!/bin/sh\necho '{"result":{"gauges":{"uptimeMs":30000,"startup":[{"name":"adopt agent hosts","atMs":160,"ms":9998}]}}}'\n`, { mode: 0o755 });
+  const out = spawnSync("bash", ["-c", `c=${c}; ${chaos.startupPhasesCommand()}`]).stdout.toString();
+  const zero = Date.now() - 30_000;
+  expect(chaos.restartTimeline(out, zero)).toMatch(/^\+1\d\d ms phase: adopt agent hosts 9998ms$/);
+});

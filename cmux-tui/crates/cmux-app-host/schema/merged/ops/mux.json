@@ -1,0 +1,19 @@
+{
+  "family": "mux",
+  "ops": {
+    "mux.ack": {
+      "source": "cloud",
+      "owner": "cloud:MuxDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "07d2f44728bee810"
+    },
+    "mux.configure": {
+      "source": "cloud",
+      "owner": "cloud:MuxDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "d573212dd329b889"
+    }
+  }
+}

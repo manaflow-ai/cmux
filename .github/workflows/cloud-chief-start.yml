@@ -1,0 +1,92 @@
+name: Cloud Chief start (machine.chief_start on staging)
+
+# A Chief on its own Cloud machine, started with cmux-cloud-api's machine.chief_start (the daemon's
+# cloud.machine.chief_start) on staging: scripts/cmux-next/cloud-chief-start-check.ts. It runs the call through the
+# crate's daemonless cloud_call example (the same perform the daemon runs), puts this run's optchat-chief on a
+# machine whose image has no Chief host yet, and checks the start, its resume (same key: one machine, one Chief)
+# and that cmux-chief.service runs. The test machine is cmux-test-<run>-chief-start, deleted in the finally path;
+# leftovers older than 3 h are swept by the next run.
+#
+# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml). Same-repo pull
+# requests only; without the pair the job fails, never skips.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/crates/cmux-cloud-api/src/chief_machine*.rs
+      - cmux-tui/crates/cmux-cloud-api/examples/cloud_call.rs
+      - Native/OptChat/optchat-chief/src/cloud/**
+      - scripts/cmux-next/cloud-chief-start-check.ts
+      - .github/workflows/cloud-chief-start.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-chief-start-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Install the musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+      - name: Build cloud_call (cmux-cloud-api) and optchat-chief (x86_64 musl)
+        id: build
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          set -euo pipefail
+          (cd cmux-tui && cargo build -p cmux-cloud-api --example cloud_call --locked)
+          call="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/examples/cloud_call"
+          test -x "$call"
+          rustup target add x86_64-unknown-linux-musl
+          (cd Native/OptChat/optchat-chief && cargo build --release --locked --target x86_64-unknown-linux-musl --bin optchat-chief)
+          chief="$(cd Native/OptChat/optchat-chief && echo "${CARGO_TARGET_DIR:-$PWD/target}")/x86_64-unknown-linux-musl/release/optchat-chief"
+          file "$chief" | grep -q 'statically linked\|static-pie linked'
+          echo "call=$call" >> "$GITHUB_OUTPUT"
+          echo "chief=$chief" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Start a Chief on its own staging machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: |
+          bun scripts/cmux-next/cloud-chief-start-check.ts --target staging \
+            --call "${{ steps.build.outputs.call }}" --binary "${{ steps.build.outputs.chief }}" \
+            --out "$RUNNER_TEMP/cloud-chief-start" --run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Keep the step table
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-chief-start-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloud-chief-start/journey.json
+            ${{ runner.temp }}/cloud-chief-start/summary.md
+          if-no-files-found: warn
+          retention-days: 3
