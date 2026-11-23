@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextMacScreen
 import CmuxNextMallocZone
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -18,7 +19,7 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public func main() {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { _exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld; `_exit` skips atexit handlers and static destructors
-        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
+        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) }; MacScreenStreamChild(arguments: CommandLine.arguments)?.run() // _exit: no static destructors under Chromium's threads; the Screen Sharing helper's child (the iPhone viewer's screen host) runs and exits, no app starts
         announceBenchHooksBuild()
         ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
