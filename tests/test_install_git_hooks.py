@@ -86,6 +86,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copy_input_sources(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -105,6 +106,17 @@ class InstallGitHooksTests(unittest.TestCase):
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copy_input_sources():
+        """Every file scripts/git-hooks/checks-copy-inputs names, so a new line there never leaves the fixture behind.
+
+        a37b6194810 added scripts/ci/generated_files_guard.py and ci_process_tree.py there, and the stamp test failed
+        with "No such file" on every branch until the fixture copied them; reading the list keeps the two in step.
+        """
+        text = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8")
+        paths = (line.split("->")[0].strip() for line in text.splitlines() if line.strip() and not line.startswith("#"))
+        return sorted({path for path in paths if not path.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
