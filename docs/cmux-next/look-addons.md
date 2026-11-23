@@ -70,7 +70,7 @@ What it may not do is load something by address (`cmux.stylesheetGuard/1`,
 `@import`, no `url()` other than a `data:` URL, no `image-set()` or `src()`, and no backslash escape
 that could spell one. Comments are no way around it. The chat refuses such a sheet whole and keeps the
 last good one on screen (its `<style id="acpmux-user-theme">` carries `data-refused` with the reason),
-and `cmux customize validate` names the file and the reason before you apply. Inline an image as a
+and `cmux customize` (status) names the file and the reason, and an apply or profile that would write such a sheet is refused (one you already have, unchanged, never stops an unrelated change). Inline an image as a
 `data:` URL instead.
 
 ## What keeps this true

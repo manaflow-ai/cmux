@@ -34,6 +34,11 @@ pub struct Problem {
     /// may be a credential typed under the wrong key.
     #[serde(skip)]
     setting: Option<(String, u64)>,
+    /// For a stylesheet that would load something by address: a digest of
+    /// the file as written, so [`introduced`] can tell a sheet the person
+    /// already had from one a change brings. The pane refuses it either way.
+    #[serde(skip)]
+    held: Option<u64>,
 }
 
 impl Problem {
@@ -50,6 +55,7 @@ impl Problem {
             column,
             message: message.into(),
             setting: None,
+            held: None,
         }
     }
 
@@ -109,14 +115,16 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
             // that would be refused there never passes here.
             Part::Styles => {
                 if let Some(why) = crate::community::fetches(text) {
-                    found.push(Problem::at(
+                    let mut problem = Problem::at(
                         path,
                         None,
                         None,
                         format!(
                             "{why}; a stylesheet loads nothing by address (inline images as data: URLs)"
                         ),
-                    ));
+                    );
+                    problem.held = Some(digest(&Value::String(text.to_owned())));
+                    found.push(problem);
                 }
             }
         }
@@ -188,15 +196,20 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
 /// an older build wrote, `"workspaceColors.indicatorStyle": "solidFill"`,
 /// and every `cmux customize use` of any profile was refused,
 /// ask-180d77061a). The file keeps it as written: nothing here rewrites it.
+/// A stylesheet that would load something by address, held unchanged, is
+/// the person's own the same way: the pane refuses it and status lists it,
+/// but it never stops a change that leaves it alone.
 /// Every other problem counts, a refused value a change writes too.
 pub(crate) fn introduced(after: Vec<Problem>, before: &[Problem]) -> Vec<Problem> {
     after
         .into_iter()
         .filter(|problem| {
-            problem.setting.is_none()
-                || !before
-                    .iter()
-                    .any(|had| had.path == problem.path && had.setting == problem.setting)
+            let held = |had: &Problem| {
+                had.path == problem.path
+                    && ((problem.setting.is_some() && had.setting == problem.setting)
+                        || (problem.held.is_some() && had.held == problem.held))
+            };
+            (problem.setting.is_none() && problem.held.is_none()) || !before.iter().any(held)
         })
         .collect()
 }
@@ -470,6 +483,24 @@ mod tests {
             assert_eq!(crate::community::fetches(css), None, "{css}");
             assert!(check("agent-pane/theme.css", css).is_empty(), "{css}");
         }
+    }
+
+    #[test]
+    fn a_stylesheet_already_there_unchanged_is_not_introduced() {
+        let sheet = |css: &str| {
+            problems(&BTreeMap::from([(
+                "agent-pane/theme.css".to_owned(),
+                css.as_bytes().to_vec(),
+            )]))
+        };
+        let before = sheet("@import 'https://x.example/a.css';");
+        assert_eq!(before.len(), 1);
+        assert!(introduced(sheet("@import 'https://x.example/a.css';"), &before).is_empty());
+        assert_eq!(
+            introduced(sheet(".a { background: url(https://x.example/b) }"), &before).len(),
+            1
+        );
+        assert_eq!(introduced(before.clone(), &[]).len(), 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 // cmux.stylesheetGuard/1 (schemas/agent-pane/stylesheet-guard.json): a person's own theme.css is any CSS,
 // applied after the surface's built-in styles, but it loads nothing by address. The same rule as the
-// Rust `cmux_customize::community::fetches` (`cmux customize validate`, `cmux setup install`); both
+// Rust `cmux_customize::community::fetches` (`cmux customize` status and apply, `cmux setup install`); both
 // test suites read the schema's cases, so the two never drift.
 
 /** Why `css` would load something by address, or undefined when it loads nothing. */
