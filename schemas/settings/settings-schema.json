@@ -38,7 +38,8 @@
             "key" : "settings.group.quit",
             "rows" : [
               "app.quitBehavior",
-              "app.confirmQuit"
+              "app.confirmQuit",
+              "app.warnBeforeQuitShortcut"
             ],
             "title" : {
               "key" : "settings.group.quit",
@@ -243,6 +244,7 @@
               "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
+              "appearance.liquidGlass",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
@@ -322,6 +324,8 @@
               "appearance.backgroundDynamic",
               "appearance.backgroundLocation",
               "appearance.backgroundMemory",
+              "appearance.backgroundPlacement",
+              "appearance.backgroundRecents",
               "appearance.displayBackgrounds",
               "appearance.displayBackgroundRotations",
               "appearance.paneBackgrounds",
@@ -537,10 +541,7 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder",
-              "sidebar.workspaceRow.lines",
-              "sidebar.workspaceRow.linesByKind",
-              "sidebar.workspaceRow.linesByAgent"
+              "sidebar.workspaceRow.secondLineOrder"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -2124,7 +2125,16 @@
           "server"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          }
         ],
         "id" : "devices",
         "lead" : [
@@ -8553,6 +8563,142 @@
       "title" : {
         "key" : "settings.app.confirmQuit",
         "text" : "Ask Before Quitting Ends Agents or Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.quit",
+        "text" : "Quitting"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeQuitShortcut.help",
+        "text" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeQuitShortcut",
+      "keywords" : [
+        "quit",
+        "cmd-q",
+        "warn",
+        "hold",
+        "accidental",
+        "confirm",
+        "exit"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "warnBeforeQuitShortcut"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.warnBeforeQuitShortcut"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.warnBeforeQuitShortcut",
+        "text" : "Warn Before Quitting with ⌘Q"
       },
       "validation" : "portable"
     },
@@ -34978,6 +35124,344 @@
 
         },
         {
+          "munch-scream" : "fit"
+        },
+        {
+          "desktop" : "center 0.5 0",
+          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundPlacement.help",
+        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundPlacement",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "position",
+        "fit",
+        "fill",
+        "zoom",
+        "crop"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundPlacement"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "fit",
+        [
+
+        ],
+        {
+          "munch-scream" : "cover"
+        },
+        {
+          "munch-scream" : "fill 2 0"
+        },
+        {
+          "munch-scream" : "fill 0.5"
+        },
+        {
+          "munch-scream" : "fill 0.5 0.5 9"
+        },
+        {
+          "" : "fit"
+        },
+        {
+          "munch-scream" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundPlacement"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundPlacement",
+        "text" : "Background Placement"
+      },
+      "validation" : "domain:backdrop_placement"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "folder:/Users/Shared/Wallpapers",
+          "file:/Users/Shared/Harbor.png",
+          "daily"
+        ],
+        [
+          "munch-scream",
+          "desktop",
+          "none",
+          "system:/System/Library/Desktop Pictures/Sonoma.heic"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundRecents.help",
+        "text" : "The backgrounds shown before, newest first, so one click goes back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundRecents",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "recent",
+        "previous",
+        "history",
+        "folder"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundRecents"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "daily",
+        {
+
+        },
+        [
+          "daily",
+          "daily"
+        ],
+        [
+          "folder:/"
+        ],
+        [
+          "folder:relative"
+        ],
+        [
+          "__not_a_backdrop__"
+        ],
+        [
+          1
+        ],
+        [
+          "file:/a.png",
+          "file:/b.png",
+          "file:/c.png",
+          "file:/d.png",
+          "file:/e.png",
+          "file:/f.png",
+          "file:/g.png",
+          "file:/h.png",
+          "file:/i.png"
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundRecents"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundRecents",
+        "text" : "Recent Backgrounds"
+      },
+      "validation" : "domain:backdrop_recents"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
           "*" : "★",
           "Work" : ""
         }
@@ -39090,6 +39574,144 @@
       "title" : {
         "key" : "settings.appearance.borders",
         "text" : "Borders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.liquidGlass.help",
+        "text" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.liquidGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "solid",
+        "plain",
+        "material"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "liquidGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.liquidGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.liquidGlass",
+        "text" : "Liquid Glass"
       },
       "validation" : "portable"
     },
@@ -81040,7 +81662,7 @@
         "tokens"
       ],
       "kind" : "json",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -81138,13 +81760,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.lines"
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -81238,7 +81860,7 @@
         "browser"
       ],
       "kind" : "json",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -81347,13 +81969,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.linesByKind"
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -81442,7 +82064,7 @@
         "codex"
       ],
       "kind" : "json",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -81549,13 +82171,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.linesByAgent"
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -115514,6 +116136,145 @@
       "title" : {
         "key" : "settings.macScreen.shareWithoutAsking",
         "text" : "Share This Mac Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenSharing",
+        "text" : "Screen Sharing"
+      },
+      "help" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing.help",
+        "text" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.onlyPersonStartsViewing",
+      "keywords" : [
+        "screen sharing",
+        "mac screen",
+        "agents",
+        "automation",
+        "cli",
+        "view",
+        "control",
+        "click",
+        "approve"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "onlyPersonStartsViewing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing.summary",
+        "text" : "Agents can't start viewing your screens"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.onlyPersonStartsViewing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing",
+        "text" : "Only Your Click Starts Viewing a Screen"
       },
       "validation" : "portable"
     },
