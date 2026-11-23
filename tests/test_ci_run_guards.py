@@ -224,7 +224,7 @@ class RunReportsTiming(unittest.TestCase):
     """A run prints each step as it finishes, and a run stopped by a signal
     (the job timeout) names the steps still running and how long they ran."""
 
-    def start_run(self, root: Path) -> subprocess.Popen[str]:
+    def start_run(self, root: Path, preexec_fn=None) -> subprocess.Popen[str]:
         (root / ".github/workflows").mkdir(parents=True)
         (root / ".github/workflows/ci-guards.yml").write_text(GUARD_FIXTURE)
         for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
@@ -233,8 +233,25 @@ class RunReportsTiming(unittest.TestCase):
         return subprocess.Popen(
             [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "2"],
             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"}, preexec_fn=preexec_fn,
         )
+
+    def test_sigint_stops_a_run_started_with_sigint_ignored(self) -> None:
+        """A runner started in the background (Freestyle's cmux-linux VMs) hands
+        its jobs SIGINT ignored; the guard runner still stops on Ctrl-C."""
+        with tempfile.TemporaryDirectory() as temp:
+            proc = self.start_run(Path(temp), preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    if "Quick step" in line:
+                        break
+                proc.send_signal(signal.SIGINT)
+                output, _ = proc.communicate(timeout=20)
+            finally:
+                proc.kill()
+            self.assertEqual(proc.returncode, 130, output)
+            self.assertIn("1 still running:", output)
 
     def test_sigterm_names_the_steps_still_running(self) -> None:
         for signum in (signal.SIGTERM, signal.SIGINT):
