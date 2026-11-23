@@ -373,7 +373,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "bridge connect",
         &[
-            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            ("Connect the desktop apps; restart them after", "acpmux bridge connect"),
             (
                 "See what connecting Codex Desktop would change",
                 "acpmux bridge connect codex --dry-run",
