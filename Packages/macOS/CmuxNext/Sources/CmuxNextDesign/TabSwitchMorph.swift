@@ -28,3 +28,13 @@ public enum TabSwitchMorph {
         Motion.panes.set(layer, "backgroundColor", to: to, fade: .crossfade, from: from)
     }
 }
+
+extension PaneContentAreaView {
+    /// Runs `swap` (a tab switch), then eases this area's ground from the one it showed before to the one it shows now
+    /// when `on` (``TabSwitchMorph``).
+    public func easesGround(_ on: Bool, _ swap: () -> Void) {
+        let from = on ? groundColor : nil
+        swap()
+        if on { TabSwitchMorph.run(on: self, from: from, to: groundColor, in: window) }
+    }
+}

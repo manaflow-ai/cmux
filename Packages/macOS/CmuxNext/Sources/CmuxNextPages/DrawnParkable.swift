@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextPages
 
 /// A pane's content that waits drawn, off screen in its window, while another tab shows (``AgentPageDrawnParking``),
 /// so the switch back shows its last frame at once instead of a Chromium page told it is hidden dropping its frame

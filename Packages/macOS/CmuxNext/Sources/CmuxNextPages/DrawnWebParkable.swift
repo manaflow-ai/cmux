@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextPages
 
 /// A ``DrawnParkable`` whose page is one `PageWebView` (an internal page: Settings, Markdown, a file viewer): it names its
 /// page and the rest follows. HYPOTHESIS from code reading, not measured here: such a page in Chromium drops its frame

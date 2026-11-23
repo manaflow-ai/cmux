@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesignTokens
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextWakeups
 
 /// A chat (or any ``DrawnParkable`` page: an internal page such as Settings or Markdown) in Chromium that a pane stops showing (a switch to another tab) waits drawn, off screen in its window,
@@ -103,6 +103,14 @@ public final class AgentPageDrawnParking: NSView {
         }()
         keeper.park(view, in: content)
         return true
+    }
+
+    /// ``park(_:)`` for any pane content: false when it is not a ``DrawnParkable``.
+    public static func park(content view: NSView) -> Bool { (view as? any DrawnParkable).map(park) ?? false }
+
+    /// ``install(_:in:at:fills:cover:)`` for any pane content: false when it is not a ``DrawnParkable`` or did not wait here.
+    public static func install(content view: NSView, in host: NSView, at frame: NSRect, fills: Bool, cover: any AgentPaneMoveCoverHost) -> Bool {
+        (view as? any DrawnParkable).map { install($0, in: host, at: frame, fills: fills, cover: cover) } ?? false
     }
 
     private func park(_ view: any DrawnParkable, in content: NSView) {
