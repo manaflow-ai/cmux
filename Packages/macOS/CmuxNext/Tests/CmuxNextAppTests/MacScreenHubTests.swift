@@ -155,6 +155,26 @@ struct MacScreenDeviceRecordTests {
         #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
         #expect(pages.pendingScopes[hostID] == .view)
     }
+
+    /// `macScreen.open --autoconnect` into a tab that is not selected asks the hub at once,
+    /// not when the tab is first shown; a tab opened without a scope still waits.
+    @MainActor
+    @Test func anAutoconnectIntoABackgroundTabAsksTheHubBeforeItIsShown() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-bg-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.prepare("background", record: pages.record(forDevice: hostID, requesting: .view), byPerson: true)
+        pages.connectInBackground("background")
+        let viewer = try #require(pages.tab("background")?.pane?.model.hub)
+        // No hub in this test: the request ran, so it was refused as signed out rather than left idle.
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
+        #expect(viewer.resumeScope == nil)
+
+        pages.prepare("waiting", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        pages.connectInBackground("waiting")
+        #expect(pages.tab("waiting") == nil)
+        pages.tabClosed("background")
+        pages.tabClosed("waiting")
+    }
 }
 
 @MainActor
@@ -666,6 +686,26 @@ struct MacScreenHubViewerTests {
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
+    }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
     }
 }
 
