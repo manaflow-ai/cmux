@@ -18,6 +18,7 @@
 //! as a theme file: applying it changes nothing.
 
 mod colors;
+pub mod contrast;
 pub mod render;
 pub mod two_tone;
 
@@ -46,8 +47,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 7] =
-    ["name", "description", "$schema", "colors", "ghostty", "density", "slots"];
+pub const RESERVED_KEYS: [&str; 8] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed and the
@@ -646,5 +647,7 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     })
 }
 
+#[cfg(test)]
+mod contrast_tests;
 #[cfg(test)]
 mod tests;
