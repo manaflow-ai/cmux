@@ -108,6 +108,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |
+| `terminal-throughput-quick.sh` | The same burst on any Mac in about a minute: an installed NEXT (a side copy of the NIGHTLY) and an installed Ghostty, no build or slot. | CMUX-571 | 2026-11-23 | active |
 | `shell-integration.sh` | Shell integration costs nothing per prompt (fork guard plus bench). | perf-lead row 20 | 2026-11-01 | active |
 | `menu-tracking-main-queue.sh` | Main-queue wait while a host context menu tracks. | - | 2026-11-11 | active |
 | `menu-tracking-main-queue.swift` | Swift probe for menu-tracking-main-queue.sh. | - | 2026-10-30 | active |

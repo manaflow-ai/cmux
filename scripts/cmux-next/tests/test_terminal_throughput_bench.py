@@ -246,6 +246,55 @@ class Trace(unittest.TestCase):
         self.assertEqual(trace.thread_process(READER_T), "cmux DEV x")
         self.assertEqual(trace.thread_pid(READER_T), 60)
 
+class Installed(unittest.TestCase):
+    """--installed (terminal-throughput-quick.sh): a side copy of an installed app, remade only when needed."""
+
+    def test_a_copy_of_the_same_app_and_version_is_reused(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = {"app": d, "from": "/Applications/cmux NIGHTLY.app", "version": "571", "socket": "/x.sock"}
+            self.assertTrue(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", "571"))
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", "572"), "a new nightly")
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NEXT.app", "571"), "another app")
+            self.assertFalse(tput.side_copy_current(dict(marker, app=d + "/gone"), "/Applications/cmux NIGHTLY.app", "571"))
+            self.assertFalse(tput.side_copy_current({}, "/Applications/cmux NIGHTLY.app", "571"), "no copy yet")
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", None), "no version read")
+
+    def test_the_marker_is_read_from_the_side_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "tt-bench"))
+            with open(os.path.join(d, "tt-bench", ".side-instance"), "w") as f:
+                f.write("app=/r/cmux tt-bench.app\nfrom=/Applications/cmux NIGHTLY.app\nversion=9\nsocket=/r/c.sock\n")
+            old = os.environ.get("CMUX_SIDE_ROOT")
+            os.environ["CMUX_SIDE_ROOT"] = d
+            try:
+                got = tput.side_marker("tt-bench")
+                self.assertEqual((got["app"], got["version"], got["socket"]), ("/r/cmux tt-bench.app", "9", "/r/c.sock"))
+                self.assertEqual(tput.side_marker("none"), {})
+            finally:
+                if old is None:
+                    del os.environ["CMUX_SIDE_ROOT"]
+                else:
+                    os.environ["CMUX_SIDE_ROOT"] = old
+
+    def refused(self, argv):
+        with self.assertRaises(SystemExit) as raised, open(os.devnull, "w") as null:
+            import contextlib
+            with contextlib.redirect_stderr(null):
+                tput.main(argv)
+        return raised.exception.code
+
+    def test_one_of_app_or_installed(self):
+        self.assertEqual(self.refused(["--out", "/tmp/x"]), 2)
+        self.assertEqual(self.refused(["--app", "a", "--installed", "b", "--out", "/tmp/x"]), 2)
+
+    def test_installed_refuses_an_arm_and_a_missing_app(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "x.app", "Contents"))
+            open(os.path.join(d, "x.app", "Contents", "Info.plist"), "w").close()
+            self.assertEqual(self.refused(["--installed", os.path.join(d, "x.app"), "--out", d,
+                                           "--next-arm", "a:CMUX_NEXT_X=0"]), 2)
+            self.assertEqual(self.refused(["--installed", os.path.join(d, "none.app"), "--out", d]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
