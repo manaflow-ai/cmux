@@ -49,7 +49,7 @@ jobs:
     # always(), skips too (tests/test_ci_fix_cause_labels_start_no_jobs.py). An open pull request
     # still plans and gates on every label it gets.
     if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
     timeout-minutes: 10
     permissions:
@@ -80,19 +80,54 @@ jobs:
           fi
           base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
           head_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations") || head_tree=""
+          # Absent on both sides is "no migration change" too (main has no backend/db/migrations): an
+          # ls-tree that succeeds and lists nothing proves the path is absent, where an empty rev-parse may
+          # also be a tree the lazy fetch could not read. Either side having the path still plans in full.
+          absent() { local out; out=$(GIT_TERMINAL_PROMPT=0 timeout 60 git ls-tree "$1" backend/db/migrations) && [ -z "$out" ]; }
           if [ -n "$base_tree" ] && [ "$base_tree" = "$head_tree" ]; then
             echo "same=true" >> "$GITHUB_OUTPUT"
             echo "no migration changes (backend/db/migrations is $base_tree at the base and the head)"
+          elif [ -z "$base_tree" ] && [ -z "$head_tree" ] && absent "$BASE_SHA" && absent "$HEAD_SHA"; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "no migration changes (no backend/db/migrations at the base or the head)"
           else
             echo "base ${base_tree:-unresolved}, head ${head_tree:-unresolved}: full plan"
           fi
+      # Only backend/ is read from the base (migrate.ts, its lockfile, the migrations), so the checkout is
+      # blobless and sparse: the full one-commit fetch of main (about 150 MB) hung on the gate pool until the
+      # job's 10-minute cancel on every attempt (run 45091304441). Each attempt is bounded and tried twice,
+      # so a hang fails in about 2 minutes with its cause named.
       - name: Checkout base (trusted tooling)
+        id: checkout
         if: steps.same-tree.outputs.same != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           path: trusted
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout: backend
+      - name: Checkout base (trusted tooling), second attempt
+        id: checkout-retry
+        if: steps.same-tree.outputs.same != 'true' && steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          path: trusted
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: backend
+      - name: Base checkout did not finish
+        if: steps.checkout-retry.outcome == 'failure'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          echo "::error::base checkout of $BASE_SHA from github.com failed or hung past 60 s on both attempts (runner ${RUNNER_NAME:-unknown}): a fetch problem on this runner, not the PR"
+          exit 1
       # The file list, when the migrations tree differs, is read on the manaflow-glaeda-route
       # App's own budget (GITHUB_TOKEN's, which every workflow shares, ran out on 2026-10-21);
       # a failed mint or a refused read uses GITHUB_TOKEN. Pull requests only: a merge group
@@ -109,7 +144,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
@@ -146,7 +181,7 @@ jobs:
             # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
             # The same backend/db/migrations tree as the base means no migration change; a
             # different one (the PR's change, or a base move it has not merged) is listed below.
-            git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"
+            GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
             head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
             if [ "$base_tree" = "$head_tree" ]; then
@@ -169,8 +204,10 @@ jobs:
           fi
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
-          git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA"
-          git -C trusted archive "$HEAD_SHA" backend/db/migrations | tar -x -C head-migrations --strip-components=3
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound it too.
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted archive -o head-migrations.tar "$HEAD_SHA" backend/db/migrations || { echo "::error::reading the head's migrations ($HEAD_SHA) failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          tar -x -C head-migrations --strip-components=3 -f head-migrations.tar && rm -f head-migrations.tar
           # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
           # so no later job can be made to read anything outside these SQL texts.
           odd=$(find head-migrations -mindepth 1 \( ! -type f -o -path 'head-migrations/*/*' -o -name '.*' \) -print -quit)
@@ -234,7 +271,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-staging
@@ -268,7 +305,7 @@ jobs:
 
   apply-production:
     needs: apply-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-production
@@ -306,7 +343,7 @@ jobs:
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
     # Under 10s without migration changes; with them, bun install and a verify.
     timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
