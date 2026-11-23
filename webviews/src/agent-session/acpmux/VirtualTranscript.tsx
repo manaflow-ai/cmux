@@ -63,6 +63,7 @@ import {
   INITIAL_FOLLOW,
   followHeld as followHeldBy,
   isFollowing,
+  jumpTargetOf,
   stepFollow,
   type FollowEvent,
   type FollowState,
@@ -1092,7 +1093,7 @@ function TranscriptView({
     isFollowing(followState.current) &&
     drewFollowedEnd.current !== undefined &&
     node.clientHeight === drewFollowedEnd.current &&
-    jumpTarget.current === undefined &&
+    jumpTargetOf(followState.current) === undefined &&
     !userScrollIntent(node).isHeld();
   const pacedScroll = (frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
