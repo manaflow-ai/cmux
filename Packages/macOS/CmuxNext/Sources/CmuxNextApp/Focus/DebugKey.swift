@@ -126,8 +126,8 @@ enum DebugKey {
         services.keyRouter.trace = { trace.append($0) }
         TerminalKeyEquivalent.trace = { trace.append($0) }
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
-        // Off the app's sendEvent, for every route below: `interceptKeyDown` takes a pane composer's key first (cmux#45273).
-        let probesKey = TypingLatencyProbe.isEnabled && !DebugNativeInput.usesAppKitPath(window)
+        // The probe's sample opens before every route: `interceptKeyDown` takes a composer's key first (cmux#45273); the app's sendEvent opens its own.
+        var probesKey = TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
@@ -140,7 +140,7 @@ enum DebugKey {
             }
             // As a real key: through the app and its local monitors when the window is key, else the panes' gesture monitors and then the window.
             if DebugNativeInput.usesAppKitPath(window) {
-                DebugNativeInput.sendThroughApp([event])
+                if probesKey { TypingLatencyProbe.shared.withdraw(); probesKey = false }; DebugNativeInput.sendThroughApp([event])
             } else {
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 // Chromium drops a key AppKit hands a page window that is not key (a slot never activated): DevTools keys reach it.
