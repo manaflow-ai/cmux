@@ -11,13 +11,13 @@ struct StatusSpacingPlaygroundVariants {
         [
             variant(String(localized: "tabs.playground.statusSpacing.mirrorIcon",
                            defaultValue: "The mark mirrors the icon's inset",
-                           bundle: .module), .mirrorIcon, shipped: true),
+                           bundle: .localizedModule), .mirrorIcon, shipped: true),
             variant(String(localized: "tabs.playground.statusSpacing.mirrorAll",
                            defaultValue: "The mark and the hovered close button both mirror the icon",
-                           bundle: .module), .mirrorAll),
+                           bundle: .localizedModule), .mirrorAll),
             variant(String(localized: "tabs.playground.statusSpacing.closeSlot",
                            defaultValue: "Before: the mark in the close button's slot, nearer the end",
-                           bundle: .module), .closeSlot),
+                           bundle: .localizedModule), .closeSlot),
         ]
     }
 

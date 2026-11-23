@@ -62,6 +62,7 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { intl } from "../../ui/intl";
 type ModelChoice = {
   id: string;
   name: string;
@@ -608,10 +609,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(refreshDate))
+    ? intl
+        .DateTimeFormat(currentLanguage(), {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+        .format(new Date(refreshDate))
     : undefined;
   const refreshTitle = (() => {
     const label =
@@ -710,10 +713,33 @@ export function ModelPicker(props: ModelPickerProps) {
       if (second !== undefined) cancelAnimationFrame(second);
     };
   }, [open, focusPrompt]);
+  // The compact menu stays open after a pick (#50998), so it closes later: by Escape, the chip, or a
+  // press outside it. The prompt takes the keyboard then only when the close left it nowhere (the
+  // page, the chip, the menu that went), never from a field or control the outside press focused.
+  // Two frames, as the columns menu's own return to the chip: a pointerup's focus lands first.
   useEffect(() => {
     if (quickOpen || !quickPicked.current) return;
     quickPicked.current = false;
-    focusPrompt();
+    const doc = trigger.current?.ownerDocument;
+    const view = doc?.defaultView;
+    if (!doc || !view) {
+      focusPrompt();
+      return;
+    }
+    const frame = (run: () => void) =>
+      typeof view.requestAnimationFrame === "function" ? view.requestAnimationFrame(run) : view.setTimeout(run, 0);
+    let cancelled = false;
+    frame(() =>
+      frame(() => {
+        if (cancelled) return;
+        const active = doc.activeElement;
+        if (!active || active === doc.body || active === trigger.current || active.closest(".acpmux-cols"))
+          focusPrompt();
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     // A held pick of another harness opens on its tab: the picker shows what the next message runs.

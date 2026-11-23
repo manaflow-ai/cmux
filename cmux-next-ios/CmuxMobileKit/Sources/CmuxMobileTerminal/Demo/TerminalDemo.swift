@@ -131,7 +131,9 @@ final class TerminalDemoDriver {
             await wait(1)
             mark("state " + (model.controller?.debugState ?? "-"))
         }
-        for phase in all where selected.contains(phase) {
+        // Only when named: "oneattachment" leaves one picked photo and a draft, unsent.
+        let named = ["oneattachment"]
+        for phase in all + named where selected.contains(phase) {
             mark("phase \(phase)")
             switch phase {
             case "scroll": await scroll()
@@ -139,6 +141,7 @@ final class TerminalDemoDriver {
             case "tui": await tui()
             case "vim": await vim()
             case "attachments": await attachments()
+            case "oneattachment": await oneAttachment()
             case "artifacts": await artifacts()
             case "follow": await follow()
             case "kbcodex": await keyboardOverCodex()
@@ -153,6 +156,10 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("scrollbench") { await scrollBench() }
+        if selected.contains("historyfling") { await historyFling() }
+        for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
+        where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -217,6 +224,142 @@ final class TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// Leo, 2026-11-21: "terminals are indeed fast now... but only the bare
+    /// ones. this claude code cli is often slow to scroll up and down". The
+    /// same flings over a bare shell's scrollback, then while the mock's
+    /// inline Claude Code screen redraws (`claudeinline`), then with its
+    /// clear-and-reprint as well. Each case marks the fling frames'
+    /// intervals: `bench CASE frames=N p50=.. p95=.. max=.. hitches=..`.
+    private func scrollBench() async {
+        let cases: [(name: String, command: String?)] = [
+            ("bare", nil),
+            ("claude-inline", "claudeinline 50"),
+            ("claude-inline-reprint", "claudeinline 50 20"),
+            // A long session: 3,000 transcript rows, all reprinted every 2 s.
+            ("claude-inline-long", "claudeinline 50 40 3000"),
+            // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
+            ("claude-full", "claudewheel 50"),
+        ]
+        model.composerText = "stream 600 1"
+        model.send()
+        await wait(4)
+        var results: [String] = []
+        for (name, command) in cases {
+            if let command {
+                model.composerText = command
+                model.send()
+                await wait(3)
+            }
+            let full = name == "claude-full"
+            if !full { model.scrollToBottom() }
+            await wait(1)
+            let mock = model.session as? MockTerminalSession
+            let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
+            let sampler = FrameSampler()
+            sampler.start()
+            for _ in 0..<3 {
+                if full {
+                    model.controller?.tuiFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiFling(velocity: -3000)
+                } else {
+                    model.controller?.fling(velocity: -5000)
+                    await wait(1.6)
+                    model.controller?.fling(velocity: 5000)
+                }
+                await wait(1.6)
+            }
+            var line = "bench \(name) " + sampler.stop()
+            if full, let mock {
+                line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
+            }
+            mark(line)
+            results.append(line)
+            model.demoNote = results.joined(separator: " | ")
+            if command != nil {
+                model.sendControl("c")
+                await wait(1)
+            }
+        }
+        model.scrollToBottom()
+        model.demoNote = "scrollbench done | " + results.joined(separator: " | ")
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
+    /// down from ios". A Mac terminal attaches with its latest rows first; a
+    /// reader's first fling up slows into the top of them and asks for the
+    /// older rows, which come back as a reset and a replay of the whole
+    /// window. The fling runs to its end and the older rows come after it:
+    /// `historyfling done stopped=N fetches=N top=ROW`.
+    private func historyFling() async {
+        model.composerText = "historywindow 150 2000 60"
+        model.send()
+        await wait(3)
+        model.scrollToBottom()
+        await wait(1.5)
+        let before = model.controller?.flingsStoppedByReset ?? 0
+        mark("fling up into the top of the rows held")
+        model.controller?.flingToNearTop()
+        await wait(6)
+        let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
+        let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
+        model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-22: "if the data was sent through... why cant you simply
+    /// scroll through the depiction that was already given?" A mock Claude
+    /// Code: `primary` on the primary screen (its transcript in the
+    /// scrollback, its live region redrawn every 80 ms), `mouse` in its
+    /// full-screen mode on the alternate screen with the mouse asked for,
+    /// `keys` the same without the mouse (Ghostty's alternate scroll sends
+    /// cursor keys). The UI test pans with one finger for 10 s; this
+    /// measures while a finger is down (and 0.6 s after, for a fling):
+    /// `tuipan-VARIANT done frames=N p50=MS p95=MS max=MS hitches=N stalls=N
+    /// sendFrames=N maxSendsPerFrame=N bytes=N sends=N appScrolls=N fetches=N
+    /// touches=N` (`bytes`, `sends`: what the phone sent the "Mac", batched
+    /// per main-queue turn as `DaemonTerminalSession` does; `appScrolls`:
+    /// wheel reports and cursor keys the app took).
+    ///
+    /// `-load` (Leo, 2026-11-22: "testing under duress"): a long session of
+    /// 12,000 styled rows, and output streaming the whole time the finger
+    /// pans: `primary-load` redraws its live region every 16 ms, the
+    /// full-screen app adds a row and redraws its whole screen every 16 ms.
+    private func tuiPan(_ variant: String) async {
+        let load = variant.hasSuffix("-load")
+        let screen = load ? String(variant.dropLast(5)) : variant
+        model.composerText = screen == "primary"
+            ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
+            : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
+        model.send()
+        await wait(load ? 6 : 3)
+        guard let controller = model.controller, let window = controller.view.window,
+              let session = model.session as? MockTerminalSession else {
+            model.demoNote = "tuipan-\(variant) done error=nocontroller"
+            return
+        }
+        session.batchesInputPerTurn = true
+        defer { session.batchesInputPerTurn = false }
+        let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+        let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
+        let scrolls = session.appScrolls
+        mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
+        model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
+        // Until the pans are over: 4 s with no finger after the first (the
+        // UI test's next drag can wait seconds for the app to idle), within 45 s.
+        let deadline = Date().addingTimeInterval(45)
+        while Date() < deadline {
+            await wait(0.25)
+            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
+        }
+        meter.stop()
+        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
+            + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
+        model.demoNote = "tuipan-\(variant) done " + result
+        mark(model.demoNote)
+    }
+
     private func keyboard() async {
         mark("keyboard show (composer)")
         model.toggleKeyboard()
@@ -275,8 +418,9 @@ final class TerminalDemoDriver {
         // terminal shows it; the key hides it), `system` (shown by the key,
         // hidden from outside our code: the terminal resigns, as a swipe or
         // the system does, so only will-hide claims the rows), `reverse`
-        // (shown, then hidden 80 ms later, before the Mac answers) and
-        // `double` (shown, hidden and shown again 100 ms apart).
+        // (shown, then hidden 80 ms later, before the Mac answers),
+        // `double` (shown, hidden and shown again 100 ms apart) and `send`
+        // (the composer shows it, a message is sent from it, the key hides it).
         let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
         for round in 0..<5 {
             switch mode {
@@ -284,6 +428,18 @@ final class TerminalDemoDriver {
                 note("show\(round)")
                 model.controller?.debugTapTerminal()
                 await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "send":
+                // Leo's flow (ask-b8451d6e4b): the composer takes the keyboard,
+                // a message goes from it to the app, and the keyboard key
+                // then puts the keyboard away.
+                note("show\(round)")
+                model.focusComposer()
+                await wait(1.5)
+                await type("jj")
+                model.send()
+                await wait(0.6)
                 note("hide\(round)")
                 model.toggleKeyboard()
             case "system":
@@ -464,6 +620,19 @@ final class TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// The common case of one attachment, left in the composer with a draft:
+    /// the photo sits where the text starts (the gallery's composer scenes).
+    private func oneAttachment() async {
+        mark("one attachment")
+        let image = await MockArtifactSource.screenshotPNG().flatMap(UIImage.init(data:))
+        model.addAttachment(ComposerAttachment(kind: .image, name: "terminal.png", thumbnail: image))
+        await wait(0.6)
+        model.focusComposer()
+        await wait(1.2)
+        await type("what's wrong here?")
+        await wait(30)
+    }
+
     private func attachments() async {
         mark("photo picker")
         model.showPhotoPicker = true
@@ -516,6 +685,148 @@ final class TerminalDemoDriver {
         }
         model.showArtifacts = false
         await wait(1)
+    }
+}
+
+/// DEBUG bench (`tuipan`): display frames while a finger is on the screen
+/// (and 0.6 s after it lifts, for the fling). A frame interval over 1.5
+/// display periods is a hitch, over 50 ms a main-thread stall. Touches are
+/// watched by a recognizer on the window that never recognizes and never
+/// delays or cancels a touch.
+@MainActor
+final class TerminalPanMeter: NSObject {
+    private final class TouchWatcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        var changed: (Int, TimeInterval) -> Void = { _, _ in }
+        private var down = 0
+
+        override init(target: Any?, action: Selector?) {
+            super.init(target: target, action: action)
+            cancelsTouchesInView = false
+            delaysTouchesBegan = false
+            delaysTouchesEnded = false
+            delegate = self
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            down += touches.count
+            changed(down, CACurrentMediaTime())
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { lifted(touches) }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lifted(touches) }
+
+        private func lifted(_ touches: Set<UITouch>) {
+            down = max(0, down - touches.count)
+            changed(down, CACurrentMediaTime())
+            if down == 0 { state = .failed }
+        }
+
+        override func reset() { down = 0 }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    }
+
+    private(set) var touchesDown = 0
+    /// Fingers that landed while measuring.
+    private(set) var touches = 0
+    private(set) var lastTouchUp: CFTimeInterval?
+    private var intervals: [Double] = []
+    private var lastFrame: CFTimeInterval?
+    private var period: Double = 1.0 / 60
+    private var link: CADisplayLink?
+    private let watcher = TouchWatcher(target: nil, action: nil)
+    private weak var window: UIWindow?
+    /// Sends to the "Mac" so far, read every frame.
+    private let sends: () -> Int
+    private var lastSends = 0
+    /// Measured frames that had a send, and the most sends in one frame.
+    private var sendFrames = 0
+    private var maxSendsPerFrame = 0
+
+    init(window: UIWindow, sends: @escaping () -> Int = { 0 }) {
+        self.window = window
+        self.sends = sends
+        lastSends = sends()
+        super.init()
+        watcher.changed = { [weak self] down, time in
+            guard let self else { return }
+            if down > touchesDown { touches += down - touchesDown }
+            touchesDown = down
+            if down == 0 { lastTouchUp = time }
+        }
+        window.addGestureRecognizer(watcher)
+        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        link.preferredFrameRateRange = .terminal
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    private var active: Bool {
+        touchesDown > 0 || lastTouchUp.map { CACurrentMediaTime() - $0 < 0.6 } ?? false
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        defer { lastFrame = link.timestamp }
+        if link.duration > 0 { period = link.duration }
+        let sent = sends()
+        defer { lastSends = sent }
+        guard active, let lastFrame else { return }
+        intervals.append(link.timestamp - lastFrame)
+        if sent > lastSends { sendFrames += 1 }
+        maxSendsPerFrame = max(maxSendsPerFrame, sent - lastSends)
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+        window?.removeGestureRecognizer(watcher)
+    }
+
+    var summary: String {
+        let sorted = intervals.sorted()
+        func ms(_ quantile: Double) -> String {
+            guard !sorted.isEmpty else { return "-" }
+            return String(format: "%.1f", sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * quantile))] * 1000)
+        }
+        let hitches = intervals.filter { $0 > period * 1.5 }.count
+        let stalls = intervals.filter { $0 > 0.05 }.count
+        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
+            + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame) periodMs=\(String(format: "%.1f", period * 1000))"
+    }
+}
+
+/// Frame intervals from a display link at the screen's top rate, for
+/// `scrollBench` (works without `-CmuxMobileFrameLog`).
+@MainActor
+private final class FrameSampler: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
+        last = link.timestamp
+    }
+
+    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        let sorted = intervals.sorted()
+        guard !sorted.isEmpty else { return "frames=0" }
+        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
+        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
+        let hitches = sorted.filter { $0 > frame * 1.5 }.count
+        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
     }
 }
 #endif

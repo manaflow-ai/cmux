@@ -57,6 +57,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=cef-resize`: late frames and commit time while panes and the window resize beside a Chromium page, as
+# perf-cron rows (scripts/cmux-next/cef-resize-cron.py, cef-resize-sync-bench.py's light bench).
+if "--suite=cef-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
 # `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
 # live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
 # (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
@@ -83,6 +88,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=terminal-throughput" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
+# `--suite=power`: the app's power in mW, idle and scrolling, against standalone Ghostty at idle
+# (scripts/cmux-next/power-cron.py, bench_power.py; the perf cron's power part).
+if "--suite=power" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "power-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:

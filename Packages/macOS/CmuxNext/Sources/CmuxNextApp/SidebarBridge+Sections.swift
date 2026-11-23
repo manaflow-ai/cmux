@@ -103,7 +103,7 @@ extension SidebarBridge {
         // Also observed: Labs (the App Store item shows only with it on), the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
         // the workspaces tiles and top rows name. The selected item comes from the one selection.
         sectionsPass = SidebarSectionsPass(model: model, hold: hold, read: { () -> Inputs in
-            _ = (apps.apps, ChiefSidebar.shared.status)
+            _ = (apps.apps, ChiefSidebar.shared.status, DesignSettings.shared.appLanguage) // the language: titles are read below
             return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
                     Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture(), settings?.snapshot.showsAppStore == true)
         }, values: { (inputs: Inputs) in
@@ -201,7 +201,7 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item.map { SidebarTransientItem.chiefAnchors.contains($0.ref) } == true, isTile: tile != nil)
-            .union(Self.pendingEdits(id, document: services.sidebarDoc.store)))
+            .union(Self.pendingEdits(id, document: services.sidebarDoc.store)).union(services.sidebarLayout.document.isTopRow(id) ? ["sidebar.item.remove"] : []))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries, customize: true)
     }

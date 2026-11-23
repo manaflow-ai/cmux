@@ -16,12 +16,14 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod follow_camera;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
@@ -147,7 +149,7 @@ impl From<cmux_mobile_link::hybrid::MediaStatus> for MediaState {
 
 /// Link state events, in order: `Connecting`, then `Connected` (or
 /// `Disconnected` when the dial fails), then any number of `PathChanged`,
-/// `Rtt` and `Media`, then one `Disconnected`.
+/// `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum LinkEvent {
     Connecting {
@@ -169,6 +171,16 @@ pub enum LinkEvent {
     },
     Disconnected {
         reason: String,
+    },
+    /// The link heard nothing for `silent_millis` after a ping
+    /// (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+    /// blackout. The link stays open and probes every second; the next
+    /// `Rtt` says it answered again, and it closes (`Disconnected`) only
+    /// after its keepalive timeout (45 s), so a blackout it survives keeps
+    /// the session. Last in the enum so the other variants keep their
+    /// numbers in the bindings.
+    Suspect {
+        silent_millis: u32,
     },
 }
 
@@ -547,12 +559,7 @@ impl LinkHandle {
                 .into_iter()
                 .map(|mark| serde_json::json!({ "name": mark.name, "ms": mark.millis }))
                 .collect();
-            let path = match *path.borrow() {
-                cmux_mobile_link::LinkPath::Direct => "direct",
-                cmux_mobile_link::LinkPath::Turn => "turn",
-                cmux_mobile_link::LinkPath::TurnTls => "turn-tls",
-                cmux_mobile_link::LinkPath::NoPath => "none",
-            };
+            let path = path.borrow().as_str();
             serde_json::json!({
                 "roam": roam,
                 "sessions": hit,
@@ -778,6 +785,7 @@ async fn connect_on(
     let watcher = tokio::spawn(async move {
         let mut rtt = link.rtt();
         let mut closed = link.closed_state();
+        let mut suspect = link.suspect_state();
         loop {
             let media_changed = async {
                 match media_status.as_mut() {
@@ -799,6 +807,13 @@ async fn connect_on(
                 changed = path.changed() => {
                     if changed.is_err() { break; }
                     emit(&observer, LinkEvent::PathChanged { path: (*path.borrow_and_update()).into() });
+                }
+                changed = suspect.changed() => {
+                    if changed.is_err() { break; }
+                    if *suspect.borrow_and_update() {
+                        let silent_millis = u32::try_from(link.received_ago().as_millis()).unwrap_or(u32::MAX);
+                        emit(&observer, LinkEvent::Suspect { silent_millis });
+                    }
                 }
                 changed = rtt.changed() => {
                     if changed.is_err() { break; }
@@ -825,6 +840,15 @@ async fn connect_on(
             ping_timeline.mark("first_pong");
         }
     });
+    // The path report (PROTOCOL.md "Link stats"): on the pool's current socket for this team and
+    // device, so a replaced socket still carries it; it ends with the link.
+    cmux_mobile_link::link_stat::spawn(
+        connected.link.clone(),
+        connected.transport,
+        connected.path.clone(),
+        timeline.clone(),
+        current_signaling(pool, &signaling),
+    );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
         _signaling: signaling,
@@ -837,6 +861,28 @@ async fn connect_on(
     }))
 }
 
+/// The pool's current signaling socket for `socket`'s team and device, else `socket` itself while
+/// it is open (the media session and the path report send on it).
+fn current_signaling(
+    pool: &Arc<Warm>,
+    socket: &Arc<WarmSocket>,
+) -> cmux_mobile_link::hybrid::SignalingSource {
+    let key = socket.key.clone();
+    let fallback = socket.client.clone();
+    let pool = Arc::clone(pool);
+    Arc::new(move || {
+        let key = key.clone();
+        let fallback = fallback.clone();
+        let pool = Arc::clone(&pool);
+        Box::pin(async move {
+            match pool.pooled(&key).await {
+                Some(socket) => Some(socket.client.clone()),
+                None => (fallback.closed_reason().is_none()).then_some(fallback),
+            }
+        })
+    })
+}
+
 /// The phone's media session manager for a WireGuard link both sides
 /// agreed to pair with a WebRTC media session. It dials on the warm pool's
 /// current socket for this team and device (the link's may have been
@@ -847,20 +893,7 @@ fn media_manager(
     connected: &cmux_mobile_link::Connected,
     socket: &Arc<WarmSocket>,
 ) -> cmux_mobile_link::hybrid::MediaManager {
-    let key = socket.key.clone();
-    let fallback = socket.client.clone();
-    let signaling_pool = Arc::clone(pool);
-    let signaling: cmux_mobile_link::hybrid::SignalingSource = Arc::new(move || {
-        let key = key.clone();
-        let fallback = fallback.clone();
-        let pool = Arc::clone(&signaling_pool);
-        Box::pin(async move {
-            match pool.pooled(&key).await {
-                Some(socket) => Some(socket.client.clone()),
-                None => (fallback.closed_reason().is_none()).then_some(fallback),
-            }
-        })
-    });
+    let signaling = current_signaling(pool, socket);
     let base_url = request.base_url.clone();
     let token = request.token.clone();
     // Cached servers while fresh; else fetched with the dial's token (best

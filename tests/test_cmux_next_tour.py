@@ -488,6 +488,29 @@ class AppWindowCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
                 tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
 
+    def test_a_capture_shot_object_is_a_named_shot(self) -> None:
+        # new-tab-resume.json carries `cmux-ci capture` shot objects; tour.py rejected them, so every nightly tour
+        # failed its --check and no What's New clip recorded (2026-11-21).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2, "shot": {"name": "light-resume-id", "with_popups": True, "dismiss": False}},
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 1.2},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual([step["shot"] for step in manifest["steps"]],
+                         ["shots/01-light-resume-id.png", "shots/02-split-right.png"])
+
+    def test_a_shot_object_needs_a_slug_name_and_known_keys(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for shot in ({"name": "../x"}, {"name": "ok", "zoom": 2}, {"dismiss": False}, {"name": "ok", "dismiss": "no"},
+                     "yes"):
+            with self.subTest(shot=shot):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Launch", "shot": shot}]}),
+                                     encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`shot` is true, false or a capture shot object"):
+                    tour.load_tour(self.tour)
+
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Launch", "display": "yes"},

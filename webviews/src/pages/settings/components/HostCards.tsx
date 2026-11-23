@@ -15,6 +15,8 @@ import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
+import { RecentBackgrounds } from "./RecentBackgrounds";
+import { RECENTS_KEY, recentTiles, recentWrites } from "../recentBackgrounds";
 import {
   DARK_KEY,
   DYNAMIC_KEY,
@@ -32,32 +34,23 @@ import {
   rememberBackground,
 } from "../wallpaperSwitch";
 import { focusRingShown } from "../../../ui/focusModality";
+import {
+  BACKDROP_ROWS,
+  BACKGROUND_KEY,
+  BACKGROUND_OPACITY_KEY,
+  MATERIAL_KEY,
+  ROTATION_KEY,
+  useBackdropsShown,
+} from "../cardRows";
 
-export const BACKGROUND_KEY = "appearance.background";
-export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
+export { BACKDROP_ROWS, BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY, useBackdropsShown };
+
 /** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
 /** The person's desktop picture (BackdropSelection.desktopID), first in the picker. */
 const DESKTOP_ID = "desktop";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
-/** The rows the picker draws, left out of their group while it shows. */
-/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
-export const MATERIAL_KEY = "appearance.backgroundBlur";
-/** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
-export const ROTATION_KEY = "appearance.backgroundRotation";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
-  BACKGROUND_KEY,
-  BACKGROUND_OPACITY_KEY,
-  MATERIAL_KEY,
-  ROTATION_KEY,
-  // Switch Automatically's keys: its editors draw them.
-  LIGHT_KEY,
-  DARK_KEY,
-  SCHEDULE_KEY,
-  DYNAMIC_KEY,
-  LOCATION_KEY,
-]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
 const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
@@ -71,11 +64,6 @@ function BackdropThumb({ src }: { src: string }) {
   const [failed, setFailed] = useState<string | null>(null);
   if (failed === src) return <span className="backdrop-thumb backdrop-none" data-thumb-missing="" />;
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
-}
-
-/** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
-export function useBackdropsShown(): boolean {
-  return (useSettingsState().host?.backdrops ?? []).length > 0;
 }
 
 /**
@@ -239,6 +227,15 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
+  const chooseRecent = async (id: string) => {
+    cancelDwell();
+    // In order, stopping at a refusal: the background first, then sun mode off with it.
+    for (const [key, value] of recentWrites(id, switchValues.dynamic)) {
+      const result = await (value === null ? store.reset(key) : store.set(key, value));
+      if (!result.ok) break;
+    }
+    endPreview();
+  };
   // `attribution` null: the name alone (an Apple wallpaper). `video`: a moving wallpaper, marked
   // over its first frame. `pending`: a macOS wallpaper macOS has not downloaded, dimmed with a
   // cloud; a click opens the Wallpaper pane, which downloads it.
@@ -331,6 +328,19 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       <span id={`${describe}-pending`} hidden>
         {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
       </span>
+      {/* The backgrounds shown before, one click each (the app's, so All Workspaces only). */}
+      {!own && (
+        <RecentBackgrounds
+          tiles={recentTiles(rows.get(RECENTS_KEY)?.value, appCurrent, backdrops, {
+            shuffle: t("settingsWindow.backdropPicker.shufflePaintings"),
+            none: t("settingsWindow.backdropPicker.none"),
+            appearance: t("settingsWindow.wallpaperSwitch.appearance"),
+            schedule: t("settingsWindow.wallpaperSwitch.schedule"),
+          })}
+          disabled={!state.readable}
+          onChoose={chooseRecent}
+        />
+      )}
       {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
         {/* The person's own desktop picture and screen saver first: the quickest way to a background. */}

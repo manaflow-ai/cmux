@@ -62,7 +62,7 @@ public struct SidebarScreenIntentActions {
             guard let id = invocation.target?.id, let window = window(),
                   let machine = window.sections.first(where: { $0.machine?.id.rawValue == id })?.machine,
                   case .viewScreen? = machine.screenAction, machine.screenActionEnabled
-            else { return .refused(String(localized: "screen.refusal.noScreen", defaultValue: "this window's sidebar has no screen to view on that machine", table: "SidebarReveal", bundle: .module)) }
+            else { return .refused(String(localized: "screen.refusal.noScreen", defaultValue: "this window's sidebar has no screen to view on that machine", table: "SidebarReveal", bundle: .localizedModule)) }
             window.handle(.viewScreen(machine.id))
             return .done
         }

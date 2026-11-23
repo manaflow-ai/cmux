@@ -689,6 +689,7 @@ older name; both run the same start.
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
+  --timings          Where the start's time went, as a table on stderr
   --make-room        At a machine cap, free the machine the refusal offers
                      (a leftover it names is deleted; else the paused one
                      used longest ago is archived and deleted) and start again
@@ -701,6 +702,10 @@ Answers machine_id, machine_name, session_id, workspace_id and tab_id,
 plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
 chat tab's number on the machine's daemon, when start-session names one)
 with no prompt, and new_machine: true when this run made the machine.
+stages: the milliseconds from the command's start to each mark it reached
+(created, connect, session_start, session_ready, send, sent, first_text,
+reply) and total, by the names scripts/cmux-next/cloud-journey.ts uses;
+stages_ms: every step it ran.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
@@ -719,6 +724,7 @@ list` lists it.
 
 /// The CLI's own cleanup verbs, not app actions (cloud_retention.rs runs them).
 pub(super) const KEEP: &str = "keep-machine";
+pub(super) const PAUSE_ALL_USAGE: &str = "usage: cmux vm pause-all [--json] [--idempotency-key KEY]\nPause all Cloud machines you manage. Automatic wakes stay stopped until you resume each machine with cmux vm resume NAME.\n";
 pub(super) const ARCHIVE: &str = "archive-machine";
 
 pub(super) const KEEP_USAGE: &str = "\
@@ -794,9 +800,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -816,6 +822,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == KEEP {
         return Some(KEEP_USAGE.to_owned());
+    }
+    if name == "pause-all" {
+        return Some(PAUSE_ALL_USAGE.to_owned());
     }
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());
