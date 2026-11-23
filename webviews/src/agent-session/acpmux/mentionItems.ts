@@ -10,7 +10,11 @@ import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
-import { toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
+import { TOOL_MENTIONS, toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
+
+/// The built-in tools' words (`@computer-use`, `@browser-use`) are theirs alone: a harness with the same id
+/// is never a guest row nor a guest @ (its pick would write the tool's token and lose the tool's note).
+const TOOL_IDS = new Set<string>(TOOL_MENTIONS.map((tool) => tool.id));
 import type { ExtensionMention } from "./composer/extensionMentions";
 
 export type MentionItem =
@@ -146,7 +150,7 @@ export function canBeGuest(entry: AcpmuxSnapshot["catalog"][number]): boolean {
 function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], query: string): MentionItem[] {
   const ranked: { entry: AcpmuxSnapshot["catalog"][number]; score: number; indexes: number[]; label: string }[] = [];
   for (const entry of catalog) {
-    if (!canBeGuest(entry)) continue;
+    if (!canBeGuest(entry) || TOOL_IDS.has(entry.id.toLowerCase())) continue;
     const label = entry.name?.trim() || entry.id;
     // A harness answers only to its own name's start: "@ini" is a file, never Gemini.
     const lower = query.toLowerCase();
@@ -177,6 +181,7 @@ export function guestMention(
   const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
   for (const match of outsideCode.matchAll(/(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g)) {
     const id = match[2]!.toLowerCase();
+    if (TOOL_IDS.has(id)) continue;
     const entry = catalog.find((candidate) => candidate.id.toLowerCase() === id && canBeGuest(candidate));
     if (!entry) continue;
     const start = match.index! + match[1]!.length;

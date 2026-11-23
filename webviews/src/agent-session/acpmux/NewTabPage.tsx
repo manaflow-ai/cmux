@@ -1,4 +1,5 @@
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
@@ -97,7 +98,8 @@ type Props = NewTabCommandActions & {
   ): void | Promise<unknown>;
   /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
   /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
-  holdsSend?(text: string): boolean;
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -476,8 +478,9 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
-        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`.
-        if (holdsSend?.(row.text.trim())) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
@@ -493,12 +496,14 @@ export function NewTabPage({
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
     // Held for Computer Use on this key press, before a screenshot still being read can outlast it.
     if (kind === "agent" && query.trim() && holdsSend?.(query.trim())) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {

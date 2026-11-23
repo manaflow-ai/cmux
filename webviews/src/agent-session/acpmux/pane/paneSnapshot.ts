@@ -1718,7 +1718,8 @@ export function paneSnapshotEffect({
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
         "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
         // The transcript's queue controls (Send Now, an edit): held as the composer's are (CMUX-682), on
-        // the text this page has; acpmux holds the stored prompt itself too (`computer_use.not_ready`).
+        // the text this page has (a long queued prompt's preview may cut a later mention: the agent's own
+        // Computer Use tool still refuses while it is not set up).
         "chat.queue.edit": ({ promptId, ...edit }) => {
           const change = edit as QueueEdit;
           const queued =

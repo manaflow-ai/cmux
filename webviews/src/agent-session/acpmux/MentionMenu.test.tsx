@@ -325,3 +325,10 @@ test("a short word lists only a file or folder it names exactly, after the plugi
   expect(mentionItems({ query: "gol", files }).map((item) => item.key)).toEqual([]);
   expect(mentionItems({ query: "bu", files }).map((item) => item.key)).toEqual(["tool:browser-use"]);
 });
+
+test("a harness named like a built-in tool never takes the tool's @ word", () => {
+  const catalog = [{ id: "browser-use", name: "browser-use", models: [], pickable: true, family: "custom" }];
+  const keys = mentionItems({ query: "brow", files: [], harnesses: catalog }).map((item) => item.key);
+  expect(keys).toEqual(["tool:browser-use"]);
+  expect(guestMention("open it with @browser-use", catalog)).toBeUndefined();
+});

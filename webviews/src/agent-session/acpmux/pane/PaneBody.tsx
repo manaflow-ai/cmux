@@ -1131,11 +1131,12 @@ export function drawPaneBody({
             />
           ) : showNewTab ? (
             <NewTabPage
-              holdsSend={(text) =>
+              holdsSend={(text, late) =>
                 holdsForComputerUseSetup(
                   text,
                   true,
                   newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                  !late,
                 )
               }
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
