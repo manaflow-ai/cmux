@@ -62,6 +62,7 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
+    "scripts/measure/warm-tree.sh": "fetches into its own `git init --bare` scratch repository ($gitsrc)",
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "images/cmux-vm/image-roll-record.sh": "fetches only into its own `git init` temp directory of the record branch",

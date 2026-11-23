@@ -28,6 +28,14 @@ from github_token_polling import (  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 ALLOWED: dict[str, str] = {
+    "cmux-next-base-linux.yml: List the paths changed since the last green run":
+        "per base run: the changed-paths read retries after 0, 5 and 20 s, three tries at most",
+    "cmux-next-pair-e2e-vm.yml: The cmux-tui client for this tree":
+        "pin-cmux-tui.sh await_outside_publisher: a same-repository PR waits only for an active trusted publisher "
+        "of its own tree, the same bounded wait as the cmux-next.yml probe",
+    "cmux-next.yml: Compile-check CmuxNext on the build fleet":
+        "fleet_compile_result.py waits for the fleet's compile result, bounded by its own deadline; "
+        "a candidate for the fleet's push of the result",
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
