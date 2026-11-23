@@ -33,6 +33,8 @@ final class WorkspaceRowView: SidebarRowView {
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
     var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// The glow cleared the marks (`hideMarksForNeedsYouGlow`): the layout brings them back once it stops.
+    var marksHiddenForGlow = false
     /// The window is on screen and not covered, as the list tracks it for the rows' indicators
     /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
     var isNeedsYouWindowVisible = true {

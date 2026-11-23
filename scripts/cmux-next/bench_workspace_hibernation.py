@@ -55,6 +55,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import bench_power as bp  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 SCROLL_Y = 900
 SET_SCROLL = f"(() => {{ window.scrollTo(0, {SCROLL_Y}); return String(window.scrollY); }})()"
@@ -94,6 +95,30 @@ def wait_for(predicate, seconds: float, step: float = 0.05):
             return value
         time.sleep(step)  # test script: waiting on the app's reported state
     return None
+
+
+def pages_settled(sock: str, pages: list[str], label: str) -> None:
+    """Until every bench page loaded and froze (or is exempt or hibernated), then the app's counts stop changing."""
+    def all_frozen():
+        h = surfaces(sock).get("hibernation") or {}
+        done = set(h.get("frozen") or []) | set(h.get("hibernated") or []) | set((h.get("exemptions") or {}).keys())
+        return set(pages) <= done
+    if not wait_until(all_frozen, f"{len(pages)} pages to freeze ({label})", timeout=120, interval=1.0, raise_on_timeout=False):
+        print(f"   {label}: not every page froze within 120 s; measuring anyway", file=sys.stderr)
+    app_settled(sock, 0, "", label)
+
+
+def app_settled(sock: str, pid: int, bundle: str, label: str) -> None:
+    """Until the app's processes (renderers exiting) and its surface counts read the same for about 2 s."""
+    def read():
+        status = surfaces(sock)
+        counts = [status.get(key) for key in ("live_terminals", "parked_workspaces", "hibernated_workspaces", "workspace_pages")]
+        return counts, sorted(bm.owned(pid, bundle)) if pid else None
+    wait_stable(read, f"the app after {label}", timeout=60, interval=0.5, reads=5, raise_on_timeout=False)
+
+
+def focused_workspace(sock: str):
+    return ((bp.rpc(sock, "snapshot.get") or {}).get("topology", {}).get("focus") or {}).get("workspace")
 
 
 def evaluate(sock: str, tab: str, script: str, seconds: float = 20):
@@ -231,9 +256,12 @@ def run_hidden_spaces(args) -> int:
     try:
         index = 0
         for space in range(args.hidden_spaces):
+            before = focused_workspace(sock)
             app.run("space.new", name=f"bench-{space + 1}")
-            time.sleep(1)  # test script: the home store mirrors the new space before the window enters it
-            app.action("space.selectByNumber", index=space + 2)
+            # The home store mirrors the new space before the window can enter it: select until the focus moved there.
+            if not wait_until(lambda: (app.action("space.selectByNumber", index=space + 2), focused_workspace(sock) != before)[1],
+                              f"the window to enter space bench-{space + 1}", timeout=15, interval=0.25, raise_on_timeout=False):
+                print(f"   space bench-{space + 1}: the focused workspace did not change after selecting it", file=sys.stderr)
             made = []
             for _ in range(args.workspaces):
                 entry = build_workspace(app, sock, port, index)
@@ -248,7 +276,7 @@ def run_hidden_spaces(args) -> int:
             app.action("goToWorkspace", workspace=front_ws)
         total = sum(len(made) for made in spaces)
         report["made"] = total
-        time.sleep(45)  # test script: pages load and freeze, the app settles
+        pages_settled(sock, [entry["page"] for made in spaces for entry in made], "the hidden-space setup")
         shown = idle_phase(pid, bundle, sock, "shown-settled", total, report, args.idle_seconds)
         # The first pass comes a minute after launch, then a pass is due when the hidden clock runs out.
         waited = time.monotonic()
@@ -257,8 +285,9 @@ def run_hidden_spaces(args) -> int:
         report["hidden_wait_s"] = round(time.monotonic() - waited)
         print(f"PERF-WSHIB-SPACES-WAIT all_hibernated={bool(hibernated)} waited_s={report['hidden_wait_s']}", flush=True)
         if not hibernated:
-            time.sleep(max(0, wait_s - (time.monotonic() - waited)))  # test script: a build that does not hibernate waits the full time
-        time.sleep(15)  # test script: renderers exit and the app settles
+            # sleep-ok: a build that does not hibernate waits the same full time, so both arms measure the same age
+            time.sleep(max(0, wait_s - (time.monotonic() - waited)))
+        app_settled(sock, pid, bundle, "the hidden wait")
         after = idle_phase(pid, bundle, sock, "hidden-waited", total, report, args.idle_seconds)
         for number, made in enumerate(spaces):
             if not made:
@@ -351,7 +380,7 @@ def run(argv: list[str]) -> int:
         if front_ws:
             app.action("goToWorkspace", workspace=front_ws)
         report["made"] = len(made)
-        time.sleep(45)  # test script: pages load and freeze, the app settles
+        pages_settled(sock, [entry["page"] for entry in made], "the setup")
         awake = phase(pid, bundle, sock, "awake", len(made), report)
         phases = (surfaces(sock).get("hibernation") or {}).get("page_phases") or {}
         counted = {}
@@ -371,7 +400,7 @@ def run(argv: list[str]) -> int:
         report["exemptions"] = (status.get("hibernation") or {}).get("exemptions")
         print(f"PERF-WSHIB-HIBERNATED all={bool(hibernated)} refused={refused} ms={report['hibernate_all_ms']} "
               f"exemptions={json.dumps(report['exemptions'] or {})}", flush=True)
-        time.sleep(15)  # test script: renderers exit and the app settles
+        app_settled(sock, pid, bundle, "hibernating every workspace")
         asleep = phase(pid, bundle, sock, "hibernated", len(made), report)
         for entry in made[: args.wake]:
             report["wakes"].append(wake(app, sock, entry, port))

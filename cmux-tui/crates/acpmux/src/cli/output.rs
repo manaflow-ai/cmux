@@ -412,6 +412,26 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     lines
 }
 
+/// [`sent_lines`] naming the target by the name it was given (`displayName` in its acceptance,
+/// from a daemon that has it), its typed `key` beside it: "steered to Mango · HOST/NAME". A target
+/// without a given name reads as before.
+pub(crate) fn sent_lines_to(accepted: &Value, supersede: bool, key: &str) -> Vec<String> {
+    let mut lines = sent_lines(accepted, supersede);
+    let given = accepted
+        .get("displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    if let (Some(given), Some(first)) = (given, lines.first_mut()) {
+        let to = crate::prompt_provenance::display_label(Some(given), key);
+        *first = match first.split_once(':') {
+            // The held line explains itself after its colon: the name goes before it.
+            Some((head, rest)) => format!("{head} (to {to}):{rest}"),
+            None => format!("{first} to {to}"),
+        };
+    }
+    lines
+}
+
 /// On an acceptance: the receiver's inbox holds the message, and the idle receiver does not wake
 /// for it (`hub/inbox.rs` `wakes`).
 pub(crate) const HELD_IN_INBOX: &str = "heldInInbox";
@@ -1430,6 +1450,27 @@ mod prompt_tests {
         let lines = sent_lines(&json!({"queued": true}), true);
         assert_eq!(lines[0], "queued");
         assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
+    }
+
+    /// Leo: "the send/recieve messages are still only the older names". `acpmux send` says the
+    /// target's given name, the typed key beside it; a target without one prints as before.
+    #[test]
+    fn a_send_names_the_target_by_its_given_name() {
+        let steered = json!({"steer": true, "displayName": "Mango"});
+        assert_eq!(
+            sent_lines_to(&steered, false, "studio-mac/coord-old"),
+            ["steered to Mango · studio-mac/coord-old"]
+        );
+        assert_eq!(sent_lines_to(&steered, false, "Mango"), ["steered to Mango"]);
+        let held = json!({"heldInInbox": true, "displayName": "Mango"});
+        let line = &sent_lines_to(&held, false, "coord-old")[0];
+        assert!(
+            line.starts_with("held in its inbox (to Mango · coord-old): the receiver"),
+            "{line}"
+        );
+        assert_eq!(sent_lines_to(&json!({"queued": true}), false, "coord-old"), ["queued"]);
+        let invalid = json!({"queued": true, "displayName": "no spaces allowed"});
+        assert_eq!(sent_lines_to(&invalid, false, "coord-old"), ["queued"]);
     }
 
     #[test]
