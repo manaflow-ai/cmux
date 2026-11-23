@@ -138,6 +138,8 @@ mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
 #[cfg(unix)]
+mod hub;
+#[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
 mod inference_gateway_admin;
@@ -978,6 +980,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
+        .or_else(|| hub::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
