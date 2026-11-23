@@ -47,17 +47,19 @@ impl Hub {
             keep.stored = again.stored;
         }
         let kept = keep.stored.map_or(Kept::Sent, Kept::Stub);
-        let (record, stored) = self.append_record_locked(
-            session,
-            dir,
-            kind,
-            msg,
-            host_seq,
-            at,
-            stored_only,
-            kept,
-            notify,
-        );
+        let (record, stored) = crate::send_probe::timed(kind, || {
+            self.append_record_locked(
+                session,
+                dir,
+                kind,
+                msg,
+                host_seq,
+                at,
+                stored_only,
+                kept,
+                notify,
+            )
+        });
         let settled = {
             let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
             if stored {

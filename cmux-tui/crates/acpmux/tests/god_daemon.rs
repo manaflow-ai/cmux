@@ -2431,9 +2431,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         // The sweep owns this artifact; preserve only the tail, never the generated chat.
         if let Ok(mut file) = std::fs::File::open(&daemon.log) {
             let len = file.metadata().map_or(0, |m| m.len());
-            let _ = file.seek(SeekFrom::Start(len.saturating_sub(64 * 1024)));
+            let _ = file.seek(SeekFrom::Start(len.saturating_sub(4 << 20)));
             let mut tail = Vec::new();
-            file.take(64 * 1024).read_to_end(&mut tail).unwrap();
+            file.take(4 << 20).read_to_end(&mut tail).unwrap();
             std::fs::write(&destination, tail).unwrap();
             eprintln!("chat size {label}: daemon log {}", destination.display());
         }

@@ -1947,6 +1947,7 @@ async fn dispatch_request_with_identity(
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
+            crate::send_probe::start("session/prompt");
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
@@ -2396,6 +2397,7 @@ async fn dispatch_request_with_identity(
             let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
             opts.on_accepted = stop.watch(opts.on_accepted.take());
             let hub = hub.clone();
+            crate::send_probe::at("server: to prompt_with");
             let run = async move {
                 let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
                 // The turn ended (its read was decided) before the answer came back.
