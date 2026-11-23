@@ -1150,7 +1150,8 @@ pub struct WebSocketConfig {
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name, or the name peers dial on a non-loopback `listen`, where every
-    /// other name is refused). Both lists are read when the listener starts.
+    /// other name is refused). Both lists apply from the next connection after
+    /// `_acpmux/reload_config` (`acpmux config --set` and `acpmux web --tailnet` send it).
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
@@ -1694,6 +1695,10 @@ pub struct Config {
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
+    /// `autoEvacuate`: idle chats leave this machine on their own while it stays over its budget
+    /// (`hub/auto_evacuate.rs`). Off unless `autoEvacuate.enabled` is true.
+    #[serde(default, skip_serializing_if = "AutoEvacuateConfig::is_default")]
+    pub auto_evacuate: AutoEvacuateConfig,
     /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
     /// hub carrier does not need them.
     #[serde(default)]
@@ -1988,7 +1993,9 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod auto_evacuate;
 mod usage_warnings;
+pub use auto_evacuate::AutoEvacuateConfig;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
