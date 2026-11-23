@@ -964,6 +964,10 @@ pub(crate) struct ConversationHost {
     /// typing item can recover the state. Each typist keeps the connections
     /// that turned it on: it ends when the last of them closes (cmux#32727).
     pub(crate) typing: Mutex<TypingByConversation>,
+    /// `home-inbox` `since`: each caller's revisioned Home row changes, by
+    /// principal (memory only; a new daemon run starts new revisions).
+    pub(crate) home_changes:
+        Mutex<std::collections::HashMap<String, cmux_conversation::HomeChangeLog>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
