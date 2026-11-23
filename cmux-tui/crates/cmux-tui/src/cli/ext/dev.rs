@@ -830,6 +830,7 @@ pub(super) fn placements(
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
+                "cmux.composer.chip/1" => "the agent chat composer's context chips".into(),
                 "cmux.chat.widget/1" => {
                     match entry.pointer("/options/tools").and_then(Value::as_array) {
                         Some(tools) if !tools.is_empty() => format!(
@@ -892,8 +893,7 @@ fn probe_context(manifest: &Value, interface: &str) -> Value {
         .unwrap_or("small");
     // The place first (New Tab unless the widget goes only in the sidebar), then a size it takes:
     // the sidebar holds small and medium.
-    let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
-    let newtab = places.is_none_or(|list| list.iter().any(|p| p == "newtab"));
+    let newtab = widget_in_newtab(options);
     let (place, size) = if newtab {
         ("newtab", default)
     } else if default != "large" {
@@ -903,22 +903,70 @@ fn probe_context(manifest: &Value, interface: &str) -> Value {
     };
     json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
 }
-/// The interface the load check mounts: a view that renders with no context.
+
+/// Whether a widget's options let it go on the New Tab page (no `places`: it does).
+fn widget_in_newtab(options: Option<&Value>) -> bool {
+    let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
+    places.is_none_or(|list| list.iter().any(|p| p == "newtab"))
+}
+
+/// Every size a widget declares (`options.sizes`; none: the probe's one) with a context a
+/// place takes it in: `ext shot --record` renders each, so review checks them all. A size no
+/// place holds (large, for a sidebar-only widget) is left out.
+pub(super) fn widget_sizes(manifest: &Value) -> Vec<(String, Value)> {
+    let options = manifest.pointer("/implements/cmux.widget~11/options");
+    let declared: Vec<String> = options
+        .and_then(|o| o.get("sizes"))
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default();
+    if declared.is_empty() {
+        let context = probe_context(manifest, "cmux.widget/1");
+        let size = context.get("size").and_then(Value::as_str).unwrap_or("small").to_string();
+        return vec![(size, context)];
+    }
+    let newtab = widget_in_newtab(options);
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for size in declared {
+        if out.iter().any(|(seen, _)| *seen == size) {
+            continue;
+        }
+        let place = if newtab {
+            "newtab"
+        } else if size != "large" {
+            "sidebar"
+        } else {
+            continue;
+        };
+        let context = json!({ "place": place, "size": size, "instance": "ext-dev-probe" });
+        out.push((size, context));
+    }
+    out
+}
+
+/// The interfaces that draw a view (a scene): the load check mounts these first.
+const VIEWS: [&str; 5] = [
+    "cmux.section/1",
+    "cmux.pane/1",
+    "cmux.session.info.section/1",
+    "cmux.newtab/1",
+    "cmux.widget/1",
+];
+
+/// The interface the load check mounts: a view that renders with no context, else any
+/// export (an opener, a mention) so its script still loads.
 pub(super) fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 5] = [
-        "cmux.section/1",
-        "cmux.pane/1",
-        "cmux.session.info.section/1",
-        "cmux.newtab/1",
-        "cmux.widget/1",
-    ];
-    PREFERRED
-        .iter()
-        .find(|name| has_export(name))
-        .map(|name| name.to_string())
-        .or_else(|| implements.keys().find(|name| has_export(name)).cloned())
+    view_interface(manifest).or_else(|| implements.keys().find(|name| has_export(name)).cloned())
+}
+
+/// The view interface the extension draws, or `None` when it draws no view (an opener, a
+/// command): only a drawn view has scenes to record and check.
+pub(super) fn view_interface(manifest: &Value) -> Option<String> {
+    let implements = manifest.get("implements")?.as_object()?;
+    let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
+    VIEWS.iter().find(|name| has_export(name)).map(|name| name.to_string())
 }
 
 /// One reload's result (`--once --json` prints it).
@@ -940,10 +988,11 @@ pub(super) struct Outcome {
     pub scene: Vec<String>,
     /// The design check of that scene (`design.rs`): warnings, never a failed load.
     pub design: Vec<super::design::Finding>,
-    /// That scene's ops as the probe drew them, and its name in a recorded file
+    /// The scenes' ops as the probe drew them, each by its name in a recorded file
     /// (`cmux.widget/1 small` for a widget, the interface for the rest): what
-    /// `ext shot --record` writes to `preview/scenes.json`.
-    pub recorded: Option<(String, Value)>,
+    /// `ext shot --record` writes to `preview/scenes.json`. The first is the probe's;
+    /// with [`Session::every_size`] a widget's other declared sizes follow.
+    pub recorded: Vec<(String, Value)>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
@@ -972,7 +1021,7 @@ impl Outcome {
             probe: None,
             scene: Vec::new(),
             design: Vec::new(),
-            recorded: None,
+            recorded: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
@@ -1099,6 +1148,8 @@ pub(super) struct Session {
     /// The daemon's types digest the project's `cmux-app.d.ts` was last
     /// checked against: the whole manifest is fetched only when it moves.
     types_digest: Option<String>,
+    /// Render a widget at each declared size, not only the probe's (`ext shot --record`).
+    pub every_size: bool,
 }
 
 impl Session {
@@ -1115,6 +1166,7 @@ impl Session {
             last: None,
             built_print: None,
             types_digest: None,
+            every_size: options.every_size,
         }
     }
 
@@ -1268,7 +1320,9 @@ impl Session {
                 match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
-                        outcome.recorded = Some((name, ops.clone()));
+                        if VIEWS.contains(&interface.as_str()) {
+                            outcome.recorded = vec![(name.clone(), ops.clone())];
+                        }
                         let (system, problem) = super::design_system::System::load(&pkg.dir);
                         outcome.design = problem
                             .into_iter()
@@ -1293,6 +1347,34 @@ impl Session {
                         );
                     }
                     Err(stop) => return gone(outcome, stop),
+                }
+                // `ext shot --record`: a widget's other declared sizes too, so review checks
+                // each size a person can pick, not only the probe's.
+                if self.every_size && interface == "cmux.widget/1" {
+                    for (size, context) in widget_sizes(&pkg.manifest) {
+                        let name = format!("{interface} {size}");
+                        if outcome.recorded.iter().any(|(seen, _)| *seen == name) {
+                            continue;
+                        }
+                        match self.probe(&pkg.id, &interface, context, !installed) {
+                            Ok(Ok(ops)) => outcome.recorded.push((name, ops)),
+                            Ok(Err(problem)) => {
+                                outcome.logs = self.daemon.take_logs();
+                                let text = format!("at size {size}: {}", problem.text());
+                                return outcome.failed(Phase::Load, vec![Problem::message(text)]);
+                            }
+                            Err(Stop::Timeout) => {
+                                return outcome.failed(
+                                    Phase::Load,
+                                    vec![Problem::message(format!(
+                                        "{interface} at size {size} did not render within {} s",
+                                        PROBE_DEADLINE.as_secs()
+                                    ))],
+                                );
+                            }
+                            Err(stop) => return gone(outcome, stop),
+                        }
+                    }
                 }
             }
             outcome.reload_ms = Some(synced.elapsed().as_millis());
