@@ -473,6 +473,16 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
 
 def main(argv: list[str]) -> int:
     global ROOT, WORKFLOW
+    # A runner started in the background with nohup (Freestyle's `cmux-linux`
+    # VMs) hands its jobs SIGINT and SIGHUP already ignored, and an ignored
+    # signal survives exec: the Ctrl-C Actions sends on cancel, and every step
+    # that tests its own Ctrl-C or hangup handling, then waits out its timeout.
+    # A caught handler resets on exec, so Python's own SIGINT handler gives every
+    # step a default SIGINT; the others go back to their defaults.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    for signum in (signal.SIGHUP, signal.SIGQUIT):
+        if signal.getsignal(signum) == signal.SIG_IGN:
+            signal.signal(signum, signal.SIG_DFL)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--group", action="append", default=[], help="run these matrix groups or jobs instead of the fast set")
     parser.add_argument("--all", action="store_true", help="run every guard group, not only the fast set")
