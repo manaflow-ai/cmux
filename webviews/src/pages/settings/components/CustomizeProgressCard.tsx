@@ -9,15 +9,15 @@
 // through `cmux --json customize checklist`): a step is done when a setting it watches differs from
 // its default, a binding or library entry exists, a connection the page reports is there, or the
 // person checked it off. This card draws the answer and writes two settings keys, nothing else.
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { CHECKLIST_DONE_KEY, CHECKLIST_ENABLED_KEY, checklistFacts, toggledDone } from "../customizeProgress";
 import { Icon } from "../icons";
 import type { Checklist, ChecklistStep } from "../ops";
-import { checklistQuery } from "../sectionQueries";
+import { checklistKey, checklistQuery } from "../sectionQueries";
 import { t, text } from "../strings";
 
 /** How the checklist draws (gallery `settings.customize-progress-layouts`). `card`, the shipped one,
@@ -40,10 +40,16 @@ export function CustomizeProgressCard() {
   const store = useStore();
   const router = useSettingsRouter();
   const state = useSettingsState();
-  const query = useQuery({
-    ...checklistQuery(store, state.revision, checklistFacts(state)),
-    placeholderData: keepPreviousData,
-  });
+  const queryClient = useQueryClient();
+  const query = useQuery(checklistQuery(store));
+  // A settings change or a connection the page learns of re-asks; the last answer stays drawn meanwhile.
+  const asked = `${state.revision} ${checklistFacts(state).join(" ")}`;
+  const last = useRef(asked);
+  useEffect(() => {
+    if (last.current === asked) return;
+    last.current = asked;
+    void queryClient.invalidateQueries({ queryKey: checklistKey });
+  }, [asked, queryClient]);
   const checklist = query.data ?? null;
   // No CLI in this build, or the person dismissed it: nothing to draw.
   if (!checklist || state.rows.get(CHECKLIST_ENABLED_KEY)?.value === false) return null;

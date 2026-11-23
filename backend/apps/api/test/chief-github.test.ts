@@ -252,8 +252,12 @@ describe("GitHub sign-in per Chief", { timeout: 120_000 }, () => {
     await new Promise((r) => setTimeout(r, 1200))
     // The expired code is replaced at once when the status is read: the woken Chief posts the new one.
     const status = (await http("GET", `/v1/chiefs/${a.chief.id}/github`, a.token)).json.value
-    expect(status).toMatchObject({ signed_in: false, pending: { user_code: "EFGH-0002" } })
-    expect(status.pending.renewals).toBe(1)
+    // On a slow runner the poll job can renew the 1 s code once more before expiresIn turns 900,
+    // so the status shows the newest code GitHub issued, renewed at least once.
+    const issued = gh.devicePosts.length
+    expect(issued).toBeGreaterThanOrEqual(2)
+    expect(status).toMatchObject({ signed_in: false, pending: { user_code: `EFGH-000${issued}` } })
+    expect(status.pending.renewals).toBe(issued - 1)
     gh.approved = true
     let s: any = null
     for (let i = 0; i < 40 && !s?.signed_in; i++) {

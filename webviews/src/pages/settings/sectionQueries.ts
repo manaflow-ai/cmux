@@ -9,11 +9,11 @@ import type {
   AgentsState,
   ChannelsState,
   Checklist,
-  ChecklistFact,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
+  DoctorReport,
 } from "./ops";
 import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
@@ -101,10 +101,15 @@ export function libraryQuery(store: SettingsStore) {
 
 /** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
  * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
-export function checklistQuery(store: SettingsStore, revision: number, has: ChecklistFact[]) {
+/** The checklist's one key: the section read and the card share it whatever the revision and
+ * connections are when each starts, so the card draws in the first screen; the card refreshes it
+ * when either changes (CustomizeProgressCard). The read asks with the connections the store holds then. */
+export const checklistKey = [...settingsKeys.all, "customize-checklist"] as const;
+
+export function checklistQuery(store: SettingsStore) {
   return queryOptions<Checklist | null>({
-    queryKey: [...settingsKeys.all, "customize-checklist", revision, ...has],
-    queryFn: () => store.customizeChecklist(has),
+    queryKey: checklistKey,
+    queryFn: () => store.customizeChecklist(checklistFacts(store.getSnapshot())),
     staleTime: SECTION_READ_FRESH_MS,
     structuralSharing: true,
   });
@@ -112,6 +117,20 @@ export function checklistQuery(store: SettingsStore, revision: number, has: Chec
 
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** The customize doctor's key; each fix and dismiss answers it again. */
+export const DOCTOR_KEY = [...settingsKeys.all, "customize-doctor"] as const;
+
+/** Personalization > Customization Problems and the Settings notice: what `cmux customize doctor`
+ * finds (null: the host cannot run it). */
+export function doctorQuery(store: SettingsStore) {
+  return queryOptions<DoctorReport | null>({
+    queryKey: DOCTOR_KEY,
+    queryFn: async () => (await store.customizeDoctor({ verb: "doctor" })).doctor,
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
 
 /** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
  * refresh it. */
@@ -160,9 +179,10 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     // The checklist's connection steps read the Accounts and Models parts the store keeps.
     reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
-    const state = store.getSnapshot();
-    reads.push({ options: checklistQuery(store, state.revision, checklistFacts(state)), revalidate: true });
+    reads.push({ options: checklistQuery(store), revalidate: true });
   }
+  // Customization Problems draws above the library, in its slot.
+  if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {

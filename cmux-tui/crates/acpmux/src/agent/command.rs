@@ -55,6 +55,14 @@ pub(crate) async fn harness_command_ready(
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
     let family = crate::config::derive_family(name, profile);
+    // Labs `labs.bundledCodexAppServer` (off by default): plain `codex app-server` runs the
+    // bundle cmux ships when it is whole (`codex_bundle.rs`); a profile's CODEX_PATH still wins.
+    let command_line = match command_line {
+        None if crate::codex_app_server::is_profile_launch(&profile.argv) => {
+            crate::codex_bundle::launch_for(&profile.argv).await
+        }
+        line => line,
+    };
     let mut plan = crate::login_env::ChildEnv {
         family: &family,
         profile: Some(&profile.env),
@@ -141,10 +149,16 @@ fn build_harness_command(
         ));
     }
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let extra =
+        let (extra, prompt) =
             crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
         let named = claude_name_args(&profile.env, &owned.1, session_name);
-        (owned.0, owned.1.into_iter().chain(extra).chain(named).collect())
+        let mut args = owned.1;
+        // acpmux's own servers' instructions, which they then leave out: in the system prompt
+        // every chat shares, not the first turn's (`AgentTools::instructions_in_prompt`).
+        if let Some(prompt) = prompt {
+            crate::agent_tools::append_system_prompt(&mut args, &prompt);
+        }
+        (owned.0, args.into_iter().chain(extra).chain(named).collect())
     } else {
         owned
     };

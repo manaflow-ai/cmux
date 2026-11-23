@@ -1270,7 +1270,20 @@ def command_measure(args) -> int:
         except (OSError, RuntimeError, ValueError):
             pass
         started_hosts.update(host_pids(work))
-        time.sleep(0.5)
+
+        def host_alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+
+        # Until the daemon's shutdown (end_terminals) ended its hosts; whichever is still alive after 5 s is killed.
+        host_deadline = time.monotonic() + 5
+        while any(host_alive(pid) for pid in started_hosts.values()) and time.monotonic() < host_deadline:
+            time.sleep(0.05)
         for pid in started_hosts.values():  # only the hosts this measurement started
             try:
                 os.kill(pid, signal.SIGKILL)

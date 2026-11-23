@@ -21,8 +21,11 @@ afterEach(() => {
 const card = () => page!.container.querySelector<HTMLElement>('[data-card="customizeProgress"]');
 const count = () => card()!.querySelector<HTMLElement>("[data-progress]")!.textContent;
 
+// The mock signs in its model connections (mockModels.ts); with Models unread, "agents" counts only
+// when a test says so, whichever read lands first.
 async function open(mock?: MockOptions) {
-  page = await renderPage({ path: "/settings/general", mock });
+  const failing = { "cmux.settings.models.state": "unavailable", ...mock?.failing };
+  page = await renderPage({ path: "/settings/general", mock: { ...mock, failing } });
   await settle();
   return page;
 }
