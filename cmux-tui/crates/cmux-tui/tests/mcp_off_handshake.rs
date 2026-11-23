@@ -93,16 +93,16 @@ fn serve_with(settings: &str, env: &[(&str, &str)]) -> (String, usize) {
     )
 }
 
-/// An agent chat follows the person's answer: a `cmux` entry an older cmux wrote into the
-/// person's own Claude Code or Codex config starts `cmux mcp serve` in every chat, with the chat's
-/// `CMUX_AGENT_SESSION`, and while `agents.cmuxMcp` is not on it is the off server. A Chief turn
-/// (its preset's `CMUX_MCP_TOOLS`) is served either way, and with the yes a chat is served.
+/// An agent chat follows the setting: a `cmux` entry an older cmux wrote into the person's own
+/// Claude Code or Codex config starts `cmux mcp serve` in every chat, with the chat's
+/// `CMUX_AGENT_SESSION`, and while `agents.cmuxMcp` is off it is the off server. A Chief turn
+/// (its preset's `CMUX_MCP_TOOLS`) is served either way, and with the setting on (the default) a
+/// chat is served.
 #[test]
-fn an_agent_chat_gets_cmux_tools_only_with_the_persons_yes_and_the_chief_always() {
+fn an_agent_chat_gets_cmux_tools_unless_turned_off_and_the_chief_always() {
     let chat = [("CMUX_AGENT_SESSION", "chat-1")];
     let chief = [("CMUX_AGENT_SESSION", "chief-1"), ("CMUX_MCP_TOOLS", "agents_snapshot")];
-    for settings in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents": {"cmuxMcp": "ask"}}"#, "{}"]
-    {
+    for settings in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents.cmuxMcp": "off"}"#] {
         let (instructions, tools) = serve_with(settings, &chat);
         assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{settings}: {instructions}");
         assert_eq!(tools, 1, "{settings}: the off server's one tool");
@@ -112,9 +112,15 @@ fn an_agent_chat_gets_cmux_tools_only_with_the_persons_yes_and_the_chief_always(
             "{settings}: {instructions}"
         );
     }
-    let (instructions, _) = serve_with(r#"{"agents": {"cmuxMcp": "on"}}"#, &chat);
-    assert!(!instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
-    // `"mcp": {"enabled": true}` alone does not stand for the person's answer in a chat.
+    for settings in [r#"{"agents": {"cmuxMcp": "on"}}"#, r#"{"agents": {"cmuxMcp": "ask"}}"#, "{}"]
+    {
+        let (instructions, _) = serve_with(settings, &chat);
+        assert!(
+            !instructions.contains("agents.cmuxMcp on --confirm"),
+            "{settings}: {instructions}"
+        );
+    }
+    // `"mcp": {"enabled": true}` does not override the setting off in a chat.
     let (instructions, _) =
         serve_with(r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#, &chat);
     assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
