@@ -214,10 +214,12 @@ GUARD_FIXTURE = """jobs:
         group: [ci]
     steps:
       - name: Quick step
-        run: echo quick
+        run: while [ ! -e hung-started ]; do sleep 0.05; done; sleep 0.2; echo quick
       - name: Hung step
-        run: sleep 120
+        run: touch hung-started; sleep 120
 """
+# Quick step finishes only once Hung step runs, so a signal sent when Quick
+# step prints always finds Hung step still running (a fleet run raced it).
 
 
 class RunReportsTiming(unittest.TestCase):
