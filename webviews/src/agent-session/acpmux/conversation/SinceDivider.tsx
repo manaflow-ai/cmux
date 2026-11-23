@@ -43,6 +43,7 @@ import {
   type UnreadBannerMode,
 } from "./unreadState";
 import { sinceLook } from "./sinceLook.experiment";
+import { placeSinceLine } from "./sinceInk";
 import "./unread.css";
 import { intl } from "../../../ui/intl";
 
@@ -77,6 +78,42 @@ function useSinceObserver(mark: string, inPlace: boolean) {
       return () => observer.disconnect();
     },
     [mark, inPlace],
+  );
+}
+
+/// Lays the drawn line midway between what the rows around it draw (sinceInk.ts), while it shows: at
+/// once, then whenever the line's row or either neighbour changes size, or the page's fonts load. The
+/// mark's own style takes it (`--cv-since-ink`), so nothing renders again.
+function usePlaceLine(shows: boolean) {
+  return useCallback(
+    (node: HTMLElement | null) => {
+      if (!node || !shows || typeof ResizeObserver === "undefined") return;
+      let watched: Element[] = [];
+      let frame = 0;
+      const observer = new ResizeObserver(() => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(place);
+      });
+      const own = node.closest("[data-row-id]") ?? node;
+      function place() {
+        const rows = placeSinceLine(node!);
+        if (rows.length === watched.length && rows.every((row, i) => row === watched[i])) return;
+        for (const row of watched) observer.unobserve(row);
+        watched = rows;
+        for (const row of watched) observer.observe(row);
+      }
+      place();
+      observer.observe(own);
+      let live = true;
+      void document.fonts?.ready.then(() => live && place());
+      return () => {
+        live = false;
+        cancelAnimationFrame(frame);
+        // The place stays: a line that dissipates fades where it lay.
+        observer.disconnect();
+      };
+    },
+    [shows],
   );
 }
 
@@ -184,13 +221,26 @@ export function SinceDivider({
   useDissipate(since.key, read === undefined && shows && mine?.side === "in", dwellMs);
   const label = t("since.label");
   const drawn = look ?? experimentArm(sinceLook);
+  const observe = useSinceObserver(since.key, since.inPlace === true);
+  const placeLine = usePlaceLine(shows && !since.recap);
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      const unobserve = observe(node);
+      const unplace = placeLine(node);
+      return () => {
+        unobserve?.();
+        unplace?.();
+      };
+    },
+    [observe, placeLine],
+  );
   return (
     <div
       className="cv-since"
       data-look={drawn}
       data-shown={shows ? "" : undefined}
       data-recap={since.recap ? "" : undefined}
-      ref={useSinceObserver(since.key, since.inPlace === true)}
+      ref={ref}
     >
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
         <p
