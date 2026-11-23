@@ -199,6 +199,8 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // Each caller's requests over a recent window (caller_stats.rs).
+        untyped(method::MUX_CALLERS, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -491,6 +493,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ACCOUNTS, Request),
         untyped(method::MUX_ACCOUNT_SET, Request),
         untyped(method::MUX_ACCOUNT_USAGE, Request),
+        keyed::<params::AccountSignInParams>(method::MUX_ACCOUNT_SIGN_IN, Request),
+        keyed::<params::AccountSignInFinishParams>(method::MUX_ACCOUNT_SIGN_IN_FINISH, Request),
+        keyed::<params::AccountSignInCancelParams>(method::MUX_ACCOUNT_SIGN_IN_CANCEL, Request),
+        keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_SWITCH, Request),
+        keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_REMOVE, Request),
+        keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_SIGN_OUT, Request),
+        untyped(method::MUX_ACCOUNT_READINESS, Request),
         untyped(method::MUX_CONNECTIONS, Request),
         untyped(method::MUX_CONNECTIONS_ORDER_SET, Request),
         untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),
@@ -532,6 +541,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
         untyped(method::MUX_PAIR_SET, Request),
+        untyped(method::MUX_OWNER_PHONE_CHANGED, Request),
         untyped(method::MUX_MACHINE_CONSENT_SET, Request),
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
@@ -539,6 +549,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_SHARE_HOST_STATUS, Request),
         untyped(method::MUX_MACHINE_ENROLL, Request),
+        untyped(method::MUX_MACHINE_JOIN_SSH, Request),
+        untyped(method::MUX_MACHINE_CANDIDATES, Request),
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_DEVICE_HELLO, Request),
@@ -569,6 +581,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
+        untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }

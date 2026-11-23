@@ -1370,7 +1370,7 @@
 }
 /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
-   2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
+   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
    the floating chat dock: a fresh chat's hero layout keeps its padding. */
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer:has(.acpmux-composer-foot) { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
@@ -1525,7 +1525,11 @@
      never sits on the box's bottom edge (Leo 2026-11-01: "this is all still not aligned there's not
      enough of a space at the bottom"). The top and the bottom are always equal. */
   --acpmux-composer-block-inset: var(--grid-composer-block-inset);
-  --acpmux-composer-lead-gap: calc(8px * var(--acpmux-density));
+  /* The text's gap to + on its left and to the actions on its right, one token for both sides (Leo
+     2026-11-22: "we probably ought to be able to type at least one more character or two ... SHRINK
+     THE INSIDE BIT ... IT'S NOT EVEN LIKE IT'S EVENLY SPACED"). Was 8 px on the left and a literal
+     8 px on the right. */
+  --acpmux-composer-lead-gap: calc(4px * var(--acpmux-density));
   /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
      sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
      and its ink centers on the box's middle, where the controls are. */
@@ -1634,8 +1638,8 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  align-self: var(--acpmux-lead-align, start);
-  margin: var(--acpmux-lead-margin, var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset));
+  align-self: end;
+  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
@@ -1656,27 +1660,15 @@
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
-}
-/* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls.
-   The capped state lands on the bar and its leading controls read it (the rule above), never
-   `:has(...) .acpmux-composer-inner > :not(...)`: a universal right side joins the one set Chromium
-   uses for every non-subject `:has`, and then any fade mark anywhere (the transcript's scroller on
-   each scroll, the prompt rail on hover) restyled every element in the pane
-   (docs: pane-level-has-restyles-every-row in the team handbook). */
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner {
-  --acpmux-lead-align: end;
-  --acpmux-lead-margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
-  --acpmux-lead-bottom: var(--acpmux-prompt-control-top);
-}
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > .acpmux-composer-actions {
   align-self: end;
   margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
 }
+/* The controls stand on the box's bottom edge at every height, one control inset over it: a one-line
+   draft centers them on its line (the box is 10 + 28 + 10), and as the draft wraps, grows and caps
+   they stay where they were while the box's top edge rises (Leo 2026-11-22: "the buttons for
+   send attach all that doesnt follow/simply stick with teh bottom of the composer").
+   They stood on the first line before and flipped to the bottom once the draft capped, a jump at the
+   cap (his 1:37 clip). One rule, no state: nothing toggles them. test/composer-geometry-stable.test.ts. */
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box[data-composer-grid] .acpmux-md-field {
   /* A growing row keeps the first line at its fixed padding inset. */
@@ -1685,29 +1677,21 @@
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
     calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop)) var(--acpmux-composer-lead-gap);
 }
-/* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
-   2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
-   same) be more cohesive? ... claude indeed has it on the inside"), and as Claude desktop draws it:
-   the prompt spans the actions' column too, its thin thumb in the box's last 8 px, the track clear of
-   the box's rounded top corner and stopping above Send. The text keeps its width and stays clear of
-   the actions: the right padding gives their column back (--acpmux-actions-width, measured by
-   composerScrollLane.ts), and the actions draw and take the pointer over the prompt's empty corner.
-   Other placements (the lane beside the text, outside the box as Codex, the box's full height) are
-   the gallery's agent-pane.composer-scrollbar variants. New Tab's box is its own textarea
-   (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
+/* The draft's scrollbar runs in a lane between the text and the actions, down to the box's bottom
+   inset, as Claude desktop draws it (Leo 2026-11-22, his 1:42 clip of Claude: "the thumb only
+   appears when it's relevant ... AND IT ACTUALLY GOES IN A REASONABLE LOOKING PLACE, INSTEAD OF OUR
+   THUMB THAT STOPS ATOP BUTTONS!? ... OUR CALIBRATION OF "BOTTOM" LOOKS STUPID"). It ran down the
+   box's right edge before and stopped a block inset over Send, so its bottom end sat on the buttons'
+   tops. In the lane the thumb is still inside the box, as the chat's runs inside the pane (Leo
+   2026-10-22: "claude indeed has it on the inside"), its track clear of the box's rounded top corner
+   and ending the same inset over the bottom edge, level with the buttons' bottoms. The prompt takes
+   its own column only, so the text and its lane never pass under the actions. Other placements (the
+   box's right edge stopping over Send, its full height, outside the box as Codex) are the gallery's
+   agent-pane.composer-scrollbar variants. New Tab's box is its own textarea (.nt-field,
+   newtab/screen.css) with the system scroller and keeps its placement. */
 .acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field {
-  grid-column: 2 / -1;
-  /* The lane sits just inside the box's hairline rim, never on it. */
-  margin-right: calc(2px * var(--cmux-interface-scale, 1));
-  padding-right: calc(
-    var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-  );
-  /* Send's 28 px row, the 8 px under it and a 4 px gap: the thumb ends above Send (the minimal
-     scroller's end inset, scrollers.ts). */
-  --cmux-minimal-scroller-inset-end: calc(40px * var(--cmux-interface-scale, 1));
-}
-.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
-  right: calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1));
+  grid-column: 2;
+  --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   position: relative;
