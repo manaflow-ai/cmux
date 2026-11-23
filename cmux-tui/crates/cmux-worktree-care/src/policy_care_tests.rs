@@ -24,8 +24,13 @@ fn decide_at(worktree: &Worktree, sessions: &[Session], pressure: Pressure) -> V
 
 #[test]
 fn an_open_session_keeps_its_worktree_however_idle() {
-    let session =
-        Session { name: "lane".into(), cwd: "/w/a/src".into(), open: true, updated_ms: 0 };
+    let session = Session {
+        name: "lane".into(),
+        cwd: "/w/a/src".into(),
+        open: true,
+        archived_checkout: None,
+        updated_ms: 0,
+    };
     let v = decide_at(&worktree(pushed(1000)), &[session], Pressure::Critical);
     assert_eq!(v.action, Action::Keep);
     assert!(v.reason.contains("lane"));
@@ -33,7 +38,13 @@ fn an_open_session_keeps_its_worktree_however_idle() {
 
 #[test]
 fn a_closed_session_s_last_change_counts_as_use() {
-    let session = Session { name: "lane".into(), cwd: "/w/a".into(), open: false, updated_ms: NOW };
+    let session = Session {
+        name: "lane".into(),
+        cwd: "/w/a".into(),
+        open: false,
+        archived_checkout: None,
+        updated_ms: NOW,
+    };
     assert_eq!(
         decide_at(&worktree(pushed(1000)), &[session], Pressure::Normal).action,
         Action::Keep
@@ -57,7 +68,13 @@ fn a_process_inside_keeps_it() {
 
 #[test]
 fn a_session_active_in_the_main_checkout_gets_its_worktrees_the_longest_waits() {
-    let main = Session { name: "chief".into(), cwd: "/r/src".into(), open: true, updated_ms: NOW };
+    let main = Session {
+        name: "chief".into(),
+        cwd: "/r/src".into(),
+        open: true,
+        archived_checkout: None,
+        updated_ms: NOW,
+    };
     let w = worktree(pushed(30));
     assert_eq!(decide_at(&w, &[], Pressure::Critical).action, Action::Reclaim);
     assert_eq!(decide_at(&w, std::slice::from_ref(&main), Pressure::Critical).action, Action::Keep);
