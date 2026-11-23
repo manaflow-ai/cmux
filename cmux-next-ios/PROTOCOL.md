@@ -494,6 +494,7 @@ most 16 KiB (readers still accept 256 KiB from older peers).
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+| 5 `deflated data` | parked writes only, negotiated below. Original payload length (u32 BE) and one raw DEFLATE stream |
 
 A channel whose owner does not read it may hold the link reader for at
 most 3 s; then that channel is closed `overflow` on both sides and the rest
@@ -517,6 +518,49 @@ sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
 and the app's heartbeat probes a link with no traffic (only pings and pongs)
 on its 2.5 s foreground or 10 s background beat. No interval is longer than
 before.
+
+### Parked link (added 2026-11-16; backward compatible)
+
+When the app leaves the screen with a live WireGuard link, the phone asks
+the Mac to hold the link while iOS suspends it, so returning skips the
+full dial. It opens the service `_link.park` with `{"hold_ms": N}`. A Mac
+that knows parking answers `close` with code `parked` (a control frame) and
+holds for N ms, at most 10 minutes. An older Mac answers `unknown_service`,
+and the phone redials on return as before. While parked:
+
+- Neither side sends a link keepalive or closes the link for silence.
+- The tunnel is held (`cmux-wg` `WgNet::hold`): no TCP keepalive probe,
+  each link connection waits for the hold plus 30 s instead of its user
+  timeout, and no WireGuard keepalive (persistent or passive) goes out. The
+  Mac sends a suspended phone nothing at all.
+- The Mac writes only control frames. Channel data waits in each channel's
+  queue (up to its 256 KiB, then its writer waits, as on a slow link).
+- The app's heartbeat, foreground and presence probes are suspended: a
+  ping ends the park.
+
+A phone that can read type 5 adds `"encoding":"deflate-v1"` to its
+park request. For that park the Mac can encode each held data frame
+independently if it shrinks. Its original length (at most 16 KiB) counts
+towards the same queue limit. The phone restores each frame in channel
+order, including its original boundary. Other frames use their usual
+encoding. A Mac that predates the encoding ignores the argument, and a
+phone that omits it receives ordinary data.
+
+The park ends on the Mac at the phone's first ping, channel data or new
+channel (other than `_link.park`): a phone that sends a request (a
+notification action run in the background) is awake and waits for the
+answer. The phone parks no link a call is using, and a request it runs in
+the background resumes its link for the request, then parks it again. On
+the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
+(less a 30 s margin, on the clock that runs while the device sleeps), the
+phone moves the tunnel onto a fresh socket, as for a network change, and
+probes once with a 1.5 s timeout. The first explicit probe starts on the
+ordered stream even when liveness datagrams are available, so its ping
+follows the park request and releases queued output on the Mac. The Mac
+queues its pong before releasing the writers. If the probe fails, the phone redials. If
+the hold passes with nothing heard, the Mac closes the link (`park
+expired`). A WebRTC link is never parked: ICE consent ends a silent data
+channel after 30 s whatever the link does.
 
 ### Lanes (added with the input lane; backward compatible)
 
@@ -965,6 +1009,56 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
   16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
   nothing to a Mac without the capability. Phones only.
+  Each record also carries `path`, the link's route when it came, which hostd reads from the
+  link and the phone never sends: `direct-lan` (a direct path to a private, link-local or
+  unique-local peer address), `direct-wan` (direct, but routed: a public, CGNAT or tailnet
+  address), `direct` (direct, address unknown), `relay` (a TURN server) or `none`.
+  Mac redraw to iPhone paint (added 2026-11-22, same capability): hostd adds `"pseq": N` to
+  each terminal redraw line it splices to the phone (`output`, `agent-cli-frame`,
+  `agent-cli-lean`; an older phone ignores the field) and keeps, for the last 8192 of them,
+  when it read the line and when the link flushed the line's last byte to the socket. The
+  phone notes when each stamped line arrived and when the first frame that showed its bytes
+  was presented, and sends, on the same channel:
+  `{"kind": "clock", "t0"}` probes, each answered at once with `{"kind": "clock", "t0", "t1",
+  "t2"}` (Mac epoch ms; at most 32 per channel), then
+  `{"v": 1, "kind": "paint", "samples": [[seq, received, painted], ...], "clock": [[t0, t1,
+  t2, t3], ...], "program"?, "app"?, "load"?, "rtt_ms"?}` (phone epoch ms, at most 256
+  samples; the phone sends 200). hostd takes the clock offset from the probe with the
+  shortest round trip (NTP midpoint, error at most half that round trip), joins each sample
+  with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
+  "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
+  `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
+  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+- `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
+  Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
+  content-addressed blobs. No open args; machines need the View grant. Both ways the
+  channel carries frames, each behind its 4-byte big-endian length; a frame is a 1-byte
+  kind, then a body (`cmux-tab-snapshots` `wire.rs`). Phone to Mac (JSON, camelCase):
+  `0x01 viewport {cardPixelWidth, cardAspect, displayScale, screenPixelW, screenPixelH}`,
+  `0x02 want [hash]` (priority order, replaces the last; each named blob is sent even if
+  sent before), `0x03 have [hash]` (once on link-up), `0x04 resume {epoch?, rev}` (first on
+  reconnect; an empty epoch asks for a manifest). Mac to phone: `0x11 manifest {epoch,
+  rev, rows}`, `0x12 delta {epoch, rev, baseRev, changed: [partial row], removed: [tabId],
+  order?}` and `0x13 blob` (binary: 32 raw SHA-256 bytes, 1 mime byte: 0 octet-stream, 1
+  JPEG, 2 PNG, 3 screen text, then the bytes; the phone checks the hash). A row is
+  `{tabId, title, kind ("browser", "terminal", "agent", or a kind the phone shows as
+  other), faviconHash?, thumbHash?, thumbW, thumbH, thumbMime, screenHash?, screenCols,
+  screenRows, frameHash?, capturedAtMs}`; in a partial row an absent field is unchanged
+  and a `null` hash is cleared. `tabId` is the tab's daemon surface id as a decimal
+  string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
+  the host process and the daemon run its tab ids came from: it is new at each hostd start
+  and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
+  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
+  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
+  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
+  "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
+  (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
+  by its magic bytes (any `mime` is ignored); others are logged and dropped. The app sends
+  one when a page's leave picture is taken (576 px wide at most, JPEG) or its favicon
+  changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
+  paired; it skips bytes it sent last for that tab and part, and resends the newest of each
+  to a new hostd.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1056,6 +1150,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `appearance-v1` | hostd `version` | (2026-11-12) The host serves `appearance` and `appearance-wallpaper`: the Mac's theme and wallpaper. |
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
+| `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

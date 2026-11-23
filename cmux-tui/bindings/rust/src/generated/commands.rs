@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9.
+// cmux-tui mux protocol 12, IR c6d0f3dea2025c443f5317cfa375e1281441bd59736ab8850502510b7728b2d9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1355,6 +1355,40 @@ pub struct ConversationRunsRequest {
 pub struct ConversationRunsResult {
     pub has_more: bool,
     pub runs: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledListResult {
+    pub scheduled: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledOpRequest {
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledOpResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub change: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub replayed: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scheduled: Optional<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -2983,6 +3017,14 @@ pub type PinWorkspaceResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PingRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProcessCensusRequest {
+}
+
+#[rustfmt::skip]
+pub type ProcessCensusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4931,6 +4973,14 @@ impl CmuxClient {
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
+    pub fn conversation_scheduled_list(&mut self, request: ConversationScheduledListRequest) -> Result<ConversationScheduledListResult> {
+        self.execute(&CONVERSATION_SCHEDULED_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_scheduled_op(&mut self, request: ConversationScheduledOpRequest) -> Result<ConversationScheduledOpResult> {
+        self.execute(&CONVERSATION_SCHEDULED_OP_METADATA, &request)
+    }
+
     pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
         self.execute(&CONVERSATION_SEARCH_METADATA, &request)
     }
@@ -5611,6 +5661,10 @@ impl CmuxClient {
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {
         self.execute(&PING_METADATA, &request)
+    }
+
+    pub fn process_census(&mut self, request: ProcessCensusRequest) -> Result<ProcessCensusResult> {
+        self.execute(&PROCESS_CENSUS_METADATA, &request)
     }
 
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {

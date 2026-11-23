@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9'
+IR_SHA256 = 'c6d0f3dea2025c443f5317cfa375e1281441bd59736ab8850502510b7728b2d9'
 
 
 @dataclass(frozen=True)
@@ -1181,6 +1181,28 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
             'turns': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-list': CommandMetadata(
+        'conversation-scheduled-list',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-op': CommandMetadata(
+        'conversation-scheduled-op',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'op': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-search': CommandMetadata(
@@ -2649,6 +2671,16 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'process-census': CommandMetadata(
+        'process-census',
+        'local-admin',
+        12,
+        'process-census-v1',
+        ('local-admin',),
         None,
         {
         },
@@ -4219,6 +4251,7 @@ EVENTS = {
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-live': EventMetadata('conversation-live', 12, 'chief-live-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
+    'conversation-scheduled-changed': EventMetadata('conversation-scheduled-changed', 12, 'conversation-scheduled-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
