@@ -11,7 +11,8 @@
 /// The button still has to be pinned (`browser.toolbarButtons`, where it is by default). The app reads the
 /// effective root (``current(_:)``), as for the toolbar's pins. `configPath`, `fallback` and the
 /// `BrowserProfileButtonStyle` cases come from schemas/settings/source/browser.json.
-public nonisolated enum BrowserProfileButtonSetting {
+public nonisolated struct BrowserProfileButtonSetting {
+    public nonisolated init() {}
     /// The style in `root`; absent or bad is the default (a bad value also gets a diagnostic, in `parse`).
     public static func read(_ root: JSONValue) -> BrowserProfileButtonStyle {
         var diagnostics: [SettingsDiagnostic] = []
