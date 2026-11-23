@@ -736,6 +736,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
             refreshTablePictures(item, id: id, in: message)
+            // A picture the message holds twice is refreshed once, every copy at that time: no search
+            // of `updates` for repeats, which grew with a long chat's refresh (review of #51108).
+            var refreshed: Set<String> = []
+            // Copies under one id (`.cmuxSetAttachments` updates every part of it) take one update.
+            var queued: Set<ID> = []
             for part in item.parts {
                 if case .linkPreview(let link) = part {
                     refreshLinkPicture(link, in: message)
@@ -743,16 +748,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
-                guard !tableHashes(item).contains(ref.hash) else { continue }
+                guard !tableHashes(item).contains(ref.hash), refreshed.insert(ref.hash).inserted else { continue }
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
                 // Every copy of the picture in the message (the same one sent twice, #50984), each
                 // under its own id: `hash` from HomeStore's item, `hash#2` in the bubble that flew.
                 for case let .attachment(have) in message.parts where Self.contentHash(ofChip: have.id) == ref.hash {
                     var shown = want
                     shown.id = have.id
-                    if have != shown, !updates.contains(where: { $0.id == id && $0.attachment.id == shown.id }) {
-                        updates.append((id: id, attachment: shown))
-                    }
+                    if have != shown, queued.insert(shown.id).inserted { updates.append((id: id, attachment: shown)) }
                 }
             }
         }
