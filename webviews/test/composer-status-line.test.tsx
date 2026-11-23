@@ -5,7 +5,7 @@
 //   - a line draws once the chat's state settles, and is asked for again only when that state
 //     changes (a turn ends), never on a timer;
 //   - a switch to another chat drops the old chat's line at once.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -37,8 +37,13 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
 afterEach(() => {
   act(() => root?.unmount());
+  jest.useRealTimers();
   root = undefined;
   host.replaceChildren();
 });
@@ -52,10 +57,12 @@ function Probe({ ask, sessionId, state }: { ask: AskStatusLine; sessionId: strin
   return line ? <ComposerStatusLine line={line} /> : null;
 }
 
-async function settle() {
+// Fake timers: the settle delay is the behavior under test, so the test moves the clock past it.
+async function pastSettle() {
   await act(async () => {
-    await new Promise((done) => setTimeout(done, STATUS_LINE_SETTLE_MS + 30));
+    jest.advanceTimersByTime(STATUS_LINE_SETTLE_MS + 30);
   });
+  await act(async () => {});
 }
 
 function shown(): string | null {
@@ -77,7 +84,7 @@ test("no command set: acpmux answers no line and nothing draws", async () => {
     "chat-1",
     "idle|0",
   );
-  await settle();
+  await pastSettle();
   expect(asked).toEqual(["chat-1"]);
   expect(shown()).toBeNull();
   expect(host.innerHTML).toBe("");
@@ -91,20 +98,20 @@ test("the line draws, and is asked for again only when the chat's state changes"
     return `main +${turn}`;
   };
   await draw(ask, "chat-1", "idle|0");
-  await settle();
+  await pastSettle();
   expect(shown()).toBe("main +0");
   const line = host.querySelector(".acpmux-composer-status-line");
   expect(line?.getAttribute("title")).toBe("main +0");
 
   // The same state again asks nothing: no timer.
   await draw(ask, "chat-1", "idle|0");
-  await settle();
-  await settle();
+  await pastSettle();
+  await pastSettle();
   expect(asked).toEqual(["chat-1"]);
 
   turn = 1;
   await draw(ask, "chat-1", "idle|1");
-  await settle();
+  await pastSettle();
   expect(asked).toEqual(["chat-1", "chat-1"]);
   expect(shown()).toBe("main +1");
 });
@@ -112,10 +119,10 @@ test("the line draws, and is asked for again only when the chat's state changes"
 test("a switch to another chat drops the old chat's line at once", async () => {
   const ask: AskStatusLine = async (id) => (id === "chat-1" ? "first chat" : undefined);
   await draw(ask, "chat-1", "idle|0");
-  await settle();
+  await pastSettle();
   expect(shown()).toBe("first chat");
   await draw(ask, "chat-2", "idle|0");
   expect(shown()).toBeNull();
-  await settle();
+  await pastSettle();
   expect(shown()).toBeNull();
 });
