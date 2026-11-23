@@ -250,6 +250,8 @@ public final class MockAgentSession: AgentSessionSource {
         ])))
         emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
         guard history else { return }
+        // The demo chat's title, as acpmux names a chat on attach (`AcpmuxSession.chatName`).
+        if !summary.name.isEmpty { emit(.update(.sessionInfo(title: summary.name))) }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))

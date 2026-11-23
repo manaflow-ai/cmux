@@ -267,50 +267,16 @@ public final class AgentChatStore {
 
     public nonisolated static let untitledName = "New session"
 
-    /// The composer's placeholder for a started chat: "Reply to <the chat's name>", else "Reply…".
-    /// Never the first prompt: a tab the Mac has not named yet carries its prompt as its title,
-    /// and the field read "Reply to Take over https://github.com/manaflow-…" (issue 51331).
-    public var replyPlaceholder: String {
-        Self.replyPlaceholder(sessionTitle: sessionTitle, name: summary.name, firstPrompt: firstPrompt)
-    }
+    /// The composer's placeholder for a started chat: "Reply to <the chat's title>", else
+    /// "Reply…". Only a title the agent or acpmux gave the chat (`sessionTitle`, from the
+    /// harness's `session_info_update` or acpmux's `AcpmuxSession.chatName`), never the tab's
+    /// title or the session's name, which are the first prompt until the chat is named: the
+    /// field read "Reply to Take over https://github.com/manaflow-…" (issue 51331).
+    public var replyPlaceholder: String { Self.replyPlaceholder(sessionTitle: sessionTitle) }
 
-    public nonisolated static func replyPlaceholder(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
-        guard let title = chatName(sessionTitle: sessionTitle, name: name, firstPrompt: firstPrompt) else {
-            return "Reply…"
-        }
+    public nonisolated static func replyPlaceholder(sessionTitle: String?) -> String {
+        guard let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return "Reply…" }
         return "Reply to \(title)"
-    }
-
-    /// The chat's own name: the agent's session title, else the session's name when it is neither
-    /// the untitled placeholder nor the first prompt (or the start of it, cut with an ellipsis).
-    /// Nil when the chat has no name of its own yet.
-    public nonisolated static func chatName(sessionTitle: String?, name: String, firstPrompt: String?) -> String? {
-        if let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { return title }
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, trimmedName != untitledName else { return nil }
-        let prompt = (firstPrompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !prompt.isEmpty {
-            var stem = Substring(trimmedName)
-            while let last = stem.last, last == "…" || last == "." { stem = stem.dropLast() }
-            let stemText = stem.trimmingCharacters(in: .whitespaces)
-            let flatPrompt = prompt.split(whereSeparator: \.isNewline).joined(separator: " ")
-            if !stemText.isEmpty, flatPrompt.hasPrefix(stemText) || prompt.hasPrefix(stemText) { return nil }
-        }
-        return trimmedName
-    }
-
-    public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
-        if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty, trimmedName != untitledName { return trimmedName }
-        let prompt = (firstPrompt ?? "").split(whereSeparator: \.isNewline).first.map(String.init)?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        guard !prompt.isEmpty else { return trimmedName.isEmpty ? untitledName : trimmedName }
-        guard prompt.count > 40 else { return prompt }
-        let cut = prompt.prefix(40)
-        // Cut at a word boundary when one is close, then add an ellipsis.
-        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
-        return (word.count >= 24 ? String(word) : String(cut)).trimmingCharacters(in: .whitespaces) + "…"
     }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
@@ -1956,7 +1922,7 @@ public final class AgentChatStore {
         case .usage(let used, let size):
             if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
-            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
+            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != sessionTitle { sessionTitle = title }
         }
     }
 

@@ -382,8 +382,8 @@ struct ChatComposer: View {
 
     private var placeholder: String {
         // A started chat is named by its title, never by the tab's title, which is the first
-        // prompt until the Mac names the chat (issue 51331); a new chat asks its harness.
-        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.harnessDisplayName)" : store.replyPlaceholder)
+        // prompt until the chat is named (issue 51331).
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : store.replyPlaceholder)
     }
 
     /// Expands the capsule, then focuses the field once it exists.
