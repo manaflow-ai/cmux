@@ -120,7 +120,7 @@ impl WireFake {
     /// `answer` is a wire value for a success, or an `{error: {...}}` object.
     pub fn answer(&mut self, op: &str, params: Value, key: Option<&str>, answer: Value) {
         let path = if key.is_some() { "/v1/ops" } else { "/v1/read" };
-        let body = match answer.get("error") {
+        let body = match answer.get("error").filter(|error| !error.is_null()) {
             Some(error) => json!({ "ok": false, "op": op, "error": error, "transaction": "",
                 "idempotency_key": key.unwrap_or_default(), "replayed": false, "stream": "", "sequence": 0 }),
             None if key.is_some() => {
@@ -169,7 +169,7 @@ impl WireFake {
         }
         let agent = self.agent;
         let Some(route) = self.routes.iter_mut().find(|r| {
-            r.agent == agent
+            (r.agent == agent || (call.op == "cloud.machine.get" && r.key.is_none()))
                 && r.op == call.op
                 && r.params == call.params
                 && r.key == call.idempotency_key
@@ -201,6 +201,7 @@ impl WireFake {
     pub fn session_status(&self) -> Result<SessionStatus, RelayError> {
         Ok(SessionStatus {
             signed_in: self.signed_in,
+            backend: Some("https://cloud-api.cmux.dev".into()),
             team: Some("team_t0000000000000000001".into()),
         })
     }
