@@ -306,8 +306,9 @@ class Rpc:
         self.items: list[tuple[float, dict]] = []
         self.closed = False
         self.next = 0
+        self.send_lock = threading.Lock()
         threading.Thread(target=self._pump, daemon=True).start()
-        self.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "hybrid-move-bench"}})
+        self.init = self.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "hybrid-move-bench"}})
 
     def _pump(self):
         for line in self.rf:
@@ -345,9 +346,12 @@ class Rpc:
                 self.cv.wait(left)
 
     def send(self, method: str, params: dict) -> int:
-        self.next += 1
-        self.s.sendall((json.dumps({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params}) + "\n").encode())
-        return self.next
+        # The history that follows a move is sent on a thread while the bench prompts the chat.
+        with self.send_lock:
+            self.next += 1
+            rid = self.next
+            self.s.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
+        return rid
 
     def result(self, rid: int, start: int, timeout: float, method: str):
         t, m = self.wait(lambda m: m.get("id") == rid and "method" not in m, timeout, start, f"{method} answer")
