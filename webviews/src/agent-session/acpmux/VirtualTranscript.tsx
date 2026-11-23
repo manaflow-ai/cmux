@@ -8026,8 +8026,9 @@ function TranscriptView({
             <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
               <div
                 className="acpmux-spacer"
-                // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-                data-older-room={layout.origin || undefined}
+                // The room held above the loaded rows for older history (conversation/olderReserve.ts). The room that
+                // seats a short first page at the view's foot is not older room: no scrollbar shows over it.
+                data-older-room={Math.max(0, (layout.origin ?? 0) - footRoom.current) || undefined}
                 // Older history is left to load. The room is not the sign of it: it goes once the reader
                 // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
                 data-loads-older={canLoadOlder || undefined}
