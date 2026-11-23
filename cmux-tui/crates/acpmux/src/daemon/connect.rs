@@ -268,9 +268,9 @@ pub(super) async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -
         let log = home().join("daemon.log");
         drop(open_daemon_log(&log)?);
         let this = choice.this.clone();
-        let (home, keyed) = (home(), key.is_some());
+        let (home_dir, keyed) = (home(), key.is_some());
         let placed = tokio::task::spawn_blocking(move || {
-            login_session::start_in_login_session(&this, &home, &log, keyed)
+            login_session::start_in_login_session(&this, &home_dir, &log, keyed)
         })
         .await
         .map_err(|e| anyhow!("{e}"))?;
