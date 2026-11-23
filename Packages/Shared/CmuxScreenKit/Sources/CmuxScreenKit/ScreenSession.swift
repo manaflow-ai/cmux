@@ -105,6 +105,10 @@ public final class ScreenSession {
     /// One message of a screen stream's `focus` channel: a JSON focus event
     /// from the Mac (main actor). The camera reads it.
     @ObservationIgnored public var onFocus: ((Data) -> Void)?
+    /// The Mac's cursor shape on a screen stream, its own image (nil: none
+    /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
+    @ObservationIgnored private var streamCursors = ScreenStreamCursorCache()
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -400,10 +404,18 @@ public final class ScreenSession {
 
     // MARK: Stream
 
+    /// A new or ended stream: its Mac's cursor shapes start over.
+    private func resetStreamCursor() {
+        let had = streamCursors.current != nil
+        streamCursors.reset()
+        if had { onStreamCursor?(nil) }
+    }
+
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         // The last stream's pointers: a new host may send none (it draws its cursor).
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -464,8 +476,10 @@ public final class ScreenSession {
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
+            let shape = message.shape
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
+                if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
             }
         }
@@ -473,6 +487,14 @@ public final class ScreenSession {
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
                 self.onFocus?(message)
+            }
+        }
+        viewer.onCursorShape = { [weak self, weak viewer] shape in
+            // Decoded here, off the main actor.
+            guard let cursor = ScreenStreamCursor(shape) else { return }
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                if self.streamCursors.add(cursor) { self.onStreamCursor?(self.streamCursors.current) }
             }
         }
         viewer.onState = { [weak self, weak viewer] message in
@@ -684,6 +706,7 @@ public final class ScreenSession {
         }
         stream = nil
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         stats.targetFps = nil
         if !silently { phase = .ended }
     }
