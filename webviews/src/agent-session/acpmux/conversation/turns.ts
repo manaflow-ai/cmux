@@ -1074,17 +1074,27 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 /// person sent after a newer card answers that card, not an older one still waiting before it. Walks
 /// back from the newest card until one was taken over: every card before that one has the person's
 /// words after it too, so it costs the waiting cards, never the chat's length.
+/// One question pins once (https://github.com/manaflow-ai/cmux/issues/52766): an agent woken again
+/// and again by other agents' messages asks the same question at the end of each turn, and each
+/// asking is its own card under its own key (its turn's time). Only the newest asking of a question
+/// counts: an older one leaves the pin whether the newest still waits, is the hat's (the chat's last
+/// row), was answered, or the person spoke after it, so answering or dismissing it clears them all.
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
   const waiting: AcpmuxRow[] = [];
+  const asked = new Set<string>();
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
     if (step.superseded) break;
+    if (!step.ask.question) continue;
+    const question = sameQuestion(step.ask.question);
+    if (asked.has(question)) continue;
+    asked.add(question);
     // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
-    if (!step.ask.question || step.answer !== undefined || spoke) continue;
+    if (step.answer !== undefined || spoke) continue;
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
@@ -1094,6 +1104,9 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// A question as two askings of it compare: case and runs of space aside.
+const sameQuestion = (question: string) => question.trim().replace(/\s+/g, " ").toLowerCase();
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay

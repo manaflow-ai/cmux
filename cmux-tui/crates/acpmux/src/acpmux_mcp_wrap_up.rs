@@ -43,7 +43,7 @@ pub(super) fn tool() -> Value {
             "type": "object",
             "properties": {
                 "recap": {"type": "string", "description": format!("Two or three short sentences, at most {MAX_RECAP} characters: what is now true or changed, then where it stands, including what is not done or not verified. One past {RECAP_CEILING} is cut at a sentence end, and the result says so.")},
-                "ask": {"type": "string", "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them. A longer one is cut, and the result says so.")},
+                "ask": {"type": "string", "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them. Never ask them to click, open or switch to a tab or window so you can see or capture it: focus or capture it yourself. A question you asked before that they have not answered still waits on them, so do not ask it again. A longer one is cut, and the result says so.")},
                 "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask: one or two answers, a few words each and at most {MAX_ACTION} characters, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now. Longer ones, or more than {MAX_ACTIONS}, are cut, and the result says so.")},
                 "learned": {"type": "array", "items": {"type": "string"}, "description": format!("Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"), each at most {MAX_FACT} characters. Each is shown to the person to accept or dismiss. Longer ones, extra lines or more than {MAX_LEARNED} facts are cut, and the result says so.")}
             },
@@ -322,6 +322,20 @@ mod tests {
         }
         let at = "x".repeat(RECAP_CEILING);
         assert_eq!(shown(json!({"recap": at}))["recap"], at);
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/52766: an agent woken by background-command
+    /// notices ended seven turns on the same "Can you click the dev build tab in my right split"
+    /// ask. The ask's description rules out both: a request to click a tab, and asking again.
+    #[test]
+    fn the_ask_rules_out_clicking_tabs_and_asking_again() {
+        let tool = tool();
+        let said = tool["inputSchema"]["properties"]["ask"]["description"].as_str().unwrap();
+        for phrase in
+            ["Never ask them to click", "focus or capture it yourself", "do not ask it again"]
+        {
+            assert!(said.contains(phrase), "{phrase}: {said}");
+        }
     }
 
     /// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
