@@ -1836,3 +1836,70 @@ async fn a_relay_that_refuses_standby_leaves_the_circuit_route() {
     assert!(tokio::time::timeout(Duration::from_millis(600), standbys.next()).await.is_err());
     server.await.unwrap();
 }
+
+async fn connect_grant_for(credentials: RelayCredentialSource) -> Option<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { grant, .. } = receive_test_control(&mut control).await else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Error {
+                code: "slot-offline".into(),
+                message: "test ends here".into(),
+                retryable: false,
+            },
+        )
+        .await;
+        grant
+    });
+    let provider = RelayProvider::with_credentials(
+        RelayClientConfig {
+            slot: "grant-slot".into(),
+            ticket: String::new(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        },
+        credentials,
+    )
+    .unwrap();
+    let group = provider
+        .connect(ConnectRequest {
+            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Isolated,
+            routing: BTreeMap::new(),
+        })
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }),
+    )
+    .await
+    .expect("open did not finish after the relay refused it");
+    let _ = group.close().await;
+    tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap()
+}
+
+#[tokio::test]
+async fn bound_credentials_carry_their_grant_on_connect() {
+    let credentials = RelayCredentialSource::bound_callback(|| async {
+        Ok::<_, ()>(BoundCredential {
+            ticket: Zeroizing::new("bound-ticket".into()),
+            grant: Some(Zeroizing::new("carrier-grant-jws".into())),
+        })
+    });
+    assert_eq!(connect_grant_for(credentials).await.as_deref(), Some("carrier-grant-jws"));
+}
+
+#[tokio::test]
+async fn plain_credentials_send_no_grant_on_connect() {
+    let credentials =
+        RelayCredentialSource::callback(|| async { Ok::<_, ()>("plain-ticket".to_owned()) });
+    assert_eq!(connect_grant_for(credentials).await, None);
+}
