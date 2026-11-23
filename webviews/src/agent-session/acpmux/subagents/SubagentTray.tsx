@@ -829,14 +829,14 @@ export const SubagentTray = memo(function SubagentTray({
               faces={
                 faces.length > 0 && facesArm !== "lead" ? (
                   <GlideRow value={headGlide}>
-                  <HatFaces
-                    faces={faces}
-                    size={ROW_ICON}
-                    narrow={narrow}
-                    arm={facesArm}
-                    onOpen={onOpen}
-                    onOpenSession={onOpenSession}
-                  />
+                    <HatFaces
+                      faces={faces}
+                      size={ROW_ICON}
+                      narrow={narrow}
+                      arm={facesArm}
+                      onOpen={onOpen}
+                      onOpenSession={onOpenSession}
+                    />
                   </GlideRow>
                 ) : undefined
               }
