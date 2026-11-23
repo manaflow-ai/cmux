@@ -326,18 +326,10 @@ extension CloudHandlers {
     /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
     static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
-        let names = invocation["machine"] != nil || invocation["command"] != nil, running = services.machines.cloud.filter { $0.effectiveStatus == .running }.count
-        // Pins, the toggle, Cloud's own refusals and the cap (Rust's `moves::placement`), from what the app knows now: no read on Cmd-N's turn.
-        // Busy overflow (`cloud.whenThisMacIsBusy`, off by default): Rust reads acpmux's cached placement verdict in its home
-        // and matches the pick to one of the person's own connected machines. Off, neither is looked up.
-        let whenBusy = setting.whenBusy(in: root), overflow = whenBusy != CloudNewWorkspaceSetting.whenBusyDefault
-        let acpmuxHome = overflow ? QuitAgents.environment(services)?.home.path : nil
-        let own: [CloudNewWorkspacePlacement.OwnMachine] = !overflow ? [] :
-            services.machines.ssh.filter { $0.daemon.connection != nil }.map { .init(id: $0.machineID, names: [$0.host.label, $0.host.destination.displayName]) }
-            + services.machines.servers.filter { $0.daemon.connection != nil }.map { .init(id: $0.machineID, names: [$0.name]) }
+        let names = invocation["machine"] != nil || invocation["command"] != nil, running = services.machines.cloud.filter { $0.effectiveStatus == .running }.count, m = services.machines, whenBusy = setting.whenBusy(in: root), busy = whenBusy != CloudNewWorkspaceSetting.whenBusyDefault
+        // Pins, the toggle, busy overflow (`cloud.whenThisMacIsBusy`: acpmux's cached verdict, read in Rust; off by default, and off neither it nor your machines are looked up), Cloud's refusals and the cap (Rust's `moves::placement`): no read on Cmd-N's turn.
         let placement = CloudNewWorkspacePlacement.decide(.init(newWorkspacesInCloud: setting.inCloud(in: root), workspacePins: setting.pins(in: root), autoMachineCap: setting.machineCap(in: root), whenThisMacIsBusy: whenBusy),
-            .init(byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names, cwd: cwd, runningMachines: running, unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil,
-                  acpmuxHome: acpmuxHome, ownMachines: own))
+            .init(byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names, cwd: cwd, runningMachines: running, unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil, acpmuxHome: busy ? QuitAgents.environment(services)?.home.path : nil, ownMachines: !busy ? [] : m.ssh.filter { $0.daemon.connection != nil }.map { .init(id: $0.machineID, names: [$0.host.label, $0.host.destination.displayName]) } + m.servers.filter { $0.daemon.connection != nil }.map { .init(id: $0.machineID, names: [$0.name]) }))
         if let here = placement.outcome(signInFirst: CloudStrings.signInFirst, noWindow: CloudStrings.newWorkspaceNoWindow, atMachineCap: CloudStrings.newWorkspaceAtMachineCap, pinnedMachineDown: CloudStrings.newWorkspacePinnedMachineDown,
                                         openedHere: CloudStrings.newWorkspaceOpenedHere, connected: { services.machines.daemon(machine: $0)?.connection != nil }) { return here }
         // The app server's create copies no folder: the workspace opens in the machine's empty folder.
