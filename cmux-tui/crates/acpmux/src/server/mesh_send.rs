@@ -260,7 +260,11 @@ pub(super) async fn send(
             idempotency_key(&carried.prompt_id)
         },
     };
-    let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
+    // The idempotency key makes a second post the same message, so a full rate window is waited
+    // out (the hub's `retryAfterSeconds`) rather than failing the send.
+    let receipt = crate::mesh_retry::retry_send(|| mesh.send(&message))
+        .await
+        .map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
         super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
     } else {
@@ -384,8 +388,13 @@ fn refusal(target: &str, e: HubError) -> RpcError {
         ),
         _ if e.refused => RpcError::invalid_params(format!("the mesh hub refused it: {e}"))
             .with_data(json!({"reason": "mesh.refused", "session": target})),
-        _ => RpcError::internal(format!("the mesh hub did not take it: {e}"))
-            .with_data(json!({"reason": "mesh.unavailable", "retryable": true})),
+        _ => {
+            let after = e.retry_after.map(|d| d.as_secs());
+            let hint = after.map(|s| format!("; retry after {s}s")).unwrap_or_default();
+            RpcError::internal(format!("the mesh hub did not take it: {e}{hint}")).with_data(
+                json!({"reason": "mesh.unavailable", "retryable": true, "retryAfterSeconds": after}),
+            )
+        }
     }
 }
 
