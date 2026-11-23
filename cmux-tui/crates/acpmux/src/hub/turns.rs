@@ -335,8 +335,11 @@ impl Hub {
             self.coach_prompt(session, &prompt_id, &text);
         }
         // A resent inbox message answers as its notice did, a failure as the same error.
+        // A resend reads the chat's indexed records (a whole kind index, hashed): off the
+        // workers, as Leo's daemon had two workers busy in it for a whole sample (2026-11-22).
         if opts.resend
-            && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
+            && let Some(answer) =
+                crate::qos::off_worker(|| self.logged_inbox_answer(session, &prompt_id))
         {
             if let Some(f) = opts.on_accepted.take() {
                 f(duplicate(answer.clone().unwrap_or(Value::Null)));
@@ -347,7 +350,8 @@ impl Hub {
             return answer;
         }
         if opts.resend
-            && let Some(logged) = self.logged_prompt_past_inbox(session, &prompt_id)
+            && let Some(logged) =
+                crate::qos::off_worker(|| self.logged_prompt_past_inbox(session, &prompt_id))
         {
             if let Some(f) = opts.on_accepted.take() {
                 let value = match &logged {
@@ -644,11 +648,13 @@ impl Hub {
         // drain). Checked again as the steer is written (`steer_end.rs`).
         let prompt_held =
             from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
-        // Other agents wait until the person's own turn ends; family replies still enter it.
+        // Other agents wait until the person's own turn ends; family replies, and the reports
+        // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
             && running.as_ref().is_some_and(|t| t.persons)
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
-            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && !self.own_lane_report(session, opts.provenance.as_ref());
         // The person's own steer goes into any running turn, one another agent's message started
         // too (Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
@@ -904,8 +910,8 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let scope = envelope.scope();
             let auth = Arc::new(
                 crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
@@ -2064,7 +2070,9 @@ impl Hub {
             self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
-            let alive = child.is_alive().await;
+            // A link that broke on an entry it could not store (a full disk) leaves its host
+            // running: the next request reattaches, so the chat is not disconnected.
+            let alive = child.is_alive().await || (child.is_broken() && !child.has_exited());
             // A subagent or background shell still waiting on the person
             // keeps the chat waiting after its turn (cx-jo8yo). The lock is
             // held across the write, so an answer in between cannot leave it
@@ -2202,11 +2210,15 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
+        // A store that refused the turn (a full disk) says nothing of its agent: the chat
+        // waits for the next prompt rather than reading disconnected.
+        let refused = msg["errorKind"] == crate::recovery::kind::DISK_FULL;
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
+            let status = if refused { SessionStatus::Ready } else { SessionStatus::Disconnected };
+            self.set_status(session, status);
         }
         self.save_meta(session);
         self.settle_view_at_turn_end(session);
@@ -2241,6 +2253,8 @@ impl Hub {
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
+        // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.
+        super::usage_share::turn_ended(session, turn_result);
     }
 
     /// Whether the failover onto profile `to` is skipped because it runs through the local
@@ -2458,6 +2472,15 @@ impl Hub {
         let _ = self.child_for(session).await?;
         let config_id = resolve_config_id(&session.meta(), config_id);
         let config_id = config_id.as_str();
+        // A model the option does not list exactly, as the catalog names it (`model_alias.rs`).
+        let value = match value.as_str() {
+            Some(model)
+                if config_id == "model" && !super::model_alias::option_lists(session, model) =>
+            {
+                Value::String(self.rewrite_session_model(session, model, "set_config").await?)
+            }
+            _ => value,
+        };
         let r = self
             .forward_as(
                 session,
@@ -2482,6 +2505,10 @@ impl Hub {
         session: &Arc<Session>,
         model_id: &str,
     ) -> Result<Value, RpcError> {
+        // Every switch (ACP `session/set_model`, `acpmux session set model=`, a fork's or a
+        // start's model) as the catalog names it: `fable-5.2` runs as `claude-fable-5-2`.
+        let model_id = &self.rewrite_session_model(session, model_id, "set_model").await?;
+        let model_id = model_id.as_str();
         // A harness that takes its model on the command line or in env
         // gets it at the next spawn: record it and drop the current process.
         // Same test as `new_session`: the profile, its defaults' env, or the
@@ -2760,6 +2787,8 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
+            // Their ends go nowhere now: none stays watched (`bg_notify.rs`).
+            self.bg_unwatch_session(&session.id);
             {
                 // Under the breakdown's lock: a time breakdown save running now lands before the
                 // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).

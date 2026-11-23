@@ -64,7 +64,8 @@ public struct TabItemMapping {
             // The New Tab and blank pages' addresses are no place a person went: no address line.
             subtitle: isConversation ? nil : isBrowser ? tab.url.flatMap { Self.isBlankPageAddress($0) ? nil : $0 }
                 : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation, harnessIcons: harnessIcons),
+            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation, harnessIcons: harnessIcons,
+                                                       turns: turns),
             isPinned: tab.pinned,
             isUnread: tab.showsUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
@@ -109,12 +110,16 @@ public struct TabItemMapping {
 
     /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
     /// and an agent chat whose harness is known, wear the agent's brand mark (design/agent-icons),
-    /// a chat on a custom harness its own icon (`harnessIcons`);
-    /// others, ended sessions and agents without a mark keep their kind's icon.
-    func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool, harnessIcons: HarnessIconLookup = .none) -> TabIcon {
+    /// a chat on a custom harness its own icon (`harnessIcons`), and a chat whose session set its own icon
+    /// (acpmux `icon`, ``AgentSessionIdentity``) that one; others, ended sessions and agents without a mark keep
+    /// their kind's icon. The user's per-tab icon (``applyUserIcon(_:to:asset:)``) still wins over all of these.
+    func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool, harnessIcons: HarnessIconLookup = .none,
+              turns: AgentTurnStateStore = .shared) -> TabIcon {
         if isConversation {
-            // A custom harness's own icon (user 12922), else its brand mark, else the chat icon.
-            return harnessIcons.tabIcon(for: tab.agentSession?.harness)
+            // The session's own icon (Leo: "SET CUSTOM ICONS FOR YOURSELVES IN THE TABS"), else a custom
+            // harness's (user 12922), else its brand mark, else the chat icon.
+            return tab.agentSession.flatMap(turns.iconArt(for:)).map(HarnessIconLookup.tabIcon)
+                ?? harnessIcons.tabIcon(for: tab.agentSession?.harness)
                 ?? tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
         if isBrowser { return .browser }

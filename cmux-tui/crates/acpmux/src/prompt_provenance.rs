@@ -857,6 +857,32 @@ pub fn relay_of(provenance: Option<&Value>) -> Option<RelaySender> {
     RelaySender::of(provenance?.get(FROM_RELAY)?)
 }
 
+/// The `--relay` name an outbox's ssh carry (`server/ssh_carry.rs`) gives the far daemon. A
+/// carry goes only to a peer whose link was down on an earlier attempt, so its message waited.
+pub const SSH_CARRY_RELAY: &str = "acpmux-ssh";
+
+/// On a prompt's provenance: `true` when the message waited for its receiver's machine (a peer
+/// daemon's outbox sent it again, `_meta.acpmux.resend`, after an attempt that did not take it).
+pub const WAITED: &str = "waited";
+
+/// `provenance` marked [`WAITED`].
+pub fn mark_waited(mut provenance: Value) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.insert(WAITED.to_owned(), Value::Bool(true));
+    }
+    provenance
+}
+
+/// Whether a message waited for its receiver's machine to come back: a peer's outbox sent it
+/// again ([`WAITED`]), or that outbox's ssh carry brought it while the link was down
+/// ([`SSH_CARRY_RELAY`]). A wait that long is the sender's to know about: the receiver's inbox
+/// wakes the chat for it rather than holding it to a flush that a parked machine never reaches
+/// (cmuxterm-hq#17784).
+pub fn waited(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(WAITED)) == Some(&Value::Bool(true))
+        || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
+}
+
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
 /// separate from `fromName`: the latter is the daemon's name for a proven session.
 pub const DECLARED_LABEL: &str = "declared";
@@ -1397,6 +1423,19 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A message waited for its machine (cmuxterm-hq#17784): marked by a peer's resend, or carried
+    /// by an outbox's ssh carry. Another relay's message, or one with no mark, did not.
+    #[test]
+    fn a_resent_or_ssh_carried_message_waited_and_no_other_did() {
+        let relayed = |by: &str| json!({FROM_RELAY: {"by": by, "machine": "vm-1", "session": "s"}});
+        assert!(waited(Some(&relayed(SSH_CARRY_RELAY))));
+        assert!(!waited(Some(&relayed("lane-gh"))));
+        assert!(waited(Some(&mark_waited(json!({"kind": "agent_message"})))));
+        assert!(!waited(Some(&json!({"kind": "agent_message", WAITED: "yes"}))));
+        assert!(!waited(Some(&json!({"kind": "agent_message"}))));
+        assert!(!waited(None));
     }
 
     /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record

@@ -243,6 +243,19 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// Every entry, in layout order.
+    pub(crate) fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// A manifest of `entries` already laid out as [`Manifest::build`] lays them, checked as a
+    /// decode checks them.
+    pub(crate) fn from_entries(entries: Vec<Entry>) -> anyhow::Result<Self> {
+        let manifest = Self { entries };
+        manifest.check()?;
+        Ok(manifest)
+    }
+
     fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.entries.is_empty(), "the manifest has no folder");
         anyhow::ensure!(self.entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");

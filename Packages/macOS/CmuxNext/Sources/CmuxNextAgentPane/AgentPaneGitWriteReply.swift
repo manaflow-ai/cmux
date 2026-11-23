@@ -18,6 +18,7 @@ enum AgentPaneGitWriteReply {
             guard onChatMachine else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
             return await newWorktree(write, in: cwd, model: model)
         }
+        if case .worktreeSetupRun(let cwd, _, _) = write { return await setupRun(write, in: cwd, model: model) }
         // Only a chat whose repository is this Mac's writes (the same rule as Stage, cx-tcwj).
         guard model.gitWritesHere?() == true else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
         guard let sessionId = model.sessionId else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
@@ -63,5 +64,27 @@ enum AgentPaneGitWriteReply {
         guard case .worktree(_, let name, let key) = write else { return AgentPaneModel.gitFailure(.failed, message: message) }
         let named = AgentPaneGitWrite.worktree(cwd: folder, name: name, key: key)
         return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(named, folder) }
+    }
+
+    /// Run Setup / Retry: runs a repository's setup script, so only on the person's click, only
+    /// on this Mac, and only in the worktree this chat is in (its session's folder, or before the
+    /// first send the folder it was started in), which the page's `path` must name.
+    static func setupRun(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel) async -> [String: Any] {
+        let message = AgentPaneModel.gitWriteFailedMessage
+        guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
+        guard model.gitWritesHere?() == true else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        let folder: String?
+        if let sessionId = model.sessionId {
+            do {
+                folder = try await model.host.sessionFolder(sessionId: sessionId).flatMap { $0.isLocal ? $0.cwd : nil }
+            } catch {
+                return AgentPaneModel.gitFailure(.notConnected, message: message)
+            }
+        } else {
+            folder = model.pickedFolder
+        }
+        guard let folder, folder == cwd else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, folder) }
     }
 }

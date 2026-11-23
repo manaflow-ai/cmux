@@ -80,6 +80,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session pause",
+        &[
+            (
+                "Pause an idle review's agent; it resumes on its next prompt",
+                "acpmux session pause review-27310",
+            ),
+            ("Pause a session on another machine", "acpmux session pause mini-3/review-27"),
+        ],
+    ),
+    (
+        "session wake",
+        &[
+            (
+                "Resume a paused session now, on the same conversation",
+                "acpmux session wake review-27310",
+            ),
+            (
+                "The same, and print how long it took as JSON",
+                "acpmux session wake review-27310 --json",
+            ),
+        ],
+    ),
+    (
         "session restart",
         &[
             ("Restart coord's agent on the installed version", "acpmux session restart coord"),
@@ -97,6 +120,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Rename a session on another machine",
                 "acpmux session rename mini-3/scratch sidebar-fix",
             ),
+        ],
+    ),
+    (
+        "session icon",
+        &[
+            ("Give the session this shell runs in a mango icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol", "acpmux session icon @ sf:leaf.fill"),
+            ("Print a session's icon", "acpmux session icon Mango"),
+            ("Clear it", "acpmux session icon @ none"),
         ],
     ),
     (

@@ -71,7 +71,7 @@
     box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   }
 }
-:root[data-reduce-transparency] .find-pill {
+:root:is([data-reduce-transparency], [data-glass="off"]) .find-pill {
   background: var(--surface-popup, Canvas);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -124,7 +124,7 @@
     color: color-mix(in srgb, currentColor 55%, transparent);
   }
 }
-:root[data-reduce-transparency] .find-pill__field::placeholder {
+:root:is([data-reduce-transparency], [data-glass="off"]) .find-pill__field::placeholder {
   color: color-mix(in srgb, currentColor 55%, transparent);
 }
 .find-pill__field::-webkit-search-cancel-button {

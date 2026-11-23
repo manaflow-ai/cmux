@@ -37,10 +37,12 @@ fn item(
         sender: Value::Null,
         class,
         report: false,
+        waited: false,
         at,
         text: text.to_owned(),
         details: None,
         tool_notice: None,
+        fire: false,
         noticed: false,
         read: false,
         answer: None,
@@ -435,6 +437,7 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-wait").unwrap();
     let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -467,6 +470,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             "createdAt": 1, "updatedAt": 2});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-ended").unwrap();
         let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -507,9 +511,80 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+/// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
+/// takes the path it took before the surge inbox, with nothing held or counted.
+#[tokio::test]
+async fn with_the_surge_preview_off_a_burst_is_not_held() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "preview-on" } else { "preview-off" });
+        hub.set_surge_inbox(Some(on));
+        // A finished turn, so a burst after it is one the surge holder would take.
+        for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+            let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+            session.time_breakdown.lock().unwrap().record(&EventRecord {
+                seq,
+                at,
+                kind: kind.into(),
+                dir: "mux".into(),
+                msg,
+                host_seq: None,
+            });
+        }
+        let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+        let opts = PromptOptions {
+            agent: Some("runner".into()),
+            class: Some(PromptClass::Fyi),
+            ..Default::default()
+        };
+        let held = ["first", "second", "third", "fourth"]
+            .iter()
+            .filter(|id| {
+                hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap().is_some()
+            })
+            .count();
+        if on {
+            assert!(held > 0, "preview on: a burst is held");
+        } else {
+            assert_eq!(held, 0, "preview off: nothing is held");
+            assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 0);
+        }
+    }
+}
+
+/// A fire notice wakes and skips the FYI wait only with the surge preview on: off, it is its class
+/// alone, as before the surge inbox (router review of #48220 at 2d7dfc02, F1).
+#[tokio::test]
+async fn a_fire_notice_wakes_only_with_the_surge_preview_on() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "fire-on" } else { "fire-off" });
+        hub.set_surge_inbox(Some(on));
+        let provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+            "chat",
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox",
+            json!({
+                "promptId":"fire", "threadId":"watcher", "from":"watcher", "class":"fyi",
+                "text":"Runner failure", "_meta": {"provenance": provenance}
+            }),
+        );
+        *session.inbox() = Default::default();
+        hub.restore_inbox(&session);
+        let inbox = session.inbox();
+        let item = inbox.items.iter().find(|i| i.prompt_id == "fire").expect("restored");
+        assert!(item.tool_notice.is_some(), "the notice is kept either way");
+        assert_eq!(wakes(&session.meta(), item), on, "preview {on}");
+        assert_eq!(ordinary_fyi(item), !on, "preview {on}");
+    }
 }
 
 #[tokio::test]
@@ -562,8 +637,59 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
     let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
     urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    urgent.fire = fire_notice(urgent.tool_notice.as_ref());
     assert!(wakes(&session.meta(), &urgent));
     assert!(!ordinary_fyi(&urgent));
+}
+
+#[tokio::test]
+async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
+    // The surge notice's link, `acpmux session inbox ID --thread T`, answered "no messages" for
+    // a busy chat's held thread while `--search` found them (2026-11-23).
+    let (hub, session) = hub_with_chat("busy-thread");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-thread",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
+    let thread = receipt["threadId"].as_str().unwrap().to_owned();
+    // A burst of other unread messages: `trim` lets the held one go first.
+    {
+        let mut inbox = session.inbox();
+        for n in 0..KEEP {
+            let other = item(&format!("o{n}"), "other", "lane", PromptClass::Fyi, n as u64, "x");
+            inbox.items.push(other);
+        }
+        trim(&mut inbox);
+        assert!(inbox.items.iter().all(|i| i.prompt_id != "held"), "evicted");
+    }
+    assert_eq!(hub.inbox_thread(&session, &thread, false)["messages"], json!([]));
+    let whole = hub.inbox_thread_whole(&session, &thread, false).unwrap();
+    let messages = whole["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{whole}");
+    assert_eq!(messages[0]["promptId"], "held");
+    assert_eq!(messages[0]["text"], body[0]["text"]);
+    assert_eq!(messages[0]["surgeHeld"], true);
+    // A thread with nothing evicted reads memory alone.
+    let other = hub.inbox_thread_whole(&session, "other", false).unwrap();
+    assert_eq!(other["messages"].as_array().unwrap().len(), KEEP);
 }
 
 #[test]
@@ -626,8 +752,8 @@ async fn fyis_alone_steer_into_a_running_turn_only_at_their_flush() {
     assert!(session.inbox().timer.is_none(), "the delivery ends the timer");
 }
 
-/// A message that is no FYI steers into the running turn at once, and carries the FYIs that
-/// waited for it in the same notice.
+/// A blocker steers into the running turn at once, and carries the FYIs that waited for it in
+/// the same notice. A result does too once its coalescing window passed.
 #[tokio::test]
 async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
     for class in [PromptClass::Result, PromptClass::Question, PromptClass::Block] {
@@ -637,12 +763,81 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
         session.inbox().items.push(fyi);
         hub.inbox_review(&session);
         assert_eq!(carried(&session), None, "the FYI waits ({class:?})");
-        let other = item("r1", "t2", "lane-b", class, now_ms(), "done with #9");
+        let at = match class {
+            PromptClass::Result => now_ms().saturating_sub(STEER_COALESCE_MS + 1),
+            _ => now_ms(),
+        };
+        let other = item("r1", "t2", "lane-b", class, at, "done with #9");
         session.inbox().items.push(other);
         hub.inbox_review(&session);
         let both = Some(vec!["f1".to_owned(), "r1".to_owned()]);
         assert_eq!(carried(&session), both, "one steer carries both ({class:?})");
     }
+}
+
+/// Results to a running turn coalesce: none steers in before [`STEER_COALESCE_MS`] after the
+/// oldest, so a burst goes in as ONE steer (one prompt-hook run, not one each). A blocker that
+/// comes meanwhile brings the whole batch at once.
+#[tokio::test]
+async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_them() {
+    let (hub, session) = hub_with_chat("coalesce");
+    running(&session);
+    for id in ["r1", "r2", "r3"] {
+        let result = item(id, id, "lane-b", PromptClass::Result, now_ms(), "done");
+        session.inbox().items.push(result);
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "{id} waits for the window");
+        assert!(session.inbox().timer.is_some(), "the window is timed");
+    }
+    // The window's deadline: the timer's review steers all three in as one notice.
+    session.inbox().items[0].at = now_ms().saturating_sub(STEER_COALESCE_MS + 1);
+    hub.inbox_review(&session);
+    let all = Some(vec!["r1".to_owned(), "r2".to_owned(), "r3".to_owned()]);
+    assert_eq!(carried(&session), all, "one steer carries the burst");
+
+    for class in [PromptClass::Block, PromptClass::Question] {
+        let (hub, session) = hub_with_chat("coalesce-blocker");
+        running(&session);
+        session.inbox().items.push(item(
+            "r1",
+            "t",
+            "lane-b",
+            PromptClass::Result,
+            now_ms(),
+            "done",
+        ));
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "the result waits ({class:?})");
+        session.inbox().items.push(item("b1", "t2", "lane-c", class, now_ms(), "stuck"));
+        hub.inbox_review(&session);
+        let both = Some(vec!["b1".to_owned(), "r1".to_owned()]);
+        assert_eq!(carried(&session), both, "the blocker brings it at once ({class:?})");
+    }
+}
+
+/// What steers into a running turn at once: blockers, and a result from the chat's parent or
+/// delegator. Other results (reports included) and FYIs wait.
+#[test]
+fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1, "turnCount": 3,
+    }))
+    .unwrap();
+    let from = |class, session: Option<&str>| {
+        let mut i = item("p", "t", "x", class, 0, "");
+        i.from_session = session.map(str::to_owned);
+        i
+    };
+    assert!(steers_at_once(&meta, &from(PromptClass::Block, None)));
+    assert!(steers_at_once(&meta, &from(PromptClass::Question, None)));
+    assert!(!steers_at_once(&meta, &from(PromptClass::Fyi, Some("coord"))));
+    let mut report = from(PromptClass::Result, Some("child"));
+    report.report = true;
+    assert!(!steers_at_once(&meta, &report), "a report waits for the window");
+    assert!(!steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))));
+    meta.delegator = Some("coord".into());
+    assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
 }
 
 /// FYIs alone that the person's own turn held back start no turn of their own when it ends:
@@ -755,6 +950,7 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
             "modelRequest": "0"});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
@@ -992,6 +1188,7 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-open").unwrap();
     let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
@@ -1079,4 +1276,76 @@ fn an_inbox_line_names_a_sender_by_its_given_name() {
     let plain = item("p2", "from:lane-a", "lane-a", PromptClass::Fyi, 2, "PR is green");
     let (text, _) = render(&[&plain]);
     assert!(text.contains("from lane-a") && !text.contains(" · "), "{text}");
+}
+
+/// The row's held count is the messages still held: a triage record that decides one (digested,
+/// owner-bound or dropped) lowers it by that many, and a restart reads the lower count back.
+#[tokio::test]
+async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
+    let (hub, session) = hub_with_chat("held-count");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+    let record = json!({"batchId":"b1","items":[{"promptId":"m1"},{"promptId":"m2"}]});
+    hub.persist_surge_triage(&session, record, 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    // A delivery marker decides nothing.
+    hub.persist_surge_triage(&session, json!({"digestDelivered":"d","items":[]}), 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    hub.persist_surge_triage(&session, json!({"batchId":"b2","items":[{"promptId":"m3"}]}), 0)
+        .unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
+}
+
+/// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
+/// debounce has passed, while an ordinary FYI of the same age waits for its flush.
+#[tokio::test]
+async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
+    for (severity, wakes_now) in [("fire", true), ("warn", false)] {
+        let (hub, session) = hub_with_chat(&format!("fire-{severity}"));
+        hub.set_surge_inbox(Some(true));
+        // Past the wake debounce, well inside the flush.
+        let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+        let mut fyi = item("n1", "t", "watcher", PromptClass::Fyi, at, "runner down");
+        fyi.tool_notice = tool_notice_of(Some(&crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":severity,"title":"Runner"}),
+            &session.id,
+        )));
+        fyi.fire = fire_notice(fyi.tool_notice.as_ref());
+        assert!(!fyi.surge_held);
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        let inbox = session.inbox();
+        // A notice went in, or was tried: a hub with no agent refuses it at once, so `in_flight`
+        // alone may come and go (`notice_done`).
+        let tried = inbox.in_flight.is_some()
+            || inbox.refused_at != 0
+            || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
+        assert_eq!(tried, wakes_now, "{severity}");
+        if !wakes_now {
+            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
+        }
+    }
 }

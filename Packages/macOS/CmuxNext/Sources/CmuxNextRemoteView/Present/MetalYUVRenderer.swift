@@ -69,10 +69,12 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         commands.addCompletedHandler { _ in retained.release() }
         if let onPresented = frame.onPresented {
             // The viewer's Present stage: when the picture reached the glass (host time in
-            // seconds, the `DispatchTime` uptime base); 0 when the drawable was never shown.
+            // seconds, the `DispatchTime` uptime base), in microseconds. macOS reports 0 for a
+            // drawable whose present time it did not record (the first one on a layer just
+            // sized, a window not on screen); that 0 is passed on as is, so the viewer's own
+            // stage timings still get the frame (RemoteDecodePipeline).
             drawable.addPresentedHandler { shown in
-                let at = shown.presentedTime
-                if at > 0 { onPresented(UInt64(at * 1_000_000)) }
+                onPresented(UInt64(max(0, shown.presentedTime) * 1_000_000))
             }
         }
         commands.present(drawable)

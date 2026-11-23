@@ -43,7 +43,7 @@ import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { ClampedText } from "./ClampedText";
 import { useReceivedLook } from "./receivedLook";
-import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
+import { hasAgentMark, MonogramMark, SessionMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
@@ -103,6 +103,10 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
+  // The icon the sender's chat set for itself (acpmux `icon`: an emoji, a symbol, an image) draws
+  // before its harness's mark, as its tab and its list rows draw it.
+  if (!picture && !message.chief && !message.app && sender.icon)
+    return <SessionMark icon={sender.icon} agent={harness} size={SENDER_LOGO_SIZE} />;
   // A sender that named its app ("Grok bot › Ada", u20190) wears that app's mark, else its monogram.
   if (!picture && !message.chief && message.app && !hasAgentMark(harness)) {
     return hasAgentMark(message.app) ? (
@@ -224,7 +228,10 @@ export function SenderChip({
   const recorded = useSenderSessionName(message, false);
   const name =
     (message.chief && chief?.name) ||
-    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
+    (message.unverified && !message.name.trim()
+      ? t("message.unverifiedSender")
+      : // The name its chat was given ("Mango", acpmux `displayName`) first.
+        senderLabel((!message.app && sender.displayName) || recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -278,15 +285,19 @@ export function SenderChip({
     : inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =
     toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
-  const host = toolNotice?.host ?? sender.host;
-  // The harness, model and effort it runs on, under the name's tooltip and on the mark's.
+  const knownHost = toolNotice?.host ?? sender.host;
+  // The line's parts are set when it is drawn (transcript motion model: row parts sit in fixed
+  // slots): a machine the chat list names only later never comes in beside the name and pushes the
+  // message along. It stays in the name's tooltip (`openTitle`), and the line names it when next drawn.
+  const [hostSlot] = useState(() => knownHost !== undefined);
+  const host = hostSlot ? knownHost : undefined;
+  // The harness, model and effort it runs on, on the name's facts card and the mark's tooltip.
   const about = message.chief
     ? undefined
     : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
   // "Open chief-ui (studio-mac)": the chat the name opens, and the other machine it runs on.
   const openHost = sender.host ?? resolved?.host;
   const open = openHost ? t("subagents.openOnHost", { name, host: openHost }) : t("subagents.open", { name });
-  const openTitle = about ? `${open}\n${about}` : open;
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
@@ -303,7 +314,7 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           attributes={openSessionAttributes(sessionId, true)}
           hover={hover}
@@ -314,7 +325,7 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           onClick={openAsked}
         />
@@ -497,7 +508,8 @@ export function IncomingMessageLine({
   // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
   // the toggle's label and the reply editor's, the machine already shown beside it.
   const recorded = useSenderSessionName(message, Boolean(person));
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) || senderLabel((!message.app && sender.displayName) || recorded, sender.host);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
