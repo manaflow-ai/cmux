@@ -719,12 +719,38 @@ def gh_json(*args: str):
 
 
 # What GitHub answers when this run's API budget is gone, in gh's own words (`gh api` prints the message on
-# stderr and exits 1). A rate limit is not a verdict on the pull request, and no amount of retrying inside this
-# job outlasts an hourly reset, so the retry stops at once and the reason goes on the log: on 2026-11-22 the
-# "risk evidence" job on #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1"
-# because gh's stderr was captured and dropped, so neither a reader nor base_red_excuse.py could tell that red
-# apart from a graded one (the budget line later in the same log read used=5000).
-GH_RATE_LIMITED = re.compile(r"rate limit|secondary rate|abuse detection", re.I)
+# stderr and exits 1), and what the budget wrapper in front of gh on the runner answers for the same thing: a
+# line reading `app-budget <workflow>/<job>/<phase> used=5000 reset=<epoch> at=<epoch>`, then exit 1. A rate
+# limit is not a verdict on the pull request, and no amount of retrying inside this job outlasts an hourly
+# reset, so the retry stops at once and the reason goes on the log: on 2026-11-22 the "risk evidence" job on
+# #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1" because gh's stderr was
+# captured and dropped, so neither a reader nor base_red_excuse.py could tell that red apart from a graded one
+# (the budget line later in the same log read used=5000). #51140 and #51251 went red the same way inside one
+# hour, neither for its own code, so the wrapper's own words count as a limit here too: that turns three
+# refused calls into one, and every refused call spends from the same empty bucket.
+GH_RATE_LIMITED = re.compile(
+    r"rate limit|secondary rate|abuse detection|app-budget|budget (?:is )?(?:spent|exhausted)"
+    r"|\bused=\d+\b[^\n]*\breset=\d+\b", re.I)
+# The epoch second the spent window resets, as the wrapper (`reset=<epoch>`) or a response header writes it.
+RESET_EPOCH = re.compile(r"(?:\breset=|x-ratelimit-reset:\s*)(\d{9,12})\b", re.I)
+# Someone else's words go in the summary whole up to here, then elided with their full length: a person reads
+# the summary, so it stays bounded however much the refusal printed.
+MAX_REFUSAL_CHARS = 500
+# The tier field of a run that never read the pull request. Not a tier: TIERS are the grades.
+NOT_GRADED = "not graded"
+
+
+class ApiRefused(subprocess.CalledProcessError):
+    """A `gh` call this job needs, refused, with the refusal's own words. A CalledProcessError subclass so
+    every caller that already reads an unreadable list as "unread" behaves exactly as it did, while pr_mode
+    can tell this apart and report that it has no grade instead of ending the step in a traceback."""
+
+    def __init__(self, returncode: int, cmd: list[str], output: str | None = None, stderr: str | None = None,
+                 why: str = "", budget_spent: bool = False, reset: int | None = None) -> None:
+        super().__init__(returncode, cmd, output, stderr)
+        self.why = why
+        self.budget_spent = budget_spent
+        self.reset = reset
 
 
 def gh_run(args: list[str], attempts: int = 3) -> str:
@@ -740,9 +766,58 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
             print(f"{shlex.join(args)} exited {done.returncode}"
                   f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
                   f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
-            raise subprocess.CalledProcessError(done.returncode, args, output=done.stdout, stderr=done.stderr)
+            found = RESET_EPOCH.search(why) if limited else None
+            raise ApiRefused(done.returncode, args, output=done.stdout, stderr=done.stderr, why=why,
+                             budget_spent=limited, reset=int(found.group(1)) if found else None)
         time.sleep(2 * (attempt + 1))
     return ""
+
+
+def elide(text: str, limit: int = MAX_REFUSAL_CHARS) -> str:
+    """One bounded line of someone else's words: whitespace folded, cut at `limit` with the full length named."""
+    one = " ".join((text or "").split())
+    return one if len(one) <= limit else f"{one[:limit]} ... ({len(one)} characters in all)"
+
+
+def resets_at(reset: int | None, now: float | None = None) -> str:
+    """"at 2026-11-22T12:40:11Z, in 8m 8s" for an epoch second, or "" when the refusal named none."""
+    if not reset:
+        return ""
+    left = max(0, int(reset - (time.time() if now is None else now)))
+    return f"at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(reset))}, in {left // 60}m {left % 60}s"
+
+
+def not_graded(error: ApiRefused, now: float | None = None) -> tuple[str, str]:
+    """(the job summary, the one-line error annotation) for a run that could not read the pull request.
+
+    It carries no tier: a grader that never read the change has no grade, which is not "high" and not a pass
+    either (a guarantee must be funded, not declared). A spent budget says so in the words of whatever refused
+    it, and names the reset rather than a rerun: a rerun before the reset spends from the same empty bucket and
+    lands here again, which is how #51140 and #51251 both went red inside one hour on 2026-11-22 without a line
+    of either one's own code being at fault."""
+    cmd = error.cmd
+    call = elide(shlex.join(list(cmd)) if isinstance(cmd, (list, tuple)) else str(cmd))
+    when = resets_at(error.reset, now)
+    if error.budget_spent:
+        head = ("not graded: this run's hourly GitHub API budget is spent, so the grader never read this "
+                "pull request")
+        step = (f"the budget resets {when}" if when else
+                "the budget resets on its own hourly window, which nothing in this job can shorten")
+        step += (". Re-running before the reset spends from the same empty bucket and fails here again; "
+                 "nothing in this pull request caused this and no change to it clears it.")
+    else:
+        head = "not graded: the grader could not read this pull request"
+        step = "the refused call above has to go through before this pull request can be graded."
+    report = "\n".join([
+        f"## Risk tier: {NOT_GRADED}", "",
+        f"- held: {head}",
+        f"- the call that was refused: `{call}` (exit {error.returncode})",
+        f"- in its own words: {elide(error.why) or '(it printed nothing)'}",
+        f"- next: {step}", "",
+        "This is no verdict on this pull request's risk: no tier was assigned, and this check passes nothing "
+        "it did not read.", "",
+        "Policy: docs/ci/risk-tiers.md"])
+    return report, f"risk evidence {head}. {step}"
 
 
 PER_PAGE = 100
@@ -1024,6 +1099,30 @@ def event_pull_request(path: str | None, number: str, attempt: str | None = None
 
 
 def pr_mode(args: argparse.Namespace) -> int:
+    """Grade the pull request, or, when a read it needs is refused, say that it has no grade."""
+    try:
+        return graded_pr_mode(args)
+    except ApiRefused as error:
+        return ungraded_pr_mode(args, error)
+
+
+def ungraded_pr_mode(args: argparse.Namespace, error: ApiRefused) -> int:
+    """What a grading run with no data reports: the hold in its own words, no tier, and no pass."""
+    report, annotation = not_graded(error)
+    print(report)
+    print(f"::error::{annotation}")
+    if getattr(args, "summary", None):
+        Path(args.summary).open("a").write(report + "\n")
+    if getattr(args, "github_output", None):
+        with Path(args.github_output).open("a") as out:
+            # No tier and no label: there is no grade to write or to label with, and an empty label is not a
+            # grade of "low". `graded` is how a reader of these outputs tells "could not read" from a verdict;
+            # `ready` stays false, so nothing downstream reads an ungraded pull request as a cleared one.
+            out.write("graded=false\nready=false\nsignoff_unread=false\ntakes_back=false\ntakes_back_fix=\n")
+    return 1
+
+
+def graded_pr_mode(args: argparse.Namespace) -> int:
     base = f"repos/{args.repo}/pulls/{args.number}"
     entries = gh_items(f"{base}/files?per_page=100")
     files = [f["filename"] for f in entries]
@@ -1076,7 +1175,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         Path(args.summary).open("a").write(report + "\n")
     if args.github_output:
         with Path(args.github_output).open("a") as out:
-            out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
+            # graded=true: this run read the pull request and assigned the tier below (ungraded_pr_mode
+            # writes graded=false and no tier at all).
+            out.write(f"graded=true\ntier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
             # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
             # held verdict another token can change (tests/test_risk_tier.py).
