@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 675,
+  "count": 681,
   "sections": [
     {
       "id": "general",
@@ -20,6 +20,18 @@
           ]
         },
         {
+          "key": "agentPane.composerLook",
+          "title": "Composer Look",
+          "help": "Where the mode, model and effort sit: under the box or inside it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Agent Chat",
+          "values": [
+            "auto",
+            "studio"
+          ]
+        },
+        {
           "key": "agentPane.composerRing",
           "title": "Composer Ring",
           "help": "What the ring at the end of the composer shows.",
@@ -30,14 +42,6 @@
             "context",
             "planUsage"
           ]
-        },
-        {
-          "key": "agentPane.composerVimKeys",
-          "title": "Vim Keys in the Composer",
-          "help": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Agent Chat"
         },
         {
           "key": "agentPane.dictationShortcut",
@@ -100,6 +104,18 @@
             "always",
             "collapsed",
             "never"
+          ]
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "title": "Empty Chat Message Box",
+          "help": "Where the message box sits in a chat with no messages yet.",
+          "kind": "choice",
+          "default": "bottom",
+          "group": "Agent Chat",
+          "values": [
+            "bottom",
+            "center"
           ]
         },
         {
@@ -640,6 +656,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Tabs"
+        },
+        {
+          "key": "app.warnBeforeQuitShortcut",
+          "title": "Warn Before Quitting with ⌘Q",
+          "help": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
         },
         {
           "key": "appearance.metrics.tabFontSize",
@@ -2006,6 +2030,22 @@
             "afterCurrent",
             "bottom"
           ]
+        },
+        {
+          "key": "worktrees.autoCleanup",
+          "title": "Clean Up Agent Worktrees",
+          "help": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Storage"
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "title": "Clean Up Build Caches",
+          "help": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Storage"
         }
       ]
     },
@@ -2366,6 +2406,20 @@
           }
         },
         {
+          "key": "agentPane.display.transcriptLook",
+          "title": "Transcript Look",
+          "help": "How messages, cards and spacing look.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -2724,18 +2778,18 @@
           }
         },
         {
-          "key": "appearance.backgroundRecents",
-          "title": "Recent Backgrounds",
-          "help": "The backgrounds shown before, newest first, so one click goes back.",
-          "kind": "string_list",
-          "default": null,
-          "group": "Window Background"
-        },
-        {
           "key": "appearance.backgroundPlacement",
           "title": "Background Placement",
           "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
           "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
           "default": null,
           "group": "Window Background"
         },
@@ -3063,6 +3117,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "title": "Liquid Glass",
+          "help": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Density and Motion"
         },
         {
           "key": "appearance.metrics.chromeFontSize",
@@ -5951,7 +6013,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,

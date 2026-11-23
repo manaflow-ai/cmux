@@ -1147,7 +1147,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-vim-mode {
   position: absolute;
   top: 4px;
-  right: 14px;
+  right: var(--ds-space-3);
   z-index: var(--layer-raised, 1);
   font: var(--weight-emphasis) 10px/12px ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
