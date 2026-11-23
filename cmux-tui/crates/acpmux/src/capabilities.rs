@@ -43,6 +43,13 @@ pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
+/// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
+pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
+
+/// Live migration of a chat move (`hub/transfer_live.rs`): compressed pages, resumable stages,
+/// the source's digest of a prefix, and the client's progress reports.
+pub const TRANSFER_LIVE: &str = "transfer-live-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -343,6 +350,37 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
+    // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
+    // without a freeze, a target stages it (`transfer_stage`, `transfer_stage_finish`), and
+    // `transfer_begin {prepareId, afterSeq}` freezes the chat for only what followed. A client
+    // pre-copies only between two daemons that both list it; `transfer_base` names the copy a
+    // target still holds from the chat's last move, for a prepare of only what came after.
+    Capability {
+        id: TRANSFER_PRECOPY,
+        wire: &[
+            "_acpmux/transfer_base",
+            "_acpmux/transfer_prepare",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_stage_finish",
+            "_acpmux/transfer_begin",
+            "_acpmux/transfer_receive",
+        ],
+    },
+    // Live migration of a chat move (`hub/transfer_live.rs`): `transfer_write {encoding:
+    // "zstd"}` takes a compressed page, `transfer_stage {resume: true}` takes up the chat's
+    // unfinished stage and says what it holds, `transfer_digest` answers the source's digest of
+    // the same bytes, `transfer_progress` is the client's report `session info` shows, and
+    // `transfer_end_stale` ends a move whose client is gone now, as its watch would.
+    Capability {
+        id: TRANSFER_LIVE,
+        wire: &[
+            "_acpmux/transfer_digest",
+            "_acpmux/transfer_end_stale",
+            "_acpmux/transfer_progress",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_write",
+        ],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

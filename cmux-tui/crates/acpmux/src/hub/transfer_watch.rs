@@ -45,7 +45,7 @@ impl Drop for MoveWatch {
 
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
-fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
+pub(in crate::hub) fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
     let ms: u64 = std::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
 }
@@ -128,10 +128,11 @@ impl Hub {
         let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
         for entry in entries.flatten() {
             let transfer_id = entry.file_name().to_string_lossy().into_owned();
-            // A receive (`in-…`) or a forget mark is not a move out.
+            // A receive (`in-…`), a forget mark or a prepare (`pre-…`) is not a move out.
             if !super::transfer::is_plain_id(&transfer_id)
                 || transfer_id.to_ascii_lowercase().starts_with("in-")
                 || transfer_id.starts_with("forgot-")
+                || transfer_id.starts_with("pre-")
             {
                 continue;
             }
@@ -246,7 +247,7 @@ impl Hub {
     }
 
     /// Ends a move its client left; false when only the target could tell how, and did not.
-    async fn end_stalled_move(
+    pub(in crate::hub) async fn end_stalled_move(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,

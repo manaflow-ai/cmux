@@ -1721,6 +1721,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_base",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_begin",
       "params": true,
       "result": true
@@ -1728,6 +1734,18 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_commit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_end_stale",
       "params": true,
       "result": true
     },
@@ -1745,6 +1763,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_progress",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_read",
       "params": true,
       "result": true
@@ -1752,6 +1782,18 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_receive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage_finish",
       "params": true,
       "result": true
     },

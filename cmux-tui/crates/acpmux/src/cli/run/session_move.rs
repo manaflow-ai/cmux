@@ -19,10 +19,15 @@
 //!    answer (a pool slot with no VM behind a link the daemon still calls connected) is passed
 //!    over, and so is one whose free disk, less what the move writes, is under its registry
 //!    floor (`placement::disk_floor`), unless every host that answers is: then the one with
-//!    the most free takes it with a warning. Each host passed over is printed with why. Chats
-//!    in one checkout go to one host.
+//!    the most free takes it with a warning. A host whose daemon has no harness profile for the
+//!    chat's agent is passed over too (its `transfer_receive` would refuse it with
+//!    `transfer.harness` only after the folder was made there), and a named one is refused
+//!    before anything is frozen. Each host passed over is printed with why. Chats in one
+//!    checkout go to one host.
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
-//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
+//!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
+//!    the freeze moves only what followed (`transfer::precopy`, `hub/transfer_precopy.rs`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
@@ -52,8 +57,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
+#[path = "session_move_link.rs"]
+mod link;
 #[path = "session_move_preflight.rs"]
 mod preflight;
+use link::SLOW_COPY;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 
@@ -101,20 +109,22 @@ const TURN_TIMEOUT_SLACK: std::time::Duration = std::time::Duration::from_secs(1
 /// a line every 5 s naming the turn it waits for, and an end at `args.turn_timeout` that names
 /// the chat and the step.
 async fn begin_waiting(
-    src: &Client,
+    src: &super::transfer::Daemon<'_>,
     id: &str,
     name: &str,
     watch: Option<Value>,
     args: &MoveArgs,
+    staged: Option<&super::transfer::Staged>,
 ) -> Result<super::transfer::Begun> {
     // Neither flag: a running turn moves with the chat, between its tool calls.
     if !args.interrupt && !args.after_turn {
-        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        let live =
+            super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
         return waiting(name, "freezing the chat for its move", live).await;
     }
     let running = (args.interrupt, args.after_turn);
     let bound = args.after_turn.then_some(args.turn_timeout);
-    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let begin = super::transfer::begin_staged(src, id, watch, running, staged, bound);
     let Some(bound) = bound else {
         return waiting(name, "freezing the chat for its move", begin).await;
     };
@@ -208,6 +218,9 @@ pub(crate) struct MoveArgs {
     /// `session resume`'s move: once moved, the held queue runs on the target, asked over the
     /// move's own connection (the route `HOST/ID` through this daemon may not know it yet).
     pub resume_there: bool,
+    /// `--slow-ok`: copy however long the link takes (the chat keeps running meanwhile); without
+    /// it a host whose copy is estimated past [`SLOW_COPY`] is passed over or refused.
+    pub slow_ok: bool,
     /// `--from MACHINE`: the chats live on that machine (one of this machine's ssh peers), and
     /// this machine drives their move over ssh to it and to the target. Neither of the two needs
     /// to reach the other: a Mac mini and a cloud VM that only this laptop reaches still trade
@@ -391,6 +404,69 @@ fn carried_text(o: &Outcome) -> String {
     format!(", with {files} uncommitted file{}{left}", if files == 1 { "" } else { "s" })
 }
 
+/// `session move --abort CHAT...`: ends each named chat's stale move now, the way its watch
+/// would after the lease (`_acpmux/transfer_end_stale`, `hub/transfer_live.rs`).
+pub(super) async fn end_stale(
+    sessions: &[String],
+    from: Option<&str>,
+    json_out: bool,
+) -> Result<()> {
+    if sessions.is_empty() {
+        bail!("name the chats whose move to end");
+    }
+    let local = connect(true).await?;
+    let (src, _forward) = match from {
+        None => (local, None),
+        Some(from) => {
+            let peers = local.request("_acpmux/peers", json!({})).await?;
+            let ssh = peer_ssh(&peers, from).ok_or_else(|| {
+                anyhow!("{from} is not an ssh peer of this daemon (`acpmux machine ls`)")
+            })?;
+            let about = tokio::task::spawn_blocking({
+                let ssh = ssh.clone();
+                move || about(&ssh)
+            })
+            .await??;
+            let forward = Forward::open(&ssh, &about.socket).await?;
+            (Client::connect(&forward.local).await?, Some(forward))
+        }
+    };
+    let mut rows = Vec::new();
+    let mut failed = 0;
+    for key in sessions {
+        let ended = match resolve_id(&src, key).await {
+            Ok(id) => src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await,
+            Err(e) => Err(e),
+        };
+        match ended {
+            Ok(v) => {
+                if !json_out {
+                    println!(
+                        "{key}: move {} ended: {}",
+                        v.get("transferId").and_then(Value::as_str).unwrap_or("?"),
+                        v.get("ended").and_then(Value::as_str).unwrap_or("?")
+                    );
+                }
+                rows.push(v);
+            }
+            Err(e) => {
+                failed += 1;
+                if !json_out {
+                    eprintln!("{key}: not ended: {e:#}");
+                }
+                rows.push(json!({"sessionId": key, "error": format!("{e:#}")}));
+            }
+        }
+    }
+    if json_out {
+        print_json(&json!({"ended": rows, "failed": failed}));
+    }
+    if failed > 0 {
+        bail!("{failed} of {} moves were not ended", sessions.len());
+    }
+    Ok(())
+}
+
 /// Where `session resume` moved a stopped chat (`move_off_interactive`): the peer, the chat's
 /// id there routed through it (`HOST/ID`), and whether a held queue ran there (`Err`: why not;
 /// the chat moved all the same).
@@ -417,6 +493,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         dry_run: false,
         resume_there: true,
         from: None,
+        slow_ok: false,
         from_snapshot: false,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
@@ -539,12 +616,44 @@ async fn move_steps(
         .unwrap_or(0),
         None => 0,
     };
-    let target = waiting(&o.name, "choosing the machine", targets.pick(src, &group, need)).await?;
+    let harness = info.get("harness").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The chat's own history lands there too, and its copy over the link is what takes long.
+    let history = info.get("historyBytes").and_then(Value::as_u64).unwrap_or(0);
+    let wire = link::wire_bytes(history);
+    let pick = targets.pick(src, &group, need.saturating_add(history), &harness, wire);
+    let target = waiting(&o.name, "choosing the machine", pick).await?;
     o.host = Some(target.name.clone());
-    let remote = match target.probed.clone() {
+    let mut remote = match target.probed.clone() {
         Some(r) => r,
         None => waiting(&o.name, "asking the target about itself", target.remote()).await?,
     };
+    if remote.copy_secs.is_none() && wire > link::PROBE_OVER && !target.ssh.is_empty() {
+        let ssh = target.ssh.clone();
+        remote.rate = tokio::task::spawn_blocking(move || link::probe_rate(&ssh)).await?;
+        remote.copy_secs = remote.rate.map(|r| link::copy_secs(wire, r));
+    }
+    if let (Some(secs), Some(rate)) = (remote.copy_secs, remote.rate) {
+        let text = format!(
+            "copying its {:.2} GB history to {} takes about {} at {} (the chat keeps running)",
+            history as f64 / 1e9,
+            target.name,
+            super::transfer::live::duration_text(secs),
+            link::rate_text(rate)
+        );
+        if secs > SLOW_COPY.as_secs_f64() && !args.slow_ok {
+            o.error_code = Some("slow_link");
+            bail!(
+                "{text}: over the {} bound; pass --slow-ok, or pick a better-connected machine",
+                super::transfer::live::duration_text(SLOW_COPY.as_secs_f64())
+            );
+        }
+        if secs > link::WARN_COPY.as_secs_f64() {
+            eprintln!("move: {text}");
+        }
+    }
+    if let Some(why) = remote.lacks(&harness) {
+        bail!("{} cannot take it: {why}", target.name);
+    }
     let target_cwd = args.cwd.as_deref();
     let planned = plan::plan_folder(
         &cwd,
@@ -592,15 +701,35 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
+    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // daemons can (`transfer::precopy`), so the freeze moves only what follows.
     let name = o.name.clone();
-    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    let connecting = super::transfer::connect_target(&target.ssh, &remote.socket);
+    let (forward, dst_client, dst_init) =
+        waiting(&name, "connecting to the target's daemon", connecting).await?;
+    // Both ends come back after a daemon swap mid-move (`transfer_reconnect.rs`).
+    let client = src;
+    let src = &super::transfer::Daemon::over(src, "source");
+    let dst = super::transfer::Daemon::over(&dst_client, "target");
+    // Live (`transfer_live.rs`): rounds while the chat runs, resumed from what the target holds,
+    // and stopped once its estimate is past the bound the placement set (`--slow-ok`: none).
+    let live = super::transfer::Live {
+        max_copy: (!args.slow_ok).then_some(SLOW_COPY),
+        target: target.name.clone(),
+        verbose: true,
+    };
+    let staged = super::transfer::precopy(src, &dst, &dst_init, &id, &live).await?;
+    if staged.is_none() {
+        super::transfer::whole_freeze_refusal(src, &id).await?;
+    }
+    let begun = begin_waiting(src, &id, &name, watch, args, staged.as_ref()).await?;
     let prepared = waiting(
         &name,
         "making its folder on the target",
         prepare(&cwd, &home, &target, &remote, args, source, o),
     )
     .await;
-    let (record, forward, dst, dst_init) = match prepared {
+    let record = match prepared {
         Ok(p) => p,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
@@ -622,7 +751,7 @@ async fn move_steps(
     if let Some(there) = o.there.clone() {
         let step = format!("waiting until this machine lists it reachable on {}", target.name);
         let listed =
-            waiting(&name, &step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+            waiting(&name, &step, await_arrival(client, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
         if let Err(why) = listed {
             eprintln!(
                 "move: {name}: moved to {}, but this machine does not list it reachable there \
@@ -637,7 +766,7 @@ async fn move_steps(
     {
         // Moved whatever this says: a failed resume leaves the chat there with its queue held.
         let resumed = match dst.request(method::MUX_INFO, json!({"sessionId": there})).await {
-            Ok(info) => super::extra::resume_held(&dst, &there, &info).await,
+            Ok(info) => super::extra::resume_held(&dst_client, &there, &info).await,
             Err(e) => Err(e),
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
@@ -651,10 +780,9 @@ async fn move_steps(
     Ok(())
 }
 
-/// The frozen chat's folder made on the target, and a client of the target's daemon: the
-/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
-/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
+/// The frozen chat's folder made on the target: the checkout read again (it may have changed
+/// before the freeze), its branch pushed, the folder made there. Returns the move's record
+/// (`movedTo`).
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -663,7 +791,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, Option<Forward>, std::sync::Arc<Client>, Value)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -753,21 +881,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let dst_init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
-    Ok((record, forward, dst, dst_init))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
@@ -933,6 +1047,9 @@ fn local_daemon() -> Result<RemoteDaemon> {
         home: home.to_string_lossy().into_owned(),
         socket: crate::config::socket_path().to_string_lossy().into_owned(),
         disk_free: None,
+        harnesses: None,
+        rate: None,
+        copy_secs: None,
     })
 }
 
@@ -1002,18 +1119,36 @@ fn push_branch(top: &Path, dest: &str) -> Result<String> {
     Ok(head)
 }
 
-/// What the target says about itself: its home, its daemon's local socket, and the disk free
-/// under its home (`None`: it did not say).
+/// What the target says about itself: its home, its daemon's local socket, the disk free
+/// under its home, and the harness ids it has profiles for (`None`: it did not say).
 #[derive(Clone, Debug)]
 struct RemoteDaemon {
     home: String,
     socket: String,
     disk_free: Option<u64>,
+    harnesses: Option<Vec<String>>,
+    /// Bytes a second a fresh ssh carries there, and the move's copy estimated at it
+    /// (`session_move_link.rs`); `None`: not probed (a small chat, or the probe failed).
+    rate: Option<f64>,
+    copy_secs: Option<f64>,
+}
+
+impl RemoteDaemon {
+    /// Why this target cannot run a chat of `harness`: it listed its harnesses and that one is
+    /// not among them. A target that listed none (an older build, no answer) is not refused
+    /// here; its `transfer_receive` still is.
+    fn lacks(&self, harness: &str) -> Option<String> {
+        let listed = self.harnesses.as_ref()?;
+        (!harness.is_empty() && !listed.iter().any(|h| h == harness)).then(|| {
+            format!("agent {harness:?} is not configured there (`acpmux harness list` there)")
+        })
+    }
 }
 
 /// The fixed script that asks a target for [`RemoteDaemon`]: its home on the first line, then
-/// `acpmux daemon status --json` on one line, then the KiB free under its home (`df -Pk`).
-const ABOUT_SCRIPT: &str = r#"PATH="$HOME/.local/bin:$PATH"; printf '%s\n' "$HOME"; acpmux daemon status --json 2>/dev/null | tr -d '\n'; printf '\n'; df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print $4}'"#;
+/// `acpmux daemon status --json` on one line, then the KiB free under its home (`df -Pk`),
+/// then `acpmux harness list --json` on one line.
+const ABOUT_SCRIPT: &str = r#"PATH="$HOME/.local/bin:$PATH"; printf '%s\n' "$HOME"; acpmux daemon status --json 2>/dev/null | tr -d '\n'; printf '\n'; df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print $4}'; printf '\n'; acpmux harness list --json 2>/dev/null | tr -d '\n'; printf '\n'"#;
 
 /// `ABOUT_SCRIPT`'s answer, checked: plain absolute paths only, since both reach ssh's argv.
 fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
@@ -1032,7 +1167,16 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
     }
     let disk_free =
         lines.next().and_then(|l| l.trim().parse::<u64>().ok()).map(|kib| kib.saturating_mul(1024));
-    Ok(RemoteDaemon { home, socket, disk_free })
+    // `df` prints one line or none, so the harness list is the first JSON line after it.
+    let harnesses =
+        lines.filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok()).find_map(|v| {
+            v.get("harnesses").and_then(Value::as_array).map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+        });
+    Ok(RemoteDaemon { home, socket, disk_free, harnesses, rate: None, copy_secs: None })
 }
 
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
@@ -1257,9 +1401,16 @@ impl Targets {
         })
     }
 
-    /// The target for a chat in `group` (its checkout, or its folder), whose move writes about
-    /// `need` bytes there.
-    async fn pick(&mut self, src: &Client, group: &Path, need: u64) -> Result<Target> {
+    /// The target for a chat of `harness` in `group` (its checkout, or its folder), whose move
+    /// writes about `need` bytes there.
+    async fn pick(
+        &mut self,
+        src: &Client,
+        group: &Path,
+        need: u64,
+        harness: &str,
+        wire: u64,
+    ) -> Result<Target> {
         if let Some(t) = self.by_group.get(group) {
             return Ok(t.clone());
         }
@@ -1303,14 +1454,23 @@ impl Targets {
                     })
                     .collect();
                 let known = self.unreachable.clone();
+                let harness = harness.to_owned();
                 let walked = tokio::task::spawn_blocking(move || {
                     walk(
                         &tries,
                         need,
+                        &harness,
                         |n| floors.get(n).copied().unwrap_or(0),
                         |t| match known.get(&t.name) {
                             Some(why) => Err(why.clone()),
-                            None => about(&t.ssh).map_err(|e| format!("{e:#}")),
+                            None => about(&t.ssh).map_err(|e| format!("{e:#}")).map(|mut r| {
+                                // How long the history's copy takes there (`session_move_link.rs`).
+                                if wire > link::PROBE_OVER {
+                                    r.rate = link::probe_rate(&t.ssh);
+                                    r.copy_secs = r.rate.map(|rate| link::copy_secs(wire, rate));
+                                }
+                                r
+                            }),
                         },
                     )
                 })
@@ -1405,15 +1565,20 @@ const GB: f64 = 1e9;
 /// nothing about a new ssh (a pool slot with no VM behind it fails there). One short of disk is
 /// passed over too, but when every host that answers is short, the one with the most free takes
 /// the move with a warning: disk floors only warn. A host that answers no disk reading is
-/// taken.
+/// taken. A host that lists its harnesses without `harness` is passed over whatever its disk:
+/// it would refuse the chat (2026-11-22: auto picked a lane VM with only the `claude` profile
+/// for a chat of another Claude profile, and the move failed there with `transfer.harness`).
 fn walk(
     order: &[Target],
     need: u64,
+    harness: &str,
     floor: impl Fn(&str) -> u64,
     mut probe: impl FnMut(&Target) -> Result<RemoteDaemon, String>,
 ) -> Walked {
     let mut w = Walked::default();
     let mut short: Vec<(Target, u64)> = Vec::new();
+    // Hosts whose copy is estimated past `SLOW_COPY`: taken only when no other is.
+    let mut slow: Vec<(Target, f64)> = Vec::new();
     for t in order {
         let remote = match probe(t) {
             Ok(r) => r,
@@ -1424,6 +1589,24 @@ fn walk(
                 continue;
             }
         };
+        if let Some(why) = remote.lacks(harness) {
+            w.skipped.push((t.name.clone(), why));
+            continue;
+        }
+        if let (Some(secs), Some(rate)) = (remote.copy_secs, remote.rate)
+            && secs > SLOW_COPY.as_secs_f64()
+        {
+            w.skipped.push((
+                t.name.clone(),
+                format!(
+                    "the history's copy would take about {} at {}",
+                    super::transfer::live::duration_text(secs),
+                    link::rate_text(rate)
+                ),
+            ));
+            slow.push((Target { probed: Some(remote), ..t.clone() }, secs));
+            continue;
+        }
         let floor = floor(&t.name);
         match remote.disk_free {
             Some(free) if free.saturating_sub(need) < floor => {
@@ -1451,6 +1634,13 @@ fn walk(
             t.name,
             free as f64 / GB
         ));
+        w.pick = Some(t);
+        return w;
+    }
+    // Only slow hosts answer: the fastest, which the move refuses without `--slow-ok`.
+    if let Some((t, _)) = slow.into_iter().min_by(|a, b| a.1.total_cmp(&b.1)) {
+        w.warning =
+            Some(format!("every host that answers is slow to copy to; {} is the fastest", t.name));
         w.pick = Some(t);
     }
     w

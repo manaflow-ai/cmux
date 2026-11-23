@@ -73,6 +73,9 @@ fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
         home: "/home/cmux".into(),
         socket: "/home/cmux/.acpmux/acpmux.sock".into(),
         disk_free: free_gb.map(|g| g * 1_000_000_000),
+        harnesses: None,
+        rate: None,
+        copy_secs: None,
     }
 }
 
@@ -107,6 +110,7 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
     let w = walk(
         &targets(&order.iter().map(String::as_str).collect::<Vec<_>>()),
         0,
+        "claude",
         |_| 0,
         |t| {
             asked.push(t.name.clone());
@@ -135,7 +139,13 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
 /// No host answers: no pick, and every host is named with why.
 #[test]
 fn auto_with_no_host_that_answers_picks_none_and_says_why_for_each() {
-    let w = walk(&targets(&["a", "b"]), 0, |_| 0, |t| Err(format!("ssh to {} failed", t.name)));
+    let w = walk(
+        &targets(&["a", "b"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Err(format!("ssh to {} failed", t.name)),
+    );
     assert!(w.pick.is_none());
     let names: Vec<&str> = w.skipped.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
@@ -154,7 +164,9 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
         _ => None,
     };
     let floor = |_: &str| 10 * gb;
-    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "roomy");
     assert_eq!(w.skipped[0].0, "tight");
     assert!(
@@ -164,11 +176,13 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
     );
     assert!(w.unreachable.is_empty() && w.warning.is_none());
 
-    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "tight", "most free of the short ones");
     assert!(w.warning.unwrap().contains("disk floors only warn"));
 
-    let w = walk(&targets(&["unread"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["unread"]), 3 * gb, "claude", floor, |t| Ok(about_ok(disk(&t.name))));
     assert_eq!(w.pick.unwrap().name, "unread");
 }
 
@@ -361,6 +375,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            slow_ok: false,
             from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
@@ -451,7 +466,7 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     targets.observer = Some(observer);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        targets.pick(&source, Path::new("/project"), 0),
+        targets.pick(&source, Path::new("/project"), 0, "claude", 0),
     )
     .await
     .expect("local placement answered");
@@ -459,6 +474,87 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     local_server.await.unwrap();
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
+}
+
+/// A host that lists its harnesses without the chat's is passed over for one that has it, with
+/// why; one that lists none (an older build) is still taken, and its receive decides.
+#[test]
+fn auto_passes_over_a_host_without_the_chats_harness() {
+    let with = |ids: Option<&[&str]>| RemoteDaemon {
+        harnesses: ids.map(|ids| ids.iter().map(|s| (*s).to_owned()).collect()),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["fs-lane", "gcp-lane"]),
+        0,
+        "claude-sr2",
+        |_| 0,
+        |t| {
+            Ok(if t.name == "fs-lane" {
+                with(Some(&["claude"]))
+            } else {
+                with(Some(&["claude", "claude-sr2"]))
+            })
+        },
+    );
+    assert_eq!(w.pick.unwrap().name, "gcp-lane");
+    assert_eq!(w.skipped.len(), 1);
+    assert_eq!(w.skipped[0].0, "fs-lane");
+    assert!(
+        w.skipped[0].1.contains("agent \"claude-sr2\" is not configured there"),
+        "{:?}",
+        w.skipped
+    );
+    assert!(w.unreachable.is_empty(), "a missing harness is not an unreachable host");
+
+    let w = walk(&targets(&["old"]), 0, "claude-sr2", |_| 0, |_| Ok(with(None)));
+    assert_eq!(w.pick.unwrap().name, "old", "a host that lists no harnesses is not refused here");
+}
+
+/// The about script's fourth line is `acpmux harness list --json`: its ids are the harnesses.
+#[test]
+fn about_reads_the_targets_harness_ids() {
+    let out = "/home/cmux\n{\"socket\":\"/home/cmux/.acpmux/acpmux.sock\"}\n1024\n{\"diagnostics\":[],\"harnesses\":[{\"id\":\"claude\"},{\"id\":\"claude-sr2\"}]}\n";
+    let r = parse_about(out).unwrap();
+    assert_eq!(r.disk_free, Some(1024 * 1024));
+    assert_eq!(r.harnesses.as_deref(), Some(&["claude".to_owned(), "claude-sr2".to_owned()][..]));
+    assert!(r.lacks("claude-sr2").is_none());
+    assert!(r.lacks("codex").unwrap().contains("not configured there"));
+    let old = parse_about("/home/cmux\n{\"socket\":\"/s\"}\n1024\n").unwrap();
+    assert!(old.harnesses.is_none() && old.lacks("claude-sr2").is_none());
+}
+
+/// 2026-11-22: a 7 GB chat went to a host reached through a ~96 KB/s relay (about 6 h of copy)
+/// when another took about 1 MB/s. A host whose copy is estimated past `SLOW_COPY` is passed
+/// over, with why, for one that is not; when only slow hosts answer, the fastest is the pick
+/// (the move then refuses it without `--slow-ok`).
+#[test]
+fn auto_passes_over_a_host_whose_copy_takes_hours() {
+    let wire = super::link::wire_bytes(6_800_000_000);
+    let at = |rate: f64| RemoteDaemon {
+        rate: Some(rate),
+        copy_secs: Some(super::link::copy_secs(wire, rate)),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["relayed", "direct"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "relayed" { 96_000.0 } else { 1_000_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "direct");
+    assert_eq!(w.skipped.len(), 1);
+    assert!(w.skipped[0].1.contains("96 KB/s"), "{:?}", w.skipped);
+    let w = walk(
+        &targets(&["slower", "slow"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "slower" { 50_000.0 } else { 96_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "slow");
+    assert!(w.warning.unwrap().contains("slow"));
 }
 
 #[test]
@@ -546,6 +642,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         interrupt: false,
         after_turn: true,
         turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: Some("/srv/x".into()),
@@ -554,7 +651,8 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         from: None,
         from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+    let src = super::super::transfer::Daemon::over(&client, "source");
+    let e = match begin_waiting(&src, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };

@@ -44,6 +44,10 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
         obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
+        // A move of the chat under way, as its client reports it, and what a move copies
+        // (`hub/transfer_live.rs`).
+        obj.insert("moveProgress".into(), hub.move_progress(&s.id));
+        obj.insert("historyBytes".into(), json!(hub.history_bytes(&s.id)));
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never

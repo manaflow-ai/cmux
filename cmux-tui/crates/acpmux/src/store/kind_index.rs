@@ -187,6 +187,46 @@ impl Header {
     }
 }
 
+/// The copy `copy` of a segment's kinds, written to `to` as the copy of `segment`, a file with the
+/// same bytes the copy covers but another device or inode: a staged prefix that could not be
+/// linked into the chat's folder (another file system) and was copied (`hub/transfer_precopy.rs`
+/// `adopt_index`). A copy names its file by device, inode and birth, so the stage's did not pass
+/// for the copied segment, and the move's first scan read the whole log again, inside its
+/// freeze: 3.2 s of a 3.4 s freeze on 248 MB of log (2026-11-22,
+/// `a_live_move_freezes_for_the_tail_only_over_a_slow_link`). The caller vouches that the bytes
+/// are the same. False, and nothing written, when the copy is not whole or not of these kinds:
+/// the first scan makes one then, as for any segment.
+pub fn carry_copy(copy: &Path, segment: &Path, to: &Path) -> Result<bool> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    crate::config::private_state_file(copy)?.read_to_end(&mut bytes)?;
+    let Some(end) = bytes.iter().position(|b| *b == b'\n') else { return Ok(false) };
+    let Ok(header) = serde_json::from_slice::<Header>(&bytes[..end]) else { return Ok(false) };
+    let mut lines = bytes.split_off(end.saturating_add(1));
+    lines.truncate(usize::try_from(header.lines_len)?);
+    let file = (header.dev, header.ino, header.born_ns);
+    let whole = lines.len() as u64 == header.lines_len
+        && fnv_on(FNV_START, &lines) == header.lines_hash
+        && seal(file, header.len, header.kinds, header.parsed, header.lines_len, header.lines_hash)
+            == header.seal
+        && lines.last().is_none_or(|b| *b == b'\n');
+    let stamp = Stamp::of(&crate::config::private_state_file(segment)?)?;
+    if !whole
+        || header.schema != SCHEMA
+        || header.kinds != kinds()
+        || stamp.id.2 == 0
+        || stamp.len < header.len
+    {
+        return Ok(false);
+    }
+    let carried =
+        Header::new(stamp.id, header.len, header.parsed, header.lines_len, header.lines_hash);
+    let mut out = carried.line().ok_or_else(|| anyhow::anyhow!("kind index header too long"))?;
+    out.extend_from_slice(&lines);
+    crate::config::write_atomic_unsynced(to, &out)?;
+    Ok(true)
+}
+
 /// FNV-1a, 64 bits, of a copy's file, coverage, kinds and its lines' length and hash: stable
 /// across builds, so a copy one daemon wrote checks in the next.
 fn seal(
