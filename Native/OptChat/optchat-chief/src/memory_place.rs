@@ -207,10 +207,10 @@ pub fn read_writer(dir: &Path) -> Option<Writer> {
 
 /// Whether projected folders are on (the env switch only; the setting file is cmux's).
 pub fn enabled() -> bool {
-    match crate::cli::env(ENV).as_deref().map(str::trim) {
-        Some("0" | "false" | "off") => false,
-        _ => true,
-    }
+    !matches!(
+        crate::cli::env(ENV).as_deref().map(str::trim),
+        Some("0" | "false" | "off")
+    )
 }
 
 /// This machine's id: `OPTCHAT_MACHINE_ID`, else `/etc/machine-id`, else its host name.
