@@ -201,6 +201,23 @@ struct AgentPaneDocumentCoverTests {
         #expect(recovery.cause == .newDocument && !recovery.picture)
     }
 
+    /// A reload whose new document never commits (a failed provisional load, a dropped Chromium navigation)
+    /// takes its picture away after the limit: the old document still draws, and the stale picture stayed up
+    /// for good before (review of cmux#51960).
+    @Test(.timeLimit(.minutes(1)))
+    func aReloadThatNeverCommitsEndsItsCover() async throws {
+        let (view, window) = try await Self.paintedWithPicture()
+        let page = try #require(view.page)
+        defer { page.close(); window.close() }
+        view.documentCover.uncommittedLimit = .milliseconds(50)
+        view.documentWillChange(.reload)
+        #expect(view.documentCover.isShown)
+        try await Self.settle { !view.documentCover.isShown }
+        #expect(Self.shown(view) == .page, "the old document stayed hidden after its reload never committed")
+        #expect(view.documentCover.uncommittedEnds == 1)
+        #expect(view.documentCover.recoveries.isEmpty, "an uncommitted reload counted as a recovery")
+    }
+
     /// Clicks over the picture go to the page under it: the composer takes them before the new document painted.
     @Test(.timeLimit(.minutes(1)))
     func theCoverPassesClicksToThePage() async throws {
