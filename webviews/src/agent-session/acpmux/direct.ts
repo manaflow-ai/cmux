@@ -362,6 +362,7 @@ export function newSessionParams(
   noProject = false,
   model?: string,
   additionalDirectories?: readonly string[],
+  restricted = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -383,6 +384,8 @@ export function newSessionParams(
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
+        // Read-only in a folder the person declined (acpmux hub/restricted.rs).
+        ...(restricted ? { restricted: true } : {}),
       },
     },
   };
@@ -8880,7 +8883,11 @@ export class AcpmuxDirectClient {
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
-    this.emitInFrame(event.kind, this.streamGrew);
+    // A tool's progress (`tool_call_update`: its output, its status) waits for a hidden page to show
+    // as the text stream does: a busy agent's tools drew a hidden tab up to 20 times a second (Leo,
+    // 2026-11-18, "Why should non visible thing even affect the renderer thread anyways?"). A new
+    // tool call still draws within 50 ms: a subagent's start opens its own pane.
+    this.emitInFrame(event.kind, this.streamGrew || event.kind === "tool_call_update");
     if (!pageShown() && event.dir === "mux" && event.kind === "turn_result") {
       const turnId = event.msg?.turnId;
       const result = this.rows.get(`summary-${typeof turnId === "string" && turnId ? turnId : event.seq}`);
@@ -15348,6 +15355,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model?: string,
     declined?: () => void,
+    restricted = false,
   ): Promise<string | undefined> {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
@@ -15358,7 +15366,7 @@ export class AcpmuxDirectClient {
     this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
-      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd)),
+      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd), restricted),
       again,
       () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
       (error) => {

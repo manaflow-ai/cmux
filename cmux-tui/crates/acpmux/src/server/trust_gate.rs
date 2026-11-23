@@ -10,7 +10,10 @@
 //! that folder is refused with `data.reason`:
 //! - `trust.pending`: no answer yet (the question is open), except for a chat whose agent
 //!   already runs (`pending_passes`): its prompts, mode and tools go through;
-//! - `trust.untrusted`: the user answered Don't trust.
+//! - `trust.untrusted`: the user answered Don't trust, except for a restricted chat
+//!   (`hub/restricted.rs`, `restricted_passes`): read-only work there, made and prompted from
+//!   the app's pane, goes through. Its fork, side session, handoff, mode, tools, folders and
+//!   MCP reconnect still refuse.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
 //! own agent's level. A record that cannot be read is no answer. A queued or started
@@ -137,7 +140,25 @@ pub(super) async fn check(
             | method::MUX_SET_DIRECTORIES
             | method::MUX_MCP_RECONNECT
     );
+    if m == method::SESSION_PROMPT && !web && meta.restricted {
+        return restricted_passes(answered);
+    }
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
+}
+
+/// A restricted chat (`hub/restricted.rs`) works read-only in a folder the person chose not to
+/// trust: Don't trust is what it was made for, so `trust.untrusted` passes. An open question
+/// (`trust.pending`) still waits for its answer.
+fn restricted_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
+    match answered {
+        Err(e) if is_untrusted(&e) => Ok(()),
+        answered => answered,
+    }
+}
+
+/// The gate's refusal for a folder the person answered Don't trust (`trust.untrusted`).
+fn is_untrusted(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.untrusted"))
 }
 
 /// Whether the chat already works in its folder: a turn of it ran or runs (`last_turn`, which a
@@ -185,6 +206,9 @@ pub(crate) async fn check_dispatch(
         web,
     )
     .await;
+    if !web && meta.restricted {
+        return restricted_passes(answered);
+    }
     if !web && running(session) { pending_passes(answered) } else { answered }
 }
 
@@ -202,6 +226,7 @@ async fn check_new(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .unwrap_or_default();
+    let restricted = crate::hub::restricted::requested(meta)?;
     let cwd = match cwd {
         Some(cwd) => cwd,
         None => {
@@ -221,8 +246,38 @@ async fn check_new(
     if cwd.is_empty() {
         return Ok(());
     }
-    let family = resolve_family(hub, &family).await;
-    folder_answered(paths.clone(), cwd, family, web).await
+    let (profile, family) = if family.is_empty() {
+        (String::new(), String::new())
+    } else {
+        resolve_harness(hub, &family).await
+    };
+    let answered = folder_answered(paths.clone(), cwd, family, web).await;
+    if restricted && !web {
+        // A harness that cannot keep a folder's config off is told so here, before the folder's
+        // refusal, so the pane can offer the folder-free chat (`hub/restricted.rs`).
+        let kind = hub.config.read().await.harnesses.get(&profile).map(|p| p.kind);
+        let keeps = kind == Some(crate::config::HarnessKind::ClaudeStdio)
+            || (profile.is_empty() && default_keeps_restricted(hub).await);
+        if answered.as_ref().is_err_and(is_untrusted) && !keeps {
+            return Err(crate::hub::restricted::unsupported(if profile.is_empty() {
+                "this agent"
+            } else {
+                &profile
+            }));
+        }
+        return restricted_passes(answered);
+    }
+    answered
+}
+
+/// Whether the harness a `session/new` naming none starts on is acpmux's Claude Code backend.
+async fn default_keeps_restricted(hub: &Arc<Hub>) -> bool {
+    let cfg = hub.config.read().await;
+    cfg.default_harness
+        .as_deref()
+        .and_then(|head| cfg.resolve_harness(head).ok())
+        .and_then(|name| cfg.harnesses.get(&name).map(|p| p.kind))
+        == Some(crate::config::HarnessKind::ClaudeStdio)
 }
 
 async fn check_prewarm(
@@ -375,5 +430,20 @@ mod tests {
         assert!(for_web(Origin::Local, &phone));
         assert!(!for_web(Origin::Local, &serde_json::json!({"_meta": {"acpmux": {"via": "app"}}})));
         assert!(!for_web(Origin::LocalApp, &phone));
+    }
+
+    fn refusal(reason: &str) -> Result<(), RpcError> {
+        Err(RpcError::invalid_params(reason).with_data(json!({"reason": reason, "cwd": "/x"})))
+    }
+
+    /// Don't trust is what a restricted chat is for; an open question still waits, and any
+    /// other refusal stands.
+    #[test]
+    fn a_restricted_chat_passes_only_dont_trust() {
+        assert!(restricted_passes(refusal("trust.untrusted")).is_ok());
+        assert!(restricted_passes(Ok(())).is_ok());
+        let pending = restricted_passes(refusal("trust.pending")).unwrap_err();
+        assert!(is_pending(&pending));
+        assert!(restricted_passes(refusal("trust.peer_unsupported")).is_err());
     }
 }
