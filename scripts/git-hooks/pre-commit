@@ -195,8 +195,12 @@ def check(candidate, root, mode, dirs):
             return False
     # A package install inside the checkout (its node_modules) is the one place
     # a tool may live inside it; the hook checks that git tracks nothing there.
+    # The install root may itself be a link out of the checkout (wt's projection
+    # links webviews/node_modules to a cache): the link is that same install, so
+    # a place under the root as named passes like one under where it resolves.
+    root_named = os.path.normpath(root) if mode == "checkout-install" and root.startswith("/") else ""
     for place in places:
-        if mode == "checkout-install" and within(place, root_real):
+        if mode == "checkout-install" and (within(place, root_real) or (root_named and within(place, root_named))):
             continue
         for directory in dirs:
             if within(place, directory):
