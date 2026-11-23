@@ -1,5 +1,6 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
+import { PopupResizeGrips, type PopupResizeOptions } from "./PopupResize";
 import {
   createContext,
   use,
@@ -367,6 +368,9 @@ export interface MenuPopupProps {
   scroll?: boolean;
   /** Pinned below the scrolling rows, outside their edge fade. */
   footer?: ReactNode;
+  /** Resizable from its edges away from its button, its size kept under `resize.id` (PopupResize.tsx).
+   *  A top or bottom menu only; never a submenu. */
+  resize?: PopupResizeOptions;
   children: ReactNode;
 }
 
@@ -396,6 +400,7 @@ export function MenuPopup({
   matchTrigger = false,
   scroll = true,
   footer,
+  resize,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -501,6 +506,9 @@ export function MenuPopup({
             <PopupBoundary value={collisionBoundary}>
               <MenuArms value={arms}>
                 <PopupSurface value={className}>
+                  {resize && !nested && (side === "top" || side === "bottom") && (
+                    <PopupResizeGrips resize={resize} side={side} align={align === "end" ? "end" : "start"} />
+                  )}
                   {scroll ? (
                     <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
                       {children}
