@@ -173,15 +173,14 @@ extension AgentTabStore {
         tabs.ownMachinePorts.deliver = portChanged
         tabs.ownMachinePorts.machines = { [weak tabs, weak services] in
             guard let tabs, let services else { return [:] }
-            var found: [String: DaemonService] = [:]
+            var found: [String: DaemonConnection] = [:]
             for (key, _) in tabs.views {
                 guard let id = tabs.remoteMachineID(of: key.key, machine: key.machine), found[id] == nil, !MachineRegistry.isCloudMachineID(id),
-                      let daemon = services.machines.anyDaemon(machine: id) else { continue }
-                found[id] = daemon
+                      let connection = services.machines.anyDaemon(machine: id)?.connection else { continue }
+                found[id] = connection
             }
             return found
         }
-        tabs.ownMachinePorts.start()
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).

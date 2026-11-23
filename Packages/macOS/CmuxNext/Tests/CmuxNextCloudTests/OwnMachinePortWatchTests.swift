@@ -2,7 +2,6 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 import Testing
-@testable import CmuxNextApp
 
 struct OwnMachinePortWatchTests {
     typealias Listener = MachineListeningTCPRequest.Listener
