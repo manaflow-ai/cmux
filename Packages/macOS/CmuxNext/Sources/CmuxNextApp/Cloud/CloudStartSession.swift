@@ -232,9 +232,19 @@ struct CloudStartSession {
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
+        // A machine this run made is its alone until the session runs: a start that fails for good deletes it and says so (hq#11835 row 8), as the composer's start does (CloudStartChat+Machine).
+        return try await releasing(made: made, name: session.machine.title, id: session.machineID, account: account, delete: { [services] in try await services.cloud.deleteMachine(session.machineID) }) {
+            try await started(on: session, made: made, request, invocation, context, account: account, byPerson: byPerson, revealing: revealing, steps: steps, gateway: gateway)
+        }
+    }
+
+    /// The start's steps once its machine is chosen: the connect, the copy, the chat's tab and the session's start.
+    private func started(on session: CloudMachineSession, made: Bool, _ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool,
+                         revealing: Bool, steps: CloudStartSteps, gateway: CloudStartBeside<Bool>) async throws -> [String: ActionResultValue] {
+        let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
-        // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
+        // From the connect until the agent runs, and through its first turn (``CloudStartGate/started(_:)``), the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
@@ -294,7 +304,7 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), AgentRemoteStartRefusal.untrustedCopy(error, of: copy?.trusted == false ? request.fromFolder : nil)?.userMessage ?? Self.startFailure(error, name: name, id: id, agent: agent))
         }
-        steps.done("start")
+        steps.done("start"); services.cloud.startGate.started(id)
         _ = await gateway.awaited(marking: "gateway", on: steps) // up before the first turn; 0 ms when it came up beside the steps
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
@@ -366,6 +376,21 @@ struct CloudStartSession {
         }
         let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
         return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(reason))
+    }
+
+    /// `body`, the start past its machine. A failure that strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``) on a
+    /// machine this run made (`made`), in the account that asked, deletes that machine; a delete that fails says how to.
+    func releasing<T>(made: Bool, name: String, id: String, account: [String?], delete: () async throws -> Void, _ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch let ended {
+            guard made, CloudMoveCLI.StartChatPlan.strands(ended), account == services.cloud.account else { throw ended }
+            do { try await delete() } catch {
+                let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
+                throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
+            }
+            throw ended
+        }
     }
 
     /// How recent the machine list must be before `--name` takes or creates a machine.

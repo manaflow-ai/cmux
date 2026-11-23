@@ -192,6 +192,8 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
+    follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -200,12 +202,21 @@ pub struct Conn {
     /// The sessions this connection's own `session/new` created here, newest last (at most
     /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
     created: StdMutex<std::collections::VecDeque<String>>,
+    /// Which hub events wake its fan-out (`interest.rs`): its attachments, its watch, its chats
+    /// activity. Changed beside `subs` and `watch_all`, never instead of them.
+    interest: interest::Interest,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     /// The client asked, in its `initialize` (`_meta.acpmux.peerRowBatches`), to hear a burst of
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
+    chunk_deltas: chunk_deltas::ChunkDeltas,
+    /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
+    /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
+    session_delta: AtomicBool,
+    sent_rows: StdMutex<session_patch::SentRows>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -492,6 +503,24 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
+    /// unix peer pid and the session its first `initialize` named.
+    fn stats_caller(&self) -> crate::caller_stats::Caller {
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let session = self.caller.get().map(|id| (id.clone(), true));
+        let session = session.or_else(|| self.unproven_caller.get().map(|id| (id.clone(), false)));
+        crate::caller_stats::Caller {
+            client: self.name.lock_or_recover().clone(),
+            origin: origin_usage_key(self.origin),
+            pid,
+            proven: session.as_ref().is_some_and(|(_, proven)| *proven),
+            session: session.map(|(id, _)| id),
+        }
+    }
+
     /// What its first `initialize` declared about its caller (`cli_caller.rs`).
     pub(super) fn declared(&self) -> Option<&crate::cli_caller::Declared> {
         self.declared.get()
@@ -695,6 +724,14 @@ impl Conn {
                         line.len(),
                     );
                 }
+                // The reply's share of its caller's bytes (`caller_stats.rs`).
+                if let (Some(m), Message::Response { .. }) = (reply_to, msg) {
+                    crate::caller_stats::global().observe_reply(
+                        &self.stats_caller(),
+                        m,
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -757,6 +794,9 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        if let Some(m) = method {
+            crate::caller_stats::global().observe_reply(&self.stats_caller(), m, bytes);
+        }
         // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
         if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
         {
@@ -821,8 +861,21 @@ impl Conn {
         if subs.contains_key(session_id) {
             return false;
         }
+        self.interest.attach(session_id);
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
+    }
+
+    /// Turns its watch on or off (`_acpmux/watch {enabled}`): off, the other chats' changes no
+    /// longer wake its fan-out (`interest.rs`); on, it hears from the next change.
+    pub(super) fn set_watching(&self, on: bool) {
+        if on {
+            self.interest.set_watching(true);
+            self.watch_all.store(true, Ordering::SeqCst);
+        } else {
+            self.watch_all.store(false, Ordering::SeqCst);
+            self.interest.set_watching(false);
+        }
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -996,8 +1049,6 @@ pub fn listener_policy(
     extra_origins: &[String],
     extra_hosts: &[String],
 ) -> ListenerPolicy {
-    let mut policy =
-        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
     if !address.ip().is_loopback() && extra_hosts.is_empty() {
         tracing::warn!(
             "websocket.listen {address} is not loopback: clients may connect by IP address only; list host names in websocket.allowedHosts"
@@ -1008,14 +1059,47 @@ pub fn listener_policy(
             tracing::warn!(
                 "websocket.allowed_origins: ignoring {origin:?} (not scheme://host[:port])"
             );
-            continue;
         }
-        policy = policy.with_origin(origin);
+    }
+    policy_with(address, extra_origins, extra_hosts)
+}
+
+/// [`listener_policy`] without its warnings: an origin that does not parse is skipped.
+fn policy_with(
+    address: std::net::SocketAddr,
+    extra_origins: &[String],
+    extra_hosts: &[String],
+) -> ListenerPolicy {
+    let mut policy =
+        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
+    for origin in extra_origins {
+        if cmux_local_auth::parse_origin(origin).is_some() {
+            policy = policy.with_origin(origin);
+        }
     }
     for host in extra_hosts {
         policy = policy.with_host(host);
     }
     policy
+}
+
+/// The origins and hosts the config adds to the listener now: `websocket.allowedOrigins` (with
+/// this run's `--allow-dev-origin`s) and `websocket.allowedHosts`.
+async fn configured_extras(hub: &Hub) -> (Vec<String>, Vec<String>) {
+    let config = hub.config.read().await;
+    let (mut origins, hosts) = config
+        .websocket
+        .as_ref()
+        .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+        .unwrap_or_default();
+    origins.extend(config.dev_origins.iter().cloned());
+    (origins, hosts)
+}
+
+/// [`listener_policy`] as the config has it at this moment, without its start warnings.
+async fn configured_policy(hub: &Hub, address: std::net::SocketAddr) -> ListenerPolicy {
+    let (extra_origins, extra_hosts) = configured_extras(hub).await;
+    policy_with(address, &extra_origins, &extra_hosts)
 }
 
 /// Validate a `--allow-dev-origin` value: only a loopback `http` origin with
@@ -1107,17 +1191,13 @@ pub async fn serve_ws_until(
         return Ok(());
     }
     let bound = listener.local_addr()?;
-    let (extra_origins, extra_hosts) = {
-        let config = hub.config.read().await;
-        let (mut origins, hosts) = config
-            .websocket
-            .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
-            .unwrap_or_default();
-        origins.extend(config.dev_origins.iter().cloned());
-        (origins, hosts)
-    };
-    let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
+    // Said once, at start; each connection reads the policy again (`configured_policy`), so a
+    // `websocket.allowedHosts` or `allowedOrigins` edit (`acpmux web --tailnet`) applies at the
+    // next `_acpmux/reload_config`, with no restart.
+    {
+        let (extra_origins, extra_hosts) = configured_extras(&hub).await;
+        listener_policy(bound, &extra_origins, &extra_hosts);
+    }
     // Each handshake checks the token current at that moment: a rotation
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
@@ -1156,7 +1236,6 @@ pub async fn serve_ws_until(
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
         let (token, rotated) = hub.web_token.watch();
-        let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
@@ -1192,6 +1271,7 @@ pub async fn serve_ws_until(
                     return;
                 }
             };
+            let policy = Arc::new(configured_policy(&hub, bound).await);
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
                 return;
@@ -1801,13 +1881,18 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
         created: StdMutex::default(),
+        interest: interest::Interest::new(hub.fanout_router()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        chunk_deltas: Default::default(),
+        session_delta: AtomicBool::new(false),
+        sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -1850,6 +1935,9 @@ async fn serve_connection_from(
     let device_ended = web_device::credential_ended(&hub, &conn);
     tokio::pin!(device_ended);
     queue_gauge::register(&conn);
+    // A peer daemon's link mirrors the list and reads it again only when it links again: its
+    // list notices are never left out (`outbound.rs`). Named again at its `initialize`.
+    conn.out.describe(format!("{} {}", origin_usage_key(origin), conn.id), origin != Origin::Peer);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let mut fan = fanout::start(hub.clone(), conn.clone(), flushes);
@@ -1917,6 +2005,7 @@ async fn serve_connection_from(
             }
             continue;
         }
+        let line_bytes = line.len();
         let msg = match Message::parse(&line) {
             Ok(m) => m,
             Err(e) => {
@@ -1926,6 +2015,15 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // Every request its caller sent, refused ones too (`caller_stats.rs`); an
+                // `initialize` once it named the client, below.
+                if m != method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
+                }
                 // An open of a chat's view is timed from here to its reply (`gauges.attach`).
                 let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
@@ -1978,6 +2076,14 @@ async fn serve_connection_from(
                 conn.bind_person(&hub, &m, &mut params);
                 if m == method::INITIALIZE {
                     requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
+                // After it named the client: an `initialize` counts under that name.
+                if m == method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
                 }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
@@ -2232,6 +2338,7 @@ async fn serve_connection_from(
         tracing::debug!(conn = %conn.id, dropped, "notification admission drops during connection");
     }
     fan.abort();
+    conn.interest.forget();
     conn.media.close_all();
     conn.remote_media.close_all();
     view::release_all(&hub, &conn);
@@ -2240,6 +2347,10 @@ async fn serve_connection_from(
     // reconnecting to a forward port its bridge already closed, which another
     // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    // The phones the owner's peer daemon vouched for on this link end with it (fail closed).
+    if hub.pairing.unvouch(&conn.id, None, None, 0) {
+        hub.hold_policies_again().await;
+    }
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -2269,7 +2380,9 @@ async fn refuse_unauthenticated(
     .await;
 }
 
-/// Turn a hub record into client notifications for one connection.
+/// Turn a hub record into client notifications for one connection. It is called only for the
+/// records routed to the connection (`interest.rs`): a record a watcher is sent anything for here
+/// must be one `interest::watch_hears` names.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // The close of one peer's batch of rows (`hub/list_guard.rs` `send_remote_batch`): only a
     // watcher that asked for batches hears it, in place of the rows' `session_changed`.
@@ -2308,11 +2421,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
-                hub.session_summary(&s)
-            } else {
-                hub.session_list_summary(&s)
-            };
+            let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
+            // A patch names the row it builds on, so it is never replaced in the queue.
+            if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
+                return;
+            }
             let msg = Message::notification(
                 method::MUX_SESSION_CHANGED,
                 json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
@@ -2330,6 +2445,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the
     // same route as their session rows. A peer daemon's link names it by its own route.
     let routed = |mut params: Value| {
+        // A chat that moved to a peer keeps the shape its records had here (`follow.rs`).
+        if ev.remote.is_some() && conn.follows.following(&ev.session_id) {
+            return params;
+        }
         if conn.origin != Origin::Peer
             && let Some(remote) = &ev.remote
         {
@@ -2369,10 +2488,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = routed(event_value(&ev.session_id, rec));
+                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2474,12 +2591,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
                 let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                let qualified = remote.qualified_id(&ev.session_id);
+                if rec.kind == "purged" {
+                    session_patch::forget(conn, &qualified);
+                } else if session.is_object() {
+                    let notice = json!({"sessionId": sid, "qualifiedSessionId": qualified, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq});
+                    if session_patch::send_row(conn, &qualified, tools, &session, notice) {
+                        return;
+                    }
+                }
                 let row =
                     if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                        json!({"sessionId": sid, "qualifiedSessionId": qualified, "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                     ),
                     row,
                 );
@@ -2487,6 +2613,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            session_patch::forget(conn, &ev.session_id);
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2515,14 +2642,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
-            let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
-                ),
-                row,
-            );
+            let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
+            if !session_patch::send_row(conn, &ev.session_id, full, &summary, notice) {
+                let row =
+                    if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_SESSION_CHANGED,
+                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                    ),
+                    row,
+                );
+            }
         }
         // A watcher that is not attached still learns a permission is waiting, after the row
         // that recorded it.
@@ -2566,12 +2697,13 @@ mod cancel_prompt_tests;
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
 mod client_request;
-mod computer_use_relay;
+pub(crate) mod computer_use_relay;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+mod keys_relay;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
@@ -2579,10 +2711,16 @@ pub(crate) mod shutdown_drain;
 #[cfg(test)]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "wake_held_tests.rs"]
+mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+mod chunk_deltas;
+pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
@@ -2592,6 +2730,7 @@ mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod fix_from_link;
+mod follow;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2618,7 +2757,9 @@ mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
+mod machine_files_relay;
 pub(crate) mod machine_health;
+mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
 mod machine_routes;
 mod machine_tunnel;
@@ -2640,6 +2781,7 @@ mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
+pub(crate) mod interest;
 mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
@@ -2713,6 +2855,10 @@ mod list_pending_tests;
 mod list_web_page_tests;
 
 #[cfg(test)]
+#[path = "inbox_gate_tests.rs"]
+mod inbox_gate_tests;
+
+#[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 
@@ -2764,3 +2910,8 @@ mod update_cost_bench;
 #[cfg(test)]
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
+
+// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+#[cfg(test)]
+#[path = "fanout_interest_tests.rs"]
+mod fanout_interest_tests;

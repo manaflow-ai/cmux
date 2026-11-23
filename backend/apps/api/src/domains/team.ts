@@ -11,7 +11,7 @@ import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomai
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
-import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reducePolicyRollback, reducePolicyUpdate, withNewTeamPolicy } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
@@ -210,7 +210,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (same) return { ok: true, state, value: team, changed: false }
         return {
           ok: true,
-          state: { ...state, team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
+          state: { ...withNewTeamPolicy(state), team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
           writes: [memberUpsert(member), ...memberAuthorityWrites(member.user, ctx)],
           value: team,
           outbox: [
