@@ -546,6 +546,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard workspaceTab(id) != nil else { return }
         // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
         ConnectTimeline.shared.event("tab_activate", detail: id)
+        if id != activeTabID { snapshotPage(activeTabID) }
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
@@ -1290,16 +1291,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         warmSnapshots()
         guard let id = activeTabID else { return }
-        if let tab = workspaceTab(id), tab.kind == .browser {
-            let model = browser(tab)
-            keepSnapshots(of: model, tab: id)
-            model.takeSnapshot()
-        }
-        if let tab = workspaceTab(id), tab.kind == .simulator, let model = simulator(tab) {
-            keepSnapshots(of: model, tab: id)
-            model.takeSnapshot()
-        }
+        snapshotPage(id)
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+    }
+
+    /// A browser or simulator page takes the picture its card shows while it is still on screen:
+    /// when the grid opens on it, and when a swipe or tap leaves it for another tab. Taken only at
+    /// the grid's opening, a page left by a swipe kept the blank globe (or the picture of an
+    /// older visit) on its card, since an off-screen web view takes no snapshot.
+    func snapshotPage(_ id: String?) {
+        guard let id, let tab = workspaceTab(id) else { return }
+        let model: (any BrowserTabState)?
+        if tab.kind == .browser { model = browser(tab) } else if tab.kind == .simulator { model = simulator(tab) } else { model = nil }
+        guard let model else { return }
+        keepSnapshots(of: model, tab: id)
+        model.takeSnapshot()
     }
 
     public func overviewVisibilityChanged(_ visible: Bool) {
