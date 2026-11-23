@@ -384,6 +384,7 @@ impl LanHost {
                     lane: Some(lane_rx),
                     media: None,
                     webrtc_media: false,
+                    hold: None,
                     liveness: None,
                 };
                 if tx.send(LanAccepted { device_id, dialed }).await.is_err() {
@@ -743,6 +744,7 @@ async fn dial_one(
     let (path_tx, path) = watch::channel(LinkPath::Direct);
     Ok(Dialed {
         stream: Box::new(stream),
+        hold: Some(lan_hold_hook(&net)),
         path,
         // The Mac's LAN address this tunnel goes to (a direct-lan route).
         peer: watch::channel(Some(address.ip())).1,
@@ -751,6 +753,22 @@ async fn dial_one(
         media: None,
         webrtc_media: false,
         liveness: None,
+    })
+}
+
+/// A parked LAN link holds its one-peer tunnel without keeping it alive.
+fn lan_hold_hook(net: &Arc<WgNet>) -> crate::link::HoldHook {
+    let net = Arc::downgrade(net);
+    Arc::new(move |hold| {
+        let net = net.clone();
+        Box::pin(async move {
+            let Some(net) = net.upgrade() else {
+                return;
+            };
+            if let Err(error) = net.hold(hold).await {
+                tracing::debug!(%error, "LAN tunnel hold not applied");
+            }
+        })
     })
 }
 

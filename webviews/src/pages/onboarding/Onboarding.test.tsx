@@ -105,7 +105,7 @@ describe("import", () => {
     const html = render(importState("finished"));
     expect(html).toContain('title="The profile’s history database is locked by the browser."');
     expect(text(html)).toContain(
-      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
+      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine. Passwords skipped: 9. Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
     );
   });
   test("the folder explainer replaces the list", () => {

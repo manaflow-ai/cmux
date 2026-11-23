@@ -163,7 +163,7 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
     })
 }
 
-fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
+pub(super) fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
     let id = id?;
     let list = hub.pairing.list();
     let device = list.get("devices").and_then(Value::as_array)?.iter().find(|d| d["id"] == id)?;
