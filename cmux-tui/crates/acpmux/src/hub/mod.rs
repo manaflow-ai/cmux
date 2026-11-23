@@ -264,6 +264,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) mod create_key;
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 mod credentials;
 mod live_name;
@@ -461,8 +462,10 @@ mod transcript;
 mod transfer;
 mod transfer_authority;
 mod transfer_guard;
+mod transfer_hub_precopy;
 mod transfer_in;
 mod transfer_out;
+pub mod transfer_pull;
 mod transfer_watch;
 #[cfg(test)]
 mod translator_queue_tests;
@@ -1327,6 +1330,9 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
     pub(super) watched_moves: StdMutex<HashSet<String>>,
+    /// How a hub move reaches its source for the pages (`transfer_pull.rs`): the hub carrier's
+    /// `TransferSource` circuit once it starts, or a test's in-process stand-in.
+    pub(super) transfer_dial: StdMutex<Option<Arc<dyn transfer_pull::TransferDial>>>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1721,6 +1727,7 @@ impl Hub {
             page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
+            transfer_dial: StdMutex::new(None),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
