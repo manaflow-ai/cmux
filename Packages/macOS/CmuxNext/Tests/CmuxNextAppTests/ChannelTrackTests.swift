@@ -43,13 +43,14 @@ struct ChannelTrackTests {
                                          installedBuild: "400", keptBuilds: ["150"], followed: .dev,
                                          feedItems: [AppcastItem(version: "400", displayVersion: "1.0.0-tip.400", date: day),
                                                      AppcastItem(version: "300"), AppcastItem(version: "250"),
-                                                     AppcastItem(version: "150", displayVersion: "1.0.0-tip.150")])
+                                                     AppcastItem(version: "150", displayVersion: "1.0.0-tip.150")],
+                                         tipFeed: true)
         let dev = try #require(tracks.first { $0.ring == .dev })
         #expect(dev.builds.map(\.build) == ["400", "300", "200", "150", "100"])
         #expect(dev.installed?.shortVersion == "1.0.0-tip.400")
         #expect(dev.installed?.date == "2026-11-01")
         #expect(dev.builds.first { $0.build == "150" }?.isKept == true)
-        // Nightly stays the index alone.
+        // The tip feed's builds are not nightlies: Nightly stays the index alone.
         #expect(tracks.first { $0.ring == .nightly }?.builds.map(\.build) == ["300", "200", "100"])
     }
 

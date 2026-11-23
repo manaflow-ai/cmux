@@ -66,13 +66,13 @@
   border-radius: var(--nt-widget-radius); /* concentric-allow: Apple's widget corner (22 pt continuous), the card holds an app's scene, not buttons */
   corner-shape: superellipse(1.6);
   background: var(--nt-widget-card);
-  box-shadow: inset 0 0 0 0.5px var(--nt-widget-card-edge);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--nt-widget-card-edge);
   color: var(--agent-text);
   /* The popover glass level (ui/glass/glass.css): the card's 24 px blur, at the level's saturation. */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
-/* Reduce Transparency: an opaque card, no blur. */
+/* Reduce Transparency or Liquid Glass off: an opaque card, no blur. */
 @media (prefers-reduced-transparency: reduce) {
   .nt-widget-card {
     background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
@@ -80,7 +80,7 @@
     backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .nt-widget-card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

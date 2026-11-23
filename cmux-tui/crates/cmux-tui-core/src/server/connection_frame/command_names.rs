@@ -224,6 +224,8 @@ impl Command {
             Self::ConversationThread(..) => "conversation-thread",
             Self::ConversationLinkResolve(..) => "conversation-link-resolve",
             Self::ConversationInboxOp(..) => "conversation-inbox-op",
+            Self::ConversationScheduledList(..) => "conversation-scheduled-list",
+            Self::ConversationScheduledOp(..) => "conversation-scheduled-op",
             Self::HomeInbox(..) => "home-inbox",
             Self::ConversationSearch(..) => "conversation-search",
             Self::HistorySearch(..) => "history-search",

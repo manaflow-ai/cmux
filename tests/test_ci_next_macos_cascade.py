@@ -956,10 +956,12 @@ class Stall(unittest.TestCase):
         for key in ("hosted_jobs", "hosted_runner"):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
-        # The fast tier and the canary keep their own budget: no cold hosted build needs 45 minutes.
+        # The fast tier and the canary keep their own budget. The fast tier's is 120: a cold owned-mini
+        # CmuxNext build-tests build at 3 cores ran 51.5 min of a 58-min job, and its time scales with the
+        # core grant (docs/ci/cmux-next-workflow-notes.md#note-39).
         # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
         fast = jobs["fast-tier"]["timeout-minutes"]
-        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 20)
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 120)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
@@ -2594,11 +2596,18 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cloud-rd-link-readback.yml readback: runs-on[0]",
         "cloud-chat-proof.yml proof-staging: runs-on[0]",
         "cloud-chat-proof.yml proof-prod: runs-on[0]",
+        # The staging agent account signs in on an ephemeral VM (#49943), as cloud-rd-link-readback.
+        "cmux-next-pair-e2e-vm.yml pair-e2e: runs-on[0]",
         "cmux-next-dev-daily.yml sign: runs-on[0]",
         "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
         "cmux-next-dev-daily.yml verify: runs-on[0]",
         "cmux-tui-team-signed.yml sign: runs-on[0]",
+        # #47936: build-helper runs the commit's code where no signing identity is in reach; sign-helper signs it.
+        "cmux-tui-team-signed.yml build-helper: runs-on[0]",
+        "cmux-tui-team-signed.yml sign-helper: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
+        # #50338: the App Store keys in the release environment, as ios-appstore-upload.
+        "ios-internal-submit.yml submit: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",
