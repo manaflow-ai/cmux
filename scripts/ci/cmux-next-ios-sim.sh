@@ -1796,9 +1796,15 @@ if [[ "$mode" == listperf ]]; then
                 --max-event-bytes 65536 >"$lp/coord-sim.txt" 2>&1 ||
               { echo "$run: coord-sim failed (see listperf/coord-sim.txt)"; listperf_status=1; }
           fi
+          if [[ ! -s "$lp/coord-sim/coord-sim-chat.ndjson" ]]; then
+            # No records: launching would measure an empty chat, so skip the run (listperf_status is already 1).
+            echo "$run: skipped (no coord-sim records)"
+            listperf_status=1
+            continue
+          fi
           events_dir="$(simctl get_app_container "$udid" "$bundle_id" data)/Library/Caches"
           mkdir -p "$events_dir"
-          cp "$lp/coord-sim/coord-sim-chat.ndjson" "$events_dir/" 2>/dev/null || true
+          cp "$lp/coord-sim/coord-sim-chat.ndjson" "$events_dir/"
           history="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["history"])' \
             "$lp/coord-sim/coord-sim-chat.json" 2>/dev/null || echo 0)"
           envs+=("SIMCTL_CHILD_CMUX_MOBILE_LIST_EVENTS=$events_dir/coord-sim-chat.ndjson"
