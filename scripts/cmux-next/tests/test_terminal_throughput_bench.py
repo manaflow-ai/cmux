@@ -246,6 +246,33 @@ class Trace(unittest.TestCase):
         self.assertEqual(trace.thread_process(READER_T), "cmux DEV x")
         self.assertEqual(trace.thread_pid(READER_T), 60)
 
+    def test_stage_split_names_the_pty_reader_and_the_render_side(self):
+        got = trace.stage_split(self.summary())
+        self.assertEqual(got["pty_read"]["thread"], READER_T)
+        self.assertEqual(got["pty_read"]["blocked_in_read_pct"], 40.0)
+        self.assertNotIn("render", got, "the fixture has no thread that moves no bytes")
+        self.assertEqual(got["bound"], "hand-off")
+        line = trace.split_text("NEXT", got)
+        self.assertIn("pty read 0.0% run, 40.0% in read", line)
+        self.assertIn("[cmux DEV x]", line)
+
+    def test_stage_split_picks_the_first_hop_and_the_bound(self):
+        call = lambda b: {"count": 1, "wall_ms": 1.0, "blocked_pct": 10.0, "bytes": b, "mb_s": b / 1e6}
+        summary = {"window_s": 1.0, "writer_pid": 1, "threads": [
+            {"thread": "Main Thread 0x1 (Python, pid: 1)", "pid": 1, "running_pct": 50.0, "calls": {"write": call(1000)}},
+            {"thread": "Thread 0x2 (cmux-tui, pid: 2)", "pid": 2, "running_pct": 40.0, "calls": {"read": call(1000)}},
+            {"thread": "Thread 0x3 (cmux, pid: 3)", "pid": 3, "running_pct": 30.0, "calls": {"read": call(1400)}},
+            {"thread": "renderer 0x4 (cmux, pid: 3)", "pid": 3, "running_pct": 97.0, "calls": {}},
+            {"thread": "Thread 0x5 (cmux, pid: 3)", "pid": 3, "running_pct": 3.0, "calls": {"kevent": {"count": 4}}}]}
+        got = trace.stage_split(summary)
+        self.assertEqual(got["pty_read"]["process"], "cmux-tui", "the reader nearest the written bytes")
+        self.assertEqual(got["render"]["thread"], "renderer 0x4 (cmux, pid: 3)")
+        self.assertEqual(got["render"]["all_pct"], 100.0)
+        self.assertEqual(got["bound"], "render")
+        self.assertIn("parse/render busiest 97.0% (renderer 0x4 [cmux])", trace.split_text("NEXT", got))
+        self.assertEqual(trace.stage_split({"error": "no burst window"}), {"error": "no burst window"})
+        self.assertIn("no split", trace.split_text("Ghostty", {"error": "x"}))
+
 class Installed(unittest.TestCase):
     """--installed (terminal-throughput-quick.sh): a side copy of an installed app, remade only when needed."""
 
