@@ -879,11 +879,19 @@ pub fn run_with_drafts(
     let natural_end = std::cell::Cell::new(false);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
+        let carries_before = fold.carries();
         let mut entries = Vec::new();
         for event in agents.events(&session, fold.seq())? {
             entries.extend(fold.apply(&event));
         }
-        if fold.take_natural_end() && !natural_end.replace(true) && !interrupt.is_set() {
+        if fold.carries() > carries_before {
+            natural_end.set(false);
+        }
+        if !fold.expects_carry()
+            && fold.take_natural_end()
+            && !natural_end.replace(true)
+            && !interrupt.is_set()
+        {
             // A completed plain response is already the reply. Cancel the
             // prompt's idle wait so it does not need a second `stop` request.
             if let Err(e) = agents.cancel(&session) {
