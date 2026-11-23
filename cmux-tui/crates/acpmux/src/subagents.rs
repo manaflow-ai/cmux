@@ -52,7 +52,7 @@ pub fn is_subagents(params: &Value) -> bool {
 
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
     /// Children whose sender was not in the replay window yet. Once that sender
@@ -91,7 +91,7 @@ pub struct SubagentTree {
     expiry: Expiry,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct ChildPreview {
     text: String,
     message_id: Option<String>,
