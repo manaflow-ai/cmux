@@ -2422,6 +2422,14 @@ impl Hub {
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
+        // A given name (`session_handle.rs`, "Mango") reaches its session as `key_route` tier 0
+        // does, ahead of former names and prefixes (Leo, 2026-11-23: "the renaming paradigm
+        // still hasn't hit yet").
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_handle_here(key)
+        {
+            return found;
+        }
         // No session has it as its name now: one that had it before a rename
         // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
         // as its name now wins (`resolve_remote`).
