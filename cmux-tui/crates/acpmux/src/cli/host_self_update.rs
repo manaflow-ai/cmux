@@ -116,30 +116,96 @@ pub(super) trait Fetch: Send + Sync {
 }
 
 /// An HTTPS GET with no redirects, a timeout and a body cap, through the
-/// crate's reqwest and ring rustls provider (as `catalog/fetch.rs`).
+/// crate's reqwest and ring rustls provider (as `catalog/fetch.rs`). A
+/// transient failure (no connection, a reset, a timeout, a 5xx) is tried
+/// again after [`RETRY_WAITS`]: one dropped connection to files.cmux.com
+/// otherwise failed `acpmux-update.service` until the next timer run (huge-blue,
+/// 8 times in 7 days to 2026-11-18).
 struct HttpsFetch;
 
+/// The waits before the second and third tries of a transient failure.
+pub(super) const RETRY_WAITS: [std::time::Duration; 2] =
+    [std::time::Duration::from_secs(5), std::time::Duration::from_secs(20)];
+
+/// One try's failure, and whether another try may succeed.
+#[derive(Debug)]
+pub(super) struct Failed {
+    pub(super) message: String,
+    pub(super) transient: bool,
+}
+
+/// `attempt` run once, then again after each of `waits` while it fails
+/// transiently. The last failure's message names how many tries it took.
+pub(super) async fn with_retries<T, A, Fa, S, Fs>(
+    waits: &[std::time::Duration],
+    mut attempt: A,
+    mut sleep: S,
+) -> Result<T, String>
+where
+    A: FnMut() -> Fa,
+    Fa: std::future::Future<Output = Result<T, Failed>>,
+    S: FnMut(std::time::Duration) -> Fs,
+    Fs: std::future::Future<Output = ()>,
+{
+    let mut waits = waits.iter();
+    let mut tries: usize = 1;
+    loop {
+        let failed = match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(failed) => failed,
+        };
+        match waits.next() {
+            Some(wait) if failed.transient => sleep(*wait).await,
+            _ if tries > 1 => return Err(format!("{} (after {tries} tries)", failed.message)),
+            _ => return Err(failed.message),
+        }
+        tries = tries.saturating_add(1);
+    }
+}
+
+/// A reqwest error with its causes ("error sending request" alone hides
+/// whether DNS, the connection or TLS failed), and whether it is transient.
+fn transport(error: &reqwest::Error) -> Failed {
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    let transient =
+        error.is_connect() || error.is_timeout() || error.is_request() || error.is_body();
+    Failed { message, transient }
+}
+
 impl HttpsFetch {
-    async fn body(url: &str, max: usize) -> Result<Vec<u8>, String> {
+    async fn body(url: &str, max: usize) -> Result<Vec<u8>, Failed> {
+        let permanent = |message: String| Failed { message, transient: false };
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(600))
+            // A stalled connect fails fast and is tried again, rather than
+            // holding a try for the whole 600 s.
+            .connect_timeout(std::time::Duration::from_secs(15))
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
-            .map_err(|e| e.to_string())?;
-        let mut response = client.get(url).send().await.map_err(|e| e.to_string())?;
+            .map_err(|e| permanent(e.to_string()))?;
+        let mut response = client.get(url).send().await.map_err(|e| transport(&e))?;
         let status = response.status().as_u16();
         if status != 200 {
-            return Err(format!("the server answered {status}"));
+            return Err(Failed {
+                message: format!("the server answered {status}"),
+                transient: status >= 500,
+            });
         }
-        let over = || format!("the body is above the {max} byte limit");
+        let over = || permanent(format!("the body is above the {max} byte limit"));
         if response.content_length().is_some_and(|n| n > max as u64) {
             return Err(over());
         }
         let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        while let Some(chunk) = response.chunk().await.map_err(|e| transport(&e))? {
             if body.len() + chunk.len() > max {
                 return Err(over());
             }
@@ -151,7 +217,7 @@ impl HttpsFetch {
 
 impl Fetch for HttpsFetch {
     fn get<'a>(&'a self, url: &'a str, max: usize) -> BoxFuture<'a, Result<Vec<u8>, String>> {
-        Box::pin(Self::body(url, max))
+        Box::pin(with_retries(&RETRY_WAITS, move || Self::body(url, max), tokio::time::sleep))
     }
 }
 

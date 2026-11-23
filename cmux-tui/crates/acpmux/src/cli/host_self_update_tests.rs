@@ -5,8 +5,8 @@
 //! timer units' install.
 
 use super::super::host_self_update::{
-    Channel, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Step, apply, channel_url,
-    prepare,
+    Channel, Failed, Fetch, LocalRemote, Paths, Plan, Prepared, RETRY_WAITS, ROLLED_BACK, Step,
+    apply, channel_url, prepare, with_retries,
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
@@ -910,4 +910,46 @@ fn this_machine_runs_scripts_under_sh_and_pushes_by_copying() {
     LocalRemote.push(&dir.join("from"), &dir.join("to").to_string_lossy()).unwrap();
     assert_eq!(std::fs::read_to_string(dir.join("to")).unwrap(), "bytes");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+type Tried = (Result<&'static str, String>, usize, Vec<std::time::Duration>);
+
+/// Tries of a fetch: each answer in turn, and the waits slept between them.
+async fn tried(answers: Vec<Result<&'static str, Failed>>) -> Tried {
+    let mut answers = answers.into_iter();
+    let mut tries = 0;
+    let mut slept = Vec::new();
+    let got = with_retries(
+        &RETRY_WAITS,
+        || {
+            tries += 1;
+            let answer = answers.next().expect("no more tries were expected");
+            async move { answer }
+        },
+        |wait| {
+            slept.push(wait);
+            async {}
+        },
+    )
+    .await;
+    (got, tries, slept)
+}
+
+fn failed(message: &str, transient: bool) -> Failed {
+    Failed { message: message.to_owned(), transient }
+}
+
+#[tokio::test]
+async fn a_dropped_connection_is_tried_again_and_a_refusal_is_not() {
+    let reset = failed("error sending request: connection reset", true);
+    let (got, tries, slept) = tried(vec![Err(reset), Ok("body")]).await;
+    assert_eq!((got, tries, slept), (Ok("body"), 2, vec![RETRY_WAITS[0]]));
+
+    let (got, tries, slept) = tried(vec![Err(failed("the server answered 404", false))]).await;
+    assert_eq!((got, tries, slept), (Err("the server answered 404".to_owned()), 1, vec![]));
+
+    let down = || Err(failed("the server answered 503", true));
+    let (got, tries, slept) = tried(vec![down(), down(), down()]).await;
+    assert_eq!(got, Err("the server answered 503 (after 3 tries)".to_owned()));
+    assert_eq!((tries, slept), (3, RETRY_WAITS.to_vec()));
 }
