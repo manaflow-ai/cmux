@@ -321,6 +321,12 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
             .filter(|a| crate::key_tiers::default_tier(a) != "navigation")
             .map(|a| (a.id.to_owned(), json!(crate::key_tiers::default_tier(a))))
             .collect::<Map<String, Value>>(),
+        // The menus built by hand in their views (crate::hand_built_menus), in the export's order:
+        // the export lists them as `context_menus_not_exported`.
+        "hand_built_menus": crate::hand_built_menus::MENUS
+            .iter()
+            .map(|m| json!({ "name": m.name, "source": m.source }))
+            .collect::<Vec<_>>(),
         "context_menu_choice_trailers": crate::context_menus::CHOICE_TRAILERS
             .iter()
             .map(|(id, trailer)| ((*id).to_owned(), json!(trailer)))

@@ -191,3 +191,11 @@ fn key_tiers_keep_their_defaults() {
         }
     }
 }
+
+/// The catalog's hand-built menu list is the export's `context_menus_not_exported`, in order.
+#[test]
+fn hand_built_menus_match_the_export() {
+    let catalog: Value =
+        serde_json::from_str(&cmux_action_catalog::json::catalog(0)).expect("catalog");
+    assert_eq!(catalog["hand_built_menus"], surfaces()["context_menus_not_exported"]);
+}
