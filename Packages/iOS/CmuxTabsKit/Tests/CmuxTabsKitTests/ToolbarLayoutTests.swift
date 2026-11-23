@@ -1,3 +1,4 @@
+#if os(iOS)
 @testable import CmuxTabsKit
 import CoreGraphics
 import Testing
@@ -71,3 +72,4 @@ struct ToolbarLayoutTests {
         #expect(bottom == size.height - layout(.bottom).capsule.minY + 8)
     }
 }
+#endif
