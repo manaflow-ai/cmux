@@ -26,6 +26,7 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,
@@ -103,11 +104,11 @@ import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -192,7 +193,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
