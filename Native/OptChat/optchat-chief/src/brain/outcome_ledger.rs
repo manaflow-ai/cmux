@@ -269,16 +269,28 @@ impl Brain {
     /// Posts a host-authored message into the Chief conversation. The outbox
     /// is durable, and the key is saved on the matching outcome before the
     /// daemon is flushed, so a restart cannot lose or duplicate the post.
-    pub(super) fn host_post(&mut self, key: String, text: String, outcome_id: Option<&str>) {
+    pub(super) fn host_post(
+        &mut self,
+        key: String,
+        text: String,
+        outcome_id: Option<&str>,
+    ) -> bool {
         let Some(conversation) = self.state.conversation.clone() else {
-            return;
+            if let Some(id) = outcome_id
+                && let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id)
+            {
+                u.requires_chief = true;
+                u.due_ms = Some(now_ms());
+                self.save();
+            }
+            return false;
         };
         if let Some(id) = outcome_id {
             let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id) else {
-                return;
+                return false;
             };
             if u.posted_key.is_some() {
-                return;
+                return false;
             }
             u.posted_key = Some(key.clone());
         }
@@ -291,6 +303,7 @@ impl Brain {
         ));
         self.save();
         self.flush_outbox();
+        true
     }
 
     /// A host-authored post was refused. Keep the report and wake the Chief
