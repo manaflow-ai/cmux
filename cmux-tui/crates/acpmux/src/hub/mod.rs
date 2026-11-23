@@ -9,6 +9,7 @@ mod claim_check;
 mod control_asks;
 
 mod activity;
+mod app_exit;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;

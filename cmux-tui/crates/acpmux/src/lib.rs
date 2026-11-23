@@ -220,6 +220,7 @@ mod platform;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod proc_exit;
 mod proc_start;
 pub mod prompt_cache_env;
 pub mod prompt_class;
