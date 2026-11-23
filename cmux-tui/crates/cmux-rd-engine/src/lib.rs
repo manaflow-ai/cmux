@@ -887,8 +887,18 @@ impl MediaEngine {
         while state.sent_at_us.len() > HISTORY_FRAMES {
             state.sent_at_us.pop_first();
         }
-        while state.history.len() > HISTORY_FRAMES {
-            state.history.pop_first();
+        // The keyframe still on its way stays: at 8 Mbit/s a 1080p motion keyframe is about a
+        // second on the wire, so its NACKs come back after more than HISTORY_FRAMES P-frames
+        // were sent behind it. Evicting it left nothing to repair them with, and every frame
+        // after it waited on a keyframe that could never complete (no frame in 15 s at 2 %
+        // loss, hq#19915). The count stays bounded: one keyframe beyond HISTORY_FRAMES.
+        let keep = state.keyframe_in_flight.map(|(frame, _, _)| frame);
+        while state.history.len()
+            > HISTORY_FRAMES + usize::from(keep.is_some_and(|k| state.history.contains_key(&k)))
+        {
+            let oldest = state.history.keys().find(|&&f| Some(f) != keep).copied();
+            let Some(oldest) = oldest else { break };
+            state.history.remove(&oldest);
         }
         // Only a frame asked for as a keyframe (or one that is independent anyway) answers a
         // pending keyframe. A recovery that came in while an older P-frame request was still

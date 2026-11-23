@@ -1071,3 +1071,32 @@ fn ultra_holds_four_fifths_of_the_probed_capacity_under_its_ceiling() {
     let (fast, _) = probed(Some(1));
     assert_eq!(fast, 150_000_000);
 }
+
+/// At 8 Mbit/s a 1080p motion keyframe is about a second on the wire, and more than
+/// HISTORY_FRAMES P-frames go out behind it before its NACKs come back. The keyframe
+/// still in flight stays in the history, so those NACKs are answered.
+#[test]
+fn a_keyframe_still_in_flight_stays_repairable_behind_many_p_frames() {
+    use cmux_rd_engine::HISTORY_FRAMES;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 600_000, 0);
+    for i in 1..=(HISTORY_FRAMES as u32 + 8) {
+        let p = EncodeRequest {
+            frame: first.frame + i,
+            force_idr: false,
+            idr_reason: None,
+            ..first.clone()
+        };
+        send(&mut e, &p, false, 2_000, u64::from(i) * 16_000);
+    }
+    let fb = Feedback {
+        nacks: vec![Nack { frame: first.frame, indexes: vec![1, 3] }],
+        ..Feedback::default()
+    };
+    let out = e.on_datagram(&feedback(&fb), true, 500_000);
+    assert!(
+        out.datagrams.contains(&sent[1]) && out.datagrams.contains(&sent[3]),
+        "the keyframe's NACK found nothing to resend"
+    );
+}
