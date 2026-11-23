@@ -30,6 +30,12 @@ export {};
   // The design scale's Tailwind theme and token list (gen-design-scale.mjs) are build output as well.
   const { writeDesignScale } = await import("../scripts/pages/gen-design-scale.mjs");
   writeDesignScale({ log: () => {} });
+  // So are the pane and acpmux protocol types (pane-protocol-codegen.ts, acpmux-protocol-codegen.ts),
+  // made from the committed IR; each file is written only when its content changed.
+  const { writePaneProtocol } = await import("../scripts/pane-protocol-codegen");
+  writePaneProtocol({ log: () => {} });
+  const { writeAcpmuxProtocol } = await import("../scripts/acpmux-protocol-codegen");
+  writeAcpmuxProtocol({ log: () => {} });
 }
 
 // React's scheduler keeps its queue private, and react-dom copies its entry points when it first
