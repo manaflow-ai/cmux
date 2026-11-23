@@ -8,7 +8,8 @@ public import Foundation
 /// as every Rust reader does, so the app shows and applies the same values its daemon and agents
 /// use. NIGHTLY and Release share `~/.config/cmux/cmux-next.json`, so without it one build's grant
 /// or answer applied to the other.
-public nonisolated enum BuildScopedSettings {
+public nonisolated struct BuildScopedSettings {
+    public nonisolated init() {}
     /// cmux-config `build_scope::BUILD_SETTINGS_ENV` (``BuildStatePaths/buildSettingsFileKey``).
     public static let fileKey = "CMUX_NEXT_BUILD_SETTINGS_FILE"
 
