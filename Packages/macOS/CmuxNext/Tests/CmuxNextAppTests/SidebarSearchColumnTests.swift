@@ -114,10 +114,7 @@ import Testing
             row.needsLayout = true
             row.layoutSubtreeIfNeeded()
             #expect(row.closeButton.isHidden || row.closeButton.alphaValue == 0)
-            #expect(!row.pinButton.isHidden && row.pinButton.alphaValue > 0)
-            #expect(!row.pinButton.frame.intersects(row.treeFoldButton.frame), "the visible fold must not unpin the row")
             #expect(!row.moreButton.frame.intersects(row.treeFoldButton.frame))
-            #expect(!row.pinButton.frame.intersects(row.moreButton.frame))
         }
     }
 

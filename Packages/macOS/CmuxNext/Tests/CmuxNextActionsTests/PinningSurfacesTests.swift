@@ -38,9 +38,10 @@ import Testing
         #expect(shown.contains(id), "\(id) is not in the \(context) menu")
     }
 
-    /// A workspace row's menu offers pinning once, at its top (plans/cmux-next/ui-simplify.md, Pin: "one Pin row in the
-    /// menu"): More repeats no pin row of any kind, by id or by title.
-    @Test func aWorkspaceRowsMenuPinsOnceAtItsTop() throws {
+    /// A workspace row's menu offers pinning once (plans/cmux-next/ui-simplify.md, Pin: "one Pin row in the menu"), right
+    /// above Archive (design dp-1824f397ce: Pin and Unpin live in the right-click menu next to Archive; the row has no
+    /// hover pin): More repeats no pin row of any kind, by id or by title.
+    @Test func aWorkspaceRowsMenuPinsOnceBesideArchive() throws {
         let catalog = ContextMenuCatalog.shared
         let entries = catalog.entries(for: .workspaceRow)
         let titles = Dictionary(ActionCatalog.all.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
@@ -51,6 +52,9 @@ import Testing
         }
         let pins = catalog.referencedIDs(entries).filter(isPin)
         #expect(pins == ["palette.toggleWorkspacePin"], "pin rows in the workspace menu: \(pins)")
+        let order = catalog.referencedIDs(entries)
+        let pin = try #require(order.firstIndex(of: "palette.toggleWorkspacePin")), archive = try #require(order.firstIndex(of: "workspace.toggleArchive"))
+        #expect(archive == pin + 1, "Pin is not right above Archive: \(order)")
         let more = entries.flatMap { entry -> [ContextMenuEntry] in
             if case .folder(.more, let rows) = entry { return rows } else { return [] }
         }

@@ -361,10 +361,9 @@ extension SidebarGridAlignmentTests {
             workspace.onMore = {}
             workspace.treeFold = .collapsed
             workspace.isExpanded = true
-            workspace.isPinned = { true } // an expanded row shows its pin button only when pinned (base)
             workspace.audioButton.isHidden = false
             workspace.layout()
-            for control in [workspace.closeButton, workspace.moreButton, workspace.pinButton,
+            for control in [workspace.closeButton, workspace.moreButton,
                             workspace.audioButton, workspace.treeFoldButton] {
                 #expect(control.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             }

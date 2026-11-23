@@ -47,10 +47,11 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
+        // Pin sits beside Archive (design dp-1824f397ce: Pin and Unpin live in the right-click menu next to Archive).
+        #expect(rows(menu) == ["renameWorkspace", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
-                               "workspace.toggleArchive", "closeWorkspace"])
+                               "palette.toggleWorkspacePin", "workspace.toggleArchive", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -113,8 +114,8 @@ struct ContextMenuEssentialsTests {
     }
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
-    /// 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸, Pin, Mute; More;
-    /// Archive, Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
+    /// 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸, Mute; More;
+    /// Pin and Archive (dp-1824f397ce), Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
     @Test func theSelectionMenuFollowsChromesMenuForSeveralTabs() {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
@@ -122,8 +123,8 @@ struct ContextMenuEssentialsTests {
         // One verb for a selection: the row is Group Selected Workspaces, the action Cmd-Shift-G runs,
         // not a second "Add to New Group" that does the same thing under another name.
         #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
-                          "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
-                          "More", "—", "workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
+                          "workspace.duplicate", "palette.moveWorkspaceToTop", "workspace.toggleAudioMute", "—",
+                          "More", "—", "palette.toggleWorkspacePin", "workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
         // 13, the one-row workspace menu's cap, now that Archive opens the closing section on both (#48595; Leo
         // 2026-11-21: "there's no right click archive chat in the left bit").

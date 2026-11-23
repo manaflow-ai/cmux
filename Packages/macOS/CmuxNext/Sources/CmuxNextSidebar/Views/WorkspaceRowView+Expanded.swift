@@ -45,26 +45,6 @@ extension WorkspaceRowView {
         return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The hover pin, with the menu button (hover, not renaming): left of it, fading in and out in place with it, on
-    /// every row the App wires a pin to (`SidebarModel.workspacePin`), at every density. Pin on an unpinned row, Unpin
-    /// on a pinned one (David Beyer 2026-11-20: pinning by drag is awkward). No row draws a pin at rest (Leo
-    /// 2026-10-21: "no empty pin symbol by default"). Returns its minX while it shows.
-    func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
-        // The pin state is read only while the controls show: a row at rest asks nothing.
-        let pinned = showMore ? isPinned?() : nil
-        setHoverShown(pinSlot, pinned != nil, fades: fades)
-        guard let pinned else { return nil }
-        pinSlot.made.map { applyPin($0, pinned: pinned) }
-        if SidebarTunables.rowCloseSpot.value.atEnd {
-            let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-            let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
-            pinSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreFrame.midY, control: control, minimumSlot: nextSlot)
-        } else {
-            pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
-        }
-        return pinSlot.frame.minX
-    }
-
     /// The title, the second line and the meta line, top to bottom from `top`.
     func layoutTextLines(x: CGFloat, inset: CGFloat, titleWidth: CGFloat, width: CGFloat, head b: NSRect,
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {

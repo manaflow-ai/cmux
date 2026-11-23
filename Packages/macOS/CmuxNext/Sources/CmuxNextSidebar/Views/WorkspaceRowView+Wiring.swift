@@ -19,9 +19,8 @@ extension WorkspaceRowView {
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
         // The drive indicator's menu: Go to shows the agent's tab, Stop ends what it drives; each row a registered action.
         driveIndicator.makeItem = { [weak list] command, title in list?.driveMenuItem?(id, command, title) }
-        // An expanded row's hover pin (cx-13w3): nil while the App offers none.
+        // Whether the row is pinned (a pinned row offers no hover close): nil while the App offers no pin.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }
-        onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }
     }
 
     /// Reads the agent mark, presence dot, row badge and stack size settings;

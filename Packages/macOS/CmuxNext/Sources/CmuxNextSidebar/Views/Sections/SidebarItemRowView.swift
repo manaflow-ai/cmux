@@ -54,12 +54,6 @@ class SidebarItemRowView: NSView {
     /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
-    /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
-    /// awkward): `isPinned` reads the workspace's pin when the controls show, nil when the App offers no pin;
-    /// `onUnpin` runs Pin/Unpin Workspace (`SidebarModel.workspacePin`).
-    var isPinned: (() -> Bool?)?
-    var onUnpin: (() -> Void)?
-    var hoverUnpin: SidebarIconButton?
     /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
     var onRename: (() -> Void)?
     /// The inline rename's editor draws over the title, which stays hidden until it ends.

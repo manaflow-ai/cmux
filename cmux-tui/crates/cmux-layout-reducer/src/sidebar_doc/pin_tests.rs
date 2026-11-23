@@ -333,3 +333,49 @@ fn item_update_stores_the_items_space_and_its_inverse_takes_it_back() {
     run(&mut doc, clear);
     assert_eq!(room(&doc), None, "a null room clears it");
 }
+
+/// A drag reorders within its own band (design dp-1824f397ce, "the pin goes where the pinned thing goes"): an item
+/// dragged from Pinned lands only among Pinned's rows (`pinned_band` everywhere else), while a row dragged from its
+/// machine section may still cross into Pinned, the one drag that pins.
+#[test]
+fn a_drag_from_pinned_stays_in_pinned_and_a_drag_into_pinned_pins() {
+    use super::accept::drag_begin;
+    use super::view::{LiveWorkspace, ViewRequest, view};
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w4"), item_id("w5")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w4", "w5"]);
+    let live = ["w1", "w2", "w3", "w4", "w5"]
+        .map(|id| LiveWorkspace {
+            session_id: SESSION.into(),
+            workspace_id: id.into(),
+            title: None,
+        })
+        .to_vec();
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+
+    let table = drag_begin(&doc, &rows, &[item_id("w4")]);
+    let w5 = &table[&item_id("w5")];
+    assert!(w5.before && w5.after, "a pinned row reorders within Pinned: {w5:?}");
+    let outside: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.section != PINNED_SECTION_ID)
+        .map(|row| row.key.as_str())
+        .collect();
+    assert!(
+        outside.contains(&item_id("w1").as_str()) && outside.contains(&"g1"),
+        "the machine section's rows: {outside:?}"
+    );
+    for key in outside {
+        let row = &table[key];
+        assert!(
+            !row.before && !row.into && !row.after,
+            "{key} takes a pinned row out of Pinned: {row:?}"
+        );
+        assert_eq!(row.refusal.as_deref(), Some("pinned_band"), "{key}");
+    }
+
+    let table = drag_begin(&doc, &rows, &[item_id("w1")]);
+    let w4 = &table[&item_id("w4")];
+    assert!(w4.before && w4.after, "a row dragged into Pinned pins: {w4:?}");
+    assert!(table[&item_id("w2")].before, "a row still reorders within its own band");
+}

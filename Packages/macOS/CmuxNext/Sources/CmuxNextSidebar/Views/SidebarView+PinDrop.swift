@@ -2,7 +2,8 @@ import AppKit
 
 // Drop-to-pin (PINNED-ITEMS-END-TO-END P2): a workspace row dragged from the
 // list onto the tiles or the top rows joins that section at the drop point;
-// a workspace tile or top row dragged onto the list leaves the band. Both
+// a top row dragged onto the list leaves the band (a pinned tile stays in
+// Pinned: Unpin is in its right-click menu, dp-1824f397ce). Both
 // go through the one layout path (the App's PinCommands, undoable) and show
 // the shared drop outline around the place that takes the drop. (A helper
 // type: SidebarView is at its god-type limit.)

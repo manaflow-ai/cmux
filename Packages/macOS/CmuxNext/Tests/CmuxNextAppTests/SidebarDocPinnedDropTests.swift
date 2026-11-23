@@ -3,7 +3,8 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// A drag into Pinned pins the workspace and a drag out unpins it, as the palette and the API do (Leo 2026-11-21:
+/// A drag into Pinned pins the workspace, the one drag that pins (a pinned row unpins from its right-click menu; design
+/// dp-1824f397ce), as the palette and the API do (Leo 2026-11-21:
 /// "i dont think it works very well, especially with clicking and dragging"); Pinned used to refuse a workspace from
 /// the list (#22263). The lift moves no row (Leo 2026-11-07: "it's super weird how when you drag ANY workspace, it
 /// shifts imediately due to that").

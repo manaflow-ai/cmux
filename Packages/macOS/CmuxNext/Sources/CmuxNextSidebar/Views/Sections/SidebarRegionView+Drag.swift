@@ -91,7 +91,9 @@ extension SidebarRegionView {
         if holdsDragOut(drag, at: convert(point, to: nil)) { return } // the band keeps its order; a release out there removes the item
         if case let .section(id) = drag.subject,
            sectionDropTarget?(id, convert(point, to: nil)) != nil { return }
-        if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
+        // A pinned tile stays in Pinned: a drag reorders within its own band, and Unpin is in its right-click menu
+        // (design dp-1824f397ce). A top row (Add to Top) still drags out to the list.
+        if isWorkspaceItem(drag.subject), !isPinnedItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
                 // Over the list the band shows the drop's outcome: itself
@@ -218,6 +220,11 @@ extension SidebarRegionView {
     private func isWorkspaceItem(_ subject: SidebarRegionDragSubject) -> Bool {
         guard case let .item(id) = subject else { return false }
         return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == LayoutItemRef.workspaceKind
+    }
+
+    private func isPinnedItem(_ subject: SidebarRegionDragSubject) -> Bool {
+        guard case let .item(id) = subject else { return false }
+        return content?.sections.first { $0.id == SidebarLayoutDocument.pinnedSectionID }?.items.contains { $0.id == id } == true
     }
 
     private func frame(of subject: SidebarRegionDragSubject) -> CGRect? {

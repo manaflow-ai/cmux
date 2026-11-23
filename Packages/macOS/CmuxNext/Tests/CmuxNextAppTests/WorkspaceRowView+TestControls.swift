@@ -8,7 +8,6 @@ import CmuxNextDesign
 extension WorkspaceRowView {
     var closeButton: SidebarIconButton { closeSlot.control(in: self) }
     var moreButton: OverflowButton { moreSlot.control(in: self) }
-    var pinButton: SidebarIconButton { pinSlot.control(in: self) }
     var treeFoldButton: SidebarIconButton { treeFoldSlot.control(in: self) }
     var audioButton: SidebarIconButton { audioSlot.control(in: self) }
 }

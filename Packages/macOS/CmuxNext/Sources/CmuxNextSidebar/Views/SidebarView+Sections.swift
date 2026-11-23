@@ -73,7 +73,6 @@ extension SidebarViewComponents {
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
-        region.workspacePin = { [weak self] in self?.model.workspacePin }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
