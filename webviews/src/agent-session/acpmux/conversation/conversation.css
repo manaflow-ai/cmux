@@ -505,6 +505,14 @@
   display: block;
   max-width: 100%;
 }
+/* A sent tile paints inside its own rounded box: a player's loading state, its name or a fallback's
+   words never spill or show clipped beside the tile (Leo, 2026-11-22: "WHAT THE FUCK IS THIS
+   SITUATION MAN WITH THESE ATTACHMENTS!?", a row of spinning squares with cut-off words behind them). */
+.cv-user__video,
+.cv-user__video-player {
+  overflow: hidden;
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
+}
 .cv-user__images .cv-user__video-player button,
 .cv-user__inline-image .cv-user__video-player button {
   cursor: default;
