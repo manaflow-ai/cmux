@@ -292,17 +292,45 @@ async function measure(
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
-      const typing = cdp && {
-        start: async () => {
-          await cdp.send("Profiler.enable");
-          await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-          await cdp.send("Profiler.start");
-        },
-        stop: async () => {
-          const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
-          printProfile(length, profile);
-        },
-      };
+      const traceOut = process.env.CT_TRACE_OUT;
+      const typing =
+        traceOut && engine === "chromium"
+          ? {
+              start: async () => {
+                await (browser as any).startTracing(page, {
+                  path: traceOut,
+                  categories: [
+                    "toplevel",
+                    "devtools.timeline",
+                    "disabled-by-default-devtools.timeline",
+                    "renderer.scheduler",
+                    "disabled-by-default-renderer.scheduler",
+                    "blink",
+                    "cc",
+                    "gpu",
+                    "viz",
+                    "input",
+                    "benchmark",
+                    "sequence_manager",
+                    "disabled-by-default-sequence_manager",
+                  ],
+                });
+              },
+              stop: async () => {
+                await (browser as any).stopTracing();
+              },
+            }
+          : cdp && {
+              start: async () => {
+                await cdp.send("Profiler.enable");
+                await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+                await cdp.send("Profiler.start");
+              },
+              stop: async () => {
+                const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+                printProfile(length, profile);
+              },
+            };
       try {
         return {
           engine,
