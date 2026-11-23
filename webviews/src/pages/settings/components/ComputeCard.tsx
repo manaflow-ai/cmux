@@ -184,6 +184,9 @@ function AutoSwitch({ model, busy, onSet }: PartProps) {
   );
 }
 
+/** `.row-help` is one clipped line on this page (unlayered sheet, so a utility class loses): table text wraps instead. */
+const WRAP = { whiteSpace: "normal" } as const;
+
 function MemberTable({ model }: { model: ComputeModel }) {
   const cell = "py-1 pr-4 text-left align-top";
   return (
@@ -197,7 +200,7 @@ function MemberTable({ model }: { model: ComputeModel }) {
           <col style={{ width: "30%" }} />
         </colgroup>
         <thead>
-          <tr className="row-help">
+          <tr className="row-help" style={WRAP}>
             <th className={cell} scope="col">
               Member
             </th>
@@ -219,10 +222,12 @@ function MemberTable({ model }: { model: ComputeModel }) {
           <tr data-compute-member="spares">
             <td className={cell}>
               <div>{model.spares.member}</div>
-              <div className="row-help">{model.spares.detail}</div>
+              <div className="row-help" style={WRAP}>
+                {model.spares.detail}
+              </div>
             </td>
             <td className={cell}>{model.spares.month}</td>
-            <td className={`${cell} row-help whitespace-normal`} colSpan={2}>
+            <td className={`${cell} row-help`} style={WRAP} colSpan={2}>
               {model.spares.note}
             </td>
           </tr>
@@ -237,11 +242,13 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
     <tr data-compute-member={row.member}>
       <td className={cell}>
         <div>{row.member}</div>
-        <div className="row-help">{row.detail}</div>
+        <div className="row-help" style={WRAP}>
+          {row.detail}
+        </div>
       </td>
       <td className={cell}>{row.month}</td>
       <td className={cell}>{row.share}</td>
-      <td className={`${cell} row-help whitespace-normal`} data-compute-note="">
+      <td className={`${cell} row-help`} style={WRAP} data-compute-note="">
         {row.note}
       </td>
     </tr>
