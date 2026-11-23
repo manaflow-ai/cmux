@@ -39,7 +39,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -160,23 +159,35 @@ fn session_display(opts: &Opts, setup: &Setup) -> String {
     }
 }
 
-/// Linux's display list for the viewer's picker: the X screen's size (one display; an X
-/// screen spans every monitor). A portal session learns its size only once the person picks
+/// Linux's display list for the viewer's picker: the whole X screen first (an X screen spans
+/// every monitor), then each RandR monitor when it has two or more (`x11_view::listing`; the
+/// viewer's pick is the index). A portal session learns its size only once the person picks
 /// the screen, so its list is empty until the stream starts; an X display that cannot be
 /// opened says why.
 #[cfg(target_os = "linux")]
-fn linux_displays(capture: CaptureBackend, display: &str) -> AppLine {
+fn linux_displays(capture: CaptureBackend, display: &str, pick: Option<&str>) -> AppLine {
     let listed = match capture {
         CaptureBackend::X11 => x11rb::connect(Some(display))
             .map_err(|e| format!("X display {display}: {e}"))
             .map(|(conn, screen)| {
                 let root = &x11rb::connection::Connection::setup(&conn).roots[screen];
-                vec![(u32::from(root.width_in_pixels), u32::from(root.height_in_pixels))]
+                let size = (u32::from(root.width_in_pixels), u32::from(root.height_in_pixels));
+                let monitors = crate::x11_view::monitors(&conn, root.root, size);
+                crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect()
             }),
         CaptureBackend::Portal => capture.available().map(|()| Vec::new()),
     };
     match listed {
-        Ok(sizes) => AppLine { displays: Some(sizes), current: Some(0), ..AppLine::default() },
+        Ok(sizes) => {
+            // The viewer's pick is current when it is on the list (else the share refuses it).
+            let current =
+                pick.and_then(|w| w.trim().parse::<usize>().ok()).filter(|&i| i < sizes.len());
+            AppLine {
+                displays: Some(sizes),
+                current: Some(current.unwrap_or(0)),
+                ..AppLine::default()
+            }
+        }
         Err(e) => AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -339,11 +350,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = setup
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&setup.stun, setup.relay_only);
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
@@ -364,7 +371,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
-    say(linux_displays(capture, &display));
+    say(linux_displays(capture, &display, setup.display.as_deref()));
     #[cfg(target_os = "macos")]
     match crate::desktop::displays(&display) {
         Ok((sizes, current, ids)) => say(AppLine {
@@ -395,6 +402,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
         libc::fcntl(
@@ -498,6 +508,13 @@ fn serve_session(
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    if crate::desktop::scales_pictures() {
+        host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
+    }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it
@@ -558,6 +575,7 @@ fn serve_session(
     );
     let cfg = SessionCfg {
         display,
+        display_pick: setup.display.clone(),
         max_fps,
         encode_profile,
         start_kbps,
@@ -577,6 +595,10 @@ fn serve_session(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
+        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
+        resolution_ladder: opts.flag_or("resolution-ladder", false),
+        max_qp: crate::host::ladder_max_qp(opts)?,
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier
