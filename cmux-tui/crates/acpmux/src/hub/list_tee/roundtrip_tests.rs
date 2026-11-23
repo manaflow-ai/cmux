@@ -263,6 +263,7 @@ async fn v1_session_lifecycle_roundtrips_through_the_v2_list_tee() {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     });
     wait_roundtrip(&v1, &v2).await;
     assert!(

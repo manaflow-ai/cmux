@@ -202,6 +202,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
@@ -212,6 +213,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
     ".github/review-fabric-policy.json",
@@ -220,6 +222,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/single-host-fallbacks.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
+    ".github/workflow-job-bounds.json",
 })
 
 
@@ -347,28 +350,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-# The credentialed `changes` router accepts only the current attempt's
-# validated Linux placement. Its test-path references still run on Linux;
-# an unknown needs expression must continue to fail open below.
-_PORTABLE_ROUTER_LINUX_TERM = (
-    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
-    "needs.portable-placement.outputs.linux_runner ||"
-)
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")

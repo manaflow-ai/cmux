@@ -279,6 +279,31 @@ class MatrixReportTest(unittest.TestCase):
                          {"offline": "pass", "memory": "crashed", "asleep": "crashed"})
         self.assertEqual(code, 1)
 
+    def test_a_pass_line_cut_by_the_test_processs_own_log_still_passes(self) -> None:
+        # From a real run: the app's log line landed inside the `passed` of the result line.
+        log = (
+            "◇ Test run started.\n"
+            "◇ Test cellPairingRevokedTokenRefusedAtDial() started.\n"
+            "◇ Test cellPairingRevokedToken() started.\n"
+            "◇ Test cellAppMemoryWarning() started.\n"
+            "✔ Test cellPairingRevokedTokenRefusedAtDial() p2026-11-22 18:52:20.199887+0000 xctest[3348:25543] "
+            "[link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)\n"
+            "assed after 0.068 seconds.\n"
+            "✔ Test cellPairingRevokedToken() passed after 0.068 seconds.\n"
+            "✘ Test cellAppMemoryWarning() f2026-11-22 18:52:20.2 xctest[3348:25543] [link] closed\n"
+            "ailed after 0.070 seconds with 1 issue.\n"
+            "✘ Test run with 3 tests in 1 suite failed after 0.091 seconds with 1 issue.\n"
+        )
+        cells = [
+            cell("at_dial", "ios", "cellPairingRevokedTokenRefusedAtDial", True),
+            cell("revoked", "ios", "cellPairingRevokedToken", True),
+            cell("memory", "ios", "cellAppMemoryWarning", True),
+        ]
+        code, rows = self.run_main(None, log, cells)
+        self.assertEqual({row["id"]: row["status"] for row in rows},
+                         {"at_dial": "pass", "revoked": "pass", "memory": "fail"})
+        self.assertEqual(code, 1)
+
     def test_a_rust_binary_that_dies_before_its_first_line_crashes_its_known_tests(self) -> None:
         code, rows = self.run_main(RUST_DIED_AT_STARTUP_LOG, None, [cell("restart", "rust", "cell_host_daemon_restart", True)])
         self.assertEqual(rows[0]["status"], "crashed")
