@@ -188,6 +188,21 @@ public final class AgentEventJournal {
     @ObservationIgnored private(set) var moved = 0
     /// Bumped by Clear: a memo of the rows starts over.
     @ObservationIgnored private(set) var generation = 0
+    /// Called with each record as it is kept, before older ones drop for it (a held list counts
+    /// every arrival, also those the limit drops before the next frame's read).
+    @ObservationIgnored private var taps: [Int: @MainActor (AgentInspectorEvent) -> Void] = [:]
+    @ObservationIgnored private var nextTap = 0
+
+    /// Calls `each` with every record from now on, until `untap(token)`.
+    func tap(_ each: @escaping @MainActor (AgentInspectorEvent) -> Void) -> Int {
+        nextTap += 1
+        taps[nextTap] = each
+        return nextTap
+    }
+
+    func untap(_ token: Int) {
+        taps[token] = nil
+    }
 
     public init() {}
 
@@ -231,6 +246,7 @@ public final class AgentEventJournal {
         storage.append(event)
         bytes += event.line.utf8.count
         next += 1
+        for each in taps.values { each(event) }
         // The oldest go first, past the row limit or the byte budget (the newest always stays).
         while storage.count - start > 1, storage.count - start > Self.limit || bytes > Self.maxBytes {
             bytes -= storage[start].line.utf8.count
@@ -330,6 +346,13 @@ final class EventInspectorRows {
     private var landed = 0
     /// Held records (the pill's count; read after `rows`, which brings it up to date).
     var heldCount: Int { held.count - heldHead }
+    /// Records that arrived while holding and match the shown query, counted as they come and
+    /// never lowered when the journal later drops one (the pill's real count; what lands is the
+    /// kept ones, `heldCount`).
+    @ObservationIgnored private(set) var arrivedWhileHeld = 0
+    /// The journal tap that counts arrivals while holding.
+    @ObservationIgnored private var tapToken: Int?
+    @ObservationIgnored private weak var tappedJournal: AgentEventJournal?
     /// The newest held record's id (where the pill scrolls to).
     var newestHeldID: Int? { heldCount > 0 ? held.last?.id : nil }
 
@@ -341,23 +364,43 @@ final class EventInspectorRows {
             holding = true
             held = []
             heldHead = 0
+            arrivedWhileHeld = 0
             stubHead = head
+            nextID = journal.nextID
+            // Each record as it comes: matched once against the shown query, counted, and held.
+            tapToken = journal.tap { [weak self] event in self?.arrived(event) }
+            tappedJournal = journal
             return
         }
         holding = false
+        if let tapToken { tappedJournal?.untap(tapToken) }
+        tapToken = nil
         let first = journal.firstID
         if generation == journal.generation {
             matched += held[heldHead...].filter { $0.id >= first }
         }
         held = []
         heldHead = 0
+        arrivedWhileHeld = 0
         released &+= 1
+    }
+
+    /// A record that came while holding.
+    private func arrived(_ event: AgentInspectorEvent) {
+        guard holding else { return }
+        if !shownQuery.isEmpty {
+            matchCalls += 1
+            guard event.matches(shownQuery) else { return }
+        }
+        held.append(event)
+        arrivedWhileHeld += 1
     }
 
     /// A new query's rows include every record: nothing is held any more.
     private func dropHeld() {
         held = []
         heldHead = 0
+        arrivedWhileHeld = 0
         stubHead = 0
     }
 
@@ -476,15 +519,7 @@ final class EventInspectorRows {
                 stubHead += 1
                 stubbed += 1
             }
-            guard nextID < journal.nextID, count > 0 else { return }
-            for event in journal.events(from: nextID) {
-                if shownQuery.isEmpty {
-                    held.append(event)
-                } else {
-                    matchCalls += 1
-                    if event.matches(shownQuery) { held.append(event) }
-                }
-            }
+            // The records themselves came through the tap (`arrived`), as they were kept.
             nextID = journal.nextID
             return
         }
@@ -629,5 +664,34 @@ extension AgentSessionSource {
 
     public func replayRecording() async throws -> AgentReplayRecording {
         throw AgentFeatureUnavailable(String(localized: "This chat has no recorded history to replay."))
+    }
+}
+
+/// The Event Inspector's "N new events" pill: the records that arrived while the reader was away
+/// from the top, exactly up to the journal's limit, then "500+" (the journal keeps only its newest
+/// ``AgentEventJournal/limit``, so a larger count is "more than" it).
+struct NewEventsPill: Equatable {
+    /// Records that arrived and match the shown query.
+    let arrived: Int
+    /// The journal's limit (its one source).
+    var cap: Int = AgentEventJournal.limit
+
+    /// More arrived than the journal keeps.
+    var isOver: Bool { arrived > cap }
+    /// The number the pill shows: exact, or the cap with "+".
+    var shown: Int { min(arrived, cap) }
+
+    /// "120 new events", or "500+ new events".
+    var text: String {
+        isOver
+            ? String(localized: "mobile.agentChat.inspector.newEventsOver \(cap)", bundle: .module)
+            : String(localized: "mobile.agentChat.inspector.newEvents \(arrived)", bundle: .module)
+    }
+
+    /// What VoiceOver reads: "120 new events", or "More than 500 new events".
+    var accessibilityText: String {
+        isOver
+            ? String(localized: "mobile.agentChat.inspector.newEventsOver.accessibility \(cap)", bundle: .module)
+            : text
     }
 }

@@ -292,7 +292,10 @@ struct EventInspectorList: View {
         // drop costs itself), not filtered and reversed over every record per redraw.
         let rows = memo.rows(journal)
         let total = journal.count
+        // What the pill counts: every matching record that arrived while away (not lowered as
+        // the journal drops them); what its tap lands is the kept ones.
         let held = memo.heldCount
+        let pill = NewEventsPill(arrived: memo.arrivedWhileHeld)
         ScrollViewReader { proxy in
             List {
                 Section {
@@ -326,19 +329,19 @@ struct EventInspectorList: View {
                 memo.setHolding(away, journal: journal)
             }
             .overlay(alignment: .top) {
-                if held > 0 {
+                if held > 0 || pill.arrived > 0 {
                     Button {
                         let newest = memo.newestHeldID
                         memo.setHolding(false, journal: journal)
                         jumpTo = newest
                     } label: {
-                        Label(String(localized: "mobile.agentChat.inspector.newEvents \(held)", bundle: .module),
-                              systemImage: "arrow.up")
+                        Label(pill.text, systemImage: "arrow.up")
                             .font(.subheadline.weight(.semibold))
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .padding(.top, 8)
+                    .accessibilityLabel(pill.accessibilityText)
                     .accessibilityIdentifier("chat.inspector.newEvents")
                 }
             }

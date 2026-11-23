@@ -211,7 +211,9 @@ final class EventInspectorUITests: XCTestCase {
         scrollToOldest(app)
         attach(app, "1-reader-at-oldest")
         XCTAssertTrue(pill(app).waitForExistence(timeout: 170), "the new records wait behind the pill\n\(app.debugDescription)")
-        XCTAssertTrue(pill(app).label.contains("60"), "the pill counts the 60 new records: '\(pill(app).label)'")
+        let sixty = NSPredicate(format: "label == %@", "60 new events")
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: sixty, object: pill(app))], timeout: 10), .completed,
+                       "the pill says exactly the 60 that came: '\(pill(app).label)'")
         XCTAssertTrue(row(app, seq: 1).isHittable, "the row under the reader stays while they read")
         attach(app, "2-held-pill")
         tapPillToTheNewest(app, newest: 560)

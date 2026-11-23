@@ -556,6 +556,86 @@ import Testing
         #expect(rows.rows(journal).map(\.id) == brute(journal, "tool_call"))
     }
 
+    // MARK: The "N new events" pill: the real count, "500+" over the journal's limit
+
+    /// Holds `rows`, then records `count` records (`matching(n)` picks their bodies), one
+    /// read every `perFrame` records as the screen's frames read.
+    func arrive(_ count: Int, into journal: AgentEventJournal, rows: EventInspectorRows, from start: Int = 1000,
+                perFrame: Int = 40, body: (Int) -> String? = { _ in nil }) {
+        for n in start..<(start + count) {
+            journal.record(Self.record(n, body: body(n)))
+            if (n - start + 1) % perFrame == 0 { _ = rows.rows(journal) }
+        }
+        _ = rows.rows(journal)
+    }
+
+    @Test(arguments: [(1, "1 new event", false), (499, "499 new events", false), (500, "500 new events", false),
+                      (501, "500+ new events", true), (2000, "500+ new events", true)])
+    func thePillSaysTheRealCountUpToTheLimit(_ c: (Int, String, Bool)) {
+        let (arrivals, label, over) = c
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<100 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        arrive(arrivals, into: journal, rows: rows)
+        #expect(rows.arrivedWhileHeld == arrivals, "every arrival counted, also those the limit dropped")
+        let pill = NewEventsPill(arrived: rows.arrivedWhileHeld)
+        #expect(pill.text == label, "pill for \(arrivals) arrivals: '\(pill.text)'")
+        #expect(pill.isOver == over)
+        if over { #expect(pill.accessibilityText == "More than 500 new events") }
+        else { #expect(pill.accessibilityText == pill.text) }
+    }
+
+    /// With a filter, the pill counts the arrivals that match it (2000 come, 200 match).
+    @Test func withAFilterThePillCountsTheMatches() {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<100 { journal.record(Self.record(n, body: "beta")) }
+        rows.setQuery("alpha", journal: journal)
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        // Also in one go, past the limit between two reads: each is matched as it is kept.
+        arrive(2000, into: journal, rows: rows, perFrame: 2000) { $0 % 10 == 0 ? "alpha" : "beta" }
+        #expect(rows.arrivedWhileHeld == 200)
+        #expect(NewEventsPill(arrived: rows.arrivedWhileHeld).text == "200 new events")
+        #expect(rows.matchCalls <= 2000 + 100 + 1, "each arrival matched once (\(rows.matchCalls))")
+    }
+
+    /// The count starts over when the hold ends and when the query changes, and the journal
+    /// dropping arrivals never lowers it.
+    @Test func theCountResetsOnTheHoldsEndAndAQueryAndNeverDropsWithTheJournal() {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<AgentEventJournal.limit { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        let firstArrival = journal.nextID
+        arrive(300, into: journal, rows: rows)
+        #expect(rows.arrivedWhileHeld == 300)
+        // The journal drops 300 older records and then 250 of these arrivals.
+        arrive(450, into: journal, rows: rows, from: 5000)
+        #expect(journal.firstID > firstArrival, "arrivals were dropped from the journal")
+        #expect(rows.arrivedWhileHeld == 750, "drops never lower the count")
+        rows.setHolding(false, journal: journal)
+        #expect(rows.arrivedWhileHeld == 0, "the hold's end starts over")
+        rows.setHolding(true, journal: journal)
+        arrive(20, into: journal, rows: rows, from: 9000)
+        #expect(rows.arrivedWhileHeld == 20)
+        rows.setQuery("tool_call", journal: journal)
+        #expect(rows.arrivedWhileHeld == 0, "a new query starts over")
+        rows.setHolding(false, journal: journal)
+    }
+
+    /// The pill reads its limit from the journal's one constant: another limit moves the "+".
+    @Test func thePillsLimitIsTheJournals() {
+        #expect(NewEventsPill(arrived: 1).cap == AgentEventJournal.limit)
+        let small = NewEventsPill(arrived: 4, cap: 3)
+        #expect(small.isOver && small.shown == 3 && small.text == "3+ new events", "'\(small.text)'")
+        let exact = NewEventsPill(arrived: AgentEventJournal.limit + 1)
+        #expect(exact.text == "\(AgentEventJournal.limit)+ new events")
+    }
+
     @Test func theByteBudgetHoldsWithTheMemo() {
         let journal = journal()
         let rows = EventInspectorRows(offMainAbove: .max)
