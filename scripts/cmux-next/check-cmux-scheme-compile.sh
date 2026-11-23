@@ -124,7 +124,7 @@ build() {
   result_bundle=""
   [[ -z "$timeline_dir" ]] || result_bundle="$timeline_dir/attempt-${build_attempt}.xcresult"
   xcode_args=(
-    -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
+    -project cmux.xcodeproj -scheme cmux -configuration "$configuration" -skipPackagePluginValidation
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     # Each build its own SwiftPM download cache: the default ~/Library/Caches/org.swift.swiftpm is shared by

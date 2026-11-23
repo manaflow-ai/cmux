@@ -48,6 +48,14 @@ public final class MacScreenPaneModel {
         get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
         set { viewerLookOverride = newValue }
     }
+    /// A readout fixed for this pane (the gallery draws each); nil follows Debug Settings `macScreen.qualityReadout`.
+    var qualityReadoutOverride: MacScreenQualityReadout?
+    /// Where the stream's rate and quality show, read live like ``viewerLook``.
+    var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
+    /// The gallery's bar variant; nil reads Debug Settings.
+    var toolbarBarOverride: MacScreenToolbarBar?
+    /// How the floating bar arranges its controls, read live like ``viewerLook``.
+    var toolbarBar: MacScreenToolbarBar { toolbarBarOverride ?? MacScreenTunables.toolbarBar.value }
     /// The toolbar's Record button: this stream copied into an MP4 as it arrives.
     public let recording = MacScreenRecording()
 
@@ -149,7 +157,9 @@ public final class MacScreenPane {
         session.onTransport = { [weak self] transport in self?.decode(transport) }
         view.presenter.onFrameSize = { [weak self, weak session] size in
             guard let self else { return }
-            view.video.setFramePixels(size)
+            // The decoded picture's size (it picks the video's filters); the video's pixel space
+            // is the stream's, set by the pane's layout from `geometry`.
+            view.video.setPicturePixels(size)
             session?.setStreamFrameSize(size)
             view.needsLayout = true
         }
@@ -440,10 +450,16 @@ public final class MacScreenPaneView: NSView {
         return CGRect(x: 0, y: reserved, width: bounds.width, height: max(0, bounds.height - reserved))
     }
 
-    /// Where the streamed display sits (aspect fit), for the input surface.
+    /// Where the streamed display sits (aspect fit), for the input surface and the cursor: in
+    /// stream pixels (the welcome's size), so a smaller picture from the host's resolution
+    /// ladder (`video.scaled`) fills the same rect and input keeps its pixels. Before a
+    /// welcome size, the decoded picture's size.
     var geometry: RemoteViewGeometry? {
-        guard let size = model.session?.frameSize, size.width >= 1, size.height >= 1 else { return nil }
-        return RemoteViewGeometry(framePixels: size, bounds: capture.bounds, backingScale: window?.backingScaleFactor ?? 2, scaling: .fit)
+        guard let session = model.session else { return nil }
+        let geometry = RemoteViewGeometry(streamPixels: session.streamSize, picturePixels: session.frameSize, bounds: capture.bounds,
+                                          backingScale: window?.backingScaleFactor ?? 2, scaling: .fit)
+        guard geometry.framePixels.width >= 1, geometry.framePixels.height >= 1 else { return nil }
+        return geometry
     }
 
     public override func layout() {
@@ -456,6 +472,8 @@ public final class MacScreenPaneView: NSView {
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
         if let geometry {
+            // The video's pixel space (cursor overlay) is the stream's, as input's is.
+            if video.framePixels != geometry.framePixels { video.setFramePixels(geometry.framePixels) }
             video.frame = geometry.imageRect.offsetBy(dx: capture.frame.minX, dy: capture.frame.minY)
         } else {
             video.frame = .zero
@@ -562,6 +580,7 @@ public final class MacScreenPaneView: NSView {
         withObservationTracking {
             _ = model.card
             _ = model.session?.isStalled
+            _ = model.session?.streamSize
             _ = model.gate
             _ = model.hasFrame
             _ = model.viewOnly
