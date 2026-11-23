@@ -678,10 +678,8 @@ def phone_dial_evidence(path, url):
 
 def _tab_link_id(tab):
     """The tab's public resource id (`tab_` + 32 hex), the id a cmux link carries."""
-    for value in tab.values():
-        if isinstance(value, str) and TAB_ID.match(value):
-            return value
-    return None
+    value = tab.get("id")  # ControlTabInfo.json puts the public link target here.
+    return value if isinstance(value, str) and TAB_ID.fullmatch(value) else None
 
 
 def _conversation_tabs(snap):
@@ -744,10 +742,8 @@ def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs,
          f"{'at rest, ' + repr(((rest or {}).get('lastAssistant') or {}).get('text', '')[:40]) if rest else 'NOT at rest in 120 s'}")
     if not rest:
         return False
-    # Which chat a launch showed: the phone names it on the line before its mark (ChatTranscriptList);
-    # it must be the one the link opens (the tab link id, or the Mac's session id for it).
-    mine = {link_id, rest.get("sessionId")} | {v for v in tab.values() if isinstance(v, str)}
-    mine.discard(None)
+    # The phone identifies the linked chat by its public tab ID or the Mac's session ID.
+    mine = {v for v in (link_id, rest.get("sessionId")) if isinstance(v, str) and v}
 
     video = os.path.join(out, "open-live.mp4")
     rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
@@ -772,16 +768,21 @@ def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs,
                 since = time.monotonic()
                 launched = subprocess.run(simctl + ["launch", udid, bundle_id], env=env, capture_output=True,
                                           text=True, timeout=60)
-                pid = (re.search(r":\s*(\d+)\s*$", launched.stdout or "") or [None, None])[1]
+                pid_match = re.search(r":\s*(\d+)\s*$", launched.stdout or "")
+                pid = pid_match[1] if launched.returncode == 0 and pid_match else None
                 # `log stream` delivers lines late, so a line is this launch's only by the process id its
                 # chat line names; the mark is the first after that line (the old process is gone by then).
-                seen = phone_log.wait_at(re.compile(OPEN_LIVE_CHAT.pattern + (rf" pid {pid}\b" if pid else "")),
-                                         60, since=since)
+                # No pid (the launch failed or printed none): nothing ties a line to this launch, so the
+                # sample is rejected at once rather than read from any chat line that arrives.
+                seen = phone_log.wait_at(re.compile(OPEN_LIVE_CHAT.pattern + rf" pid {pid}\b"), 60,
+                                         since=since) if pid else None
                 hit = phone_log.wait_at(LATEST_OUTPUT, 10, since=seen[0]) if seen else None
                 mac_streaming = streaming(chat()) if row == "duress" else None
                 shown = seen[1].group(1) if seen else None
                 running = seen[1].group(2) == "true" if seen else None
-                bad = ("no chat line from this launch in 60 s" if not seen else
+                bad = (f"simctl launch failed or gave no pid (exit {launched.returncode}: "
+                       f"{redact((launched.stderr or launched.stdout or '').strip())[:80]})" if not pid else
+                       "no chat line from this launch in 60 s" if not seen else
                        "no latest-output mark after its chat line" if not hit else
                        f"showed chat {shown[:12]}, not the linked one" if shown not in mine else
                        "the phone's chat was not running at its frame" if row == "duress" and not running else
