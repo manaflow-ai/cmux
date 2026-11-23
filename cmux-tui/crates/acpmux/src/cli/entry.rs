@@ -160,12 +160,6 @@ const TOOLS_MCP_WORKERS: usize = 1;
 /// that takes no bytes must not keep a stopped daemon from exiting.
 // timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
-/// How long a lowered `--take-over` start that moved to a login-session job waits for that job's
-/// daemon to take the home, so the update swap that started it sees the hand-over: the swap's own
-/// wait for a take-over start to ask (`daemon/exe_swap.rs` `HANDOVER_WITHIN`).
-#[cfg(target_os = "macos")]
-// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
-const HANDOVER_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -347,27 +341,6 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
-                }
-            }
-            // A daemon that starts below its CPU tier (a clamp or nice it inherited, as an update's
-            // `--take-over` successor inherits its lowered predecessor's) starts again as a
-            // login-session job, where launchd runs it at `Interactive`: every pane's connect waits
-            // on this daemon (`daemon/login_session.rs` `leave_lowered_run`). A start that carries a
-            // descriptor (the app's, a command's) was placed by its starter and stays.
-            #[cfg(target_os = "macos")]
-            if ready_fd.is_none() && person_key_fd.is_none() && !memory && !dev {
-                let home = crate::config::home();
-                // timeout: no wait unless a take-over swap waits on this start (HANDOVER_WAIT says why)
-                let wait = if take_over { HANDOVER_WAIT } else { std::time::Duration::ZERO };
-                if crate::daemon::login_session::leave_lowered_run(
-                    &home,
-                    &home.join("daemon.log"),
-                    wait,
-                )
-                .await
-                {
-                    crate::log_sink::flush(LOG_FLUSH_BUDGET);
-                    return Ok(());
                 }
             }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier

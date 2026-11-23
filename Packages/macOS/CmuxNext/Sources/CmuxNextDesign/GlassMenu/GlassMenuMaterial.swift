@@ -1,6 +1,6 @@
 public import AppKit
-import CmuxNextDesignTokens
-import CmuxTheme
+public import CmuxNextDesignTokens
+public import CmuxTheme
 
 /// The one floating material, native side: every cmux-drawn menu and popover (``GlassMenu``, and the
 /// popovers made with ``Glass/makeMenuPanel(content:cornerRadius:)``) is the App's glass at the menu
@@ -27,8 +27,47 @@ public nonisolated struct GlassMenuMaterial {
     /// The glass level every menu and popover is.
     public static let level: GlassLevel = .menu
 
-    /// The veil's share of the theme surface, 0...1.
+    /// The veil's share of the theme surface, 0...1: the shared material's, which most themes keep (``veil(for:)``).
     public static var veil: CGFloat { CGFloat(veilPercent / 100) }
+
+    /// The most a theme's veil rises to: the glass rule's 90% cap (design/glass-system.md), so a menu stays glass.
+    public static let maximumVeil: CGFloat = 0.9
+
+    /// What ``veil(for:)`` asks above each contrast floor, so the floor still holds once the glass is drawn in 8 bits.
+    public static let contrastHeadroom = 0.1
+
+    /// The veil `tokens` lay on a menu's glass: ``veil``, raised in 2% steps up to ``maximumVeil`` until the theme's
+    /// primary text reads at 4.5:1 and its secondary at 3:1 on the glass over the theme's own window, a white page
+    /// and a black page (design/glass-system.md, rule 5: when a level fails at its tint, the tint goes up, the text
+    /// never gets thinner). At 40% Rose Pine Dawn's text read 2.56:1 on its glass over a black page and Red Planet's
+    /// 2.62:1 over a white one (NativeControlContrastAuditTests); a theme whose text already reads there keeps 40%.
+    /// Each floor carries ``contrastHeadroom``: Blue Dolphin's text fit to exactly 4.5:1 read 4.49:1 in the 8-bit capture.
+    ///
+    /// A theme whose own text reads under 4.5:1 on its surface asks only what the surface gives, less 0.05.
+    public static func veil(for tokens: ThemeTokens) -> CGFloat {
+        let pages = [tokens.windowBackground.withAlpha(1), ThemeRGB(red: 1, green: 1, blue: 1), ThemeRGB(red: 0, green: 0, blue: 0)]
+        let surface = tokens.surfaceBackground.withAlpha(1)
+        let primary = tokens.textPrimary.composited(over: surface)
+        let secondary = tokens.textSecondary.composited(over: surface)
+        let wants = (primary: min(4.5 + contrastHeadroom, primary.contrast(with: surface) - 0.05),
+                     secondary: min(3.0 + contrastHeadroom, secondary.contrast(with: surface) - 0.05))
+        var share = veil
+        while share < maximumVeil {
+            let grounds = pages.map { glass(tokens, veil: share, over: $0) }
+            if grounds.allSatisfy({ primary.contrast(with: $0) >= wants.primary && secondary.contrast(with: $0) >= wants.secondary }) {
+                break
+            }
+            share = min(maximumVeil, share + 0.02)
+        }
+        return share
+    }
+
+    /// A menu's glass over `page`, as the audit and the button looks model it: the theme's glass tint at the menu level,
+    /// then the theme surface at `veil`.
+    public static func glass(_ tokens: ThemeTokens, veil: CGFloat, over page: ThemeRGB) -> ThemeRGB {
+        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * level.tintStrength))
+        return tokens.surfaceBackground.withAlpha(Double(veil)).composited(over: tint.composited(over: page))
+    }
 
     /// The radius in effect: the one surface radius, concentric with the panes (Lawrence
     /// 2026-11-04), which is ``defaultCornerRadius`` unless the person changed it.
@@ -52,7 +91,7 @@ extension Glass {
     }
 }
 
-/// The theme surface at ``GlassMenuMaterial/veil`` over a menu's glass, under its rows: the same veil
+/// The theme surface at ``GlassMenuMaterial/veil(for:)`` over a menu's glass, under its rows: the same veil
 /// the page lays on the App's glass under a web menu (`--host-glass-fill`). None on the opaque Reduce
 /// Transparency surface, which is solid already. It never takes a click.
 @MainActor
@@ -71,7 +110,9 @@ public final class GlassMenuVeilView: NSView {
     public override func updateLayer() {
         let glass = enclosingOverlayMaterial.map { $0 != .opaque } ?? true
         layer?.backgroundColor = glass
-            ? performWithTheme { Palette.surfaceBackground.withAlphaComponent(GlassMenuMaterial.veil) }.cgColor
+            ? performWithTheme {
+                Palette.surfaceBackground.withAlphaComponent(GlassMenuMaterial.veil(for: ThemeContext.active ?? ThemeScope.app.tokens))
+            }.cgColor
             : NSColor.clear.cgColor
     }
 
