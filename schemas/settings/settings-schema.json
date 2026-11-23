@@ -1913,6 +1913,30 @@
 
         ],
         "aliases" : [
+          "server"
+        ],
+        "groups" : [
+
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+          "server",
+          "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
 
         ],
         "groups" : [
@@ -2097,30 +2121,6 @@
         },
         "trail" : [
 
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-          "server"
-        ],
-        "groups" : [
-
-        ],
-        "id" : "devices",
-        "lead" : [
-          "devices"
-        ],
-        "symbol" : "laptopcomputer",
-        "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
-        },
-        "trail" : [
-          "server",
-          "tailnet"
         ]
       },
       {
@@ -2435,7 +2435,8 @@
       {
         "categories" : [
           "accounts",
-          "mobile"
+          "mobile",
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2451,7 +2452,6 @@
           "mcpServers",
           "cloud",
           "keys",
-          "devices",
           "import",
           "privacy",
           "advanced",

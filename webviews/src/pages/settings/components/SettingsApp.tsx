@@ -6,7 +6,7 @@ import { parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
 import { t } from "../strings";
-import { filterRows } from "../search";
+import { filterPages, filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
@@ -118,6 +118,12 @@ export function SettingsApp() {
     clearField();
   };
   const submit = () => {
+    // A page the words name is drawn first (SearchResults): Return opens it, as a click does.
+    const page = filterPages({ query, devBuild: state.host?.dev_build === true })[0];
+    if (page) {
+      go(page.id);
+      return;
+    }
     const first = filterRows({
       query,
       valueOf: (key) => valueOf(state, key),

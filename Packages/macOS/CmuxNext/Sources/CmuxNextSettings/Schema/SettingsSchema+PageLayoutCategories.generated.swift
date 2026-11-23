@@ -9,8 +9,8 @@ extension SettingsPageLayout {
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
-        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory]),
+        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -269,6 +269,13 @@ extension SettingsPageLayout {
         trail: [.mobile]
     )
 
+    /// Devices holds what the Server page showed; its old links open it (legacy_ids). It sits under Accounts and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-23: "i also couldnt find settings devices control").
+    private static let devicesCategory = CategorySpec(
+        id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
+        groups: [],
+        lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
+    )
+
     private static let newTabCategory = CategorySpec(
         id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
         groups: [
@@ -316,13 +323,6 @@ extension SettingsPageLayout {
         id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
         groups: [],
         lead: [.keys]
-    )
-
-    /// Devices holds what the Server page showed; its old links open it (legacy_ids).
-    private static let devicesCategory = CategorySpec(
-        id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-        groups: [],
-        lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.
