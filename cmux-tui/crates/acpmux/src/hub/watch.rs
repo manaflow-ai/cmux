@@ -266,6 +266,9 @@ impl Hub {
         if session.meta().watching.is_none() {
             return;
         }
+        // A restored chat whose app the registry names reads disconnected once it exits, or at
+        // once when it exited while the daemon was down (`app_exit.rs`).
+        self.follow_app(session, None);
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
             // Woken by the hub's one check of all watched transcripts (`watch_tick.rs`) when

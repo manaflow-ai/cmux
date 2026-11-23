@@ -1815,7 +1815,7 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 }
 
 mod durability;
-pub use durability::{Durability, ShowAfter};
+pub use durability::{Durability, FULL_WAIT, ShowAfter};
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]

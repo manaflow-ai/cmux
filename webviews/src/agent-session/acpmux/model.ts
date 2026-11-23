@@ -28,6 +28,7 @@ import {
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   TRANSCRIPT_LINE_ROW,
+  transcriptLineRow,
   liveStepHeight,
   transcriptGap,
 } from "./transcriptGrid";
@@ -91,6 +92,7 @@ import {
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
@@ -1866,13 +1868,14 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
             ? MARK_STATUS
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
-/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`.
-const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
+/// One-line activity rows are one row apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS).
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// Read once per layout pass, with the scale (layoutConversation).
+let lineRowPt = TRANSCRIPT_LINE_ROW;
+const toolRowHeight = () => lineRowPt * chromeScale;
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -3341,11 +3344,11 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them. Its attachments draw in one block above the bubble
-  // (UserBubble.tsx, bubbleParts.ts `bubbleLayout`), in every attachment view.
+  // a placed prompt join as the draft had them. The pane's attachment view says which attachments
+  // draw in the row above the bubble instead (UserBubble.tsx: the strip view draws them all there).
   const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? bubbleLayout(row)
+      ? bubbleLayout(row, composerSettingsSnapshot().attachmentView)
       : undefined;
   const inline = layout?.parts;
   const plainUser =
@@ -3773,6 +3776,7 @@ export function layoutConversation(
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
+  lineRowPt = transcriptLineRow();
   // The gaps between rows also take the transcript look's density and row spacing (1 at cmux).
   const gapFactor = transcriptGapScale();
   const gapScale = scale * gapFactor;

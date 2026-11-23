@@ -88,7 +88,14 @@ alive() { ps -p "$1" >/dev/null 2>&1; }
 app_pid() { pgrep -f "^$app/Contents/MacOS/" | head -1 || true; }
 wait_socket() { local i; for i in $(seq 1 60); do rpc debug.windows '{}' 3 2>/dev/null | grep -q '"ok": *true' && return 0; sleep 1; done; return 1; }
 wait_exit() { local i; for i in $(seq 1 "$2"); do alive "$1" || return 0; sleep 1; done; return 1; }
-launch() { open -g -n "$app"; wait_socket; sleep 4; APP_PID="$(app_pid)"; log "app pid $APP_PID"; }
+# launch: until the socket answers, the app's process is listed and its cmux-tui daemon runs (30 s).
+launched() { [ -n "$(app_pid)" ] && pgrep -f "^$BIN/cmux-tui --headless --session cmux-app-$slug " >/dev/null; }
+launch() {
+  local i; open -g -n "$app"; wait_socket
+  for i in $(seq 1 300); do launched && break; sleep 0.1; done
+  launched || log "launch: no app process or cmux-tui daemon 30 s after the socket answered"
+  APP_PID="$(app_pid)"; log "app pid $APP_PID"
+}
 daemon_sock() { ps -o command= -p "$TUI_PID" | sed -E 's/.*--socket ([^ ]+).*/\1/'; }
 cli() { "$BIN/cmux" --socket "$DSOCK" "$@"; }
 acp() { "$BIN/acpmux" "$@"; }
