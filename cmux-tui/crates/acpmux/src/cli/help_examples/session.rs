@@ -123,6 +123,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session icon",
+        &[
+            ("Give this session a mango emoji as its tab icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol for a session", "acpmux session icon review-27310 sf:leaf.fill"),
+            ("Use a site's favicon for a session", "acpmux session icon @ https://github.com"),
+            ("Clear the icon so cmux picks one again", "acpmux session icon @ none"),
+        ],
+    ),
+    (
         "session detach",
         &[
             (

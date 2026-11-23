@@ -29,6 +29,24 @@ public final class HarnessIconArtwork {
         return lookup
     }
 
+    /// Each chat's own icon drawn once (``AgentChatDetail/icon``), by icon: chats that share one
+    /// share its image, and a snapshot that draws it again keeps its identity.
+    private static var chatArtCache: [HarnessIconSpec: HarnessIconLookup.Art] = [:]
+    /// The most distinct chat icons kept drawn; past it the cache starts over.
+    static let chatArtCap = 256
+
+    /// The drawn icon a chat gave itself (`acpmux icon @ 🥭`, ask-8d11bc20e5), or nil when it
+    /// gave none or this Mac cannot draw it.
+    /// - Parameter spec: The chat's icon, from its acpmux summary.
+    static func chatArt(_ spec: HarnessIconSpec?) -> HarnessIconLookup.Art? {
+        guard let spec else { return nil }
+        if let art = chatArtCache[spec] { return art }
+        guard let art = art(spec) else { return nil }
+        if chatArtCache.count >= chatArtCap { chatArtCache.removeAll(keepingCapacity: true) }
+        chatArtCache[spec] = art
+        return art
+    }
+
     static func art(_ spec: HarnessIconSpec) -> HarnessIconLookup.Art? {
         switch spec {
         case .brand(let brand, _): return .brand(brand)
@@ -49,7 +67,7 @@ public final class HarnessIconArtwork {
         cgImage.map { .image(TabImage($0), SidebarFavicon($0)) }
     }
 
-    /// A PNG's or SVG's bytes as an image of ``pixels`` square, its aspect kept.
+    /// A PNG's, SVG's, ICO's or JPEG's bytes as an image of ``pixels`` square, its aspect kept.
     static func decode(_ data: Data, mime: String) -> CGImage? {
         if mime == "image/png", let source = CGImageSourceCreateWithData(data as CFData, nil) {
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,

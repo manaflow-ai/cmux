@@ -269,11 +269,14 @@ extension SidebarMapping {
         return row
     }
 
-    /// The mark the row draws for the agent tab the face picked: a custom harness's own icon (user 12922; a mark
-    /// it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
-    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+    /// The mark the row draws for the agent tab the face picked: the icon its chat gave itself (`acpmux icon @ 🥭`,
+    /// ask-8d11bc20e5), else a custom harness's own icon (user 12922; a mark it names is a brand, anything else the
+    /// row's `agentIcon`), else the tab's brand.
+    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup,
+                          turns: AgentTurnStateStore = .shared) -> (brand: String?, icon: SidebarAgentIcon?) {
         guard let tab else { return (nil, nil) }
-        switch harnessIcons.custom(for: tab.agentSession?.harness) {
+        let own = HarnessIconArtwork.chatArt(tab.agentSession.flatMap(turns.detail(for:))?.icon)
+        switch own ?? harnessIcons.custom(for: tab.agentSession?.harness) {
         case .brand(let brand)?: return (brand, nil)
         case .symbol(let name)?: return (nil, .symbol(name))
         case .image(_, let favicon)?: return (nil, .image(favicon))

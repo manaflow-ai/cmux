@@ -10,7 +10,7 @@ public struct HarnessIconLookup: Equatable, Sendable {
     /// No icons (the list is not read yet): every surface keeps its brand mark or kind icon.
     public static let none = HarnessIconLookup()
 
-    /// One harness's drawn icon.
+    /// One harness's (or one chat's own) drawn icon.
     enum Art: Equatable, Sendable {
         /// An agent mark id: the surfaces' own brand drawing.
         case brand(String)
@@ -35,7 +35,12 @@ public struct HarnessIconLookup: Equatable, Sendable {
 
     /// The tab strip's icon for a chat on `harness`, or nil to keep the usual one.
     func tabIcon(for harness: String?) -> TabIcon? {
-        switch custom(for: harness) {
+        Self.tabIcon(custom(for: harness))
+    }
+
+    /// The tab strip's icon for drawn icon `art`, or nil when there is none.
+    static func tabIcon(_ art: Art?) -> TabIcon? {
+        switch art {
         case .brand(let brand)?: .agentMark(brand)
         case .symbol(let name)?: .symbol(name)
         case .image(let image, _)?: .image(image)

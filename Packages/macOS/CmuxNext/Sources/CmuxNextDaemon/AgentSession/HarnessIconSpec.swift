@@ -10,7 +10,7 @@ public import Foundation
 /// let spec = HarnessIconSpec(json: ["kind": "emoji", "text": "🦊", "source": "profile"])
 /// spec?.isOwn // true
 /// ```
-public nonisolated enum HarnessIconSpec: Equatable, Sendable {
+public nonisolated enum HarnessIconSpec: Hashable, Sendable {
     /// An agent mark id from design/agent-icons (`claude`, `gemini`).
     case brand(String, isOwn: Bool)
     /// A built-in glyph: `terminal` or `generic`.
@@ -19,10 +19,14 @@ public nonisolated enum HarnessIconSpec: Equatable, Sendable {
     case emoji(String, isOwn: Bool)
     /// An SF Symbol name, with the monogram to show where it cannot be drawn.
     case symbol(String, monogram: String, hue: Int, isOwn: Bool)
-    /// A PNG or SVG file's bytes; `mime` is `image/png` or `image/svg+xml`.
+    /// An image file's bytes; `mime` is `image/png`, `image/svg+xml`, or (a chat's own icon taken
+    /// from a site's favicon, acpmux `session_icon.rs`) `image/x-icon` or `image/jpeg`.
     case image(Data, mime: String, isOwn: Bool)
     /// One or two letters on a disc of `hue` (0-359).
     case monogram(String, hue: Int, isOwn: Bool)
+
+    /// The image types an icon may be: what acpmux's harness and chat icons send.
+    static let imageMimes: Set<String> = ["image/png", "image/svg+xml", "image/x-icon", "image/jpeg"]
 
     /// The profile set this icon (`source: "profile"`), rather than acpmux picking it.
     public var isOwn: Bool {
@@ -56,7 +60,7 @@ public nonisolated enum HarnessIconSpec: Equatable, Sendable {
             guard let name = text("name", 128), let letters = text("text", 8), let hue else { return nil }
             self = .symbol(name, monogram: letters, hue: hue, isOwn: own)
         case "image":
-            guard let mime = text("mime", 32), mime == "image/png" || mime == "image/svg+xml",
+            guard let mime = text("mime", 32), Self.imageMimes.contains(mime),
                   let encoded = text("data", 400_000), let data = Data(base64Encoded: encoded) else { return nil }
             self = .image(data, mime: mime, isOwn: own)
         case "monogram":

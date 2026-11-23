@@ -85,12 +85,15 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     /// nil before the first, and from an older acpmux.
     public var summary: String?
     public var nextAction: String?
+    /// The icon the chat gave itself (acpmux `icon`, set by `acpmux icon @ 🥭`): the tab strip
+    /// and the sidebar row draw it in place of the harness's. Nil when it set none.
+    public var icon: HarnessIconSpec?
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
                 subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false,
-                summary: String? = nil, nextAction: String? = nil) {
+                summary: String? = nil, nextAction: String? = nil, icon: HarnessIconSpec? = nil) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -107,6 +110,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.archived = archived
         self.summary = summary
         self.nextAction = nextAction
+        self.icon = icon
     }
 
     /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
@@ -152,7 +156,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
                                      commandsRunning: count(summary["commandsRunning"]),
                                      archived: archived(summary),
-                                     summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
+                                     summary: text(rolling?["text"]), nextAction: text(rolling?["next"]),
+                                     icon: HarnessIconSpec(json: summary["icon"]))
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -250,8 +255,18 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// A name that reads as an id or a counter (`cloud-item-14`, ``isOpaqueName(_:)``) yields to
     /// the title or prompt, and stands in only while the chat has neither.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
+        if includingPrompt, let given = displayName(summary) { return given }
         guard includingPrompt, let name = sessionName(summary) else { return chatTitle(summary, includingPrompt: includingPrompt) }
         return isOpaqueName(name) ? chatTitle(summary, includingPrompt: true) ?? name : name
+    }
+
+    /// The name someone gave the chat (acpmux `displayName`, set by `acpmux rename @ Mango
+    /// --handle`): every surface reads it first (sessionList.ts `sessionTitle`, ask-8d11bc20e5).
+    /// Nil when only a derived handle exists.
+    public static func displayName(_ summary: [String: Any]) -> String? {
+        guard let name = (summary["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return name
     }
 
     /// Whether a session name reads as an id or a counter rather than its task (acpmux
