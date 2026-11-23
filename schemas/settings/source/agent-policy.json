@@ -471,6 +471,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -503,6 +504,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
@@ -1056,6 +1059,13 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
@@ -1463,7 +1473,9 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
       ]
     },
     {

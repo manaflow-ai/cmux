@@ -114,6 +114,7 @@ import chat_open_frames as cof  # noqa: E402
 import bench_page_engine  # noqa: E402
 from chat_open_summary import cell, engine_of, invalid_reason, judge_engine, page_engines, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402  (DefaultsAside, defaults_before: the bundle's real defaults)
 
@@ -648,7 +649,7 @@ def settle_open(run, session):
         if (ready.get("body_text_length") or 0) > 0 and (ready.get("transcript_rows") or ready.get("rows") or 1):
             break
         time.sleep(0.3)  # test script: waiting for the chat to show
-    time.sleep(1.5)  # test script: let the page's own reads (its tail hand-off) finish
+    chat_reads_settled(run, "the opened chat's own reads")
     return opened
 
 
@@ -758,6 +759,31 @@ def workspace_id(row):
 
 def sidebar_rows(run):
     return [row for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or [] for row in window.get("rows") or []]
+
+
+def selected_workspace(run):
+    """The id of the workspace whose sidebar row is selected, or None."""
+    return next((workspace_id(row) for row in sidebar_rows(run) if row.get("selected") and workspace_id(row)), None)
+
+
+def chat_reads_settled(run, what):
+    """Waits, bounded, until the shown page's readiness (its text length and rows) reads the same for about a
+    second: the page's own reads (its tail hand-off) are done. Best effort: a page still changing is logged."""
+    def read():
+        ready = run.rpc("debug.agent_pane", {"action": "readiness"}) or {}
+        return json.dumps({k: ready.get(k) for k in ("error", "pane", "body_text_length", "transcript_rows", "rows")},
+                          sort_keys=True, default=str)
+    if wait_stable(read, what, timeout=15, interval=0.25, reads=4, raise_on_timeout=False) is None:
+        say(f"chat-open: {what} never settled in 15 s")
+
+
+def left_chat(run, chat_key, what):
+    """Waits, bounded, until the window shows another workspace than the chat's (`chat_key`, part of its row id)
+    and that page's readiness settled: the left page handed its tail over."""
+    if not wait_until(lambda: chat_key not in (selected_workspace(run) or chat_key),
+                      f"{what}: another workspace shown", timeout=15, raise_on_timeout=False):
+        say(f"chat-open: {what}: the chat's workspace was still shown after 15 s")
+    chat_reads_settled(run, what)
 
 
 def shown_workspace(run):
@@ -958,11 +984,14 @@ def measure_click(run, case, session, base, label, index=0):
             if (ready.get("body_text_length") or 0) > 0:
                 break
             time.sleep(0.3)  # test script: waiting for the chat to show
-        time.sleep(1.5)  # test script: let the page's own reads finish before it is left
+        chat_reads_settled(run, "the shown chat's own reads")
         run.app.action("goToWorkspace", focus=True, workspace=base)
-        time.sleep(1)  # test script: the page hands its tail over as it leaves
+        left_chat(run, key, "the switch back before the click")
     else:
-        time.sleep(0.5)  # test script: the new row settles (its own motion is not the chat's)
+        # The new row settles (its own motion is not the chat's): the sidebar's rows read the same three times.
+        if wait_stable(lambda: json.dumps(sidebar_rows(run), sort_keys=True, default=str), "the sidebar rows after the background open",
+                       timeout=10, interval=0.1, raise_on_timeout=False) is None:
+            say("chat-open: the sidebar rows never settled in 10 s after the background open")
         # Still not selected right before the click, after the settle (a late auto-select would leave the click
         # nothing to change; cmux#33845).
         if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
@@ -974,7 +1003,7 @@ def measure_click(run, case, session, base, label, index=0):
             hovered = run.rpc("debug.pointer_hover", {"row": key}) or {}
             if not str(hovered.get("row_hovered") or "").endswith(key):
                 return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
-            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
+            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # sleep-ok: the rest on the row is --hover-ms, the case's input
     armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
@@ -986,7 +1015,7 @@ def measure_click(run, case, session, base, label, index=0):
     judged(click_engine(run, record))
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
-    time.sleep(0.5)  # test script: the switch back settles
+    left_chat(run, key, "the switch back to the workspace with no chat")
     return record
 
 
@@ -995,9 +1024,9 @@ def measure_case(run, case, sessions, index):
     if case in ("sidebar", "big", "bloated"):
         return traced(run, lambda: open_workspace(run, session))
     if case == "reopen":
-        settle_open(run, session)
+        opened = settle_open(run, session)
         run.app.action("workspace.newAtBottom", focus=True)  # leave it: a chat this app read, not shown now
-        time.sleep(1)  # test script: the page hands its tail over as it leaves
+        left_chat(run, opened.get("key") or session, "the reopen's leave")
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
