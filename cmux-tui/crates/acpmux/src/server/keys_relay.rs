@@ -236,11 +236,8 @@ fn run_cli(argv: &[String]) -> Result<Value, RpcError> {
         .spawn()
         .map_err(|e| refused("keys_unavailable", format!("cannot run cmux keys here: {e}")))?;
     let mut stdout = child.stdout.take().ok_or_else(|| RpcError::internal("no stdout"))?;
-    let reader = std::thread::spawn(move || {
-        let mut out = zeroize::Zeroizing::new(Vec::new());
-        let _ = stdout.read_to_end(&mut out);
-        out
-    });
+    // The answer is a few hundred bytes, far under a pipe's buffer, so the child never waits on
+    // this read; one that did would run past the limit and be killed.
     let status = match child.wait_timeout(MINT_LIMIT) {
         Ok(Some(status)) => status,
         _ => {
@@ -249,7 +246,10 @@ fn run_cli(argv: &[String]) -> Result<Value, RpcError> {
             return Err(refused("unreachable", "cmux keys mint ran past its time here"));
         }
     };
-    let out = reader.join().map_err(|_| RpcError::internal("the reader stopped"))?;
+    let mut out = zeroize::Zeroizing::new(Vec::new());
+    stdout
+        .read_to_end(&mut out)
+        .map_err(|e| RpcError::internal(format!("cannot read cmux keys mint's answer: {e}")))?;
     let answer: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
     if !status.success() {
         // The CLI's refusal names no value (key_broker.rs), so its message goes back as it is.
