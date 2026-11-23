@@ -1166,6 +1166,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        saved_prompts: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
@@ -1206,6 +1207,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                saved_prompts: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1223,6 +1225,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        saved_prompts: None,
         defaults: None,
     });
     let list = supervisor.list();
