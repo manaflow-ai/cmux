@@ -30,6 +30,8 @@ pub(crate) mod app_action_help;
 #[cfg(unix)]
 mod app_browser_route;
 #[cfg(unix)]
+mod app_commands;
+#[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_list;
@@ -52,6 +54,7 @@ mod beside;
 mod billing;
 #[cfg(unix)]
 mod caller_browser;
+mod caller_scope;
 mod capability_cache;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -120,6 +123,8 @@ mod community;
 #[cfg(unix)]
 mod customize;
 #[cfg(unix)]
+mod debug_perf;
+#[cfg(unix)]
 mod dev;
 mod docs;
 mod event_match;
@@ -163,6 +168,7 @@ mod start_stages;
 mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
+mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -170,6 +176,8 @@ mod vm_short;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
+#[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
@@ -193,6 +201,7 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
@@ -210,6 +219,9 @@ mod computer_use;
 #[cfg(unix)]
 mod mcp;
 mod older_daemon;
+// `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
+#[cfg(unix)]
+mod pack;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
@@ -318,6 +330,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "rpc",
     "remote-exec",
     "remote-cp",
+    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -563,6 +576,9 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "vm",
     "customize",
     "agent-config",
+    "move",
+    "teleport",
+    "evacuate",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -744,6 +760,13 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     let skip =
         usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
+/// `cmux share screens|start|stop|move …` (and `share list --screens`) as acpmux's
+/// `share-host` words; None for the other `share` commands, which are the app's chat links.
+#[cfg(unix)]
+pub(crate) fn share_screen_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    share_cli::screen_verb(raw_args).map(|words| words.into_iter().map(Into::into).collect())
 }
 
 /// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
@@ -983,6 +1006,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
+        .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
@@ -993,9 +1017,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| ext::run_reload_config_if_requested(args))
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
+        .or_else(|| pack::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| debug_perf::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
@@ -1055,11 +1081,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
-            // Words the mux grammar does not know may name an app action
-            // (`cmux workspace move-to-window …`). Only an action the app
-            // reports replaces the usage error.
+            // Words the mux grammar does not know may name an installed
+            // app's command (`cmux notes capture …`) or an app action
+            // (`cmux workspace move-to-window …`, app_commands.rs). Only a
+            // command or action that is there replaces the usage error.
             #[cfg(unix)]
-            if let Some(code) = run_app_action_fallback(args) {
+            if let Some(code) = app_commands::unknown_words(args) {
                 return code;
             }
             #[cfg(unix)]
@@ -1162,47 +1189,6 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         Some("get" | "set" | "reset" | "unset" | "edit") => true,
         _ => false,
     }
-}
-
-/// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
-/// the app marks one for the CLI. `None` when it does not, or no app answers.
-#[cfg(unix)]
-fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (mut global, command_args) = parse_action_globals(args).ok()?;
-    if let Some((name, action_args)) = agent_view::action(&command_args) {
-        return app::run_cli_action(&global, &name, &action_args);
-    }
-    match share_cli::action(&command_args) {
-        Some(Ok((name, mut action_args))) => {
-            for switch in share_cli::take_output_switches(&mut action_args) {
-                let output = match switch.as_str() {
-                    "--json" => OutputMode::Json,
-                    "--jsonl" => OutputMode::JsonLines,
-                    _ => OutputMode::Quiet,
-                };
-                if let Err(error) = set_output_mode(&mut global, output, &switch) {
-                    let error = serde_json::json!({"code": "usage.invalid", "message": error.0,
-                        "details": {}, "retryable": false});
-                    return Some(wire::print_local_error(&error, global.output, 2));
-                }
-            }
-            return app::run_cli_action(&global, &name, &action_args);
-        }
-        Some(Err(message)) => {
-            let error = serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false});
-            return Some(wire::print_local_error(&error, global.output, 2));
-        }
-        None => {}
-    }
-    let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
-    if words < 2 {
-        return None;
-    }
-    let name = command_args[..words].join(" ");
-    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
-    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
-        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
-    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -1696,7 +1682,12 @@ fn scope_help_with_keys(
         "docs" => Cow::Borrowed(docs::help()),
         "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
-        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server start" => Cow::Owned(format!(
+            "{}\n{}\n{}",
+            catalog.local_server.start_help,
+            catalog.local_server.start_remote_options_heading,
+            crate::remote_start_options_help()
+        )),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
@@ -1796,6 +1787,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
   agent         Manage agent sessions and terminal agents
+  move          Move agent sessions to another machine (also teleport, evacuate)
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1896,6 +1888,8 @@ USAGE
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent move|teleport|evacuate [SESSION...] --to MACHINE|auto|here [OPTIONS]
+                  (the same as cmux move; cmux move --help)
   cmux agent ls [--json]
   cmux agent send SESSION [TEXT...]
   cmux agent history SESSION

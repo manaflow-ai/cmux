@@ -32,9 +32,9 @@ export default defineConfig({
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
       "src/gallery/fixtures/markdown-showcase.md",
-      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/pane-protocol-codegen.ts.
       "src/protocol/generated/**",
-      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/acpmux-protocol-codegen.ts.
       "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
@@ -70,7 +70,8 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
-    tailwindcss(),
+    // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
+    tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
     // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
     packedShikiData(),
     {

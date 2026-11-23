@@ -175,7 +175,7 @@ impl Outcome {
         match self {
             Self::Bundled => json!({"state": "bundled"}),
             Self::Ready { root, chromium_pak } => {
-                let mut reply = serde_json::Map::new();
+                let mut reply = Map::new();
                 reply.insert("state".into(), Value::from("ready"));
                 reply.insert("root".into(), Value::from(root.to_string_lossy()));
                 if let Some(pak) = chromium_pak {
