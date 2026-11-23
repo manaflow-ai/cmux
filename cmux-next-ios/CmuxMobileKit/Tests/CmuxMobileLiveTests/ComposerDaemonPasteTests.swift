@@ -44,8 +44,9 @@ import Testing
         model.composerText = Self.draft
         model.send()
         try await waitUntil { !sends(daemon).isEmpty }
-        // Past the mirror's 60 ms Enter delay: no separate Return follows.
-        try await Task.sleep(for: .milliseconds(300))
+        // Past the mirror's Enter delay (several times over): no separate Return follows. A second request ends
+        // the wait at once, so a stray Enter fails here and a quiet daemon is not waited on past the window.
+        try await waitWhile(for: ComposerSubmit.enterDelay * 5) { sends(daemon).count == 1 }
         let sent = sends(daemon)
         #expect(sent.count == 1, "one request, no separate Enter: \(sent)")
         let request = try #require(sent.first)
@@ -81,7 +82,10 @@ import Testing
         model.composerText = Self.draft
         // No page here: the mirror path has no surface, so nothing reaches the daemon.
         model.send()
-        try await Task.sleep(for: .milliseconds(300))
+        // The daemon records requests in the order the session wrote them: once a key sent after the Send is
+        // recorded, anything the Send had put on the wire is too.
+        session.send(Data("z".utf8))
+        try await waitUntil { sends(daemon).contains { $0["bytes"] != nil } }
         #expect(!sends(daemon).contains { $0["submit"] != nil || $0["text"] != nil })
     }
 
@@ -164,6 +168,14 @@ import Testing
         model.send()
         #expect(model.composerText == Self.draft)
         #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+    }
+
+    /// Holds while `condition` stays true, for at most `window`: returns early when it turns false.
+    private func waitWhile(for window: Duration, _ condition: @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now + window
+        while condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
