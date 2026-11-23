@@ -107,8 +107,8 @@ export const GOLDEN_KNOWN: GoldenKnown[] = [
   {
     element: "agent-mark",
     kind: "icon",
-    looks: ["claude"],
-    cause: "the Claude mark's clay #d97757 on the cream #faf9f5, 2.96:1 against 3:1: the brand color",
+    cause:
+      "the Claude mark's clay #d97757 (the brand color) on an off-white page: 2.94:1 against 3:1 on #f8f8f9 or #faf8f3 (Kerf, Paper light), 2.96:1 on Claude's cream #faf9f5; it passes on white",
   },
   {
     element: "acpmux-diff-add",

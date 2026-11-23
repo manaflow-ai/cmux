@@ -1,3 +1,5 @@
+// cmux-web-test-timeout: 600
+// 61 stages (every look, each scheme, chat and menus) at about 3 s each: 199 s on the CI runner (2026-11-23).
 // The golden screen is the sample every look is checked on (Leo, 2026-11-19: "take stills from a
 // representative state" and "you guys also need to watch for if there's light on light or dark on
 // dark"). The gallery's looks.golden entry (src/gallery/golden/golden.gallery.ts: one chat with every
