@@ -147,6 +147,7 @@ impl Carrier for FakeCarrier {
 fn cfg() -> SessionCfg {
     SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 1000,

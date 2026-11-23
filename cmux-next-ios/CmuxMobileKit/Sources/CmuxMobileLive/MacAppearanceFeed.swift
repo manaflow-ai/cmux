@@ -92,18 +92,38 @@ public final class MacAppearanceFeed {
         return digest == wallpaper.id.lowercased() ? data : nil
     }
 
-    /// Reads `macID`'s `appearance` service on `link` until the channel or the link closes.
-    public func read(on link: any MacLink, macID: String) async {
-        do {
-            let channel = try await link.openChannel(service: Self.service, args: [:])
-            while let message = try await channel.receive() {
-                apply(message, macID: macID) { wallpaper in await Self.fetch(wallpaper, on: link) }
+    /// The first wait before an ended `appearance` channel is opened again; it doubles up to
+    /// ``reopenMaxDelay`` and starts over after a frame.
+    public static let reopenDelay: Duration = .seconds(1)
+    public static let reopenMaxDelay: Duration = .seconds(60)
+
+    /// Reads `macID`'s `appearance` service on `link` for as long as the link lives. hostd never
+    /// ends the channel itself: it waits for the next change (`appearance.rs` `serve`). So a
+    /// channel that ends while the link still opens channels was dropped, and it is opened again;
+    /// before, the read stopped there and the Mac's theme stopped arriving until the next link.
+    /// A refused open or a closed link stops the read. A Mac whose host ends the channel at once
+    /// is asked again at most once every ``reopenMaxDelay``.
+    public func read(on link: any MacLink, macID: String, reopenAfter firstDelay: Duration = MacAppearanceFeed.reopenDelay) async {
+        var delay = firstDelay
+        while !Task.isCancelled {
+            let channel: any LinkChannel
+            do {
+                channel = try await link.openChannel(service: Self.service, args: [:])
+            } catch {
+                log.info("appearance channel: \(String(describing: error), privacy: .public)")
+                return
             }
-            if let closed = channel.closedBy, closed.code != "eof" {
-                log.info("appearance closed: \(closed.code, privacy: .public)")
+            do {
+                while let message = try await channel.receive() {
+                    delay = firstDelay
+                    apply(message, macID: macID) { wallpaper in await Self.fetch(wallpaper, on: link) }
+                }
+                log.info("appearance closed: \(channel.closedBy?.code ?? "eof", privacy: .public); reopening")
+            } catch {
+                log.info("appearance channel ended: \(String(describing: error), privacy: .public); reopening")
             }
-        } catch {
-            log.info("appearance channel: \(String(describing: error), privacy: .public)")
+            do { try await Task.sleep(for: delay) } catch { return }
+            delay = min(delay * 2, Self.reopenMaxDelay)
         }
     }
 

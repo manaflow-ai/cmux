@@ -557,6 +557,15 @@ impl Desktop for FakeDesktop {
         self.excludes_apps
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Ok(Box::new(crate::record::synthetic::SyntheticEncoder::new(width, height)))
+    }
+
     fn capture_apps(&self) -> DResult<Vec<App>> {
         let mut apps = self.apps.clone();
         apps.extend(self.capture_only_apps.iter().cloned());

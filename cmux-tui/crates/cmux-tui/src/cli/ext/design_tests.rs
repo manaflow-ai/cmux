@@ -1,0 +1,175 @@
+use serde_json::{Value, json};
+
+use super::{Surface, check, contrast, scenes_in};
+
+/// A scene of `nodes` (`(type, props)`) under one VStack root.
+fn scene(nodes: &[(&str, Value)]) -> Value {
+    let mut ops =
+        vec![json!({"op": "create", "id": "root", "type": "VStack", "props": {"spacing": 4}})];
+    let mut children = Vec::new();
+    for (i, (kind, props)) in nodes.iter().enumerate() {
+        let id = format!("n{i}");
+        ops.push(json!({"op": "create", "id": id, "type": kind, "props": props}));
+        children.push(id);
+    }
+    ops.push(json!({"op": "children", "id": "root", "children": children}));
+    ops.push(json!({"op": "root", "id": "root"}));
+    Value::Array(ops)
+}
+
+fn checks(ops: &Value, surface: Surface) -> Vec<&'static str> {
+    check(&[ops], surface).iter().map(|f| f.check).collect()
+}
+
+#[test]
+fn a_view_on_the_scales_has_no_design_warnings() {
+    let ops = scene(&[
+        ("Text", json!({"text": "72°", "font": 34, "weight": "semibold", "lineLimit": 1})),
+        (
+            "Text",
+            json!({"text": "Sunny", "font": 13, "weight": "semibold", "color": "accent", "lineLimit": 1}),
+        ),
+        ("Text", json!({"text": "H 75 L 60", "font": 12, "color": "secondary", "lineLimit": 1})),
+    ]);
+    assert_eq!(checks(&ops, Surface::Widget), Vec::<&str>::new());
+}
+
+#[test]
+fn an_off_scale_font_size_names_the_nearest_roles() {
+    let ops = scene(&[("Text", json!({"text": "9:41", "font": 40, "lineLimit": 1}))]);
+    let findings = check(&[&ops], Surface::Widget);
+    assert_eq!(findings[0].check, "type-size");
+    assert!(findings[0].fix.contains("BigNumber(...)"), "{}", findings[0].fix);
+}
+
+#[test]
+fn a_title_style_that_drifts_between_renderers_is_named() {
+    let ops = scene(&[("Text", json!({"text": "Monday", "font": "largeTitle", "lineLimit": 1}))]);
+    let findings = check(&[&ops], Surface::Other);
+    assert_eq!(findings[0].check, "type-style");
+    assert!(findings[0].message.contains("26 pt"), "{}", findings[0].message);
+}
+
+#[test]
+fn more_than_four_text_styles_warn_once_in_a_widget() {
+    let ops = scene(&[
+        ("Text", json!({"text": "a", "font": 34, "weight": "semibold"})),
+        ("Text", json!({"text": "b", "font": 20, "weight": "semibold"})),
+        ("Text", json!({"text": "c", "font": 15, "weight": "semibold"})),
+        ("Text", json!({"text": "d", "font": 13})),
+        ("Text", json!({"text": "e", "font": 11})),
+    ]);
+    assert_eq!(checks(&ops, Surface::Widget), vec!["line-limit", "type-roles"]);
+    // A pane (or a specimen page that shows every role) may use more.
+    assert_eq!(checks(&ops, Surface::Other), Vec::<&str>::new());
+}
+
+#[test]
+fn off_scale_spacing_and_padding_name_the_nearest_step() {
+    let ops = scene(&[("HStack", json!({"spacing": 5, "padding": {"top": 10, "leading": 16}}))]);
+    let findings = check(&[&ops], Surface::Other);
+    let found: Vec<_> = findings.iter().map(|f| (f.check, f.fix.as_str())).collect();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found[0].1.starts_with("use 4") || found[0].1.starts_with("use 6"), "{found:?}");
+    assert!(found[1].1.starts_with("use 8") || found[1].1.starts_with("use 12"), "{found:?}");
+}
+
+#[test]
+fn raw_and_unknown_colors_warn_and_repeats_merge() {
+    let ops = scene(&[
+        ("Text", json!({"text": "a", "color": "#336699", "lineLimit": 1})),
+        ("Text", json!({"text": "b", "color": "#336699", "lineLimit": 1})),
+        ("Text", json!({"text": "c", "color": "blue", "lineLimit": 1})),
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let raw = findings.iter().find(|f| f.message.contains("raw color")).expect("raw color");
+    assert_eq!(raw.count, 2);
+    assert!(findings.iter().any(|f| f.message.contains("draws nothing")));
+}
+
+#[test]
+fn more_than_two_accents_warn() {
+    let ops = scene(&[
+        ("Text", json!({"text": "a", "color": "accent", "lineLimit": 1})),
+        ("Text", json!({"text": "b", "color": "success", "lineLimit": 1})),
+        ("Icon", json!({"symbol": "x", "color": "warning"})),
+    ]);
+    assert_eq!(checks(&ops, Surface::Widget), vec!["accents"]);
+}
+
+#[test]
+fn hex_text_reads_against_its_background_or_both_cmux_surfaces() {
+    assert!((contrast([0.0; 3], [1.0; 3]) - 21.0).abs() < 0.01);
+    // A light grey on the theme's surface fails on light; on its own dark background it passes.
+    let on_theme = scene(&[("Text", json!({"text": "a", "color": "#dddddd", "lineLimit": 1}))]);
+    let contrast_checks: Vec<_> = check(&[&on_theme], Surface::Widget)
+        .into_iter()
+        .filter(|f| f.check == "contrast")
+        .collect();
+    assert_eq!(contrast_checks.len(), 1);
+    assert!(contrast_checks[0].message.contains("light surface"));
+    let on_dark = json!([
+        {"op": "create", "id": "bg", "type": "VStack", "props": {"background": "#101010"}},
+        {"op": "create", "id": "t", "type": "Text", "props": {"text": "a", "color": "#dddddd", "lineLimit": 1}},
+        {"op": "children", "id": "bg", "children": ["t"]},
+        {"op": "root", "id": "bg"}
+    ]);
+    assert!(!checks(&on_dark, Surface::Widget).contains(&"contrast"));
+}
+
+#[test]
+fn a_widget_text_with_no_line_limit_warns_but_a_pane_does_not() {
+    let ops = scene(&[("Text", json!({"text": "A long reminder title"}))]);
+    assert_eq!(checks(&ops, Surface::Widget), vec!["line-limit"]);
+    assert_eq!(checks(&ops, Surface::Other), Vec::<&str>::new());
+}
+
+#[test]
+fn recorded_files_hold_one_scene_or_scenes_by_name() {
+    let one = scene(&[]);
+    assert_eq!(scenes_in("a.json", &one).len(), 1);
+    let fixture = json!({"clock.small": one, "clock.medium": one});
+    assert_eq!(scenes_in("f.json", &fixture).len(), 2);
+    let preview = json!({"small-rain": {"size": "small", "ops": one}});
+    assert_eq!(scenes_in("p.json", &preview)[0].0, "p.json:small-rain");
+    assert!(scenes_in("x.json", &json!(3)).is_empty());
+}
+
+#[test]
+fn a_translucent_tint_is_blended_over_the_surface_not_read_as_solid() {
+    // Calendar's event rows: an 18% tint of the event color behind text in the same color.
+    let ops = json!([
+        {"op": "create", "id": "row", "type": "HStack", "props": {"background": "#1badf82e"}},
+        {"op": "create", "id": "t", "type": "Text", "props": {"text": "Room 4", "color": "#1badf8", "lineLimit": 1}},
+        {"op": "children", "id": "row", "children": ["t"]},
+        {"op": "root", "id": "row"}
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let contrast: Vec<_> = findings.iter().filter(|f| f.check == "contrast").collect();
+    assert!(contrast.iter().all(|f| !f.message.starts_with("text contrast 1.0")), "{contrast:?}");
+    assert!(
+        contrast.iter().any(|f| f.message.contains("tinted background over cmux's light surface")),
+        "{contrast:?}"
+    );
+}
+
+#[test]
+fn hex_text_on_a_theme_background_is_not_measured_against_cmuxs_surfaces() {
+    // A "NEW" pill: white text on the accent. The accent's value is the theme's, so no ratio.
+    let ops = json!([
+        {"op": "create", "id": "pill", "type": "HStack", "props": {"background": "accent"}},
+        {"op": "create", "id": "t", "type": "Text", "props": {"text": "NEW", "color": "#ffffff", "lineLimit": 1}},
+        {"op": "children", "id": "pill", "children": ["t"]},
+        {"op": "root", "id": "pill"}
+    ]);
+    assert!(!checks(&ops, Surface::Widget).contains(&"contrast"));
+}
+
+#[test]
+fn a_translucent_text_color_is_measured_as_drawn() {
+    // Black at 20% on white draws a light grey: below 4.5:1, though opaque black is 21:1.
+    let ops = scene(&[("Text", json!({"text": "a", "color": "#00000033", "lineLimit": 1}))]);
+    let contrast: Vec<_> =
+        check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
+    assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
+}
