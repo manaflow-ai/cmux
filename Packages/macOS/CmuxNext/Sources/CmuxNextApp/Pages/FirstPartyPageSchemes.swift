@@ -76,7 +76,6 @@ enum FirstPartyPageSchemes {
         .groupEditor,
         .history,
         .homeChannels,
-        .homeMessages,
         .iconPicker,
         .keybindings,
         .machines,
