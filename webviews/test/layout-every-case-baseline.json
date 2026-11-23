@@ -1,0 +1,4 @@
+{
+  "$comment": "Flags each layout case (src/agent-session/acpmux/sim/layoutCases.ts) shows on feat-cmux-next today; test/layout-every-case-browser.test.ts fails a case that flags more. Lower a number when a fix lands; a case not listed allows 0.",
+  "flags": {}
+}
