@@ -67,6 +67,9 @@ pub(crate) fn targets(
         if super::interactive(registry, name) {
             return Some("Auto leaves machines in use by a person out".to_owned());
         }
+        if let Some(why) = super::auto_move_refusal(registry, name) {
+            return Some(format!("Auto leaves it out: {why}"));
+        }
         let entry = by_name.get(name)?;
         entry.get("reason").and_then(Value::as_str).map(str::to_owned)
     });

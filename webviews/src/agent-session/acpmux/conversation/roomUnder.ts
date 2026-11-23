@@ -10,7 +10,9 @@
 // - `lifted`: the composer's growth the rows are drawn up by instead of given room;
 // - `heldRoom`: the room held while the reader is scrolled up, or kept for one they came back to;
 // - `floor`: the end a followed view keeps for a sent prompt whose queue card left;
-// - `foldRoom`: the end a collapse near the end keeps, so the offset never clamps.
+// - `foldRoom`: the end a collapse near the end keeps, so the offset never clamps;
+// - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts);
+// - `sendTop`: the end that keeps a prompt sent from the latest row at the view's top (SendTopHold).
 //
 // One release rule for the stack's holds (`rowsMoved`): a card, the tray or a notice that changed
 // gives its room back, or takes it, in the pass whose rows move anyway (they grew: a reply streaming
@@ -81,6 +83,11 @@ export type RoomUnderInput = {
   prompt: string | undefined;
   /// The content end a collapse keeps (foldAnchor.ts `foldRoomFor`), 0 for none.
   foldRoom: number;
+  /// The room under the rows for newer history let go of (conversation/newerReserve.ts), 0 for none.
+  newerRoom?: number;
+  /// The end that holds a sent prompt at the view's top (VirtualTranscript `SendTopHold.update`), given
+  /// this pass's `rowsHeight` (past its end the hold is outgrown and lets go); 0 for none.
+  sendTop?: (rowsHeight: number) => number;
   /// A scrollbar drag's held height, which wins while it holds.
   dragged?: number;
   bases: RoomBases;
@@ -217,8 +224,8 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
     followedRoom,
     prompt: input.prompt,
   });
-  const rowsHeight = input.rowsHeight + input.over + room;
-  const rowsEnd = Math.max(input.floor - lifted, rowsHeight);
+  const rowsHeight = input.rowsHeight + input.over + room + (input.newerRoom ?? 0);
+  const rowsEnd = Math.max(input.floor - lifted, rowsHeight, input.sendTop?.(rowsHeight) ?? 0);
   const keptEnd = sessionSwitched ? 0 : input.foldRoom;
   const total = input.dragged ?? Math.max(rowsEnd, keptEnd);
   const lift = lifted ? Math.round(Math.max(0, total - input.height) - Math.max(0, atDock - input.height)) : 0;
