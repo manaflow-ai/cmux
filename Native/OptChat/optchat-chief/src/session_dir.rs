@@ -676,10 +676,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
-    own_claude_md(
-        &paths.session,
-        matches!(setup.tools, Tools::Cli(_) | Tools::Mcp),
-    )?;
+    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
@@ -890,15 +887,22 @@ pub fn write_subagent_agents_md(paths: &Paths, text: &str) -> io::Result<()> {
 /// tell there (section 9: subagents get zoom and date, not spawn).
 pub const SUBAGENT_ENV: &str = "OPTCHAT_SUBAGENT";
 
-/// Writes the session directory's CLAUDE.md (Some) or removes it (None).
+/// Writes the session directory's CLAUDE.md with the full instructions (Some),
+/// or, when the turn's preset carries them as its system prompt (None),
+/// removes it and writes the one-line `.claude/CLAUDE.md` pointer instead, so
+/// acpmux's cross-harness fallback sends no second copy of AGENTS.md.
 pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
     let path = session.join("CLAUDE.md");
     match text {
         Some(text) => {
+            own_claude_md(session, false)?;
             std::fs::create_dir_all(session)?;
             write_if_changed(&path, text.as_bytes())
         }
-        None => remove_if_present(&path),
+        None => {
+            own_claude_md(session, true)?;
+            remove_if_present(&path)
+        }
     }
 }
 
