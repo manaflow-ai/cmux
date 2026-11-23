@@ -5,7 +5,7 @@
 // names the chat, so a prompt never goes anywhere the composer does not say. It is the one composer
 // box (ComposerBox.tsx) with the prompt and Send only: the chat's queue, pull request bar, model and
 // mode chips are the chat's, and drawing them here sent edits to the chat (Leo 2026-10-20).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
@@ -27,6 +27,7 @@ export function SubagentComposer({
   draftKey,
   onSend,
   quoteRef,
+  onFocusEdge,
 }: {
   /// The subagent the prompt is for, as the pane names it.
   subagent: string;
@@ -41,8 +42,22 @@ export function SubagentComposer({
   /// Quote in Reply's target while this composer shows (App.tsx `chat.quoteReply`): the quote goes
   /// after this subagent's draft, as the chat's composer puts it after its own.
   quoteRef?: { current: { quoteReply(markdown: string): void } | null };
+  /// Focus-visible in the card: the dock's owner lifts the stack's edge from it, as for the chat's
+  /// composer (Composer.tsx `onFocusEdge`).
+  onFocusEdge?: (lit: boolean) => void;
 }) {
   const t = useT();
+  // Focus-visible in the card marks the form (`data-focused`, composerStates.css) and the dock's edge,
+  // as the card reports it (ComposerBox `onFocusVisible`): no wide `:has()`, no render.
+  const form = useRef<HTMLFormElement>(null);
+  const focusEdge = useRef(onFocusEdge);
+  useLayoutEffect(() => {
+    focusEdge.current = onFocusEdge;
+  });
+  const markFocus = (focused: boolean) => {
+    form.current?.toggleAttribute("data-focused", focused);
+    focusEdge.current?.(focused);
+  };
   // The kept draft (subagentDrafts.ts): opening the chat ("Subagent of") or another subagent
   // unmounts this, and coming back, or a page let go, reloaded or quit meanwhile, finds it.
   const [text, setTextState] = useState(() => subagentDraft(draftKey).text);
@@ -121,8 +136,12 @@ export function SubagentComposer({
   };
   return (
     <form
+      ref={form}
       className="acpmux-composer acpmux-subagent-composer"
       data-composer-grid=""
+      // ComposerBox always draws the quiet row (ComposerFoot): composerLocation.css reads this, not a
+      // `:has(.acpmux-composer-foot)`.
+      data-foot=""
       data-cmux-component="SubagentComposer"
       onSubmit={(event) => {
         event.preventDefault();
@@ -161,6 +180,7 @@ export function SubagentComposer({
         onRemoveAttachment={(id) => setAttachments((current) => current.filter((chip) => chip.id !== id))}
         fieldMenu={[]}
         chromeItems={[]}
+        onFocusVisible={markFocus}
         trailing={
           <button
             type="submit"
