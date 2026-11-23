@@ -241,6 +241,12 @@ extension BordersSetting {
     public nonisolated static let fallback: BorderMode = .default
 }
 
+extension LiquidGlassSetting {
+    /// `appearance.liquidGlass`: Web pages only: off sends data-glass="off" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.
+    public nonisolated static let configPath = ["appearance", "liquidGlass"]
+    public nonisolated static let fallback = false
+}
+
 extension PaneFocusSettings {
     /// `appearance.focusIndicator`.
     nonisolated static let focusIndicatorPath = ["appearance", "focusIndicator"]
