@@ -8,7 +8,9 @@
                  subscriptions/listen.
 --http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio (0: a free
                  port, printed as the first stdout line)
-                 (session era; --token T makes it answer 401 without it).
+                 (session era; --token T makes it answer 401 without it;
+                 --revoke-on-call then revokes T at the first tools/call, mid-session,
+                 and the refresh grant hands out its successor).
 """
 import json, sys, threading, time, uuid
 
@@ -188,6 +190,7 @@ def http(port, token):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import queue
     streams = []
+    live = {"token": token, "revoke": "--revoke-on-call" in sys.argv}
 
     def push(msg):
         for q in list(streams):
@@ -203,7 +206,7 @@ def http(port, token):
             pass
 
         def authed(self):
-            if token and self.headers.get("Authorization") != f"Bearer {token}":
+            if live["token"] and self.headers.get("Authorization") != f"Bearer {live['token']}":
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % self.server.server_address[1])
                 self.send_header("Content-Length", "0")
@@ -236,13 +239,17 @@ def http(port, token):
                 if form.get("grant_type") == ["refresh_token"]:
                     if form.get("refresh_token") != ["ref-1"]:
                         return self.reply(400, {"error": "invalid_grant"})
-                    return self.reply(200, {"access_token": token, "refresh_token": "ref-2", "token_type": "Bearer", "expires_in": 3600})
+                    return self.reply(200, {"access_token": live["token"], "refresh_token": "ref-2", "token_type": "Bearer", "expires_in": 3600})
                 if form.get("code") != ["good-code"] or not form.get("code_verifier") or form.get("resource") != [base + "/mcp"]:
                     return self.reply(400, {"error": "invalid_grant"})
                 return self.reply(200, {"access_token": token, "token_type": "Bearer", "expires_in": 3600})
+            msg = json.loads(body)
+            if live["revoke"] and msg.get("method") == "tools/call":
+                # The token dies mid-session; its successor is what a refresh buys.
+                live["revoke"] = False
+                live["token"] = live["token"] + "-next"
             if not self.authed():
                 return
-            msg = json.loads(body)
             r = handle(msg)
             if r is None:
                 self.send_response(202)
