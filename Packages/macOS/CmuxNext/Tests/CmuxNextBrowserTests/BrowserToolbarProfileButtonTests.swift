@@ -74,4 +74,44 @@ import Testing
         #expect(source("default", workspace: "gone", room: "") == .builtIn, "a deleted or blank default names nothing")
         #expect(source("default", room: "work") == .tab)
     }
+
+    /// The default level shows the button only while it says something (design-propose dp-863111dbbf: the
+    /// subtle form of RFD 0050 D1): a second profile of the person's own, an incognito tab, the Agents
+    /// profile. `always` and `color` show it in every pane.
+    @Test func theQuietLevelShowsTheButtonOnlyWhenItSaysSomething() {
+        func shown(_ alwaysShown: Bool = false, profiles: Int = 1, incognito: Bool = false, agents: Bool = false) -> Bool {
+            BrowserProfileButtonPresence.resolve(alwaysShown: alwaysShown, colored: false, personProfiles: profiles,
+                                                 incognito: incognito, agentsProfile: agents).shown
+        }
+        #expect(!shown(), "one profile: nothing to say")
+        #expect(shown(profiles: 2))
+        #expect(shown(incognito: true))
+        #expect(shown(agents: true))
+        #expect(shown(true), "the always level")
+    }
+
+    @Test func aHiddenPresenceTakesThePinnedButtonOutOfTheRow() throws {
+        var presence = BrowserProfileButtonPresence(shown: false, colored: false)
+        let buttons = toolbar(pins: ["profile"])
+        buttons.profilePresence = { presence }
+        let visible = { buttons.arrangedSubviews.filter { !$0.isHidden }.map { $0.accessibilityIdentifier() } }
+        #expect(!visible().contains(BrowserToolbarButton.profile.identifier), "\(visible())")
+        presence.shown = true
+        buttons.refresh()
+        #expect(visible().contains(BrowserToolbarButton.profile.identifier), "\(visible())")
+    }
+
+    /// Hue is the agent driver's ring: the avatar draws in the toolbar's ink unless the person chose `color`.
+    @Test func theAvatarIsInkUnlessThePersonChoseColor() throws {
+        var presence = BrowserProfileButtonPresence(shown: true, colored: false)
+        let buttons = toolbar(pins: ["profile"])
+        buttons.profilePresence = { presence }
+        buttons.profileBadge = BrowserProfileBadge(monogram: "W", color: .blue, name: "Work")
+        let avatar = try #require(buttons.profileAvatar)
+        #expect(avatar.badge?.color == nil)
+        #expect(avatar.shownText == "W")
+        presence.colored = true
+        buttons.refresh()
+        #expect(buttons.profileAvatar?.badge?.color == .blue)
+    }
 }

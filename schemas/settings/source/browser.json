@@ -97,6 +97,58 @@
           ]
         },
         {
+          "key": "browser.profileButton",
+          "note": "How the toolbar's Profile button shows (cmuxterm-hq RFD 0050 D1, design-propose dp-863111dbbf: a default ships in its subtle form, Leo 2026-11-23). quiet: only while it says something (2+ person profiles, an incognito tab, the Agents profile), in the toolbar's ink; always: in every browser pane, in ink; color: in every pane, on the profile's color.",
+          "title": {
+            "key": "settings.browser.profileButton",
+            "text": "Profile Button"
+          },
+          "help": {
+            "key": "settings.browser.profileButton.help",
+            "text": "Quiet shows it once you have a second profile, or in an incognito or Agents tab."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserProfileButtonStyle"
+          },
+          "swift_owner": "BrowserProfileButtonSetting",
+          "choices": [
+            {
+              "value": "quiet",
+              "title": {
+                "key": "settings.choice.browserProfileButtonQuiet",
+                "text": "Quiet"
+              },
+              "note": "Only while it says something: 2+ person profiles, an incognito tab, the Agents profile; in the toolbar's ink."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.browserProfileButtonAlways",
+                "text": "Always"
+              },
+              "note": "In every browser pane, in the toolbar's ink."
+            },
+            {
+              "value": "color",
+              "title": {
+                "key": "settings.choice.browserProfileButtonColor",
+                "text": "Always, in Color"
+              },
+              "note": "In every browser pane, as a disc in the profile's color."
+            }
+          ],
+          "default": "quiet",
+          "keywords": [
+            "profile",
+            "avatar",
+            "toolbar",
+            "button",
+            "monogram",
+            "color"
+          ]
+        },
+        {
           "key": "browser.showLoadingBar",
           "title": {
             "key": "settings.browser.showLoadingBar",

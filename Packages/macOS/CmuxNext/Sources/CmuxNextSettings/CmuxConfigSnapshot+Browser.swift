@@ -7,5 +7,6 @@ nonisolated extension CmuxConfigSnapshot {
         _ = BrowserPasswordsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         _ = BrowserVerificationAutofillSetting.parse(root, diagnostics: &snapshot.diagnostics)
         _ = BrowserToolbarButtonsSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
+        _ = BrowserProfileButtonSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
     }
 }

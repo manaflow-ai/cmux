@@ -83,6 +83,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
         case .media: facts.media.sessions > 0
         case .zoom: BrowserZoom.percent(facts.zoom) != 100
         case .downloads: facts.downloads.count > 0 || facts.downloads.inProgress
+        case .profile: facts.profile.shown
         default: true
         }
     }
@@ -154,10 +155,13 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var downloads: BrowserToolbarDownloads
     /// Media in every tab.
     public var media: BrowserToolbarMedia
+    /// Whether the profile button shows and how it draws (`browser.profileButton`).
+    public var profile: BrowserProfileButtonPresence
 
     public init(engine: BrowserEngineKind, hostsDevTools: Bool, devToolsOpen: Bool = false, designMode: Bool = false,
                 colorScheme: BrowserColorScheme = .system, profileName: String? = nil, zoom: Double = 1,
-                downloads: BrowserToolbarDownloads = BrowserToolbarDownloads(), media: BrowserToolbarMedia = BrowserToolbarMedia()) {
+                downloads: BrowserToolbarDownloads = BrowserToolbarDownloads(), media: BrowserToolbarMedia = BrowserToolbarMedia(),
+                profile: BrowserProfileButtonPresence = .always) {
         self.engine = engine
         self.hostsDevTools = hostsDevTools
         self.devToolsOpen = devToolsOpen
@@ -167,6 +171,34 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
         self.zoom = zoom
         self.downloads = downloads
         self.media = media
+        self.profile = profile
+    }
+}
+
+/// Whether the toolbar's profile button shows, and in the profile's color or the toolbar's ink
+/// (`browser.profileButton`; cmuxterm-hq RFD 0050 D1 as the design court shipped it, 2026-11-23). The
+/// default is the subtle form: shown only while it says something, in ink, so the one saturated color
+/// in the chrome stays the agent driver's.
+public nonisolated struct BrowserProfileButtonPresence: Hashable, Sendable {
+    /// The button takes its place (it still has to be pinned and not collapsed).
+    public var shown: Bool
+    /// The avatar is a disc in the profile's color; false draws it in the toolbar's ink.
+    public var colored: Bool
+
+    public init(shown: Bool, colored: Bool) {
+        self.shown = shown
+        self.colored = colored
+    }
+
+    /// Shown, in color: what a toolbar with no setting behind it draws (tests, a toolbar not yet configured).
+    public static let always = BrowserProfileButtonPresence(shown: true, colored: true)
+
+    /// The presence for one tab. `alwaysShown` and `colored` are the person's level (`always`, `color`);
+    /// at the default level the button shows only when it says something: the person has more than one
+    /// profile of their own, or the tab is incognito or in the Agents profile.
+    public static func resolve(alwaysShown: Bool, colored: Bool, personProfiles: Int, incognito: Bool,
+                               agentsProfile: Bool) -> BrowserProfileButtonPresence {
+        BrowserProfileButtonPresence(shown: alwaysShown || personProfiles > 1 || incognito || agentsProfile, colored: colored)
     }
 }
 

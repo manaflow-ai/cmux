@@ -25,7 +25,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     private func applyProfileBadge() {
         guard let button = buttons[.profile] else { return }
-        guard let profileBadge else { return button.glyphReplacement = nil }
+        guard var profileBadge else { return button.glyphReplacement = nil }
+        // The toolbar's ink unless the person chose the color level (`browser.profileButton`).
+        if !facts.profile.colored { profileBadge.color = nil }
         let side = ProfileBadgeView.side(forGlyph: OmnibarStyle.toolbarIconSize, limit: OmnibarStyle.buttonSize - 4)
         let avatar = profileAvatar ?? ProfileBadgeView(side: side)
         avatar.setSide(side)
@@ -39,6 +41,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var downloads: (() -> BrowserToolbarDownloads)? { didSet { rebind() } }
     /// Every tab's media, read the same way.
     public var media: (() -> BrowserToolbarMedia)? { didSet { rebind() } }
+    /// Whether the profile button shows and in which ink (`browser.profileButton`, the profile count, the
+    /// tab's profile), read the same way; nil shows it in color.
+    public var profilePresence: (() -> BrowserProfileButtonPresence)? { didSet { rebind() } }
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
@@ -279,7 +284,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
         let zoomed = facts.zoom != self.facts.zoom
+        let recolored = facts.profile.colored != self.facts.profile.colored
         self.facts = facts
+        if recolored { applyProfileBadge() }
         if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
@@ -313,8 +320,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private func currentFacts() -> BrowserToolbarFacts {
         let downloads = downloads?() ?? BrowserToolbarDownloads()
         let media = media?() ?? BrowserToolbarMedia()
+        let profile = profilePresence?() ?? .always
         guard let tab else {
-            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads, media: media)
+            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads, media: media,
+                                       profile: profile)
         }
         let url = tab.state.url
         if url != pageURL {
@@ -327,7 +336,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
             designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom,
-            downloads: downloads, media: media
+            downloads: downloads, media: media, profile: profile
         )
     }
 

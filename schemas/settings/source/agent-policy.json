@@ -435,6 +435,7 @@
       "agent": "settable",
       "keys": [
         "browser.toolbarButtons",
+        "browser.profileButton",
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",

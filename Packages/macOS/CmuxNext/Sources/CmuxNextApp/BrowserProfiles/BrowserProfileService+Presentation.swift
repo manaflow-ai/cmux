@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 
 /// How tabs and browser toolbars show their browser profile (data-model.md 5): the
@@ -39,6 +40,19 @@ extension BrowserProfileService {
         let record = record(id)
         return BrowserProfileBadge(monogram: record?.monogram ?? "?", color: record?.color.flatMap(GroupColor.init(rawValue:)),
                                    name: record?.name ?? displayName(id))
+    }
+
+    /// Whether tab `key`'s toolbar shows its profile button, and in color (`browser.profileButton`). At the
+    /// default level it shows once the person has a second profile of their own (the Agents profile does
+    /// not count), or for an incognito or Agents tab; always in ink unless they chose the color level.
+    func toolbarPresence(forTab key: String) -> BrowserProfileButtonPresence {
+        let style = services.settings.map(BrowserProfileButtonSetting.current) ?? BrowserProfileButtonSetting.fallback
+        let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        return BrowserProfileButtonPresence.resolve(
+            alwaysShown: style != .quiet, colored: style == .color,
+            personProfiles: ordered.lazy.filter { $0.id != AgentBrowserProfile.id }.count,
+            incognito: services.cache.browserTabs.isIncognitoTab(key), agentsProfile: id == AgentBrowserProfile.id
+        )
     }
 
     /// Re-renders every browser toolbar after a profile or a default changed. Tab strips follow by
