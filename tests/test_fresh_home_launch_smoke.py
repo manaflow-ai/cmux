@@ -471,6 +471,18 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(plistlib.loads(aside.read_bytes()), {"stored": b"account defaults"})
         self.assert_cleaned_up(report)
 
+    def test_every_started_copy_has_its_updater_off_unless_asked(self):
+        """A copy of an older build must never update itself on an unattended Mac (Sparkle's installer then asks
+        for an administrator password): fresh_env sets CMUX_DISABLE_AUTO_UPDATE=1, the app's forced
+        DisableAutoUpdate (ManagedUpdatePolicy.environmentKey), unless a harness that measures a real update asks."""
+        root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
+        try:
+            self.assertEqual(smoke.UPDATER_OFF_VARIABLE, "CMUX_DISABLE_AUTO_UPDATE")
+            self.assertEqual(smoke.fresh_env(root, root / "s.sock", 3)["CMUX_DISABLE_AUTO_UPDATE"], "1")
+            self.assertNotIn("CMUX_DISABLE_AUTO_UPDATE", smoke.fresh_env(root, root / "s.sock", 3, updater=True))
+        finally:
+            subprocess.run(["rm", "-rf", str(root)], check=False)
+
     def test_the_app_sees_an_empty_home_and_none_of_the_runner_environment(self):
         app = make_app(self.dir, "healthy")
         root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
