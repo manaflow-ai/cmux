@@ -604,7 +604,7 @@ export function Composer({
               <li key={person.id}>
                 <button type="button" className="hc-pick-row" onClick={() => insert(`@${person.name} `)}>
                   <Avatar participant={person} size={20} />
-                  <span>{person.name}</span>
+                  <span className="hc-pick-name">{person.name}</span>
                   {person.chief && <span className="hc-tag">{t("chief.badge")}</span>}
                 </button>
               </li>
