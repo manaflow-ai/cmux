@@ -108,6 +108,10 @@ final class CEFLayerHosting {
     /// The GPU's deadline for a page's frame at its new size, in ms (`CMUX_CEF_RESIZE_FENCE_MS`); 0 takes one refresh of
     /// the fastest display, at least 8 ms. The window's commit waits at most this and one refresh more, in the render
     /// server, never on the main thread.
+    /// `CMUX_CEF_LIVE_RESIZE_SYNC_MS` / `CMUX_CEF_DRAG_RESIZE_SYNC_MS`: how long a page waits for its frame at the new
+    /// size in a window's live resize / a divider drag (an A/B on one build; 0, the default, never waits).
+    nonisolated static let liveResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_LIVE_RESIZE_SYNC_MS"] ?? "") ?? 0
+    nonisolated static let dragResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_RESIZE_SYNC_MS"] ?? "") ?? 0
     nonisolated static let resizeFenceTimeoutOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE_MS"] ?? "") ?? 0
 
     weak var view: NSView?
@@ -200,8 +204,8 @@ final class CEFLayerHosting {
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.liveResizeSyncOverrideMs },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.dragResizeSyncOverrideMs },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil,
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },

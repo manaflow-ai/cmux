@@ -1365,6 +1365,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
                 method::MUX_PERF,
+                method::MUX_CALLERS,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2594,6 +2595,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // Each caller's requests and bytes over a recent window (`caller_stats.rs`): this
+        // machine's own clients only. It names local pids and sessions.
+        method::MUX_CALLERS => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read the caller stats",
+                ));
+            }
+            Ok(crate::caller_stats::global().report(&params))
+        }
         // The live perf commentator (`perf_watch.rs`): this machine's own clients only. It names
         // chats and clients, and `on` writes its tail file.
         method::MUX_PERF => {
@@ -3194,8 +3205,8 @@ async fn dispatch_request_with_identity(
                     .ok_or_else(|| RpcError::invalid_params("authorization is required"))?,
             )
             .map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let preparation = async {
                 crate::cloud_rewind::verify_preparation(
                     &origin,
