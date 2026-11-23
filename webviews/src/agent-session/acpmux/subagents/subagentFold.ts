@@ -104,6 +104,9 @@ export type Subagent = {
   harness?: string;
   model?: string;
   effort?: string;
+  /// The permission mode id it was started under, its chat's (acpmux `permissionMode` on a Claude
+  /// spawn): its tool calls run under it. Fixed at spawn, as its model is.
+  permissionMode?: string;
   command?: string;
   session?: string;
   host?: string;
@@ -1197,7 +1200,7 @@ export class SubagentFold {
     if (spawn || agent.tokens !== before[0] || agent.toolUses !== before[1]) this.noteActivity(agent, event.at);
     // Optional orchestration fields may be removed explicitly when a resumed harness no longer
     // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
-    for (const key of ["model", "effort", "lastMessage"] as const) {
+    for (const key of ["model", "effort", "permissionMode", "lastMessage"] as const) {
       if (!Object.prototype.hasOwnProperty.call(change, key)) continue;
       if (change[key] === null) delete agent[key];
       else {

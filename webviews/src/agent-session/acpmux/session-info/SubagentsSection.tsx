@@ -17,6 +17,7 @@ import { Icon } from "../icons/Icon";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { SubagentCardBody } from "../subagents/SubagentPreview";
+import { subagentSetup } from "../subagents/subagentSetup";
 import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
@@ -275,6 +276,7 @@ function AgentCard({ item }: { item: Line }) {
         .filter(Boolean)
         .join(" · ")}
       task={item.task && item.task !== item.name ? item.task : undefined}
+      setup={item.agent ? subagentSetup(item.agent) : undefined}
     />
   );
 }
