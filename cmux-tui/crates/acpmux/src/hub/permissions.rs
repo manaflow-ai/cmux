@@ -1593,6 +1593,13 @@ impl Hub {
             // A plan the person edited before approving: the agent gets the edit as its input.
             outcome.set("_meta", json!({"updatedInput": input}));
         }
+        // An approved plan stays in the chat's sight while the agent builds it (`approved_plan`).
+        let approved = option_id.as_deref().and_then(|o| {
+            let options = pending.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+            matches!(option_kind(options, o), Some("allow_once" | "allow_always"))
+                .then(|| super::plan_build::approved_plan(&pending.request, permission_id))
+                .flatten()
+        });
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
@@ -1608,6 +1615,9 @@ impl Hub {
             )
             .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
                                   "permissionId": permission_id})));
+        }
+        if let Some(plan) = approved {
+            self.approved_plan_set(session, plan);
         }
         Ok(())
     }

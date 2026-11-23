@@ -173,6 +173,10 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+/// Calls this machine runs for the person's other machines, over the hub carrier
+/// (`machine_call_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
 pub(crate) mod machine_info;
@@ -315,6 +319,7 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
