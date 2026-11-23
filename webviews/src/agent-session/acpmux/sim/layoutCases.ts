@@ -50,8 +50,14 @@ export const PERTURBATIONS = {
   "resize-burst": { provoked: true, about: "eight resizes, one a frame (a divider dragged fast)" },
   "reconnect-replay": { provoked: true, about: "the daemon drops; the reconnect replays the whole chat" },
   "duplicate-redelivery": { provoked: false, about: "the same rows delivered again as new objects" },
+  "planted-jump": {
+    provoked: false,
+    about: "the control: one row on screen jumps 24 px down and 24 px right with no act; it must flag",
+  },
 } as const;
 export type Perturbation = keyof typeof PERTURBATIONS;
+/** The perturbation that plants a shift: its cases must flag, or the detector is blind. */
+export const CONTROL: Perturbation = "planted-jump";
 export const PERTURBATION_NAMES = Object.keys(PERTURBATIONS) as Perturbation[];
 
 /** Pane widths: a narrow split, the default, a wide window. */

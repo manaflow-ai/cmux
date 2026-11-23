@@ -19,7 +19,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
-import { layoutCases, type LayoutCaseResult } from "../src/agent-session/acpmux/sim/layoutCases";
+import { CONTROL, layoutCases, type LayoutCaseResult } from "../src/agent-session/acpmux/sim/layoutCases";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -46,7 +46,7 @@ await requireBrowserLane("layout-every-case-browser.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, PAGE);
+    await warmViteServer(vite, PAGE, { timeoutMs: 400_000 });
     const { port } = vite.httpServer!.address() as { port: number };
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
@@ -66,18 +66,21 @@ await requireBrowserLane("layout-every-case-browser.test.ts", async () => {
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
-    const flagged = results.filter((result) => result.flags.length);
-    const total = results.reduce((sum, result) => sum + result.flags.length, 0);
+    const control = results.filter((result) => result.id.split("/")[1] === CONTROL);
+    const real = results.filter((result) => !control.includes(result));
+    const flagged = real.filter((result) => result.flags.length);
+    const total = real.reduce((sum, result) => sum + result.flags.length, 0);
     console.log(
-      `layout-every-case: ${results.length} cases run, ${flagged.length} flag a shift, ${total} flags in all, ` +
-        `${results.filter((result) => result.error).length} errors`,
+      `layout-every-case: ${real.length} cases run, ${flagged.length} flag a shift, ${total} flags in all, ` +
+        `${results.filter((result) => result.error).length} errors; control: ` +
+        `${control.filter((result) => result.flags.length).length}/${control.length} planted jumps caught`,
     );
     for (const result of results)
       console.log(
         `  ${result.id.padEnd(40)} steps ${String(result.steps).padStart(3)}  frames ${String(result.frames).padStart(5)}  flags ${String(result.flags.length).padStart(3)}  worst ${result.worst}px${result.error ? `  ERROR ${result.error}` : ""}`,
       );
     if (out)
-      writeFileSync(out, JSON.stringify({ cases: results.length, flagged: flagged.length, total, results }, null, 1));
+      writeFileSync(out, JSON.stringify({ cases: real.length, flagged: flagged.length, total, control: control.map((result) => [result.id, result.flags.length]), results }, null, 1));
   });
 
   for (const spec of cases)
@@ -99,6 +102,8 @@ await requireBrowserLane("layout-every-case-browser.test.ts", async () => {
       if (result.flags.length < allowed) console.log(`${spec.id}: below its baseline (${allowed}); lower it`);
       if (process.env.LAYOUT_CASES_REPORT === "1") return;
       expect(result.error).toBeUndefined();
+      // The control plants a jump: a detector that misses it would pass every other case blind.
+      if (spec.perturbation === CONTROL) return void expect(result.flags.length).toBeGreaterThan(0);
       expect(result.flags.length).toBeLessThanOrEqual(allowed);
     });
 });
