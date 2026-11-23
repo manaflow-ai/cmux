@@ -903,9 +903,11 @@ def finish(results):
                 wanted = [t for t in WANTED if not (t == "divider_drag" and splits == 1)]
                 missing += [f"{cell} {t}" for t in wanted if t not in cells.get(cell, {})]
     results["missing"] = missing
-    if results["errors"] or missing:
-        results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": sorted(results["errors"])}
-    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not results["errors"]
+    # A cell with no settled time failed even when no round raised: the headline's None must never ship beside
+    # "0 failed cells" (the b2dab851a nightly read unknown for a day that way).
+    failed = sorted(set(results["errors"]) | set(ssm.unmeasured(cells, unsettled_ms=opts.strip_ms)))
+    results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": failed}
+    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not failed
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)

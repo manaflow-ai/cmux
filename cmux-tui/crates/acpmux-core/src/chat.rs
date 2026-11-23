@@ -1499,8 +1499,10 @@ fn apply_changes(
     let mut lacks = BTreeMap::<u64, u64>::new();
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
-            || matches!(&op.change, Change::Patch(_));
-        if matches!(&op.change, Change::Row(row) if !row.open) {
+            || matches!(&op.change, Change::Patch(_) | Change::Leave(_));
+        if matches!(&op.change, Change::Row(row) if !row.open)
+            || matches!(&op.change, Change::Leave(row) if row.rev <= 1)
+        {
             state.settled_since_checkpoint = state.settled_since_checkpoint.saturating_add(1);
         }
         let raw = RawRange {
@@ -1522,6 +1524,15 @@ fn apply_changes(
             Change::Patch(row) => {
                 lacks.remove(&row.id);
                 patch(state, row, raw)?;
+            }
+            // A row taken back: an open one settles hidden, a settled one is patched hidden.
+            Change::Leave(row) => {
+                lacks.remove(&row.id);
+                if row.rev <= 1 {
+                    settle_or_open(state, row, raw)?;
+                } else {
+                    patch(state, row, raw)?;
+                }
             }
             Change::Body { id, field, append, source } => {
                 let mut missed = 0u64;

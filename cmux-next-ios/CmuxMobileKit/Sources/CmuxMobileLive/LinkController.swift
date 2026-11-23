@@ -480,6 +480,9 @@ public final class LinkController {
                 let generation = self.machine.generation
                 switch state {
                 case .connected(_, let path, let rtt):
+                    // One line per path change and per pong (Rust sends both, about every
+                    // 10 s): the route and round trip this phone saw (path_report.rs on the Mac).
+                    log.info("link path rtt: path=\(String(describing: path), privacy: .public) rtt_ms=\(rtt.map(String.init) ?? "-", privacy: .public)")
                     if case .connecting = self.machine.phase {
                         self.connected(link, generation: generation, path: path)
                     }
