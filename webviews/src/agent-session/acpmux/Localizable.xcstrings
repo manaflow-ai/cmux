@@ -328153,7 +328153,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or read it here: the agent can read and search this folder, but cannot edit it or run anything that changes it. Project hooks, settings and MCP servers stay off."
+            "value": "Or read it here: the agent can read and search this folder, not change it. Project hooks, settings and MCP servers stay off."
           }
         },
         "es": {

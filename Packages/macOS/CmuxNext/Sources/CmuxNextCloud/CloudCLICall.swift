@@ -117,6 +117,7 @@ public struct CloudCLICall: Sendable {
         // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
         let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
                                   timeout: .seconds(1_560))
+        // main-actor-ok: the answer is one small {ok, body.conversation, error} line
         guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
             return .failure(CloudCallRefusal(code: "transport", message: ""))
         }

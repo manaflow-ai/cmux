@@ -50,6 +50,7 @@ public struct HomeChiefComputer: Equatable, Sendable {
 
         /// The route's JSON (`{ok, value: {used, computer: {id, state} | null}}`); nil for anything else.
         public init?(json data: Data) {
+            // main-actor-ok: the route's status reply is a few fields (used, computer id and state)
             guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], root["ok"] as? Bool == true,
                   let value = root["value"] as? [String: Any], let used = value["used"] as? Bool else { return nil }
             let computer = value["computer"] as? [String: Any]
