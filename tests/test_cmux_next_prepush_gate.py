@@ -318,7 +318,9 @@ class PrePushGateTests(unittest.TestCase):
         for phase in ("fast-tier", "web-lint", "cmux-next-gate", "base-merge-warning", "total"):
             self.assertIn(phase, times[0])
         self.assertIn("a failure after this line is git or GitHub", result.stderr)
-        self.assertIn("Retry a failed push", result.stderr)
+        self.assertIn("git ls-remote", result.stderr)
+        # 2026-11-22: "retry at most 3 times" re-ran the whole gate per retry on a Mac already at load 163-257.
+        self.assertNotIn("Retry a failed push", result.stderr)
 
         self.kit("Refused", self.with_try("Refused"))
         self.commit("adds a try!")
@@ -331,6 +333,19 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("cmux-next-gate", times[0], "the phase that refused is named with its time")
         self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
         self.assertIn("do not retry", result.stderr)
+
+    def test_a_push_whose_queue_gave_up_defers_the_tree_checks_and_passes(self):
+        # 2026-11-22: past its queue wait the hook ran the whole gate beside ~40 other pushes (load 163-257 on 15
+        # cores; one push 1703 s in the hook). Now the queue hands the gate CMUX_PREPUSH_DEFER_HEAVY and the gate
+        # leaves its tree checks (here the scanner that refuses a try!) to CI, saying so.
+        self.kit("Deferred", self.with_try("Deferred"))
+        self.commit("adds a try! while the Mac is too busy")
+
+        result = self.push(CMUX_PREPUSH_GATE_FULL="", CMUX_PREPUSH_DEFER_HEAVY="waited 1800s for a pre-push turn")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DEFERRED the tree checks to CI (waited 1800s for a pre-push turn)", result.stdout + result.stderr)
+        self.assertIn("Do not retry", result.stdout + result.stderr)
 
     def test_a_ui_font_check_stopped_by_its_read_guard_refuses_the_push(self):
         # Review of #39838: the check stops ("reads X, which is not in INPUTS") on a read outside INPUTS. The base pass
@@ -3213,6 +3228,44 @@ class SideWorkersTests(unittest.TestCase):
         self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
         for malformed in ("", "0", "-3", "five"):
             self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+    def test_a_loaded_host_runs_fewer_scanners_at_once(self):
+        # 2026-11-22: ~40 pushes on a 15-core Mac at load 163-257 each ran 16 scanners at once (3300-6500 new
+        # processes a minute). The pool takes only the cores the load leaves free, at least 2; idle keeps a core each.
+        gate = load_gate_tools()
+        self.assertEqual(gate.side_workers({}, cpus=15, load=0.0), 15)
+        self.assertEqual(gate.side_workers({}, cpus=15, load=None), 15)
+        self.assertEqual(gate.side_workers({}, cpus=15, load=5.0), 10)
+        self.assertEqual(gate.side_workers({}, cpus=15, load=14.5), 2)
+        self.assertEqual(gate.side_workers({}, cpus=15, load=257.0), 2)
+        # A CI grant is the runner's own share: it stands as given.
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "5"}, cpus=14, load=60.0), 5)
+
+
+class HeavyDeferralTests(unittest.TestCase):
+    """2026-11-22: a loaded Mac's gate ran longer (limits x load/cores, up to 3600 s) instead of doing less."""
+
+    def setUp(self):
+        self.gate = load_gate_tools()
+
+    def test_an_idle_or_moderately_busy_host_runs_everything(self):
+        self.assertIsNone(self.gate.heavy_deferral({}, load=0.0, cpus=15))
+        self.assertIsNone(self.gate.heavy_deferral({}, load=30.0, cpus=15))  # 2 per core: not past it
+        self.assertIsNone(self.gate.heavy_deferral({}, load=None, cpus=15))
+
+    def test_a_loaded_host_defers_the_tree_checks_with_a_named_reason(self):
+        reason = self.gate.heavy_deferral({}, load=163.0, cpus=15)
+        self.assertIn("load average 163 on 15 cores", reason)
+        self.assertIn("CMUX_PREPUSH_DEFER_LOAD_PER_CORE", reason)
+        self.assertIsNone(self.gate.heavy_deferral({"CMUX_PREPUSH_DEFER_LOAD_PER_CORE": "20"}, load=163.0, cpus=15))
+
+    def test_the_queue_deadline_defers_whatever_the_load(self):
+        self.assertEqual(self.gate.heavy_deferral({"CMUX_PREPUSH_DEFER_HEAVY": "waited 1800s"}, load=0.0, cpus=15),
+                         "waited 1800s")
+
+    def test_full_runs_everything(self):
+        env = {"CMUX_PREPUSH_GATE_FULL": "1", "CMUX_PREPUSH_DEFER_HEAVY": "waited 1800s"}
+        self.assertIsNone(self.gate.heavy_deferral(env, load=257.0, cpus=15))
 
 
 class StaleInstallTests(unittest.TestCase):

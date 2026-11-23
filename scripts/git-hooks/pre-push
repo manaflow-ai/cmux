@@ -12,7 +12,11 @@
 #    from; the rest wait their turn (a line names the wait). On 2026-11-10 about nine agents' hooks ran at once at
 #    load average 300-770: each `git worktree add` of a lint tree took 2-6 minutes, every gate ran past its limit
 #    and no push finished. The wait never refuses a push: past CMUX_PREPUSH_QUEUE_WAIT_SECONDS [1800] the hook
-#    runs anyway. A Mac that stays too loaded pushes through another one: scripts/cmux-next/push-from-host.sh.
+#    runs with the gate's tree checks deferred to CI (CMUX_PREPUSH_DEFER_HEAVY; the gate also defers them on its own
+#    past 2 runnable processes per core, prepush-gate.py heavy_deferral), never the whole gate beside the other
+#    pushes: on 2026-11-22 ~40 pushes at load 163-257 on 15 cores ran it in full and one spent 1703 s in the hook.
+#    The wait polls with backoff (0.2 s doubling to 5 s). A Mac that stays too loaded pushes through another one:
+#    scripts/cmux-next/push-from-host.sh.
 # 0b. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always, never refuses): runs the web checks CI runs on what the push changes and prints what they
 #    find; the push goes on, and CI's `web lint` job checks it (lint never stops a push). CMUX_WEB_LINT_STRICT=1
@@ -67,12 +71,12 @@ finish() {
     phase ""
     echo "pre-push: hook times: ${PHASE_TIMES:-none}; total $((SECONDS - HOOK_STARTED))s" >&2
     if (( status == 0 )); then
-        echo "pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check." \
-            "Retry it as AGENTS.md says (\"Retry a failed push\": git push -q, at most 3 retries, 30, 60, then 120 s apart)." >&2
+        echo "pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check;" \
+            "first see whether the push landed (git ls-remote origin refs/heads/<branch>)." >&2
     else
         echo "pre-push: refused in ${failed:-setup} (exit $status). A check that names a violation: fix it, do not retry" \
-            "unchanged. The gate's \"ran past its ...s limit\" only: retry as AGENTS.md says (\"Retry a failed push\"), or push" \
-            "through an idle Mac: scripts/cmux-next/push-from-host.sh <branch>." >&2
+            "unchanged. The gate's \"ran past its ...s limit\": do not retry here (each retry runs the gate again on" \
+            "the same busy Mac); push through an idle Mac: scripts/cmux-next/push-from-host.sh <branch>." >&2
     fi
 }
 trap finish EXIT
@@ -160,6 +164,8 @@ budget = number("CMUX_PREPUSH_QUEUE_WAIT_SECONDS", 1800)
 started = time.monotonic()
 held = None
 told = False
+deferred = ""
+pause = 0.2
 while held is None:
     for slot in range(slots):
         path = os.path.join(directory, f"cmux-pre-push-queue.{os.getuid()}.{slot}.lock")
@@ -178,16 +184,23 @@ while held is None:
         break
     waited = time.monotonic() - started
     if waited >= budget:
-        print(f"pre-push: waited {waited:.0f}s for a turn (CMUX_PREPUSH_QUEUE_WAIT_SECONDS); checking now, beside "
-              "the other pushes.", file=sys.stderr, flush=True)
+        deferred = f"waited {waited:.0f}s for a pre-push turn, CMUX_PREPUSH_QUEUE_WAIT_SECONDS"
+        print(f"pre-push: {deferred}; running the light checks now and deferring the cmux-next tree checks to CI. "
+              "Nothing is wrong with this push: do not retry it for this.", file=sys.stderr, flush=True)
         break
     if not told:
         told = True
         print(f"pre-push: {slots} other push(es) on this Mac are being checked; waiting for a turn (up to "
               f"{budget:g}s, CMUX_PREPUSH_SLOTS). Nothing is wrong with this push.", file=sys.stderr, flush=True)
-    time.sleep(0.2)  # a poll: flock has no wait over several files, and a slot frees when its holder exits
+    # A poll (flock has no wait over several files, and a slot frees when its holder exits), backing off: ~40 waiting
+    # pushes each polling every 0.2 s for up to 30 min woke 200 times a second on a Mac already at load 200.
+    time.sleep(min(pause, max(0.0, budget - waited)))
+    pause = min(pause * 2, 5.0)
 waited = int(time.monotonic() - started)
-child = subprocess.Popen(command, env={**os.environ, "CMUX_PREPUSH_QUEUE_HELD": str(waited)})
+env = {**os.environ, "CMUX_PREPUSH_QUEUE_HELD": str(waited)}
+if deferred:
+    env["CMUX_PREPUSH_DEFER_HEAVY"] = deferred
+child = subprocess.Popen(command, env=env)
 for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
     signal.signal(signum, lambda number, frame: child.send_signal(number))
 code = child.wait()

@@ -1857,9 +1857,10 @@ mkdir -p node_modules/.bin
 
     # 2026-11-10: about nine agents' pre-push hooks ran at once on one Mac (load average 300-770); every gate ran
     # past its limit and no push finished. The hook now takes a turn: CMUX_PREPUSH_SLOTS at once on the Mac.
-    def queued_hooks(self, count, **settings):
+    def queued_hooks(self, count, gate="", **settings):
         """Run COUNT installed pre-push hooks at once, each with a web lint that takes 0.5 s and writes when it
-        started and ended; returns the (start, end) pairs in start order and the hooks' output."""
+        started and ended, and GATE as the cmux-next gate; returns the (start, end) pairs in start order and the
+        hooks' output."""
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         hook_dir = self.common_dir() / "cmux-git-hooks"
@@ -1871,11 +1872,11 @@ mkdir -p node_modules/.bin
             "time.sleep(0.5)\n"
             "with open(log, 'a') as out:\n"
             "    out.write(f'{started} {time.time()}\\n')\n")
-        (hook_dir / "cmux_next_prepush_gate.py").write_text("")
+        (hook_dir / "cmux_next_prepush_gate.py").write_text(gate)
         (self.repo / "file").write_text("x\n")
         head = self.commit_all("a commit to push")
         queue = self.root / "queue"
-        queue.mkdir()
+        queue.mkdir(exist_ok=True)
         env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
         logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
         for handle in logs:
@@ -1909,6 +1910,23 @@ mkdir -p node_modules/.bin
         times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
         self.assertEqual(len(times), 2)
         self.assertTrue(all("pre-push: passed" in text for text in output), output)
+
+    def test_a_hook_the_queue_cannot_seat_defers_the_gates_tree_checks(self):
+        # 2026-11-22: past its wait the hook ran the whole gate beside ~40 other pushes (load 163-257 on 15 cores; one
+        # push 1703 s in the hook). Now it hands the gate CMUX_PREPUSH_DEFER_HEAVY (the gate then leaves its tree
+        # checks to CI) and says not to retry. The test holds the only slot itself, so the hook is never seated.
+        import fcntl
+        queue = self.root / "queue"
+        queue.mkdir()
+        holder = os.open(queue / f"cmux-pre-push-queue.{os.getuid()}.0.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        self.addCleanup(os.close, holder)
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        gate = "import os\nprint('gate deferral: ' + os.environ.get('CMUX_PREPUSH_DEFER_HEAVY', 'none'))\n"
+        _times, output = self.queued_hooks(1, gate=gate, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="1")
+        self.assertIn("deferring the cmux-next tree checks to CI", output[0])
+        self.assertIn("do not retry", output[0])
+        self.assertIn("gate deferral: waited ", output[0])
+        self.assertIn("pre-push: passed", output[0])
 
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()

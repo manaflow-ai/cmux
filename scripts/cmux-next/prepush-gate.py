@@ -169,6 +169,11 @@ the app size cap, script tests, Swift and Rust builds and tests.
   scripts/cmux-next/prepush-gate.py --commits A..B   # CI: each commit against its parent, named
 Escape hatch for one push: CMUX_NEXT_CHECKS_SKIP_REASON="<check> fails in files this push does not
 touch (base <sha>)". The reason is printed; say it in your report.
+
+On a loaded host the hook does less, never runs longer (heavy_deferral): past 2 runnable processes per core
+(CMUX_PREPUSH_DEFER_LOAD_PER_CORE), or when the hook's queue gave up waiting for a turn, the tree checks are left to
+CI with a printed DEFERRED line (CMUX_PREPUSH_GATE_FULL=1 runs them); fewer scanners run at once as load rises
+(side_workers); the limits are never scaled up for load.
 """
 from __future__ import annotations
 
@@ -730,15 +735,55 @@ def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
 
 # ---------------------------------------------------------------- pinned tools
 
-def side_workers(environ=os.environ, cpus: int | None = None) -> int:
+def host_load() -> float | None:
+    """The 1-minute load average, or None where the host has none."""
+    try:
+        return os.getloadavg()[0]
+    except OSError:
+        return None
+
+
+def side_workers(environ=os.environ, cpus: int | None = None, load: float | None = None) -> int:
     """How many scanners the gate runs at once: a core each, at most 16, and no more than the cores a CI mini's runner
     hook granted the job (CMUX_CI_CPU_BUDGET). The checks job runs the gate's own suite beside its other checks, each
-    gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217)."""
-    workers = min(16, cpus or os.cpu_count() or 4)
+    gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217).
+
+    Without a grant, only the cores LOAD leaves free, at least 2: on 2026-11-22 ~40 pushes on a 15-core Mac at load
+    163-257 each ran 16 scanners at once (3300-6500 new processes a minute). An idle host keeps a core each."""
+    cpus = cpus or os.cpu_count() or 4
+    workers = min(16, cpus)
     budget = environ.get("CMUX_CI_CPU_BUDGET", "")
     if budget.isdigit() and int(budget) > 0:
-        workers = min(workers, int(budget))
+        return min(workers, int(budget))
+    if load is not None and load > 0:
+        workers = min(workers, max(2, int(cpus - load)))
     return workers
+
+
+DEFER_LOAD_PER_CORE = 2.0  # CMUX_PREPUSH_DEFER_LOAD_PER_CORE: a pre-push past this load per core defers the scanners
+
+
+def heavy_deferral(environ=os.environ, load: float | None = None, cpus: int | None = None) -> str | None:
+    """Why this pre-push run defers the tree checks (the scanners, ast-grep, SwiftFormat, rustfmt, SwiftLint, the
+    dependency and materials checks, the crash ratchet) to CI, or None to run them.
+
+    Deferred when the hook's queue gave up waiting for a turn (CMUX_PREPUSH_DEFER_HEAVY, set by the pre-push hook) or
+    the host runs more than DEFER_LOAD_PER_CORE runnable processes per core. Before 2026-11-22 such a gate ran anyway,
+    with its limits multiplied by the load: one push spent 1703 s in the hook. CMUX_PREPUSH_GATE_FULL=1 runs them
+    regardless. The git-only checks, the guardrails and the compile trailer always run."""
+    if environ.get("CMUX_PREPUSH_GATE_FULL", "").strip() == "1":
+        return None
+    queued = environ.get("CMUX_PREPUSH_DEFER_HEAVY", "").strip()
+    if queued:
+        return queued
+    try:
+        threshold = float(environ.get("CMUX_PREPUSH_DEFER_LOAD_PER_CORE") or DEFER_LOAD_PER_CORE)
+    except ValueError:
+        threshold = DEFER_LOAD_PER_CORE
+    cpus = cpus or os.cpu_count() or 1
+    if load is not None and threshold > 0 and load / cpus > threshold:
+        return f"load average {load:.0f} on {cpus} cores (over {threshold:g} per core, CMUX_PREPUSH_DEFER_LOAD_PER_CORE)"
+    return None
 
 
 def platform_key() -> str:
@@ -1180,14 +1225,14 @@ def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) 
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
-    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds, scaled for this host's load
-    (loaded_timeout).
+    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds (never scaled for load: a loaded
+    host's pre-push defers the heavy checks to CI instead, heavy_deferral()).
 
     A timed-out command is stopped with stop(), not subprocess.run's SIGKILL, so a `git` under it clears
     the lock it holds (see stop())."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")} | CI_ENV
     cwd = absolute(cwd)
-    limit = loaded_timeout(timeout)
+    limit = timeout
     with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                           stdin=subprocess.DEVNULL) as process:
         try:
@@ -1446,7 +1491,7 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=loaded_timeout(60))
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=60)
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
@@ -2562,7 +2607,7 @@ def yaml_problem(text: str) -> tuple[bool, str | None]:
     if ruby is None:
         return False, None
     try:
-        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=loaded_timeout(30))
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return False, None
     if result.returncode == 0:
@@ -2578,7 +2623,7 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
     try:
         result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
-                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=loaded_timeout(60))
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode not in (0, 1):
@@ -2634,7 +2679,7 @@ PYYAML_PIN = "PyYAML==6.0.3"
 def has_pyyaml(python: str) -> bool:
     """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
     try:
-        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=loaded_timeout(60)).returncode == 0
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -2647,7 +2692,7 @@ def interpreter_sys_path(python: str) -> list[str]:
     """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
     try:
         done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
-                              capture_output=True, text=True, timeout=loaded_timeout(30))
+                              capture_output=True, text=True, timeout=30)
         listed = json.loads(done.stdout) if done.returncode == 0 else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
@@ -2677,7 +2722,7 @@ def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = N
         paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
     for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
         try:
-            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=loaded_timeout(30))
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.SubprocessError):
             continue
         if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
@@ -3105,8 +3150,11 @@ TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHE
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
-         highlights_layer: bool = False, checks: set[str] | None = None) -> list[tuple[str, list[str]]]:
+         highlights_layer: bool = False, checks: set[str] | None = None,
+         trees: bool = True) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
+
+    TREES: False runs only the git-only checks (heavy_deferral: a loaded host's pre-push leaves the tree checks to CI).
 
     CHECKS: run only the checks of these names (gate_own's runs over the ranges a merge does not own, which only take
     findings off the push's own run: a check that found nothing there has nothing to take off). None runs them all.
@@ -3214,7 +3262,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         return reserved
     # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
     # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
-    if checks is not None and not checks & TREE_CHECKS:
+    if (checks is not None and not checks & TREE_CHECKS) or not trees:
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -3316,7 +3364,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
         crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
                        and want(CRASH_RATCHET_CHECK))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers(load=host_load())) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
@@ -3423,8 +3471,8 @@ def finding_key(record: str) -> str:
 
 def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
              trusted_scripts: Path | None = None, swiftformat_layer: bool = False,
-             highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
-    """[(check, findings)] the push's own range OWN (push_range.OwnRange) adds.
+             highlights_layer: bool = False, trees: bool = True) -> list[tuple[str, list[str]]]:
+    """[(check, findings)] the push's own range OWN (push_range.OwnRange) adds. TREES as gate()'s.
 
     gate() over own.base..own.head; for a merge (own.before), less what gate() finds over each range the push
     does not own (push_range.less): the old remote head's delta over the upstream it started from. Findings are
@@ -3438,7 +3486,7 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     if own.base == own.head:
         return []  # every pushed commit is already on the remote: the push adds nothing to judge
     found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer,
-                 highlights_layer=highlights_layer)
+                 highlights_layer=highlights_layer, trees=trees)
     if not own.before or not found:
         return found
     # Every path the own range changes, added or deleted, in any folder: each restricted layer keeps only its own
@@ -3450,7 +3498,7 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     # 2026-11-21 the upstream run's other checks (whole-package trees among them) cost 293 s of a 798 s merge push.
     wanted = {name for name, _ in found}
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
-                        highlights_layer=highlights_layer, checks=wanted))
+                        highlights_layer=highlights_layer, checks=wanted, trees=trees))
               for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
@@ -3823,7 +3871,7 @@ def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding
     lock = repo / SCRIPTS / "lint-tools.lock"
     try:
         binary = ensure_tool(lock, "swiftformat")
-        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=loaded_timeout(30),
+        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=30,
                                stdin=subprocess.DEVNULL)
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
         return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
@@ -4088,11 +4136,19 @@ def _main(argv: list[str] | None = None) -> int:
     # SwiftFormat only for the pre-push hook and a plain local run (no --base: CI's pull request run, the fast gates
     # and the car guards name one), never on GitHub Actions.
     swiftformat_layer = not args.base and not os.environ.get("GITHUB_ACTIONS")
+    # A loaded host's hook leaves the tree checks to CI (heavy_deferral); never CI's own run or a manual one.
+    deferred = (heavy_deferral(load=host_load()) if args.pre_push and not os.environ.get("GITHUB_ACTIONS")
+                else None)
+    if deferred:
+        print(f"prepush-gate: DEFERRED the tree checks to CI ({deferred}): CI's \"cmux-next checks\" job runs the "
+              "scanners, ast-grep and SwiftLint on this push; SwiftFormat and rustfmt run only here, so run "
+              "`scripts/cmux-next/prepush-gate.py` on an idle Mac before merging. The git-only checks, the guardrails "
+              "and the compile trailer ran. Do not retry the push for this; CMUX_PREPUSH_GATE_FULL=1 runs everything.")
     found_any = []
     for own in ranges:
         # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
-                              highlights_layer=swiftformat_layer)
+                              highlights_layer=swiftformat_layer, trees=not deferred)
     advisory_finish(advised, os.environ.get("GITHUB_STEP_SUMMARY"), advisory_seconds())
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
@@ -4287,43 +4343,18 @@ def start_watchdog(limit: float) -> None:
     timer.start()
 
 
-GATE_LIMIT_MAX_SECONDS = 3600.0  # the most a loaded Mac's gate gets; past it the push goes through another Mac
-
-
-def loaded_limit(base: float, load: float, cpus: int) -> float:
-    """BASE on a Mac with a free core, and BASE times the runnable processes per core on a loaded one, up to
-    GATE_LIMIT_MAX_SECONDS. The limit is there to refuse a hang, and a check that shares each core with LOAD/CPUS
-    others is slow, not hung: on 2026-11-10 (load average 300-770 on 18 cores) every push's gate ran to 600 s and
-    was refused with nothing wrong in it, while the same push's gate took 8 s on an idle Mac."""
-    if cpus <= 0 or load <= cpus:
-        return base
-    return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
-
-
-def loaded_timeout(seconds: float) -> float:
-    """One check's SECONDS for this host's load (loaded_limit), so a check refuses a hang, not a busy host: on
-    2026-11-17 a 2-core lane VM at load 26 took 133 s of wall time for the single-host fallback checker's 30 s of
-    CPU, past run()'s fixed 120 s, and refused three pushes in a row with nothing wrong in them."""
-    try:
-        load = os.getloadavg()[0]
-    except OSError:
-        return seconds
-    return loaded_limit(seconds, load, os.cpu_count() or 1)
-
-
 def gate_limit() -> float:
-    """CMUX_NEXT_GATE_LIMIT_SECONDS as given (a set limit is never scaled), else GATE_LIMIT_SECONDS for this load."""
+    """CMUX_NEXT_GATE_LIMIT_SECONDS as given, else GATE_LIMIT_SECONDS. Never scaled up for load: until 2026-11-22 a
+    loaded Mac's limit grew to load/cores times 600 s (up to 3600 s), so the busier the Mac, the longer each of ~40
+    pushes' gates ran beside the others (load 163-257 on 15 cores, one push 1703 s in the hook). A loaded host's
+    gate now does less instead (heavy_deferral)."""
     raw = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS", "").strip()
     try:
         if raw:
             return float(raw)
     except ValueError:
         pass
-    try:
-        load = os.getloadavg()[0]
-    except OSError:
-        return GATE_LIMIT_SECONDS
-    return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
+    return GATE_LIMIT_SECONDS
 
 
 if __name__ == "__main__":
