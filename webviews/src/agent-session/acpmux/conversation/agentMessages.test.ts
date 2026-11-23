@@ -100,6 +100,10 @@ test("a send's delivery: sending, sent, queued, delivered or failed, from its st
   // acpmux send --no-wait, plain and --json.
   expect(messageDelivery(done("queued\n"))).toBe("queued");
   expect(messageDelivery(done("steered\n"))).toBe("delivered");
+  expect(messageDelivery(done("sent queued id=d1 to=lane\nqueued for delivery d1"))).toBe("queued");
+  expect(messageDelivery(done("sent held id=d1 to=lane\nheld in its inbox: …"))).toBe("queued");
+  expect(messageDelivery(done("sent delivered id=d1 to=undelivered\nqueued (delivery d1)"))).toBe("delivered");
+  expect(messageDelivery(done("sent steered id=d1 to=lane\nsteered (delivery d1)"))).toBe("delivered");
   expect(messageDelivery(done('{"sessionId":"x","queued":true,"steered":false}'))).toBe("queued");
   expect(messageDelivery(done('{"sessionId":"x","queued":false,"steered":true}'))).toBe("delivered");
   // tell-coordinator's receipt.

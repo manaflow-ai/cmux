@@ -4,7 +4,8 @@ use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
 use std::os::fd::{AsRawFd, RawFd};
 use x11rb::connection::Connection;
-use x11rb::protocol::damage::{ConnectionExt as _, ReportLevel};
+use x11rb::protocol::damage::{ConnectionExt as _, Damage, ReportLevel};
+use x11rb::protocol::xfixes::{ConnectionExt as _, Region};
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Window};
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -26,6 +27,31 @@ impl Rect {
         let y1 = ((self.y + self.h + 1) & !1).min(sh);
         Rect { x: x0, y: y0, w: x1.saturating_sub(x0), h: y1.saturating_sub(y0) }
     }
+}
+
+/// At most this many rects are read back one by one; more fall back to their bounding box.
+const MAX_RECTS: usize = 16;
+
+/// What to read back for one frame: the rects the X server reported since the last readback,
+/// each even-aligned and clipped to `sw`x`sh`, or their bounding box when the pieces are many or
+/// cover most of it (a readback has a per-request cost, so near-full boxes go as one). Two small
+/// changes at opposite corners are two small readbacks, not the whole screen between them (the
+/// engine's gate hands the frame source one union rect, which this replaces).
+pub fn readback_plan(damage: &[Rect], sw: u32, sh: u32) -> Vec<Rect> {
+    let rects: Vec<Rect> =
+        damage.iter().map(|r| r.align_even(sw, sh)).filter(|r| r.w > 0 && r.h > 0).collect();
+    let Some(&first) = rects.first() else { return Vec::new() };
+    let bbox = rects.iter().skip(1).fold(first, |a, b| {
+        let (x1, y1) = ((a.x + a.w).max(b.x + b.w), (a.y + a.h).max(b.y + b.h));
+        let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
+        Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+    });
+    let area = |r: &Rect| u64::from(r.w) * u64::from(r.h);
+    let pieces: u64 = rects.iter().map(area).sum();
+    if rects.len() > MAX_RECTS || pieces * 2 >= area(&bbox) {
+        return vec![bbox];
+    }
+    rects
 }
 
 /// One damage report.
@@ -82,9 +108,45 @@ pub struct Capturer {
     readback: Option<Readback>,
     /// Core GetImage's copy of the last rect.
     core: Vec<u8>,
+    /// With [`Capturer::with_region`]: the damage object that accumulates the root's changes
+    /// in the server, and the XFixes region [`Capturer::take_damage`] moves them into.
+    region: Option<(Damage, Region)>,
 }
 
 impl Capturer {
+    /// Opens a pixel connection whose damage the server keeps as one region (`NON_EMPTY`: at
+    /// most one event between takes), so nothing queues while frames are not being captured,
+    /// and [`Capturer::take_damage`] returns every change made before it was called.
+    pub fn with_region(display: &str) -> Res<Self> {
+        let mut this = Self::new(display, false)?;
+        this.conn.xfixes_query_version(5, 0)?.reply()?;
+        this.conn.damage_query_version(1, 1)?.reply()?;
+        let damage = this.conn.generate_id()?;
+        this.conn.damage_create(damage, this.root, ReportLevel::NON_EMPTY)?.check()?;
+        let region = this.conn.generate_id()?;
+        this.conn.xfixes_create_region(region, &[])?.check()?;
+        this.region = Some((damage, region));
+        Ok(this)
+    }
+
+    /// Every rect the root changed in since the last take, and clears it. A round trip, so a
+    /// change the server applied before this request (any change another connection has
+    /// already seen) is in it. Empty without [`Capturer::with_region`].
+    pub fn take_damage(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        let Some((damage, region)) = self.region else { return Ok(()) };
+        self.conn.damage_subtract(damage, x11rb::NONE, region)?;
+        let reply = self.conn.xfixes_fetch_region(region)?.reply()?;
+        // The NON_EMPTY notifications only say "something changed"; the region holds what.
+        while self.conn.poll_for_event()?.is_some() {}
+        out.extend(reply.rectangles.iter().map(|a| Rect {
+            x: a.x.max(0) as u32,
+            y: a.y.max(0) as u32,
+            w: u32::from(a.width),
+            h: u32::from(a.height),
+        }));
+        Ok(())
+    }
+
     /// Opens a capture connection. With `damage`, subscribes to raw damage rectangles on the root.
     pub fn new(display: &str, damage: bool) -> Res<Self> {
         let (conn, screen_num) = x11rb::connect(Some(display))?;
@@ -110,6 +172,7 @@ impl Capturer {
             shm: None,
             readback: None,
             core: Vec::new(),
+            region: None,
         })
     }
 
@@ -167,5 +230,84 @@ impl Capturer {
         }
         self.core = reply.data;
         Ok(&self.core[..len])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{readback_plan, Capturer, Rect};
+
+    /// A change another connection has already been told about is in the next take, though
+    /// this connection read no event for it (review of cmux#47241: a drain of queued raw
+    /// events missed the newest change the gate had released, and it stayed unsent).
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn a_take_holds_every_change_the_loop_connection_has_seen() {
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux, Rectangle};
+        let xvfb = crate::inject::tests::Xvfb::start();
+        let mut cap = Capturer::with_region(&xvfb.display).unwrap();
+        let loop_conn = Capturer::new(&xvfb.display, true).unwrap();
+        let mut first = Vec::new();
+        cap.take_damage(&mut first).unwrap();
+        let (draw, screen) = x11rb::connect(Some(&xvfb.display)).unwrap();
+        let root = draw.setup().roots[screen].root;
+        let gc = draw.generate_id().unwrap();
+        draw.create_gc(gc, root, &CreateGCAux::new().foreground(0xff_ff_ff)).unwrap();
+        for (x, y) in [(0, 0), (1000, 700)] {
+            let r = Rectangle { x, y, width: 8, height: 16 };
+            draw.poly_fill_rectangle(root, gc, &[r]).unwrap();
+        }
+        draw.get_input_focus().unwrap().reply().unwrap();
+        // The loop connection has both changes (its own round trip, then its queue).
+        loop_conn.conn.get_input_focus().unwrap().reply().unwrap();
+        let mut seen = Vec::new();
+        loop_conn.drain(&mut seen).unwrap();
+        assert!(seen.iter().any(|e| e.rect.x >= 1000), "the loop never saw the second change");
+        let mut taken = Vec::new();
+        cap.take_damage(&mut taken).unwrap();
+        for (x, y) in [(0, 0), (1000, 700)] {
+            let held = taken
+                .iter()
+                .any(|r| r.x <= x && r.y <= y && r.x + r.w >= x + 8 && r.y + r.h >= y + 16);
+            assert!(held, "the change at {x},{y} is not in the take: {taken:?}");
+        }
+        let mut again = Vec::new();
+        cap.take_damage(&mut again).unwrap();
+        assert!(again.is_empty(), "a take clears what it returned: {again:?}");
+    }
+
+    fn r(x: u32, y: u32, w: u32, h: u32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    /// Two glyphs at opposite corners of 1080p are two glyph readbacks, not the 1904x1064 box
+    /// between them (8 MB read back and converted for 1 KB of change).
+    #[test]
+    fn far_apart_changes_are_read_back_one_by_one() {
+        let plan = readback_plan(&[r(0, 0, 8, 16), r(1912, 1064, 8, 16)], 1920, 1080);
+        assert_eq!(plan, vec![r(0, 0, 8, 16), r(1912, 1064, 8, 16)]);
+    }
+
+    /// Pieces that cover most of their box go as the one box.
+    #[test]
+    fn close_changes_go_as_their_bounding_box() {
+        let plan = readback_plan(&[r(0, 0, 100, 100), r(100, 0, 100, 100)], 1920, 1080);
+        assert_eq!(plan, vec![r(0, 0, 200, 100)]);
+    }
+
+    /// Many small pieces fall back to one box, so a frame never makes hundreds of requests.
+    #[test]
+    fn many_pieces_fall_back_to_the_box() {
+        let damage: Vec<Rect> = (0..20).map(|i| r(i * 90, i * 50, 2, 2)).collect();
+        assert_eq!(readback_plan(&damage, 1920, 1080), vec![r(0, 0, 1712, 952)]);
+    }
+
+    /// Odd edges grow to even (4:2:0 chroma), empty and off-screen rects drop out.
+    #[test]
+    fn rects_are_even_aligned_and_empty_ones_dropped() {
+        let plan = readback_plan(&[r(3, 5, 3, 3), r(10, 10, 0, 4), r(2000, 0, 4, 4)], 1920, 1080);
+        assert_eq!(plan, vec![r(2, 4, 4, 4)]);
+        assert!(readback_plan(&[], 1920, 1080).is_empty());
     }
 }

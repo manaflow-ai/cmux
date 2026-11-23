@@ -466,10 +466,10 @@ fn every_tool_that_takes_delivery_authorizes_foreground_as_such() {
     let r = rig();
     let delivery_tools: Vec<&str> =
         tools::TOOLS.iter().filter(|t| t.takes_delivery()).map(|t| t.name).collect();
-    assert_eq!(delivery_tools, ["click", "type_text", "press_key", "drag"]);
+    assert_eq!(delivery_tools, ["click", "move_pointer", "type_text", "press_key", "drag"]);
     for name in delivery_tools {
         let args = match name {
-            "click" => json!({"window_id": "1", "element_id": "e1"}),
+            "click" | "move_pointer" => json!({"window_id": "1", "element_id": "e1"}),
             "type_text" => json!({"window_id": "1", "text": "x"}),
             "press_key" => json!({"window_id": "1", "keys": "a"}),
             _ => json!({"window_id": "1", "from_x": 1, "from_y": 1, "to_x": 5, "to_y": 5}),

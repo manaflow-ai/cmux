@@ -6,7 +6,8 @@ public import Foundation
 /// the account's real home and write that account's cmux folders. Only then does the reopen
 /// pass the home on with `open --env`; a launch in the account's own home passes nothing, so its
 /// `open` argv is what it always was.
-nonisolated public enum RelaunchHome {
+nonisolated public struct RelaunchHome {
+    public nonisolated init() {}
     /// The variables that pick the app's home.
     public static let variables = ["HOME", "CFFIXED_USER_HOME"]
 

@@ -43,6 +43,8 @@ import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
 import { QuickModelColumns } from "./QuickModelColumns";
+import { EffortPicker } from "./EffortPicker";
+import { PickerChoiceGroup } from "./PickerChoiceGroup";
 import { UsedMark } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
@@ -399,10 +401,12 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     claudeConnect,
     usage,
-    quick,
+    reasoningMenu,
     fork,
     onSetUpPick,
   } = props;
+  const quick = reasoningMenu ? undefined : props.quick;
+  const layoutEffort = reasoningMenu ? props.quick?.effort : undefined;
   acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -713,10 +717,33 @@ export function ModelPicker(props: ModelPickerProps) {
       if (second !== undefined) cancelAnimationFrame(second);
     };
   }, [open, focusPrompt]);
+  // The compact menu stays open after a pick (#50998), so it closes later: by Escape, the chip, or a
+  // press outside it. The prompt takes the keyboard then only when the close left it nowhere (the
+  // page, the chip, the menu that went), never from a field or control the outside press focused.
+  // Two frames, as the columns menu's own return to the chip: a pointerup's focus lands first.
   useEffect(() => {
     if (quickOpen || !quickPicked.current) return;
     quickPicked.current = false;
-    focusPrompt();
+    const doc = trigger.current?.ownerDocument;
+    const view = doc?.defaultView;
+    if (!doc || !view) {
+      focusPrompt();
+      return;
+    }
+    const frame = (run: () => void) =>
+      typeof view.requestAnimationFrame === "function" ? view.requestAnimationFrame(run) : view.setTimeout(run, 0);
+    let cancelled = false;
+    frame(() =>
+      frame(() => {
+        if (cancelled) return;
+        const active = doc.activeElement;
+        if (!active || active === doc.body || active === trigger.current || active.closest(".acpmux-cols"))
+          focusPrompt();
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     // A held pick of another harness opens on its tab: the picker shows what the next message runs.
@@ -1229,7 +1256,8 @@ export function ModelPicker(props: ModelPickerProps) {
         },
       ));
   const chipHarness = face.mark;
-  const { detail, detailShort } = face;
+  const detail = reasoningMenu === "separate" && layoutEffort ? undefined : face.detail;
+  const detailShort = detail ? face.detailShort : undefined;
   const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
   const chipLabel = face.name;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
@@ -1256,6 +1284,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
+  const columnEffort = reasoningMenu === "column" && !selectedOther ? layoutEffort : undefined;
   const folderProfiles = harnesses.filter((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
@@ -1284,6 +1313,21 @@ export function ModelPicker(props: ModelPickerProps) {
   // With its logo hidden, the chip's shortest name also stands in for the row's icon step
   // (composerRowFit.ts `modelMark`), so a narrow row keeps naming the model, never an empty chip.
   const asIcon = showChipIcon ? "" : " icon";
+  const effortFace = detail && (
+    <>
+      <span className="acpmux-model-detail" data-fit-part="effort" data-fit-forms={detailShort ? "full" : "full short"}>
+        {detail}
+      </span>
+      {detailShort && (
+        <span
+          className="acpmux-model-detail acpmux-fit-label"
+          data-fit-part="effort"
+          data-fit-forms="short"
+          data-label={detailShort}
+        />
+      )}
+    </>
+  );
   const chipFace = (
     <>
       {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
@@ -1350,7 +1394,7 @@ export function ModelPicker(props: ModelPickerProps) {
       onSelect: () => setModelChipIcon(!showChipIcon),
     },
   ];
-  return (
+  const modelPicker = (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
@@ -1466,24 +1510,7 @@ export function ModelPicker(props: ModelPickerProps) {
               onMore={more}
             >
               {chipFace}
-              {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
-              {detail && (
-                <span
-                  className="acpmux-model-detail"
-                  data-fit-part="effort"
-                  data-fit-forms={detailShort ? "full" : "full short"}
-                >
-                  {detail}
-                </span>
-              )}
-              {detail && detailShort && (
-                <span
-                  className="acpmux-model-detail acpmux-fit-label"
-                  data-fit-part="effort"
-                  data-fit-forms="short"
-                  data-label={detailShort}
-                />
-              )}
+              {effortFace}
               {forkGlyph}
             </QuickModelColumns>
           </>
@@ -1514,6 +1541,7 @@ export function ModelPicker(props: ModelPickerProps) {
               {...press}
             >
               {chipFace}
+              {reasoningMenu && effortFace}
               {forkGlyph}
               <ChevronIcon />
             </PickerButton>
@@ -1524,6 +1552,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
+          data-reasoning-column={columnEffort ? true : undefined}
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
@@ -1916,24 +1945,59 @@ export function ModelPicker(props: ModelPickerProps) {
                 </div>
               )
             )}
-            {fastMode && (
-              <div className="flex-none border-t-[0.5px] border-edge p-1.5">
-                <button
-                  type="button"
-                  className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-pressed={fastModeIsOn(fastMode)}
-                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
-                >
-                  <span>{fastMode.name}</span>
-                  <span className="text-detail text-dim">
-                    {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
-                  </span>
-                </button>
-              </div>
+            {reasoningMenu && fastMode?.choices && !selectedOther ? (
+              <PickerChoiceGroup
+                label={fastMode.name}
+                name={menuId + "-speed"}
+                choices={fastMode.choices}
+                current={fastMode.currentValue}
+                onPick={fastMode.onPick}
+                horizontal
+              />
+            ) : (
+              fastMode &&
+              !reasoningMenu && (
+                <div className="flex-none border-t-[0.5px] border-edge p-1.5">
+                  <button
+                    type="button"
+                    className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
+                    aria-pressed={fastModeIsOn(fastMode)}
+                    onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
+                  >
+                    <span>{fastMode.name}</span>
+                    <span className="text-detail text-dim">
+                      {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
+                    </span>
+                  </button>
+                </div>
+              )
             )}
           </div>
+          {columnEffort && (
+            <PickerChoiceGroup
+              label={t("picker.reasoning")}
+              name={menuId + "-reasoning"}
+              choices={columnEffort.levels.map((level) => ({ value: level.id, name: level.name }))}
+              current={columnEffort.current}
+              onPick={columnEffort.onPick}
+            />
+          )}
         </PickerDialog>
       )}
     </span>
+  );
+  if (reasoningMenu !== "separate" || !layoutEffort) return modelPicker;
+  return (
+    <>
+      {modelPicker}
+      <EffortPicker
+        label="Reasoning"
+        efforts={layoutEffort.levels}
+        current={layoutEffort.current}
+        onPick={layoutEffort.onPick}
+        slider={layoutEffort.slider}
+        sliderStyle={layoutEffort.sliderStyle}
+      />
+    </>
   );
 }

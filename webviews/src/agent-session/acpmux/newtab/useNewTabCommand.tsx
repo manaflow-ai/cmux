@@ -18,6 +18,8 @@ export type NewTabCommandActions = {
   startsElsewhere?(): boolean;
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   onImportFile?(file: File): void | Promise<void>;
+  /** `/help`: open the sheet of commands, skills and keys (HelpSheet.tsx). */
+  onHelp?(): void;
 };
 
 /** Both New Tab templates consume owned commands before omnibar or chat dispatch. */
@@ -68,6 +70,14 @@ export function useNewTabCommand(
       setText((current) => (current === text ? "" : current));
       setRefusal(undefined);
     };
+    if (command.command.action === "help") {
+      if (!actions.onHelp) refuse(t("composer.cmuxUnavailable"));
+      else {
+        actions.onHelp();
+        clear();
+      }
+      return true;
+    }
     if (command.command.action === "import") {
       if (actions.importSandboxed) refuse(t("composer.cmuxImportSandbox"));
       else if (!actions.onImportFile) refuse(t("composer.cmuxUnavailable"));
