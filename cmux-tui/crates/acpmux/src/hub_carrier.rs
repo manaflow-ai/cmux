@@ -182,7 +182,8 @@ pub enum CircuitLane {
 impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
-            CircuitService::CmuxTui { .. } => Self::Bulk,
+            // A move's pages are bulk, as a forwarded port is.
+            CircuitService::CmuxTui { .. } | CircuitService::TransferSource => Self::Bulk,
             CircuitService::Acpmux | CircuitService::CmuxTuiSession => Self::Cheap,
         }
     }
@@ -1260,6 +1261,25 @@ impl Incoming {
         Ok(daemon)
     }
 
+    /// The move-page gate a circuit from `from` (its proven key) may read through, as the gate
+    /// admits.
+    async fn admit_transfer(
+        &self,
+        from: Option<&str>,
+    ) -> Result<Arc<dyn TransferGate>, ServiceRefusal> {
+        match (self.carrier.transfer_gate(), from) {
+            (Some(gate), Some(from)) => gate.admit(from).await.map(|()| gate),
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine serves no move pages to its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        }
+    }
+
     /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
     /// admits.
     async fn admit_session(
@@ -1371,18 +1391,7 @@ impl RelayIncoming for Incoming {
         if named_service(&first) == Some(Ok(CircuitService::TransferSource)) {
             // A move's pages: served in process, never through the WebSocket listener.
             drop(listener);
-            let admitted = match (self.carrier.transfer_gate(), from.as_deref()) {
-                (Some(gate), Some(from)) => gate.admit(from).await.map(|()| gate),
-                (None, _) => Err(ServiceRefusal::new(
-                    "service.off",
-                    "this machine serves no move pages to its other machines",
-                )),
-                (Some(_), None) => Err(ServiceRefusal::new(
-                    "service.unknown_machine",
-                    "the circuit's machine key is not one this machine admitted",
-                )),
-            };
-            let gate = match admitted {
+            let gate = match self.admit_transfer(from.as_deref()).await {
                 Ok(gate) => gate,
                 Err(refusal) => {
                     tracing::info!("hub carrier: a transfer circuit was refused: {refusal}");
