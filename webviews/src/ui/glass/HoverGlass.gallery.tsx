@@ -83,7 +83,10 @@ function HoverGlassGallery({ look, scheme }: Props) {
             <strong>Browser</strong> <kbd>⌘⇧B</kbd>
           </div>
           <p style={{ position: "relative" }}>Thread minimap card</p>
-          <div className="acpmux-minimap__card ui-glass ui-glass-transient" style={{ ...place, padding: 8, maxWidth: 280 }}>
+          <div
+            className="acpmux-minimap__card ui-glass ui-glass-transient"
+            style={{ ...place, padding: 8, maxWidth: 280 }}
+          >
             <div>Make the hover previews glass</div>
             <div style={{ opacity: 0.7 }}>Done: every tooltip and card draws the one glass.</div>
           </div>
