@@ -70,8 +70,8 @@ import { errorMessage, isStartCancelled, knownRefusalText } from "./transportErr
 import { pageHostClient } from "./pageHost";
 import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
 import { type NewTabScreenActions } from "./newtab/NewTabScreen";
-import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen } from "./context/ContextScreen";
+import { HarnessesScreen } from "./lazyScreens";
+import { ContextScreen } from "./lazyScreens";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
