@@ -465,6 +465,14 @@ impl Outbox {
         }
     }
 
+    /// Puts back a frame [`Outbox::pop`] gave a writer whose carrier is
+    /// over: it goes out first on the next carrier, ahead of the rest of
+    /// its channel.
+    fn unpop(&self, frame: Frame) {
+        self.lock().control.push_front(frame);
+        self.ready.notify_one();
+    }
+
     /// The next frame by priority, without waiting.
     fn pop(&self) -> Option<Next> {
         let mut queues = self.lock();
@@ -705,6 +713,16 @@ impl Reliable {
     }
 }
 
+/// What [`Inner::seal`] made of a frame a writer took.
+enum Sealed {
+    /// Write it (sequenced on a reliable link).
+    Send(Frame),
+    /// Its channel is done; drop it.
+    Skip,
+    /// The writer's carrier is over: put it back, unlogged.
+    Superseded(Frame),
+}
+
 /// A carrier's generation and the watch that says when it is over.
 type CarrierTag = Option<(watch::Receiver<u64>, u64)>;
 
@@ -795,19 +813,30 @@ impl Inner {
     }
 
     /// On a reliable link, gives a channel frame its sequence and keeps it
-    /// for replay; `None` drops it (its channel was closed by the peer).
-    /// Runs as the writer takes the frame, so sequences follow wire order.
-    fn seal(&self, frame: Frame) -> Option<Frame> {
-        let Some(reliable) = &self.reliable else { return Some(frame) };
+    /// for replay ([`Sealed`]). Runs as the writer of carrier `carrier` (its
+    /// generation; `None` off a reliable link) takes the frame, so sequences
+    /// follow wire order.
+    fn seal(&self, frame: Frame, carrier: Option<u64>) -> Sealed {
+        let Some(reliable) = &self.reliable else { return Sealed::Send(frame) };
         if frame.channel == 0 || !matches!(frame.kind, FrameType::Open | FrameType::Data | FrameType::Close) {
-            return Some(frame);
+            return Sealed::Send(frame);
         }
         let channel = frame.channel;
         let last = frame.kind == FrameType::Close;
         let (sequence, over) = {
             let mut state = reliable.lock();
+            // A writer whose carrier is over logs nothing more: the next
+            // carrier's replay may already have read the log, so a frame
+            // logged now would reach the peer on no carrier (a hole).
+            // Checked under the log's lock, which the replay takes after
+            // the generation moved.
+            if let Some(mine) = carrier
+                && *reliable.generation.borrow() != mine
+            {
+                return Sealed::Superseded(frame);
+            }
             if state.forgotten.contains(channel) {
-                return None;
+                return Sealed::Skip;
             }
             let logged = rel::Logged { kind: frame.kind, payload: frame.payload.clone() };
             let sequence = state.log.record(channel, logged, last);
@@ -823,9 +852,12 @@ impl Inner {
         };
         if over {
             self.shut("replay budget exceeded");
-            return None;
+            return Sealed::Skip;
         }
-        Some(Frame::new(channel, FrameType::Seq, rel::seq_payload(sequence, frame.kind, &frame.payload)))
+        let mut sealed =
+            Frame::new(channel, FrameType::Seq, rel::seq_payload(sequence, frame.kind, &frame.payload));
+        sealed.flushed = frame.flushed;
+        Sealed::Send(sealed)
     }
 
     /// Sends what arrived and is not yet acked.
@@ -2000,12 +2032,26 @@ async fn write_loop<W>(
         // and whether the batch carries anything the peer answers.
         let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
         let mut traffic = false;
-        let mut take = |mut frame: Frame| {
-            marks.extend(frame.flushed.take());
-            traffic |= expects_answer(frame.kind);
-            inner.seal(frame)
+        // A frame this carrier may no longer send goes back to the front of
+        // the outbox for the next carrier's writer, and this one stops.
+        let carrier = tag.as_ref().map(|(_, generation)| *generation);
+        let mut take = |frame: Frame| match inner.seal(frame, carrier) {
+            Sealed::Send(mut frame) => {
+                marks.extend(frame.flushed.take());
+                traffic |= expects_answer(frame.kind);
+                Ok(Some(frame))
+            }
+            Sealed::Skip => Ok(None),
+            Sealed::Superseded(frame) => {
+                outbox.unpop(frame);
+                Err(())
+            }
         };
-        let Some(frame) = take(frame) else { continue };
+        let frame = match take(frame) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => continue,
+            Err(()) => return,
+        };
         let batch = async {
             let mut pending = frame.payload.len();
             let mut result = sink.feed(frame).await;
@@ -2013,7 +2059,11 @@ async fn write_loop<W>(
             while result.is_ok() && pending < FLUSH_BYTES {
                 match outbox.pop() {
                     Some(Next::Frame(frame)) => {
-                        let Some(frame) = take(frame) else { continue };
+                        let frame = match take(frame) {
+                            Ok(Some(frame)) => frame,
+                            Ok(None) => continue,
+                            Err(()) => return None,
+                        };
                         pending += frame.payload.len();
                         result = sink.feed(frame).await;
                     }
@@ -3051,6 +3101,31 @@ mod tests {
         late.send(Frame::new(0, FrameType::Hello, phone.inner.hello(HelloKind::New).encode())).await.unwrap();
         assert!(Link::accept_reliable(b, config, None).await.is_err());
         assert!(!phone.is_closed() && !mac.is_closed());
+    }
+
+    /// A writer whose carrier dropped can still be holding a frame it took
+    /// from the outbox. It must not log it: the next carrier's replay may
+    /// already have read the log, and the frame would reach the peer on no
+    /// carrier (seen as "channel 3 skipped from 7271 to 7282" in the host
+    /// matrix). It is handed back unlogged, first in line for the next one.
+    #[tokio::test]
+    async fn a_dropped_carriers_writer_logs_nothing_more() {
+        let (a, _b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, reliable_config(), None);
+        let reliable = phone.inner.reliable.as_ref().unwrap();
+        let old = *reliable.generation.borrow();
+        let frame = Frame::new(1, FrameType::Data, Bytes::from_static(b"late"));
+        assert!(matches!(phone.inner.seal(frame.clone(), Some(old)), Sealed::Send(_)));
+        let logged = phone.inner.logged_bytes(1);
+        assert!(logged > 0);
+        phone.drop_carrier("test cut");
+        let Sealed::Superseded(back) = phone.inner.seal(frame.clone(), Some(old)) else {
+            panic!("the old carrier's writer sealed a frame after the drop");
+        };
+        assert_eq!(back, frame);
+        assert_eq!(phone.inner.logged_bytes(1), logged, "nothing more was logged");
+        phone.inner.outboxes[MAIN].unpop(back);
+        assert!(matches!(phone.inner.outboxes[MAIN].pop(), Some(Next::Frame(first)) if first == frame));
     }
 
     #[tokio::test]
