@@ -3127,7 +3127,7 @@ async fn dispatch_request_with_identity(
             reply
         }
         name if super::account_sign_in::METHODS.contains(&name) => {
-            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+            heap(|| super::account_sign_in::handle(hub, conn, name, &params)).await
         }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
@@ -3278,7 +3278,10 @@ async fn dispatch_request_with_identity(
             // A binding belongs to the resolved recipient.  The person's connection may manage
             // it, or the recipient's own agent may manage its own threads; no other session may
             // claim an owner by putting a different id in the request.
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox_subscription.other_session: only the person or the chat's own agent manages its bindings",
@@ -3309,7 +3312,10 @@ async fn dispatch_request_with_identity(
             // The person's, or the chat's own agent's: no other session reads or answers for it.
             // An old acpmux CLI or an agent's shell that declared no terminal is an agent's too
             // (`cli_caller.rs`).
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox.other_session: only the person or the chat's own agent reads its inbox",
@@ -3335,7 +3341,13 @@ async fn dispatch_request_with_identity(
                         .await
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
-                method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
+                method::MUX_INBOX_THREADS => {
+                    // Its held count reads the surge journal's tail from the log.
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
@@ -3700,7 +3712,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.wake(&s)).await
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
-        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => {
+            super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
