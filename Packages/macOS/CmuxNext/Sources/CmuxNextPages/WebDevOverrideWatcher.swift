@@ -152,8 +152,8 @@ public final class WebDevOverrideWatcher {
         // The counts of what follows: pages that move to WebKit, or Chromium pages that reload.
         let moves = live && !chromiumLive && hosting != nil
         let moving = moves ? pages.filter(\.isOnChromium).count : 0
-        let chromium = !moves && (chromiumLive || watcher.chromiumServedLive) ? pages.filter { $0.chromiumPage != nil }.count : 0
-        log.notice("\(why, privacy: .public): reloading \(webKit) WebKit views, \(chromium) Chromium pages, moving \(moving) to WebKit, \(held.count) held in sight")
+        let reloading = !moves && (chromiumLive || watcher.chromiumServedLive) ? pages.filter { $0.chromiumPage != nil }.count : 0
+        log.notice("\(why, privacy: .public): reloading \(webKit) WebKit views, \(reloading) Chromium pages, moving \(moving) to WebKit, \(held.count) held in sight")
         defer { watcher.chromiumServedLive = chromiumLive }
         // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
         // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
