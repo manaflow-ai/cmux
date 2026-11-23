@@ -16,6 +16,18 @@ public nonisolated enum SidebarGroupBackgroundStyle: String, Hashable, Sendable,
     /// No background: each group draws as a plain section heading, its name in the quiet ink with no fill and no
     /// members' line (Leo 2026-11-05: "they have these sections ... maybe we can also have an option to have that").
     case sections
+    /// Chromium's tab-group look (Leo 2026-11-22: "Chromium's tab groups, a colored group chip/border/rail around
+    /// member tabs with NO indent"): the header is a slim chip in the group's color hugging the name, a colored rail
+    /// runs down the left edge of the members, and the members keep the loose rows' x. A prototype look, opt-in.
+    case chip
+    /// The plain folder drawn as a tree (Leo 2026-11-22: "we might as well push harder into what we believe"): the
+    /// folder glyph and indent of `folder`, with one thin guide line under the glyph tying the members to their
+    /// folder, in the group's color. A prototype look, opt-in.
+    case tree
+    /// One rounded tinted card around the whole group, header and members (Leo 2026-11-22: "push harder"): the
+    /// group's color is the card's wash, the members keep the loose rows' x inside it, and a collapsed group is the
+    /// card's header alone. A prototype look, opt-in.
+    case card
 
     /// Whether the background draws as glass, given whether cmux's own group look (`appLooksGlassy`) is glass.
     ///
@@ -25,16 +37,31 @@ public nonisolated enum SidebarGroupBackgroundStyle: String, Hashable, Sendable,
         switch self {
         case .auto: appLooksGlassy
         case .glass: true
-        case .solid, .sections, .folder: false
+        case .solid, .sections, .folder, .chip, .tree, .card: false
         }
     }
 
-    /// Whether a group draws a background (a fill, a rim and its members' line) at all: false for `folder` and
-    /// `sections`.
-    public var drawsBackground: Bool { self != .sections && self != .folder }
+    /// Whether a group header draws a background band (a fill, a rim) of its own: true only for `auto`, `glass` and
+    /// `solid`. `folder`, `sections`, `chip`, `tree` and `card` draw a plain row (`chip` a slim chip on it, `card` a
+    /// card behind the whole group, see ``drawsMembersMark``).
+    public var drawsBackground: Bool { self == .auto || self == .glass || self == .solid }
+
+    /// Whether the group draws a mark beside or behind its members (a rail, a guide line or a card): false for
+    /// `folder` and `sections`, whose members carry no chrome.
+    public var drawsMembersMark: Bool { self != .sections && self != .folder }
 
     /// Whether a group's members sit one indent step in from its header, so the tree reads with no line beside
-    /// them: true only for `folder`. Every other look keeps a top-level group's members on the loose rows' x (Leo
+    /// them: true for `folder` and `tree`. Every other look keeps a top-level group's members on the loose rows' x (Leo
     /// 2026-10-21, #23975), where the header's band and the members' line mark the group.
-    public var indentsMembers: Bool { self == .folder }
+    public var indentsMembers: Bool { self == .folder || self == .tree }
+
+    /// Whether a header without an icon of its own leads with the icon pack's folder glyph: `folder` and `tree`.
+    public var leadsWithFolder: Bool { self == .folder || self == .tree }
+
+    /// Whether every group, colored or not, draws as one rounded block around its header and members: `card`.
+    public var drawsCard: Bool { self == .card }
+
+    /// Whether a tab strip's group chips take the look: false for the looks only a sidebar has (`folder`, `chip`,
+    /// `tree`, `card`), whose chips keep the automatic look.
+    public var drawsOnTabStrip: Bool { !(self == .folder || self == .chip || self == .tree || self == .card) }
 }

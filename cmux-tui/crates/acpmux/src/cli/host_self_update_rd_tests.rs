@@ -235,3 +235,13 @@ fn the_outcome_reads_as_one_line_and_json() {
         json!({"outcome": "installed", "message": "s"})
     );
 }
+
+/// The on-demand display is busy whenever it runs; an always-on display of an older cmux-rd
+/// (enabled at boot) never is, since it runs with or without a share; a stopped one never is.
+#[test]
+fn only_the_on_demand_display_running_defers_the_replacement() {
+    assert!(display_busy(true, false));
+    assert!(!display_busy(true, true));
+    assert!(!display_busy(false, false));
+    assert!(!display_busy(false, true));
+}
