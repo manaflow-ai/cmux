@@ -164,6 +164,8 @@ fn cfg() -> SessionCfg {
         upstream_record_max_bytes: 0,
         frames_in_flight: 2,
         input_frame_now: false,
+        resolution_ladder: false,
+        max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
