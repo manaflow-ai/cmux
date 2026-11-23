@@ -57,7 +57,7 @@ struct DemoDriver {
             shell.store.teamDataState = .failed
         // CMUX-49: the launch states (`retry-` names: public captures, no real names).
         // A first launch (nothing cached) loading, waiting offline, or failed; and a
-        // cached list whose refresh failed (the rows stay, marked last known).
+        // cached list whose refresh failed (the rows stay; no connection text).
         case "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed":
             shell.tab = .workspaces
             shell.store.workspaces = []
@@ -80,7 +80,7 @@ struct DemoDriver {
             shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-home-failed":
-            // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
+            // The link is up, but the last read failed: kept rows, no connection text.
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
             MacHomeFeed.shared.setProblemForDemo("Can't reach the Mac right now.")
             shell.store.tracksMacData = true
