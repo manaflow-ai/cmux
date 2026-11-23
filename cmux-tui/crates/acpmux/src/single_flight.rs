@@ -51,6 +51,10 @@ impl<K: Eq + Hash + Clone, T: Clone + Send + 'static> SingleFlight<K, T> {
     {
         let read = {
             let mut flights = self.flights.lock().unwrap_or_else(|e| e.into_inner());
+            // A waiter on another thread can still be unwinding after the read became ready.
+            if flights.get(&key).is_some_and(|flight| flight.read.peek().is_some()) {
+                flights.remove(&key);
+            }
             let flight = flights
                 .entry(key.clone())
                 .or_insert_with(|| Flight { read: operation().boxed().shared(), waiters: 0 });
@@ -93,6 +97,19 @@ mod tests {
             }
         }
         assert_eq!(table.run("key", || async { Ok(8) }).await, Ok(8));
+    }
+
+    #[tokio::test]
+    async fn single_flight_completed_read_is_fresh_before_waiter_cleanup() {
+        let table = SingleFlight::default();
+        let (send, receive) = oneshot::channel();
+        let mut waiter = Box::pin(table.run("key", || async move { receive.await.unwrap() }));
+        assert!(poll!(&mut waiter).is_pending());
+        let read = table.flights.lock().unwrap()["key"].read.clone();
+        send.send(1).unwrap();
+        assert_eq!(read.await, 1);
+        assert_eq!(table.run("key", || async { 2 }).await, 2);
+        assert_eq!(waiter.await, 1);
     }
 
     #[tokio::test]
