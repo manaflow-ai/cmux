@@ -322,6 +322,7 @@ export const ROW_LEVELS: {
     "agentPane.dictationShortcut": "more",
     "agentPane.attachmentView": "more",
     "agentPane.scrollToBottomOnSend": "more",
+    "agentPane.followUpMode": "more",
     "agentPane.editedFiles.maxRows": "hidden",
     "agentPane.editedFiles.scope": "more",
     "agents.chats.discovery": "more",
