@@ -3793,7 +3793,12 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
+/// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
+/// run, group, call or message open is never reused for the row once it is closed, or the other way.
+export type RowHeights = WeakMap<
+  AcpmuxRow,
+  { width: number; height: number; edge?: string; scale?: number; open?: string }
+>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3908,8 +3913,12 @@ export function layoutConversation(
     if (!drawsNothing(row)) prevDrawn = row;
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
+    // The row's open state now (rowOpenState.ts), read only when a remembered estimate could place it:
+    // one taken in another open state is estimated again, from the same stores the DOM opens from.
+    const open = kept ? rowOpenState(sessionId, row) : undefined;
+    const keptOpen = kept !== undefined && (kept.open ?? "") === open;
     let height: number;
-    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    if (kept && keptOpen && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3947,6 +3956,7 @@ export function layoutConversation(
         !custom &&
         near &&
         kept &&
+        keptOpen &&
         kept.edge === edge &&
         (kept.scale ?? 1) === scale &&
         (index < near.from || index >= near.to) &&
@@ -3981,7 +3991,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, { width, height, edge, scale });
+        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
       }
     }
     if (height > 0) {
@@ -4453,6 +4463,7 @@ import {
 } from "./chatDisplay";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
+import { rowOpenState } from "./conversation/rowOpenState";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
