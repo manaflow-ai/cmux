@@ -13,7 +13,7 @@ extension LiveWallpaper {
     }
 
     /// A key for a still of this wallpaper in `tokens`' colors: its id, program and colors.
-    public func stillKey(tokens: ThemeTokens) -> String {
+    public nonisolated func stillKey(tokens: ThemeTokens) -> String {
         "\(id)|\(String(sourceDigest, radix: 16))|\(LiveWallpaperColors(tokens).key)"
     }
 }
