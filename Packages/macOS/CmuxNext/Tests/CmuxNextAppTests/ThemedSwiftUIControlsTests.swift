@@ -89,10 +89,8 @@ import Testing
 
         let tokens = scope.tokens
         // The menu glass (its tint at the menu level, then the theme veil) over the brightest and darkest page.
-        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassLevel.menu.tintStrength))
-        let veil = tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil))
         let pages = [ThemeRGB(red: 1, green: 1, blue: 1), ThemeRGB(red: 0, green: 0, blue: 0)]
-            .map { veil.composited(over: tint.composited(over: $0)) }
+            .map { GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: $0) }
 
         let buttons = Self.all(CmuxDialogButtonView.self, in: hosting)
         #expect(Set(buttons.map(\.button.title)) == [BookmarkStrings.more, BookmarkStrings.remove, BookmarkStrings.done],

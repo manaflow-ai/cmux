@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "bun scripts/typecheck.ts",
-    "test": "bun test",
+    "typecheck": "bun ../api/scripts/gen-chief-vm-source.ts && bun scripts/typecheck.ts",
+    "test": "bun ../api/scripts/gen-chief-vm-source.ts && bun test",
     "serve": "bun src/main.ts serve",
     "build": "bun scripts/build.ts"
   },

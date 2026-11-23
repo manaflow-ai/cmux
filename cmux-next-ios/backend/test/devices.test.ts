@@ -274,6 +274,7 @@ describe("APNs payload and sender", () => {
     } as Env)!
     const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
       deviceId: "d",
+      space: "",
       ownerUserId: "o",
       token,
       environment,

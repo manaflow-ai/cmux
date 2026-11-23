@@ -255,6 +255,8 @@ struct Fake {
     stream: Option<Result<Value, Value>>,
     /// Per app method, its answer, before `stream`.
     app_answers: Vec<(&'static str, Result<Value, Value>)>,
+    /// The link sends' answers, in order; none left: no link ([`link_wait::SendFailure::NotSent`]).
+    link_sends: VecDeque<Result<Value, link_wait::SendFailure>>,
     /// The link waits' answers, in order.
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
@@ -290,6 +292,7 @@ impl Fake {
             slow: Vec::new(),
             stream: None,
             app_answers: Vec::new(),
+            link_sends: VecDeque::new(),
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
@@ -362,6 +365,23 @@ impl Runner for Fake {
         ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
+    fn send_link(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        _prompt_id: &str,
+        text: &str,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::SendFailure> {
+        self.called.push((
+            "send_link".to_owned(),
+            json!({"socket": socket, "surface": surface, "text": text}),
+        ));
+        self.clock += Duration::from_millis(100);
+        self.link_sends
+            .pop_front()
+            .unwrap_or_else(|| Err(link_wait::SendFailure::NotSent("no link".into())))
     }
     fn estimate(&mut self, folder: &str) -> Value {
         self.estimated.push((self.ran.len(), folder.to_owned()));
@@ -477,11 +497,66 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
     assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
-    // No exec after the send; the second wait starts after the first one's newest seq.
+    // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
+    // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
     assert_eq!(fake.called[0], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
-    assert_eq!(fake.called[1].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
-    assert_eq!(fake.called[2].1["after_seq"], 3);
+    assert_eq!(fake.called[1].0, "send_link");
+    assert_eq!(fake.called[2], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
+    assert_eq!(fake.called[3].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
+    assert_eq!(fake.called[4].1["after_seq"], 3);
+}
+
+/// The first prompt of a chat this run started goes over the machine's link in one round trip: no `cloud exec`
+/// for the send, and the turn is then read from the same link from the first record.
+#[test]
+fn the_first_prompt_goes_over_the_link_not_cloud_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p", "turn_id": "t", "queued": false})));
+    let update = json!({"seq": 2, "at": 1_500, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "pong"}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update,
+        {"seq": 3, "at": 2_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 3, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "no cloud exec: {:?}", fake.ran);
+    let sent = fake.called.iter().find(|(name, _)| name == "send_link").unwrap();
+    assert_eq!(sent.1["surface"], 7);
+    assert_eq!(sent.1["text"], "pong");
+}
+
+/// Without `--wait` the link send is the whole step: sent, no exec.
+#[test]
+fn a_link_send_without_wait_is_done_with_no_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+/// A link that took the prompt and never answered may have delivered it: no second send by exec.
+#[test]
+fn an_unanswered_link_send_is_not_sent_again() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("timeout".into())));
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
 /// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
@@ -1134,7 +1209,12 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(error["message"].as_str().unwrap().contains("acp wait sess-1"));
+    assert!(
+        error["message"].as_str().unwrap().contains(
+            "cmux cloud chat status --target machine:vm-1 --session sess-1 --after 0 --wait 20"
+        ),
+        "{error}"
+    );
 }
 
 #[test]

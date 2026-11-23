@@ -72,7 +72,10 @@ public struct RootView: View {
     @State private var sidebar = SidebarModel()
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var launchFinished = false
+    /// The startup spring: the shell's arrival from the launch mark.
+    private static let startupSpring = Animation.spring(response: 0.55, dampingFraction: 0.86)
     @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -163,7 +166,17 @@ public struct RootView: View {
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
                     ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
-                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : destination == .shell
+                        // Startup (Leo, 2026-11-22: "claude code has such a nice animation on
+                        // startup"): as the launch chevron shrinks away, the shell settles in from
+                        // just past full size on a soft spring, so the app arrives rather than
+                        // swaps. Render only: the shell is laid out and takes touches from its
+                        // first frame. A new chat it opens on then plays its own entrance. The
+                        // same arrival follows sign-in and setup.
+                        ? .asymmetric(insertion: .opacity.combined(with: .scale(scale: 1.04))
+                                        .animation(Self.startupSpring.unlessReduceMotion),
+                                      removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                        : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -179,6 +192,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Back in the app: a keyboard the tracker holds as up while nothing
+        // takes keys went away unannounced; every composer docked to it rests
+        // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                keyboard.dropKeyboardWithoutOwner()
+                HomeNewMessage.appActiveChanged()
+            }
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -927,6 +949,8 @@ struct ShellTabs: View {
             }
         }
         .tabBarMinimizeBehavior(.never)
+        // One pane on a phone, a list beside its detail unfolded (Rust's `window_layout`).
+        .modifier(ShellWindowLayoutReader())
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
         // A closed ask's notification leaves Notification Center; only when an ask opens or

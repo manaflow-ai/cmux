@@ -375,3 +375,24 @@ test("with Auto picked, Cloud turns Auto off and makes Cloud the mode", async ()
   await choose('[data-mode="cloud"]');
   expect(log).toEqual(["auto:false", "mode:cloud"]);
 });
+
+// cmux#51745: the Environment dropdown resizes as the model menu does, from its edges away from the
+// chip, and keeps its size for every composer.
+test("the Environment dropdown has resize grips on its edges away from the chip and opens at its kept size", async () => {
+  const { setPopupSize } = await import("../../ui/PopupResize");
+  setPopupSize("composer.environment", { width: 300, height: 220 });
+  try {
+    const { container } = await render("persistent");
+    await open(container);
+    const popup = document.querySelector<HTMLElement>(".acpmux-env-popover")!;
+    expect(popup).not.toBeNull();
+    const side = popup.dataset.side === "bottom" ? "bottom" : "top";
+    expect(popup.querySelector('.ui-popup-resize[data-axis="y"]')?.getAttribute("data-side")).toBe(side);
+    expect(popup.querySelector('.ui-popup-resize[data-axis="x"]')?.getAttribute("data-edge")).toBe("end");
+    expect(popup.querySelector('.ui-popup-resize[data-axis="both"]')).not.toBeNull();
+    expect(popup.style.width).toContain("300px");
+    expect(popup.style.height).toContain("220px");
+  } finally {
+    setPopupSize("composer.environment", { width: undefined, height: undefined });
+  }
+});
