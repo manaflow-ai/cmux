@@ -24,7 +24,7 @@ impl Fake {
 /// A source at `http://down*` is unreachable, one at `http://busy*` is at its limit, and one at
 /// `http://panics*` panics.
 impl Get for Arc<Fake> {
-    fn get(&self, url: &str, _token: Option<&str>, _deadline: Duration) -> Answer {
+    fn get(&self, url: &str, _headers: &[(&'static str, String)], _deadline: Duration) -> Answer {
         self.asked.lock().unwrap().push(url.to_owned());
         if url.starts_with("http://down") {
             return Answer::Failed;
@@ -38,7 +38,7 @@ impl Get for Arc<Fake> {
 }
 
 fn remote(tier: &'static str, base: &str) -> Remote {
-    Remote { tier, base: base.to_owned(), token: None }
+    Remote { tier, base: base.to_owned(), token: None, s3: None }
 }
 
 // `git hash-object` of "hello\n" and of "".
@@ -74,7 +74,7 @@ fn a_wrong_answer_falls_through_to_the_next_source() {
         Ok(())
     });
     assert!(rest.is_empty());
-    assert_eq!(filled, Filled { peer: 0, ssd: 1, r2: 0, rejected: 1, dropped: 0 });
+    assert_eq!(filled, Filled { peer: 0, ssd: 1, r2: 0, s3: 0, rejected: 1, dropped: 0 });
     assert_eq!(kept.into_inner().unwrap(), vec![(HELLO.to_owned(), b"hello\n".to_vec())]);
 }
 
@@ -289,11 +289,11 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     let base = format!("http://{addr}");
     let wait = Duration::from_secs(2);
     assert_eq!(
-        http.get(&format!("{base}/objects/{HELLO}"), None, wait),
+        http.get(&format!("{base}/objects/{HELLO}"), &[], wait),
         Answer::Found(b"hello\n".to_vec())
     );
-    assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), None, wait), Answer::Absent);
-    assert_eq!(http.get(&format!("{base}/etc/passwd"), None, wait), Answer::Absent);
+    assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), &[], wait), Answer::Absent);
+    assert_eq!(http.get(&format!("{base}/etc/passwd"), &[], wait), Answer::Absent);
     // A peer that refuses connections, over the real network: the seed behind it answers.
     let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
     let chain = Chain::new(
@@ -303,4 +303,63 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     let (rest, filled) = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|_, _| Ok(()));
     assert_eq!(rest, vec![EMPTY.to_owned()]);
     assert_eq!(filled.ssd, 1);
+}
+
+/// A bucket that answers only a request signed with SigV4 for its key, and a controller that
+/// answers only its bearer token: what each tier sends.
+struct Guarded;
+
+impl Get for Guarded {
+    fn get(&self, url: &str, headers: &[(&'static str, String)], _deadline: Duration) -> Answer {
+        let auth = headers.iter().find(|(name, _)| *name == "authorization").map(|(_, v)| v);
+        let ok = if url.starts_with("http://bucket:9000/") {
+            auth.is_some_and(|auth| {
+                auth.starts_with("AWS4-HMAC-SHA256 Credential=AKID/")
+                    && auth.contains("/auto/s3/aws4_request")
+            }) && headers
+                .iter()
+                .any(|(name, v)| *name == "x-amz-content-sha256" && v == crate::s3::EMPTY_SHA256)
+        } else {
+            auth.is_some_and(|auth| auth == "Bearer t0k")
+        };
+        if !ok {
+            return Answer::Failed;
+        }
+        if url.ends_with(HELLO) { Answer::Found(b"hello\n".to_vec()) } else { Answer::Absent }
+    }
+}
+
+#[test]
+fn the_bucket_tier_signs_each_request_and_counts_as_s3() {
+    let key = crate::s3::Key { id: "AKID".into(), secret: "s".into(), region: "auto".into() };
+    let bucket = Remote {
+        tier: "s3",
+        base: "http://bucket:9000/blobs/fleet".into(),
+        token: None,
+        s3: Some(key),
+    };
+    let chain = Chain::new(vec![bucket], Box::new(Guarded));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|_, _| Ok(()));
+    assert_eq!(rest, vec![EMPTY.to_owned()]);
+    assert_eq!(filled, Filled { s3: 1, ..Filled::default() });
+
+    let ssd =
+        Remote { tier: "ssd", base: "http://ssd".into(), token: Some("t0k".into()), s3: None };
+    let (rest, filled) =
+        Chain::new(vec![ssd], Box::new(Guarded)).fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty());
+    assert_eq!(filled.ssd, 1);
+}
+
+#[test]
+fn a_bucket_url_the_signer_refuses_fails_that_source_only() {
+    let key = crate::s3::Key { id: "AKID".into(), secret: "s".into(), region: "auto".into() };
+    let bad =
+        Remote { tier: "s3", base: "http://bucket:9000/a b".into(), token: None, s3: Some(key) };
+    let fake = Arc::new(Fake::new(&[(&format!("http://r2/objects/{HELLO}"), b"hello\n")]));
+    let chain = Chain::new(vec![bad, remote("r2", "http://r2")], Box::new(fake.clone()));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty());
+    assert_eq!((filled.s3, filled.r2), (0, 1));
+    assert_eq!(fake.asked.lock().unwrap().len(), 1, "the unsigned URL never went out");
 }

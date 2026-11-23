@@ -5,6 +5,7 @@
 //!                           [--name NAME] [--ready-file FILE]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//! cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]
 //! ```
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
@@ -19,7 +20,10 @@
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
-//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
+//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains. `s3-push` puts MIRROR's
+//! blobs into an S3-compatible bucket at BASE (`https://ENDPOINT/BUCKET[/PREFIX]`, the same value
+//! the chain reads as `CMUX_PROJECTION_S3_URL`, with the same key): every blob of REV's tree, or
+//! the ids on stdin, one per line. A blob the bucket holds is not sent again. It prints one JSON line.
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -53,7 +57,8 @@ mod linux {
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
-                         [--conns N]";
+                         [--conns N]\n       \
+                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]";
 
     #[derive(Default)]
     struct Args {
@@ -66,6 +71,7 @@ mod linux {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        to: Option<String>,
         fresh: bool,
     }
 
@@ -91,6 +97,7 @@ mod linux {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                "--to" => parsed.to = Some(value.clone()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -103,6 +110,9 @@ mod linux {
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
+        }
+        if command == "s3-push" {
+            return s3_push(&args);
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
@@ -139,6 +149,96 @@ mod linux {
             limits.conns = conns;
         }
         peers::serve(&git_dir.canonicalize()?, &listen, limits)
+    }
+
+    fn s3_push(args: &Args) -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+        use cmux_projection::git::ObjectReader;
+        use cmux_projection::s3::{Bucket, Put};
+
+        let started = Instant::now();
+        let git_dir = args
+            .git_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?
+            .canonicalize()?;
+        let to = args.to.clone().ok_or_else(|| anyhow::anyhow!("--to is required\n{USAGE}"))?;
+        let key = peers::s3_key_from_env().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no bucket key: CMUX_PROJECTION_S3_KEY_FILE, or AWS_ACCESS_KEY_ID and \
+                 AWS_SECRET_ACCESS_KEY"
+            )
+        })?;
+        let mut oids: Vec<String> = match &args.commit {
+            Some(rev) => {
+                let (commit, _) = git::resolve(&git_dir, rev)?;
+                git::ls_tree(&git_dir, &commit)?
+                    .into_iter()
+                    .filter(|item| item.mode != 0o160_000)
+                    .map(|item| item.oid)
+                    .collect()
+            }
+            None => std::io::read_to_string(std::io::stdin())?
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        };
+        oids.sort_unstable();
+        oids.dedup();
+        let bucket = Bucket::new(&to, key)?;
+        let (next, stored, had, failed, bytes) = (
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicU64::new(0),
+        );
+        std::thread::scope(|scope| {
+            for _ in 0..8.min(oids.len()) {
+                scope.spawn(|| {
+                    let Ok(mut reader) = ObjectReader::spawn(&git_dir) else {
+                        return;
+                    };
+                    loop {
+                        let Some(oid) = oids.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                            return;
+                        };
+                        let result = reader
+                            .blob(oid)
+                            .ok_or_else(|| anyhow::anyhow!("{oid}: not in the mirror"))
+                            .and_then(|blob| Ok((bucket.put(oid, &blob)?, blob.len())));
+                        match result {
+                            Ok((Put::Stored, len)) => {
+                                stored.fetch_add(1, Ordering::Relaxed);
+                                bytes.fetch_add(len as u64, Ordering::Relaxed);
+                            }
+                            Ok((Put::Had, _)) => {
+                                had.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(error) => {
+                                if failed.fetch_add(1, Ordering::Relaxed) < 5 {
+                                    eprintln!("cmux-projection: s3-push: {error:#}");
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let failed = failed.into_inner();
+        println!(
+            "{{\"blobs\":{},\"stored\":{},\"had\":{},\"failed\":{failed},\"bytes\":{},\"ms\":{}}}",
+            oids.len(),
+            stored.into_inner(),
+            had.into_inner(),
+            bytes.into_inner(),
+            ms(started)
+        );
+        anyhow::ensure!(failed == 0, "{failed} blobs were not stored");
+        Ok(())
     }
 
     /// FNV-1a: a short stable name for a mount path.
@@ -181,11 +281,13 @@ mod linux {
                     chain.fill(&missing, &|oid, bytes| peers::write_loose(&git_dir, oid, bytes));
                 eprintln!(
                     "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
-                     {} from R2, {} rejected answers, {} sources dropped, {} left for git",
+                     {} from R2, {} from the S3 bucket, {} rejected answers, {} sources dropped, \
+                     {} left for git",
                     missing.len(),
                     filled.peer,
                     filled.ssd,
                     filled.r2,
+                    filled.s3,
                     filled.rejected,
                     filled.dropped,
                     rest.len()

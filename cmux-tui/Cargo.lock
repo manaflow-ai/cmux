@@ -2215,6 +2215,7 @@ dependencies = [
  "cmux-process",
  "flate2",
  "fuser",
+ "hmac",
  "libc",
  "reqwest",
  "rustls",

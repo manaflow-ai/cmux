@@ -8,8 +8,13 @@
 //! 2. the controller SSD (`CMUX_PROJECTION_CACHE_URL`, read token in
 //!    `CMUX_PROJECTION_CACHE_TOKEN_FILE`);
 //! 3. R2 (`CMUX_PROJECTION_R2_URL`);
+//! 4. an S3-compatible bucket (`CMUX_PROJECTION_S3_URL`: endpoint, bucket and prefix in path style,
+//!    such as `https://ACCOUNT.r2.cloudflarestorage.com/BUCKET/fleet` or a MinIO or Garage on a
+//!    control-plane VM; key in `CMUX_PROJECTION_S3_KEY_FILE` or `AWS_ACCESS_KEY_ID` and
+//!    `AWS_SECRET_ACCESS_KEY`; region `CMUX_PROJECTION_S3_REGION`, default `auto`), each request
+//!    signed with SigV4 ([`crate::s3`]), filled by `cmux-projection s3-push`;
 //!
-//! each as `GET <base>/objects/<id>`, then 4. git: whatever none of them has goes to the existing
+//! each as `GET <base>/objects/<id>`, then 5. git: whatever none of them has goes to the existing
 //! one-request `git fetch` ([`crate::git::fetch_missing`]). A source that is not configured is
 //! skipped, one that fails three times in a row is dropped for the rest of the mount, and nothing
 //! in the chain can fail the mount: with no source left every blob goes to git as before. Every answer is hashed and must match the id it was
@@ -79,9 +84,9 @@ pub enum Answer {
     Failed,
 }
 
-/// One `GET`, so tests can stand in for the network.
+/// One `GET` with these extra headers, so tests can stand in for the network.
 pub trait Get: Send + Sync {
-    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer;
+    fn get(&self, url: &str, headers: &[(&'static str, String)], deadline: Duration) -> Answer;
 }
 
 /// The network: one blocking client with short deadlines, so a stalled source costs a deadline,
@@ -103,10 +108,10 @@ impl Http {
 }
 
 impl Get for Http {
-    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
+    fn get(&self, url: &str, headers: &[(&'static str, String)], deadline: Duration) -> Answer {
         let mut request = self.client.get(url).timeout(deadline);
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
+        for (name, value) in headers {
+            request = request.header(*name, value);
         }
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
@@ -124,7 +129,10 @@ impl Get for Http {
 pub struct Remote {
     pub tier: &'static str,
     pub base: String,
+    /// A bearer token (the controller SSD).
     pub token: Option<String>,
+    /// A key that signs each request with SigV4 (an S3-compatible bucket).
+    pub s3: Option<crate::s3::Key>,
 }
 
 impl Remote {
@@ -137,6 +145,46 @@ impl Remote {
             _ => Duration::from_secs(20),
         }
     }
+}
+
+impl Remote {
+    /// The headers one `GET` of `url` carries: a bearer token, a SigV4 signature made now, or
+    /// none. `None` when a signature can't be made (a URL the signer refuses), which counts as a
+    /// failure of this source.
+    fn headers(&self, url: &str) -> Option<Vec<(&'static str, String)>> {
+        if let Some(key) = &self.s3 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_secs());
+            return crate::s3::sign(
+                "GET",
+                url,
+                key,
+                crate::s3::SERVICE,
+                now,
+                crate::s3::EMPTY_SHA256,
+            )
+            .ok();
+        }
+        Some(self.token.iter().map(|token| ("authorization", format!("Bearer {token}"))).collect())
+    }
+}
+
+/// The bucket key the environment names: `CMUX_PROJECTION_S3_KEY_FILE` (a `KEY=VALUE` file), else
+/// `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the region from the file, else
+/// `CMUX_PROJECTION_S3_REGION`, else `auto` (R2's).
+#[must_use]
+pub fn s3_key_from_env() -> Option<crate::s3::Key> {
+    let region = std::env::var("CMUX_PROJECTION_S3_REGION").unwrap_or_else(|_| "auto".to_owned());
+    let text = match std::env::var("CMUX_PROJECTION_S3_KEY_FILE") {
+        Ok(file) => std::fs::read_to_string(file).ok()?,
+        Err(_) => format!(
+            "AWS_ACCESS_KEY_ID={}\nAWS_SECRET_ACCESS_KEY={}\n",
+            std::env::var("AWS_ACCESS_KEY_ID").ok()?,
+            std::env::var("AWS_SECRET_ACCESS_KEY").ok()?
+        ),
+    };
+    crate::s3::Key::parse(&text, &region)
 }
 
 /// Requests in flight per checkout.
@@ -160,6 +208,7 @@ pub struct Filled {
     pub peer: usize,
     pub ssd: usize,
     pub r2: usize,
+    pub s3: usize,
     /// Answers whose bytes did not hash to the id asked for (dropped).
     pub rejected: usize,
     /// Sources skipped for the rest of the fill after [`DEAD_AFTER`] failures in a row.
@@ -202,10 +251,19 @@ impl Chain {
                 .ok()
                 .and_then(|file| std::fs::read_to_string(file).ok())
                 .map(|token| token.trim().to_owned());
-            remotes.push(Remote { tier: "ssd", base, token });
+            remotes.push(Remote { tier: "ssd", base, token, s3: None });
         }
         if let Ok(base) = std::env::var("CMUX_PROJECTION_R2_URL") {
-            remotes.push(Remote { tier: "r2", base, token: None });
+            remotes.push(Remote { tier: "r2", base, token: None, s3: None });
+        }
+        if let Ok(base) = std::env::var("CMUX_PROJECTION_S3_URL") {
+            match s3_key_from_env() {
+                Some(key) => remotes.push(Remote { tier: "s3", base, token: None, s3: Some(key) }),
+                None => eprintln!(
+                    "cmux-projection: CMUX_PROJECTION_S3_URL set but no key (CMUX_PROJECTION_S3_KEY_FILE, \
+                     or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY); the bucket is skipped"
+                ),
+            }
         }
         Some(Self::new(remotes, Box::new(get)))
     }
@@ -257,7 +315,11 @@ impl Chain {
                 continue;
             }
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
-            match self.get.get(&url, remote.token.as_deref(), remote.deadline()) {
+            let Some(headers) = remote.headers(&url) else {
+                failed.fetch_add(1, Ordering::Relaxed);
+                continue;
+            };
+            match self.get.get(&url, &headers, remote.deadline()) {
                 Answer::Found(bytes) if verify(oid, &bytes) => {
                     failed.store(0, Ordering::Relaxed);
                     return Some((remote.tier, bytes));
@@ -320,6 +382,7 @@ impl Chain {
             match tier {
                 "peer" => filled.peer += 1,
                 "ssd" => filled.ssd += 1,
+                "s3" => filled.s3 += 1,
                 _ => filled.r2 += 1,
             }
         }
@@ -334,7 +397,7 @@ impl Chain {
 #[must_use]
 pub fn peers_in(get: &dyn Get, index: &str) -> Vec<Remote> {
     let text = if index.starts_with("http://") || index.starts_with("https://") {
-        match get.get(index, None, Duration::from_secs(2)) {
+        match get.get(index, &[], Duration::from_secs(2)) {
             Answer::Found(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             _ => {
                 eprintln!("cmux-projection: peer index {index} unreadable; no peers");
@@ -344,7 +407,10 @@ pub fn peers_in(get: &dyn Get, index: &str) -> Vec<Remote> {
     } else {
         std::fs::read_to_string(index).unwrap_or_default()
     };
-    peer_list(&text).into_iter().map(|base| Remote { tier: "peer", base, token: None }).collect()
+    peer_list(&text)
+        .into_iter()
+        .map(|base| Remote { tier: "peer", base, token: None, s3: None })
+        .collect()
 }
 
 /// The seed base URLs of a peer index: one per line; blank lines and `#` comments skipped.
