@@ -106,11 +106,13 @@
 # measured launch must land exactly where the person was, Home included. Each case's expectation is one entry of
 # EXPECT in launch-ready-summary.py (LR-CASE, LR-REOPENED SIDE N/M):
 #   state=fresh  the same as state=bare: no saved state, so Home
-#   front=home|tab  with state=kept (and any kept case below): the priming launch's front is made Home (a workspace
-#                made, then Home shown) or a terminal tab (a workspace made and left in front) by launch-ready-seed.py
-#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab). With session=stress3
-#                the stress seed leaves the same front: Home, or its last workspace's terminal tab (front=tab: typing into a
-#                restored terminal of a large session, type=1 windows=1 workspaces=120)
+#   front=home|tab|chat  with state=kept (and any kept case below): the priming launch's front is made Home (a
+#                workspace made, then Home shown), a terminal tab (a workspace made and left in front) or an agent chat
+#                tab (palette.newAgentChat in that workspace, left in front) by launch-ready-seed.py --front, and every
+#                measured launch must reopen that front: Home, or that (workspace, tab). front=chat is the case where
+#                Chromium starts at launch, so launch-ready-cef.py's cef.* marks time it against the first frame. With
+#                session=stress3 the stress seed leaves the same front: Home, or its last workspace's terminal tab
+#                (front=tab: typing into a restored terminal of a large session, type=1 windows=1 workspaces=120)
 #   case=update  with base= (dmg=build): base is the old copy, head the new one, both at head's path with head's home.
 #                The priming launch and one launch before each measured one run the old copy (its state, its front);
 #                then the copy is replaced by head's, whose first launch is measured (copy=fresh's first exec). It
@@ -151,7 +153,7 @@ main() {
       case=update) LR_CASE=update ;;
       daemon=warm|daemon=cold) LR_DAEMON="${arg#daemon=}" ;;
       snapshot=own|snapshot=unknown) LR_SNAPSHOT="${arg#snapshot=}" ;;
-      front=home|front=tab) LR_FRONT="${arg#front=}" ;;
+      front=home|front=tab|front=chat) LR_FRONT="${arg#front=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
@@ -395,10 +397,19 @@ probe() {
   [[ "${LR_GUEST:-0}" == 1 ]] || wait_load "$side" "$label" # guest=1: the caller gates load (and idle) itself
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
+    local log_from
+    log_from=$(($(wc -c <"$out/xctrace.log" 2>/dev/null || echo 0) + 1))
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
-    sleep 5 # the recorder's own start (a measurement script, not runtime code)
+    # Until this recorder says it is recording ("Starting recording"), 30 s; or it exited (no profile, said below).
+    for _ in $(seq 1 300); do
+      tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' && break
+      kill -0 "$recorder" 2>/dev/null || break
+      sleep 0.1
+    done
+    tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' \
+      || echo "LR-PROFILE $side $label xctrace did not report recording within 30 s"
   fi
   if [[ "$side" == late && "$label" == run* ]]; then
     sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
@@ -478,7 +489,7 @@ quiesce() {
     [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
     sleep 0.1
   done
-  sleep 2
+  sleep 2  # sleep-ok: the bench's fixed cool-down between launches, the same on both sides (reported as settle_s=2)
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
@@ -671,10 +682,10 @@ case_args_ok() {
   [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
     || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
   # keys=1 types into Home's box from the window on; front=tab's launch reopens a terminal, which takes the keys and
-  # runs them as a command at Return. front=home and the default front are Home's: no conflict (the priming launch,
-  # where front= seeds, types nothing).
-  [[ "${LR_KEYS:-0}" != 1 || "$LR_FRONT" != tab ]] \
-    || { echo "keys=1 types into Home: it takes no front=tab (a terminal in front would take the keys)" >&2; return 1; }
+  # runs them as a command at Return, and front=chat's reopens a chat, whose composer takes them. front=home and the
+  # default front are Home's: no conflict (the priming launch, where front= seeds, types nothing).
+  [[ "${LR_KEYS:-0}" != 1 || ( "$LR_FRONT" != tab && "$LR_FRONT" != chat ) ]] \
+    || { echo "keys=1 types into Home: it takes no front=tab or front=chat (a terminal or chat in front would take the keys)" >&2; return 1; }
   return 0
 }
 
