@@ -475,8 +475,9 @@ class TailnetHostIpTests(unittest.TestCase):
             a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
             py="python3", me="screen-share-vs.py",
             host=types.SimpleNamespace(popen=lambda cmd: srv),
-            viewer=types.SimpleNamespace(run=fail))
-        with self.assertRaises(RuntimeError) as cm:
+            viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
+        me.clock_once = lambda: vs.Orchestrator.clock_once(me)
+        with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
             vs.Orchestrator.clock(me)
         return str(cm.exception)
 
@@ -690,7 +691,11 @@ class AppViewerRun(unittest.TestCase):
         led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 5, "p50_ms": 6.0, "p95_ms": 8.0}]}
         row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242,
                "window_id": 99, "session_scope": "full", "hub_session": "s1", "transport": "rd_wg",
-               "path": "direct", "window_on_primary_display": True}
+               "path": "direct", "window_on_primary_display": True,
+               "decode_ms": {"count": 120, "p50": 2.1, "p95": 3.0, "max": 4.0},
+               "glass_ms": {"count": 120, "p50": 9.4, "p95": 14.0, "max": 20.0},
+               "decode_present_ms": {"count": 120, "p50": 11.5, "p95": 16.5, "max": 22.0},
+               "frame_interval_ms": None}
 
         def answer(cmd):
             argv = shlex.split(cmd)
@@ -756,7 +761,8 @@ class AppViewerRun(unittest.TestCase):
         self.assertEqual((src["kind"], src["pid"], src["window"], src["transport"]), ("app-viewer", 4242, 99, "rd_wg"))
         self.assertTrue(src["encode_profile_applied"])
         b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
-                             "presented_source": src, "app_ledger": o.app_ledger}, None)
+                             "presented_source": src, "app_ledger": o.app_ledger,
+                             "app_timings": o.app_timings}, None)
         total = rows_named(b)["Total"]["cmux"]
         self.assertEqual((total["to"], total["via"], total["p50"]), ("presented", "app-viewer", 50.0))
         self.assertEqual(b["presented_source"]["kind"], "app-viewer")
@@ -764,6 +770,11 @@ class AppViewerRun(unittest.TestCase):
         text = "\n".join(vs.format_budget(b))
         self.assertIn("presented via app-viewer", text)
         self.assertIn("app viewer ledger: Present 6/8 (n 5)", text)
+        self.assertEqual(b["app_timings"]["decode_present_ms"]["p50"], 11.5)
+        self.assertNotIn("frame_interval_ms", b["app_timings"])  # null on the pane: left out
+        self.assertNotIn("short_window", b["app_timings"])
+        self.assertIn("app viewer timings p50/p95: decode 2.1/3 (n 120), glass 9.4/14 (n 120), "
+                      "decode_present 11.5/16.5 (n 120)", text)
 
     def test_host_app_approves_and_names_the_device(self):
         with tempfile.TemporaryDirectory() as tools:
@@ -794,8 +805,37 @@ class PresentedSourceLabel(unittest.TestCase):
         self.assertIn("null", b["presented_source"])
         self.assertNotIn("via", rows_named(b)["Total"]["cmux"])
         self.assertIn("null", b["app_ledger"])
+        self.assertIn("null", b["app_timings"])
         with self.assertRaises(ValueError):
             vs.presented_source("bogus")
+
+
+class ClockRetryTest(unittest.TestCase):
+    def runner(self, outcomes):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        calls = []
+
+        def once():
+            calls.append(1)
+            r = outcomes[len(calls) - 1]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        o.clock_once = once
+        return o, calls
+
+    def test_a_slow_start_is_retried(self):
+        o, calls = self.runner([RuntimeError("clock-serve on cmux20 did not start: None"), {"offset_ns": 5}])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(o.clock(), {"offset_ns": 5})
+        self.assertEqual(len(calls), 2)
+
+    def test_every_try_failing_names_each_error(self):
+        o, calls = self.runner([RuntimeError("a"), TimeoutError("b"), ValueError("c")])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError) as e:
+            o.clock()
+        self.assertEqual(len(calls), vs.Orchestrator.CLOCK_TRIES)
+        self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
 if __name__ == "__main__":
