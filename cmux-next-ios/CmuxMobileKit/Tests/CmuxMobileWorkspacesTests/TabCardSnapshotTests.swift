@@ -78,8 +78,27 @@ import UIKit
         #expect(!store.hasBlob(TabSnapshotStore.hash(bytes)))
     }
 
-    nonisolated static func hold(_ lock: NSLock) { lock.lock() }
-    nonisolated static func release(_ lock: NSLock) { lock.unlock() }
+    /// Holds the store's lock while a save of `shared` for `a` and then a close of `b` queue on
+    /// it, the save first, then lets both run. Off the main actor, on one thread: the lock is
+    /// taken and released by the same thread, and no closure here is the main actor's.
+    nonisolated static func saveRacingClose(_ store: TabSnapshotStore, shared: Data, capturedAtMs: Int64,
+                                            save a: TabSnapshotKey, close b: TabSnapshotKey) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                store.lock.lock()
+                let group = DispatchGroup()
+                DispatchQueue.global().async(group: group) {
+                    store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: capturedAtMs, source: .phone, for: a)
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+                DispatchQueue.global().async(group: group) { store.remove(b) }
+                Thread.sleep(forTimeInterval: 0.02)
+                store.lock.unlock()
+                group.wait()
+                done.resume()
+            }
+        }
+    }
 
     /// A save's blob and record are written under one lock: another tab closing in between
     /// found the new blob unnamed and deleted it, leaving a record whose picture was gone.
@@ -93,16 +112,7 @@ import UIKit
             store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: ms, source: .phone, for: b)
             // Both calls queue on the held lock, the save first; on release the close used to
             // run between the save's blob and its record.
-            Self.hold(store.lock)
-            let group = DispatchGroup()
-            DispatchQueue.global().async(group: group) {
-                store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: ms + 1, source: .phone, for: a)
-            }
-            try await Task.sleep(for: .milliseconds(20))
-            DispatchQueue.global().async(group: group) { store.remove(b) }
-            try await Task.sleep(for: .milliseconds(20))
-            Self.release(store.lock)
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { done.resume() } }
+            await Self.saveRacingClose(store, shared: shared, capturedAtMs: ms + 1, save: a, close: b)
             #expect(store.picture(a) == shared, "round \(round): the record's blob is on disk")
         }
     }
