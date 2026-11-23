@@ -220,7 +220,12 @@ jobs:
         label = cells[0]
         config = (ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8")
         pool = re.fullmatch(r"\$\{\{\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}", label)
-        if pool:
+        if "'cmux-linux'" in label:
+            # The one Linux label (scripts/ci/one_linux_label.py): its whole expression, no size named.
+            sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+            import one_linux_label
+            self.assertEqual(label, one_linux_label.CANONICAL)
+        elif pool:
             self.assertEqual(pool.group(1), "linux_32")
             runners = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
             for member in runners["pools"][pool.group(1)]["members"]:

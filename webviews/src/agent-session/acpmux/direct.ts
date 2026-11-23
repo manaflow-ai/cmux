@@ -13136,6 +13136,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model?: string,
     declined?: () => void,
+    restricted = false,
   ): Promise<string | undefined> {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
@@ -13146,7 +13147,7 @@ export class AcpmuxDirectClient {
     this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
-      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd)),
+      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd), restricted),
       again,
       () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
       (error) => {

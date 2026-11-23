@@ -65,6 +65,7 @@ export function newSessionParams(
   noProject = false,
   model?: string,
   additionalDirectories?: readonly string[],
+  restricted = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -86,6 +87,8 @@ export function newSessionParams(
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
+        // Read-only in a folder the person declined (acpmux hub/restricted.rs).
+        ...(restricted ? { restricted: true } : {}),
       },
     },
   };
