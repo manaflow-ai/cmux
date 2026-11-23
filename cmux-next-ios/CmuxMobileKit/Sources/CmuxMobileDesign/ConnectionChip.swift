@@ -97,6 +97,11 @@ public struct ConnectionChip: View {
 
     /// How long the link has been down at `now`; a nil `downSince` (the caller held it)
     /// counts as the whole bound already.
+    /// The down time to pass before the caller has recorded its drop (the first frame, before
+    /// its `onChange` runs): a fixed instant, so a re-render does not restart the wait, that
+    /// counts as a drop that has only just happened.
+    public static let justDropped = Date.distantFuture
+
     public static func alreadyDownFor(_ downSince: Date?, now: Date) -> Duration {
         guard let downSince else { return QuietStatusGate.threshold }
         return .milliseconds(Int64(max(0, now.timeIntervalSince(downSince)) * 1000))

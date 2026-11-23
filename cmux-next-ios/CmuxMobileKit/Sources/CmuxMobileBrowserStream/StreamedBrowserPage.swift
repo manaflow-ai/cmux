@@ -186,7 +186,7 @@ public struct StreamedBrowserPage: View {
     }
 
     private func linkChip(_ chip: ConnectionChip.Content) -> some View {
-        ConnectionChip(chip, downSince: model.waitingSince ?? Date())
+        ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")

@@ -70,5 +70,12 @@ import Testing
         #expect(ConnectionChip.alreadyDownFor(nil, now: drop) == QuietStatusGate.threshold,
                 "a caller that held it shows at once")
     }
+
+    @Test func theFirstFrameBeforeTheDropIsRecordedWaitsTheWholeBound() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        #expect(ConnectionChip.alreadyDownFor(ConnectionChip.justDropped, now: now) == .zero)
+        #expect(ConnectionChip.alreadyDownFor(ConnectionChip.justDropped, now: now.addingTimeInterval(30)) == .zero,
+                "the same instant on every render, so the wait is not restarted")
+    }
 }
 #endif
