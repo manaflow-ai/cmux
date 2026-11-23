@@ -34,7 +34,7 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        let flags = ["--full", "--digest", "--help", "-h"];
+        let flags = ["--full", "--digest", "--partial", "--help", "-h"];
         let (mut pos, mut opts) = (Vec::new(), Vec::new());
         let mut it = std::env::args().skip(1);
         while let Some(a) = it.next() {
@@ -193,18 +193,37 @@ fn run() -> Result<()> {
                 writeln!(out, "{}", hex(&id))?;
             }
         }
-        "bundle" => {
-            let mut have = HashSet::new();
-            if let Some(f) = args.opt("--have") {
-                for l in std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?.lines() {
-                    have.insert(unhex(l.trim())?);
-                }
+        "lacking" => {
+            let r = RangeId::parse(args.at(1)?)?;
+            let p = Pack::open(&store, &r.name)?;
+            let mut out = std::io::stdout().lock();
+            for id in p.lacking(r.first..r.last.saturating_add(1))? {
+                writeln!(out, "{}", hex(&id))?;
             }
+        }
+        "bundle" => {
+            let ids = |flag: &str| -> Result<Vec<Id>> {
+                let Some(f) = args.opt(flag) else { return Ok(Vec::new()) };
+                let text = std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?;
+                text.lines().map(|l| unhex(l.trim())).collect()
+            };
+            let have: HashSet<Id> = ids("--have")?.into_iter().collect();
             let out = args.opt("-o").ok_or("bundle needs -o OUT")?;
             let mut f = std::io::BufWriter::new(
                 std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?,
             );
-            let s = ship::bundle(&store, args.at(1)?, &have, &mut f)?;
+            let name = args.at(1)?;
+            let s = if args.opt("--chunks").is_some() {
+                ship::bundle_chunks(&store, name, &ids("--chunks")?, &mut f)?
+            } else if let Some(turns) = args.num::<usize>("--tail-turns")? {
+                let m = Pack::open(&store, name)?.manifest;
+                ship::bundle_range(&store, name, m.tail_turns(turns)..m.lines, &have, &mut f)?
+            } else if let Some(r) = args.opt("--range") {
+                let r = RangeId::parse(r)?;
+                ship::bundle_range(&store, name, r.first..r.last.saturating_add(1), &have, &mut f)?
+            } else {
+                ship::bundle(&store, name, &have, &mut f)?
+            };
             f.flush()?;
             println!(
                 "{{\"chunks\":{},\"bytes\":{},\"sessionChunks\":{},\"sessionBytes\":{}}}",
@@ -216,8 +235,12 @@ fn run() -> Result<()> {
             let mut f = std::io::BufReader::new(
                 std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?,
             );
-            let m = ship::unbundle(&store, &mut f)?;
-            println!("ok: {} at {} lines", m.name, m.lines);
+            let lacking =
+                if args.flag("--partial") { ship::Lacking::Allow } else { ship::Lacking::Refuse };
+            match ship::unbundle(&store, &mut f, lacking)? {
+                Some(m) => println!("ok: {} at {} lines", m.name, m.lines),
+                None => println!("ok: chunks only"),
+            }
         }
         _ => return Err(USAGE.into()),
     }

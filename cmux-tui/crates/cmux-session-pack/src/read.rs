@@ -3,7 +3,7 @@
 use crate::Result;
 use crate::codec::{Blobs, Events};
 use crate::manifest::{Manifest, Segment};
-use crate::store::{Store, unhex};
+use crate::store::{Id, Store, unhex};
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -139,6 +139,54 @@ impl Pack {
         let need: Vec<usize> = need.into_iter().collect();
         par_map(&need, |seg| self.segment_blobs(*seg).map(drop))?;
         Ok(())
+    }
+
+    /// The chunks a read of `range` needs that the store lacks. A store that began from a
+    /// session's tail ([`crate::ship::bundle_range`]) asks whoever holds the rest for these and
+    /// reads again. The answer comes in up to two steps: a segment's events chunk says which
+    /// blob chunks its lines name, so while an events chunk is lacking only events chunks are
+    /// listed.
+    pub fn lacking(&self, range: Range<u64>) -> Result<Vec<Id>> {
+        let range = range.start..range.end.min(self.manifest.lines);
+        let segs: Vec<&Segment> = self.covering(&range).iter().collect();
+        let mut events = Vec::new();
+        for s in &segs {
+            let id = unhex(&s.events)?;
+            if !self.store.has(&id) {
+                events.push(id);
+            }
+        }
+        if !events.is_empty() {
+            return Ok(events);
+        }
+        Ok(self.needed(range)?.into_iter().filter(|id| !self.store.has(id)).collect())
+    }
+
+    /// Every chunk a read of `range` touches: the events chunks of its segments and the blob
+    /// chunks, with their tables, of each segment that first held a string its lines name.
+    pub fn needed(&self, range: Range<u64>) -> Result<Vec<Id>> {
+        let range = range.start..range.end.min(self.manifest.lines);
+        let segs: Vec<&Segment> = self.covering(&range).iter().collect();
+        let events = par_map(&segs, |s| self.events(s))?;
+        let mut ids = Vec::new();
+        let mut refs = Vec::new();
+        for (s, e) in segs.iter().zip(&events) {
+            ids.push(unhex(&s.events)?);
+            for l in range.start.max(s.line)..range.end.min(s.line + s.lines) {
+                e.blob_refs((l - s.line) as usize, &mut refs);
+            }
+        }
+        let mut blob_segs = BTreeSet::new();
+        for n in refs {
+            blob_segs.insert(self.blob_segment(n)?);
+        }
+        for seg in blob_segs {
+            if let Some((blobs, table)) = &self.manifest.segments[seg].blob_chunks {
+                ids.push(unhex(blobs)?);
+                ids.push(unhex(table)?);
+            }
+        }
+        Ok(ids)
     }
 
     /// The lines of `range` (cut to the log's end), each without its newline. The segments and
