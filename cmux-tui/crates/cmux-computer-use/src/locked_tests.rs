@@ -11,9 +11,12 @@ use crate::policy::PolicyConfig;
 fn table() -> Vec<(&'static str, Value, Kind)> {
     vec![
         ("status", json!({}), Kind::Engine),
+        ("list_displays", json!({}), Kind::Engine),
         ("list_machines", json!({}), Kind::Engine),
         ("list_apps", json!({}), Kind::Inventory),
         ("list_windows", json!({}), Kind::Inventory),
+        ("list_alerts", json!({}), Kind::Inventory),
+        ("dismiss_alert", json!({"alert_id": "9", "button": "OK"}), Kind::WindowInput),
         ("screenshot", json!({"window_id": "1"}), Kind::WindowLook),
         ("screenshot", json!({}), Kind::Display),
         ("screenshot", json!({"display": "1"}), Kind::Display),
