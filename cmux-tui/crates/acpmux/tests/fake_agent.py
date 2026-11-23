@@ -90,6 +90,10 @@ FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist 
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
 
+Auto mode (tests/auto_session.rs):
+"auto-shell: <path>": a running tool call whose shell, in a session of its own, appends a line to
+<path> every 50 ms (its pid in <path>.pid); the turn waits for session/cancel (bounded at 120 s).
+
 Start under load (tests/start_under_load_bench.rs):
 FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
 wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
@@ -1293,6 +1297,31 @@ def handle_prompt(rid, params):
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "auto-shell: <path>": a running tool call whose shell is in a session of its own, as a
+    # tool's detached shell is, and appends a line to <path> every 50 ms; its pid goes to
+    # <path>.pid. The turn then waits as "until-cancel" (module docs, tests/auto_session.rs).
+    if text.startswith("auto-shell:"):
+        import subprocess
+        out = text[len("auto-shell:"):].strip()
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc-auto", "title": "Run the build",
+                     "kind": "execute", "status": "in_progress", "rawInput": {"command": "build"}})
+        shell = subprocess.Popen(["sh", "-c", 'while :; do echo tick >> "$0"; sleep 0.05; done', out],
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
+        with open(f"{out}.pid.tmp", "w") as f:
+            f.write(str(shell.pid))
+        os.replace(f"{out}.pid.tmp", f"{out}.pid")
+        for _ in range(2400):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                shell.kill()
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.05)
+        shell.kill()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
