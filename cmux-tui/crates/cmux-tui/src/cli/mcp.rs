@@ -567,7 +567,7 @@ pub(super) enum Caller {
 /// env the harness passes a stdio server (Codex passes only an allowlist and
 /// the server's own); a server a person's own entry starts in a Claude chat
 /// inherits the chat's. The env is no security boundary: the same process
-/// can run the cmux CLI. The answer is a consent gate for the person's
+/// can run the cmux CLI. The setting is the person's switch for their
 /// agents, not a sandbox.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
@@ -589,16 +589,16 @@ pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
 }
 
 /// [`refusal`] for `caller`. `"mcp": {"enabled": false}` turns it off for
-/// everyone. An agent chat follows the person's answer to "should agents you
-/// start in cmux get cmux's tools?" (`agents.cmuxMcp` `on`; Aziz,
-/// 2026-11-14), whatever else the file says, so a `cmux` entry an older cmux
-/// wrote into the person's own config is the off server in every chat while
-/// the answer is not on. A chat cmux-next started from another Mac (a peer
-/// link, a Cloud VM, a headless daemon) follows that Mac's answer,
-/// `started_with` (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this
-/// machine's file (decided 2026-11-14). A Chief turn, cmux's own
-/// orchestrator, is served unless the file says `false`. Any other client
-/// needs `mcp.enabled` true or the person's yes.
+/// everyone. An agent chat follows the setting "cmux Tools for Agents in
+/// cmux" (`agents.cmuxMcp`, on unless `off`), whatever else the file says,
+/// so a `cmux` entry an older cmux wrote into the person's own config is the
+/// off server in every chat while the setting is off. A chat cmux-next
+/// started from another Mac (a peer link, a Cloud VM, a headless daemon)
+/// follows that Mac's setting, `started_with`
+/// (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this machine's file. A
+/// Chief turn, cmux's own orchestrator, is served unless the file says
+/// `false`. Any other client needs `mcp.enabled` true, or unset with
+/// `agents.cmuxMcp` on.
 fn refusal_for(
     path: &std::path::Path,
     caller: Caller,
