@@ -1874,6 +1874,10 @@ path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cloud_journey_prod_oidc_sign_in.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_receipt.py"
 lane = "linux-guard"
 
