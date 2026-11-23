@@ -1,8 +1,11 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
-// totals, then Undo; under it one row per file in the chat's font (the dimmed folder, the name, its
-// counts). A card for one file has no rows: its header opens that file's diff inside the card, and a
-// file row opens its own under it (EditDiff, as an opened edit call draws it). The changes pane is
-// the opened diff's Open in Changes icon. The data is turnChanges/model.ts; this file is only its view.
+// totals, then Undo as a quiet icon and a chevron; under it one row per file in the chat's font (the
+// dimmed folder, the name, its counts). A card for one file has no rows: a click on its header opens
+// that file's diff inside the card, in the chat, and a click again closes it; a file row opens its
+// own under it (EditDiff, as an opened edit call draws it). The side pane is the opened diff's Open
+// in Changes icon, never the click (Leo, 2026-11-23, on the card: "able to open up inline with the
+// chat instead of only being able to open it off to the side"). The data is turnChanges/model.ts;
+// this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
@@ -34,7 +37,6 @@ import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
-import "./cardFit.css";
 import "./EditedFilesCard.css";
 import { intl } from "../../../ui/intl";
 
@@ -58,7 +60,8 @@ export function EditedFilesCard({
     return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
   // `earlier`: not the chat's latest card (a lone card, with no session rows, is the latest). Every
-  // card shows its Undo and View changes at rest, as the Codex app does (Lucas, 2026-11-14).
+  // card shows its Undo at rest, as the Codex app does (Lucas, 2026-11-14), now as a quiet icon, not
+  // a labelled button (Leo, 2026-11-23: "why buttons here").
   return <Card row={row} rows={rows} earlier={Boolean(latest) && latest !== row.id} onOpenDiff={onOpenDiff} />;
 }
 
@@ -165,13 +168,14 @@ function Card({
       : undefined;
   const headClick = headToggle ? headerToggleClick(headToggle) : undefined;
   const fullPath = single ? fromRoot(single.path) : undefined;
+  const singleName = single ? (single.path.split("/").pop() ?? single.path) : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
   const status = (file: TurnFile) =>
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div
-      className="acpmux-edited cv-fit"
+      className="acpmux-edited"
       data-earlier={earlier ? "" : undefined}
       data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
     >
@@ -188,30 +192,30 @@ function Card({
         <span className="acpmux-edited-icon">
           <DiffFile size={20} />
         </span>
-        {/* The words and Undo share a line while the card is wide, Undo goes under the words when it
-            is narrow, and only its icon shows when narrower still (cardFit.css). The name is cut
-            with an ellipsis, never drawn under a button; its whole path shows on hover. */}
-        <div className="cv-fit-row acpmux-edited-main">
-          <div className="cv-fit-text acpmux-edited-title">
-            <div
-              className="acpmux-edited-name"
-              // tooltip-allow: the line shows the file name, cut to the line; the tooltip is its whole path
-              title={fullPath}
-              data-tooltip-force={fullPath ? "" : undefined}
-            >
-              {title}
-            </div>
-            <div className="acpmux-edited-sub">
-              {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
-              {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
-            </div>
+        {/* The words take the line; the actions are quiet icons after them, never buttons drawn over
+            the name (Leo, 2026-11-23: "you have a line, a potentailly long file name, and buttons. why
+            buttons here"). A long name drops its middle (objective-…-cases.md), so its start and its
+            extension stay; its whole path shows on hover. */}
+        <div className="acpmux-edited-title">
+          <div
+            className="acpmux-edited-name"
+            // tooltip-allow: the line shows the file name, cut to the line; the tooltip is its whole path
+            title={fullPath}
+            data-tooltip-force={fullPath ? "" : undefined}
+          >
+            <MiddleCut text={title} name={singleName} />
           </div>
-          {undoable && (
-            <div className="cv-fit-actions acpmux-edited-actions">
-              <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />
-            </div>
-          )}
+          <div className="acpmux-edited-sub">
+            {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+            <UndoStatusText state={undoState} files={changes.files} t={t} />
+          </div>
         </div>
+        {undoable && (
+          <div className="acpmux-edited-quiet acpmux-edited-actions">
+            <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />
+          </div>
+        )}
         {single ? (
           <button
             type="button"
@@ -424,6 +428,23 @@ function fileStatus(state: UndoState, path: string): DoneStatus {
   return status === "changed" ? "changed" : "cannot";
 }
 
+/// What Undo did or is doing, in words beside the counts: the action itself is an icon.
+function UndoStatusText({ state, files, t }: { state: UndoState; files: readonly EditedFile[]; t: Translate }) {
+  if (state.phase === "done") {
+    const undone = [...state.result.values()].filter((status) => status === "reverted" || status === "trashed").length;
+    const total = files.length;
+    return (
+      <output className="acpmux-edited-undone">
+        {undone === total ? t("edited.undone") : t("edited.undonePartial", { n: undone, total })}
+      </output>
+    );
+  }
+  if (state.phase === "undoing") return <output className="acpmux-edited-undone">{t("edited.undoing")}</output>;
+  if (state.phase === "failed") return <output className="acpmux-edited-undone">{t("edited.undoFailed")}</output>;
+  return null;
+}
+
+/// Undo as a quiet icon, no frame and no words: its name is its tooltip. Gone once the turn is undone.
 function UndoButton({
   state,
   rowId,
@@ -435,37 +456,59 @@ function UndoButton({
   files: readonly EditedFile[];
   t: Translate;
 }) {
-  if (state.phase === "done") {
-    const undone = [...state.result.values()].filter((status) => status === "reverted" || status === "trashed").length;
-    const total = files.length;
-    return (
-      <output className="acpmux-edited-undone">
-        {undone === total ? t("edited.undone") : t("edited.undonePartial", { n: undone, total })}
-      </output>
-    );
-  }
+  if (state.phase === "done") return null;
   const busy = state.phase === "checking" || state.phase === "undoing" || state.phase === "confirm";
-  const label =
-    state.phase === "undoing"
-      ? t("edited.undoing")
-      : state.phase === "failed"
-        ? t("edited.undoFailed")
-        : t("edited.undo");
-  // In the narrowest card only the icon shows (cardFit.css): the words stay its name, and the page's
-  // tooltip says them while they are cut.
+  const label = state.phase === "failed" ? t("edited.undoFailed") : t("edited.undo");
   return (
     <button
       type="button"
-      className="acpmux-edited-undo"
+      className="acpmux-edited-icon-action acpmux-edited-undo"
       disabled={busy}
       aria-label={label}
       title={label}
       onClick={() => void checkUndo(rowId, files)}
     >
-      <span className="cv-fit-label">{label}</span>
-      <Undo size={12} />
+      <Undo size={14} />
     </button>
   );
+}
+
+/// `text` with `name` inside it cut in its middle when the line is too short: the name's start ends in
+/// an ellipsis and its last few characters (its extension and the word before it) stay whole, so
+/// "Edited objective-design-edge-cases.md" reads "Edited objective-…-cases.md", never a lone "Edited
+/// objective-desi…". Without a name, or when `text` does not hold it, the text ends in an ellipsis.
+export function MiddleCut({ text, name }: { text: string; name?: string }) {
+  const at = name ? text.lastIndexOf(name) : -1;
+  if (!name || at < 0) return <span className="acpmux-edited-cut-start">{text}</span>;
+  const keep = middleCutTail(name);
+  const before = text.slice(0, at);
+  const after = text.slice(at + name.length);
+  return (
+    <span className="acpmux-edited-cut">
+      {before && <span className="acpmux-edited-cut-fixed">{before}</span>}
+      <span className="acpmux-edited-cut-start">
+        {name.slice(0, name.length - keep)}
+      </span>
+      <span className="acpmux-edited-cut-end">
+        {name.slice(name.length - keep)}
+        {after}
+      </span>
+    </span>
+  );
+}
+
+/// How many characters of a file name stay at its end when its middle is cut: from the last word
+/// break (`-`, `_`, `.`, a space) before the extension, at most 16 and at least the extension.
+export function middleCutTail(name: string): number {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? dot : name.length;
+  const ext = name.length - stem;
+  const floor = Math.min(name.length, Math.max(ext, 6));
+  const ceiling = Math.min(name.length - 1, 16);
+  if (ceiling <= floor) return Math.max(0, Math.min(floor, name.length - 1));
+  for (let at = stem - 1; at >= name.length - ceiling; at--)
+    if ("-_. ".includes(name[at]!) && name.length - at >= floor) return name.length - at;
+  return Math.max(floor, Math.min(ceiling, 10));
 }
 
 function UndoConfirm({

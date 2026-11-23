@@ -24,6 +24,25 @@ const LONG_NAME: Edit = {
   oldText: "",
   newText: Array.from({ length: 14 }, (_, line) => `Line ${line + 1} of the note.`).join("\n") + "\n",
 };
+// Leo's card (2026-11-23 screenshot): "Edited objective-design-edge-cases.md +19 -0".
+const LEO_NAME: Edit = {
+  path: `${CWD}/docs/rfd/objective-design-edge-cases.md`,
+  oldText: "",
+  newText: Array.from({ length: 19 }, (_, line) => `- Edge case ${line + 1}.`).join("\n") + "\n",
+};
+const SHORT_NAME: Edit = { path: `${CWD}/a.md`, oldText: "", newText: "# A\n" };
+const VERY_LONG_NAME: Edit = {
+  path: `${CWD}/docs/rfd/objective-design-edge-cases-for-the-edited-files-card-opening-inline-in-the-agent-chat.md`,
+  oldText: "",
+  newText: Array.from({ length: 6 }, (_, line) => `- Case ${line + 1}.`).join("\n") + "\n",
+};
+// A large diff: 600 changed lines. Its inline diff is capped (EditDiff's preview box scrolls inside
+// itself), so the card never grows by the diff's whole height.
+const LARGE_DIFF: Edit = {
+  path: `${CWD}/src/agent-session/acpmux/conversation/generatedFixtureTable.ts`,
+  oldText: Array.from({ length: 300 }, (_, line) => `export const row${line} = ${line};`).join("\n") + "\n",
+  newText: Array.from({ length: 300 }, (_, line) => `export const row${line} = ${line * 2};`).join("\n") + "\n",
+};
 const MANY: Edit[] = [
   {
     path: `${CWD}/src/agent-session/acpmux/conversation/turnChanges/editedFilesSettingsPanel.tsx`,
@@ -83,6 +102,18 @@ function agent(name: string, state: Subagent["state"], minutes: number): Subagen
 
 // --- Plays --------------------------------------------------------------------------------------
 
+/// Clicks the one-file card's head, waits for its diff to open inline, then checks every card.
+const openInline: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-head"));
+  await ctx.click({ selector: ".acpmux-edited-head" });
+  // The click is the step; the check reads the card once its diff has drawn.
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited .acpmux-edited-diff .cv-edit-diff"), {
+    capMs: 5000,
+  });
+  const problems = cardFitProblems(ctx.document);
+  if (problems.length) throw new Error(problems.join("; "));
+};
+
 /// Waits for `selector`, rests the pointer on the composer (the step the report records) and checks
 /// every card on the page.
 const check =
@@ -120,14 +151,40 @@ const variants: Record<string, AgentPaneVariant> = {
     note: "Play: click the card's head; its diff opens inline inside the card.",
     height: 640,
     snapshot: turn([LONG_NAME], "Write down that the iOS target is cmux-internal"),
-    play: async (ctx) => {
-      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-head"));
-      await ctx.click({ selector: ".acpmux-edited-head" });
-      // The click is the step; the check reads the card once its diff has drawn.
-      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited .acpmux-edited-diff"), { capMs: 5000 });
-      const problems = cardFitProblems(ctx.document);
-      if (problems.length) throw new Error(problems.join("; "));
-    },
+    play: openInline,
+  },
+  "edited-leo-name": {
+    note: "Leo's card: Edited objective-design-edge-cases.md +19 -0. Narrow, the name drops its middle (objective-…-cases.md); Undo is a quiet icon.",
+    snapshot: turn([LEO_NAME], "Write down the objective design edge cases"),
+    play: check(".acpmux-edited"),
+  },
+  "edited-leo-name-open": {
+    note: "Play: click Leo's card; the diff opens inline under it, in the chat.",
+    height: 640,
+    snapshot: turn([LEO_NAME], "Write down the objective design edge cases"),
+    play: openInline,
+  },
+  "edited-short-name": {
+    note: "A short name: Edited a.md +1 -0, nothing cut.",
+    snapshot: turn([SHORT_NAME], "Make a.md"),
+    play: check(".acpmux-edited"),
+  },
+  "edited-very-long-name": {
+    note: "A very long name: its start and its extension stay, its middle is an ellipsis.",
+    snapshot: turn([VERY_LONG_NAME], "Write down every edge case"),
+    play: check(".acpmux-edited"),
+  },
+  "edited-very-long-name-open": {
+    note: "Play: the very long name's card, opened inline.",
+    height: 640,
+    snapshot: turn([VERY_LONG_NAME], "Write down every edge case"),
+    play: openInline,
+  },
+  "edited-large-diff-open": {
+    note: "Play: a 600-line diff opened inline: capped to its preview box, which scrolls inside itself.",
+    height: 720,
+    snapshot: turn([LARGE_DIFF], "Double every row"),
+    play: openInline,
   },
   permission: {
     note: "A pending command ask with a long title and rule: Deny, Always allow and Allow.",
@@ -168,7 +225,7 @@ export default agentPaneEntry({
   title: "Chat cards at narrow widths",
   area: "Agent pane",
   height: 480,
-  widths: { narrow: 240, normal: 320, wide: 640 },
+  widths: { narrow: 280, normal: 420, wide: 800 },
   covers: [
     "agent-session/acpmux/conversation/cardFit.css",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx#EditedFilesCard",
