@@ -41,7 +41,8 @@ public struct CloudGitHubRepos: Equatable, Sendable {
         let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         guard (200..<300).contains(status), let object, let rows = object["repos"] as? [Any] else {
             let code = (object?["error"] as? [String: Any])?["code"] as? String
-            return .failure(code == "integration.not_found" || code == "needs_reauth" ? .notConnected : .unavailable)
+            // `needs_reauth` is the connection's own status (``CloudConnectionStatus``) answered as the error code.
+            return .failure(code == "integration.not_found" || CloudConnectionStatus(wire: code) == .needsReauth ? .notConnected : .unavailable)
         }
         let repos = rows.compactMap { row -> Repo? in
             guard let row = row as? [String: Any], let name = row["full_name"] as? String, isFullName(name) else { return nil }

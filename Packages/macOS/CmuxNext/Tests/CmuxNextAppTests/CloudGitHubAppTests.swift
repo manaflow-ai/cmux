@@ -7,6 +7,17 @@ import Testing
 struct CloudGitHubAppTests {
     static func body(_ text: String) -> Data { Data(text.utf8) }
 
+    /// The platform's `ConnectionStatus` (protocol `integrations.ts`, the Rust `cmux_cloud_wire::ConnectionStatus`): each
+    /// value parses to its own case and back; any other, or none, is kept as unknown, never a known case.
+    @Test func connectionStatusParsesOnceAndRoundTrips() {
+        #expect(CloudConnectionStatus.known.map(\.wire) == ["pending", "active", "needs_reauth", "error", "revoked", "expired"])
+        for status in CloudConnectionStatus.known { #expect(CloudConnectionStatus(wire: status.wire) == status) }
+        #expect(CloudConnectionStatus(wire: "something_new") == .unknown("something_new"))
+        #expect(CloudConnectionStatus(wire: nil) == .unknown(""))
+        #expect(CloudConnectionStatus.known.filter(\.isTerminal) == [.revoked, .expired])
+        #expect(!CloudConnectionStatus.unknown("something_new").isTerminal)
+    }
+
     @Test func anActiveConnectionOnAConfiguredAppIsReady() {
         let ready = Self.body(#"{"configured":true,"app_slug":"cmux","connection":{"status":"active","account_login":"acme"}}"#)
         #expect(CloudGitHubApp(status: 200, body: ready) == .ready)

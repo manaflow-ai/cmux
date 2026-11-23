@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextCloud
 import CmuxNextDesign
 import Foundation
 
@@ -9,7 +10,7 @@ extension GitHubConnections {
         else if error { note = Self.failed }
         else if let linkRefusal, !connected { note = linkRefusal }
         else if pending { note = Self.pendingText }
-        else if connected { note = Self.status("active") }
+        else if connected { note = Self.status(.active) }
         else if !ready, !busy { note = Self.unavailable }
         else { note = Self.detail }
         return [
@@ -23,7 +24,7 @@ extension GitHubConnections {
             "connections": .array(currentConnections.map { row in
                 ["id": row["id"] ?? .null,
                  "account": row["account"]?["name"] ?? "GitHub",
-                 "status": .string(Self.status(row["status"]?.stringValue)),
+                 "status": .string(Self.status(row.status)),
                  "canDisconnect": .bool(canDisconnect(row)),
                  "canReconfigure": .bool(canReconfigure(row)),
                  "permissions": row["scopes_granted"] ?? .array([])]
@@ -52,11 +53,14 @@ private extension GitHubConnections {
     static var reauth: String { String(localized: "github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", table: "GitHubConnection", bundle: .localizedModule) }
     static var connectionError: String { String(localized: "github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", table: "GitHubConnection", bundle: .localizedModule) }
     static var linkExpired: String { String(localized: "github.linkExpired", defaultValue: "The link expired; connect again.", table: "GitHubConnection", bundle: .localizedModule) }
-    static func status(_ status: String?) -> String {
-        if status == "active" { return String(localized: "github.connected", defaultValue: "Connected", table: "GitHubConnection", bundle: .localizedModule) }
-        if status == "pending" { return pendingText }
-        if status == "needs_reauth" { return reauth }
-        if status == "error" { return connectionError }
-        return String(localized: "github.reconnect", defaultValue: "Connect GitHub again to restore access.", table: "GitHubConnection", bundle: .localizedModule)
+    static func status(_ status: CloudConnectionStatus) -> String {
+        switch status {
+        case .active: String(localized: "github.connected", defaultValue: "Connected", table: "GitHubConnection", bundle: .localizedModule)
+        case .pending: pendingText
+        case .needsReauth: reauth
+        case .error: connectionError
+        case .revoked, .expired, .unknown:
+            String(localized: "github.reconnect", defaultValue: "Connect GitHub again to restore access.", table: "GitHubConnection", bundle: .localizedModule)
+        }
     }
 }

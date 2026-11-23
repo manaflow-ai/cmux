@@ -4,6 +4,7 @@
 //! `GET /v1/integrations/github/status`, which says whether this deployment has the App and
 //! which team connection the person would use.
 
+use cmux_cloud_wire::ConnectionStatus;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -50,12 +51,24 @@ pub fn status(status: u16, body: &[u8]) -> GitHubApp {
     if object.get("allowed").and_then(Value::as_bool) == Some(false) {
         return GitHubApp::Unknown;
     }
-    let active = object
+    let status = object
         .get("connection")
         .and_then(|connection| connection.get("status"))
         .and_then(Value::as_str)
-        == Some("active");
-    if active { GitHubApp::Ready } else { GitHubApp::NotConnected }
+        .map(ConnectionStatus::from_wire);
+    match status {
+        Some(ConnectionStatus::Active) => GitHubApp::Ready,
+        // Each needs another fix, but this check only asks whether the App mints for the team.
+        Some(
+            ConnectionStatus::Pending
+            | ConnectionStatus::NeedsReauth
+            | ConnectionStatus::Error
+            | ConnectionStatus::Revoked
+            | ConnectionStatus::Expired
+            | ConnectionStatus::Unknown(_),
+        )
+        | None => GitHubApp::NotConnected,
+    }
 }
 
 /// The route's path for `team` (a `team_…` id); None for anything else, so no other text reaches

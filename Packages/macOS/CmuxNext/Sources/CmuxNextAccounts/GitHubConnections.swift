@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
@@ -35,11 +35,23 @@ public final class GitHubConnections {
     private var workingScope: Scope?
     private var generation = 0
     @ObservationIgnored private var authorizations: [Scope: (id: String, url: URL, expires: Date)] = [:]
-    private(set) var connections: [JSONValue] = []
+    /// One `integration.list` row, its `status` parsed once (``CloudConnectionStatus``); the page reads the rest of `row`.
+    public struct Connection: Hashable, Sendable {
+        public let row: JSONValue
+        public let id: String?
+        public let status: CloudConnectionStatus
+        public init(_ row: JSONValue) {
+            self.row = row
+            id = row["id"]?.stringValue
+            status = CloudConnectionStatus(wire: row["status"]?.stringValue)
+        }
+        public subscript(key: String) -> JSONValue? { row[key] }
+    }
+    private(set) var connections: [Connection] = []
     private(set) var configured = false
     private var errorScope: Scope?
     public var error: Bool { scope() != nil && errorScope == scope() }
-    public var pending: Bool { currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { authorizations[$0] != nil } == true }
+    public var pending: Bool { currentConnections.contains { $0.status == .pending } || scope().map { authorizations[$0] != nil } == true }
 
     public init(scope: @escaping () -> Scope?, call: @escaping Call, open: @escaping (URL) -> Void, now: @escaping () -> Date = Date.init) {
         self.scope = scope
@@ -50,14 +62,14 @@ public final class GitHubConnections {
 
     public var scopeIsSignedOut: Bool { scope() == nil }
     public var busy: Bool { workingScope != nil && workingScope == scope() }
-    public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
+    public var currentConnections: [Connection] { loadedScope == scope() ? connections : [] }
     /// `integration.connect`'s params: GitHub, and the app's completion link when one is set (``completionLink``).
     func connectParams(returning: Bool) -> JSONValue {
         var params: [String: JSONValue] = ["provider": "github"]
         if returning, let completionLink { params["return_to"] = .string(completionLink) }
         return .object(params)
     }
-    public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
+    public var connected: Bool { currentConnections.contains { $0.status == .active && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
     public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
 
@@ -67,11 +79,11 @@ public final class GitHubConnections {
 
     /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
     /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
-    public func canReconfigure(_ row: JSONValue) -> Bool {
-        scope() != nil && row["status"]?.stringValue == "active"
+    public func canReconfigure(_ row: Connection) -> Bool {
+        scope() != nil && row.status == .active
     }
 
-    public func canDisconnect(_ row: JSONValue) -> Bool {
+    public func canDisconnect(_ row: Connection) -> Bool {
         scope() != nil && row["created_by"]?.stringValue == scope()?.user
     }
 
@@ -119,12 +131,12 @@ public final class GitHubConnections {
                     open(url)
                 }
             case "githubReconfigure":
-                guard let connection, currentConnections.contains(where: { $0["id"]?.stringValue == connection && canReconfigure($0) }) else { return }
+                guard let connection, currentConnections.contains(where: { $0.id == connection && canReconfigure($0) }) else { return }
                 guard let page = await reconfigurePage?(bound) else { throw GitHubFailure.invalidReply }
                 guard scope() == bound, generation == ticket else { return }
                 open(page)
             case "githubDisconnect":
-                guard let connection, currentConnections.contains(where: { $0["id"]?.stringValue == connection && canDisconnect($0) }) else { return }
+                guard let connection, currentConnections.contains(where: { $0.id == connection && canDisconnect($0) }) else { return }
                 _ = try await call(bound, "integration.revoke", ["connection": .string(connection)], UUID().uuidString)
             default: break
             }
@@ -134,11 +146,11 @@ public final class GitHubConnections {
             guard let rows = value["connections"]?.arrayValue, let providers = value["providers"]?.arrayValue else {
                 throw GitHubFailure.invalidReply
             }
-            connections = rows.filter { $0["provider"]?.stringValue == "github" && !["revoked", "expired"].contains($0["status"]?.stringValue ?? "") }
+            connections = rows.filter { $0["provider"]?.stringValue == "github" }.map(Connection.init).filter { !$0.status.isTerminal }
             configured = providers.contains { $0["provider"]?.stringValue == "github" && $0["configured"]?.boolValue == true }
             loadedScope = bound
             if let authorization = authorizations[bound],
-               !connections.contains(where: { $0["id"]?.stringValue == authorization.id && $0["status"]?.stringValue == "pending" }) {
+               !connections.contains(where: { $0.id == authorization.id && $0.status == .pending }) {
                 authorizations[bound] = nil
                 connectKeys[bound] = nil
             }

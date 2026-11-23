@@ -47,6 +47,7 @@ use serde_json::{Map, Value, json};
 use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
+use crate::github_link::GithubLink;
 use crate::json::JsonField;
 
 const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
@@ -112,12 +113,12 @@ impl Refused {
         {
             return why;
         }
-        match self.code.as_str() {
-            "integration.not_found" | "github.not_connected" => (
+        match (GithubLink::of(&self.code), self.code.as_str()) {
+            (Some(GithubLink::NotFound | GithubLink::NotConnected), _) => (
                 format!("{lead}: the cmux GitHub App is not installed for this cmux team."),
                 Some(format!("To install it, {CONNECT_GITHUB}; {again}.")),
             ),
-            "policy.denied" if !self.message.contains("workflows") => {
+            (Some(GithubLink::PolicyDenied), _) if !self.message.contains("workflows") => {
                 let grant = match &self.configure_url {
                     Some(url) => format!("open {url} and add the repository"),
                     None => format!("{CONNECT_GITHUB}, and add the repository on GitHub's page"),
@@ -130,14 +131,14 @@ impl Refused {
                     Some(format!("To grant it, {grant} (or ask a team admin); {again}.")),
                 )
             }
-            "needs_reauth" => (
+            (Some(GithubLink::NeedsReauth), _) => (
                 format!(
                     "{lead}: the team's GitHub connection needs renewing (the app was removed or \
                      suspended on GitHub)."
                 ),
                 Some(format!("To renew it, {CONNECT_GITHUB}; {again}.")),
             ),
-            "auth.required" | "auth.forbidden" | "auth.refused" | "vm.unbound" => (
+            (_, "auth.required" | "auth.forbidden" | "auth.refused" | "vm.unbound") => (
                 format!("{lead}: this machine's cmux Cloud sign-in needs renewing."),
                 Some(format!(
                     "Reconnect this machine to cmux Cloud from cmux on your Mac; {again}."
@@ -242,36 +243,30 @@ impl Refused {
 /// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says
 /// exactly how to connect, and it is retryable once connected.
 pub fn next_step(code: &str) -> Option<String> {
-    match code {
-        "integration.not_found" | "github.not_connected" => Some(format!(
+    Some(match GithubLink::of(code)? {
+        GithubLink::NotFound | GithubLink::NotConnected => format!(
             "GitHub is not connected for this cmux team: {CONNECT_GITHUB}. Then run the same \
              command again; nothing needs setting up on this machine"
-        )),
-        "needs_reauth" => Some(format!(
+        ),
+        GithubLink::NeedsReauth => format!(
             "the team's GitHub connection needs linking again: {CONNECT_GITHUB}. Then run the \
              same command again"
-        )),
-        "policy.denied" => Some(format!(
+        ),
+        GithubLink::PolicyDenied => format!(
             "the team's GitHub connection does not cover this repository: {CONNECT_GITHUB} and \
              pick it on GitHub's page, or ask a team admin to allow it"
-        )),
-        _ => None,
-    }
+        ),
+    })
 }
 
 /// Whether the same ask can succeed later with nothing changed on this machine: after the
 /// person connects (or reconnects) GitHub, or after a wait.
 pub fn retryable(code: &str) -> bool {
-    matches!(
-        code,
-        "integration.not_found"
-            | "github.not_connected"
-            | "needs_reauth"
-            | "integration.unavailable"
-            | "busy"
-            | "rate_limited"
-            | "vm.agent_unreachable"
-    )
+    GithubLink::of(code).is_some_and(GithubLink::unlinked)
+        || matches!(
+            code,
+            "integration.unavailable" | "busy" | "rate_limited" | "vm.agent_unreachable"
+        )
 }
 
 pub fn refused(code: &str, message: impl Into<String>) -> Refused {

@@ -49,12 +49,12 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
     /// The state of a connection's server `status`: each of `needs_reauth`, `pending` and `error` is its own, and any
     /// other (none, `revoked`, `expired`, a status this build does not know) is not connected.
     static func state(ofConnection status: String?) -> CloudGitHubApp {
-        switch status {
-        case "active": .ready
-        case "needs_reauth": .needsReauth
-        case "pending": .linking
-        case "error": .error
-        default: .notConnected
+        switch CloudConnectionStatus(wire: status) {
+        case .active: .ready
+        case .needsReauth: .needsReauth
+        case .pending: .linking
+        case .error: .error
+        case .revoked, .expired, .unknown: .notConnected
         }
     }
 
@@ -138,5 +138,63 @@ extension CloudOwnerAPIClient {
     /// ``CloudGitHubApp/unknown``, and the caller falls back to the machine's own GitHub sign-in.
     public func gitHubApp(team: String) async -> CloudGitHubApp {
         await gitHubAppStatus(team: team).app
+    }
+}
+
+/// An integration connection's server `status`, the platform's typed `ConnectionStatus`
+/// (`backend/packages/protocol/src/integrations.ts`; the Rust readers use `cmux_cloud_wire::ConnectionStatus`), parsed
+/// once from the wire so no reader compares the raw string (plans/cmux-next/cloud-integrations-state-machine.md §1).
+public enum CloudConnectionStatus: Hashable, Sendable {
+    /// Connect answered an install or authorize URL; the person has not finished on the provider's page.
+    case pending
+    /// Linked and usable.
+    case active
+    /// Linked, but the provider no longer honors it (a GitHub installation suspended or uninstalled).
+    case needsReauth
+    /// A server-side failure.
+    case error
+    /// Disconnected; its tokens revoked at the provider. Terminal.
+    case revoked
+    /// Pending past its lifetime. Terminal.
+    case expired
+    /// A value this build does not know (a newer backend), or none at all; kept verbatim.
+    case unknown(String)
+
+    /// Every value this build knows, in the protocol's order.
+    public static let known: [CloudConnectionStatus] = [.pending, .active, .needsReauth, .error, .revoked, .expired]
+
+    /// The variant of a wire value; ``unknown(_:)`` for any other, and for none (`""`).
+    public init(wire: String?) {
+        switch wire {
+        case "pending": self = .pending
+        case "active": self = .active
+        case "needs_reauth": self = .needsReauth
+        case "error": self = .error
+        case "revoked": self = .revoked
+        case "expired": self = .expired
+        default: self = .unknown(wire ?? "")
+        }
+    }
+
+    /// The wire value.
+    public var wire: String {
+        switch self {
+        case .pending: "pending"
+        case .active: "active"
+        case .needsReauth: "needs_reauth"
+        case .error: "error"
+        case .revoked: "revoked"
+        case .expired: "expired"
+        case let .unknown(value): value
+        }
+    }
+
+    /// Whether the connection is over (revoked or expired): a client's list leaves it out. A status this build does not
+    /// know is kept, as before.
+    public var isTerminal: Bool {
+        switch self {
+        case .revoked, .expired: true
+        case .pending, .active, .needsReauth, .error, .unknown: false
+        }
     }
 }
