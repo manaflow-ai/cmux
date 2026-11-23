@@ -2733,6 +2733,7 @@ mod fix_from_link;
 mod follow;
 mod forum;
 mod github_lane;
+pub(crate) mod joined_capacity;
 mod link_v2_serve;
 mod media_forward;
 mod mesh_control_send;
