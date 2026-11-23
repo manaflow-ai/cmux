@@ -38,6 +38,7 @@ mod keybinding_tools;
 mod keys_tools;
 mod live_code_tools;
 mod live_file;
+mod md_deck;
 mod messages;
 mod off;
 mod open_tool;
@@ -47,6 +48,7 @@ mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
+mod slides_tool;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
@@ -1231,6 +1233,12 @@ impl<B: Backend> Server<B> {
                 self.refresh_actions();
             }
             return Ok(self.call_open(&arguments));
+        }
+        if name == slides_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_slides(&arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {

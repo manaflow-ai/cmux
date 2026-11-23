@@ -572,10 +572,10 @@ if [ "$DMG_STATUS" != "Accepted" ]; then
   echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
   exit 1
 fi
-# The Screen Sharing helper ("<app> Screen Sharing.app") has no stapled ticket of
-# its own: it is notarized only through the DMG ticket, so every slice must be in it.
-for unstapled_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-  if [ -d "$unstapled_helper" ] && ! "$XCRUN_TOOL" stapler validate "$unstapled_helper" >/dev/null 2>&1; then
+# The Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing) has no stapled
+# ticket of its own: it is notarized only through the DMG ticket, so every slice must be in it.
+for unstapled_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+  if [ -e "$unstapled_helper/Contents/MacOS/cmux-screen-sharing" ] && ! "$XCRUN_TOOL" stapler validate "$unstapled_helper" >/dev/null 2>&1; then
     helper_ticket_log="$NOTARY_DIR/dmg-ticket.json"
     [ -s "$helper_ticket_log" ] || "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" > "$helper_ticket_log"
     if ! verify_ticket_contents_cover_slices "$helper_ticket_log" "$unstapled_helper"; then

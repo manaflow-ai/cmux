@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
+// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1840,6 +1840,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
                 "CmuxNextControl",
@@ -2618,8 +2619,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Localizable.xcstrings"),
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The Schema/*.generated.swift files, from schemas/settings (RFD 0048).
+            plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
+        .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py

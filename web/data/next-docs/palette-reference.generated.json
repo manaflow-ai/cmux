@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1480,
+    "entries": 1477,
     "shortcuts": 205
   },
   "sections": [
@@ -6508,12 +6508,6 @@
           "command": "cmux chief memory"
         },
         {
-          "id": "chief.toggleComputer",
-          "title": "Chief: Toggle Computer",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "chief.toggleMemoryInspector",
           "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
@@ -7234,12 +7228,6 @@
           "command": "cmux cloud bring-back"
         },
         {
-          "id": "cloud.computerControl",
-          "title": "Chief Computer Control…",
-          "shortcut": null,
-          "command": "cmux cloud computer-control"
-        },
-        {
           "id": "cloudPortClose",
           "title": "Close Forwarded Machine Port…",
           "shortcut": null,
@@ -7694,12 +7682,6 @@
           "title": "Unfollow",
           "shortcut": null,
           "command": "cmux cloud unfollow"
-        },
-        {
-          "id": "cloud.chiefComputer",
-          "title": "Use Chief’s Own Computer…",
-          "shortcut": null,
-          "command": "cmux cloud chief-computer"
         },
         {
           "id": "cloudFileWrite",
