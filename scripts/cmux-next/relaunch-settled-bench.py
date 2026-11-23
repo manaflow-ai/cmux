@@ -399,6 +399,17 @@ class Copy:
 
 
 WATCH_FILE = "webviews/src/agent-session/acpmux/relaunchWatch.ts"
+PROTOCOL_IR = "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
+
+
+def web_abi(root: Path) -> int | None:
+    """The web ABI of the bundles under ROOT (an app or a bundle build): its pages/web-abi.json."""
+    for found in root.rglob("pages/web-abi.json"):
+        try:
+            return int(json.loads(found.read_text())["abi"])
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
 
 
 def add_watch(tree: Path) -> str:
@@ -428,7 +439,8 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
     applied["rust"] = ("ref's published daemon" if rust.returncode == 0 else
                        f"build's own daemon (hot-apply exit {rust.returncode}: {(rust.stderr or rust.stdout).strip()[-200:]})")
     # A ref without the page's relaunch record (relaunchWatch.ts: a fix measured before this landed) gets it here.
-    watched = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{web_sha}:{WATCH_FILE}"]).returncode == 0
+    watched = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{web_sha}:{WATCH_FILE}"],
+                             capture_output=True).returncode == 0
     key = None if web_tree or not watched or merged else hv.published_web_key(ROOT, {"head": sha, "pr": pr})
     bundles = scratch / "web-bundles"
     if key:
@@ -439,6 +451,10 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
         applied["web"] = f"published bundles {key[:12]}"
     else:
         tree = web_tree or hv.web_checkout(ROOT, web_sha, scratch)
+        if not web_tree:  # the bundles' postinstall reads the acpmux protocol IR (#50853), which a ref's
+            # web-bundle-key.py --inputs may not list yet: without it the sparse tree's build fails
+            subprocess.run(["git", "-C", str(tree), "sparse-checkout", "add", "/" + PROTOCOL_IR], check=True,
+                           capture_output=True)
         if not watched and not web_tree:
             applied["watch"] = add_watch(tree)
         say(f"building the web bundles of {tree} (none published for {sha[:12]}{'' if watched else ', with the relaunch record'}{f', merged as {web_sha[:12]}' if merged else ''})")
@@ -447,6 +463,13 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
         if done.returncode != 0:
             raise SystemExit(f"build-web-bundles: {(done.stderr or done.stdout).strip()[-400:]}")
         applied["web"] = f"built here from {web_sha[:12]}" + (f" ({sha[:12]} merged onto the base)" if merged else "")
+    # The app serves an overlay only of its own web ABI (WebDevOverride.abiRefusal); another shows the pane it
+    # shipped with, and the run would measure the golden's web, not the ref's.
+    have, need = web_abi(copy.app), web_abi(bundles)
+    if have is not None and need is not None and have != need:
+        raise SystemExit(f"the golden's web ABI is {have} and the ref's bundles need {need}: the app would refuse "
+                         "them; copy a fleet build of a newer commit (--build-job)")
+    applied["web_abi"] = need
     done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", web_sha], env=env,
                           capture_output=True, text=True, timeout=300)
     if done.returncode != 0:
@@ -557,8 +580,14 @@ def chat_tab(copy: Copy, session: str) -> tuple[str | None, str | None, dict]:
 def show_chat(copy: Copy, session: str) -> bool:
     """The seeded chat in front (the `tab.focus` action, which selects its workspace too), checked on the topology:
     the app restores what was in front at the quit, so every round relaunches onto the chat the person was reading."""
-    tab, _, _ = chat_tab(copy, session)
-    if tab is None:
+    found = {}
+
+    def listed():  # a relaunched app answers its socket before it restores every tab
+        found["tab"] = chat_tab(copy, session)[0]
+        return found["tab"]
+    try:
+        tab = hv.until("the chat's tab", 30, listed)
+    except hv.LookError:
         return False
     rpc(copy.socket, "action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
     return bool(hv.until("the chat in front", 20, lambda: chat_tab(copy, session)[2].get("tab") == tab))
