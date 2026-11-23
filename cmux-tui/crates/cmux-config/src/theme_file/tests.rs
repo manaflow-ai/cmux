@@ -27,6 +27,19 @@ fn none() -> BTreeSet<String> {
     BTreeSet::new()
 }
 
+/// A theme written for an older cmux: a key that was removed is left out
+/// with a notice, not refused as unknown (schemas/settings/retired-keys.json).
+#[test]
+fn a_theme_file_names_a_removed_key_and_still_reads_clean() {
+    let file =
+        overlay(r##"{ "appearance.tabBarBackground": "#000000", "appearance.borders": "none" }"##);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.borders".to_string()]);
+    assert_eq!(file.notices.len(), 1);
+    assert_eq!(file.notices[0].from, "appearance.tabBarBackground");
+    assert_eq!(file.notices[0].kind, crate::migrations::NoticeKind::Removed);
+}
+
 #[test]
 fn a_theme_file_sets_look_settings_nested_or_dotted() {
     let file = overlay(
