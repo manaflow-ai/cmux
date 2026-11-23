@@ -181,6 +181,8 @@ export interface WorkerBindings {
   readonly CLOUD_IDLE_PAUSE?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Named MachineGitHub binding (integrations/machine-github.ts): "on" only in development; off, every method refuses. */
+  readonly PLATFORM_MACHINE_GITHUB?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
   /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
@@ -400,6 +402,9 @@ export interface WorkerBindings {
   readonly CHIEF_CC_ENABLED?: string
   /** The chief-cc VM snapshot id (backend/chief-cc/bake.sh). */
   readonly CHIEF_CC_SNAPSHOT?: string
+  /** The Chief's computer image (backend/chief-cc/bake-computer.sh): small Ubuntu with the desktop and cua-driver baked in,
+   * for `chief-vm create --image computer`. Unset: computer setup installs the desktop on the sandbox. */
+  readonly CHIEF_CC_COMPUTER_SNAPSHOT?: string
   /** Comma-separated exact owner ids (team_ or user_) whose Chiefs use the Claude Code route; each must also be on CHIEF_BRAIN_CLAUDE_OWNERS. */
   readonly CHIEF_CC_OWNERS?: string
   /** Secret: the Freestyle key of the account that holds CHIEF_CC_SNAPSHOT (no other code reads it). */
