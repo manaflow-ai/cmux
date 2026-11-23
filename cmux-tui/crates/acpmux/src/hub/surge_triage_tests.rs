@@ -729,14 +729,28 @@ fn need_you(hub: &Hub, s: &Session) -> Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn program_notices_never_count_and_a_read_lowers_need_you_at_once() {
-    // The model would call every one of them actionable.
+    // The model would call every one of them actionable, and each asks the person.
     let (hub, s) = chat(Some("1 this\n2 this\n3 this")).await;
-    hold_program(&hub, &s, "g1", "glaeda-land", "result", "merged #51600 at abc123");
-    hold_program(&hub, &s, "h1", "hang-watch", "question", "turn stuck 31 min?");
-    hold_program(&hub, &s, "n1", "now-md", "result", "NOW rendered: 15 red");
-    hold_program(&hub, &s, "f1", "now-fire", "result", "FIRE runner label stalled");
-    hold(&hub, &s, "a1", "review", "result", "review asks you to pick a base");
-    hold(&hub, &s, "a2", "deploy", "result", "deploy needs your go");
+    hold_program(&hub, &s, "g1", "glaeda-land", "block", "land stopped #51600: needs approval");
+    hold_program(
+        &hub,
+        &s,
+        "h1",
+        "hang-watch",
+        "question",
+        "turn stuck 31 min; can the person look?",
+    );
+    hold_program(&hub, &s, "n1", "now-md", "block", "NOW: 15 red; the owner must sign in");
+    hold_program(
+        &hub,
+        &s,
+        "f1",
+        "now-fire",
+        "block",
+        "FIRE runner label stalled; approve a restart",
+    );
+    hold(&hub, &s, "a1", "review", "question", "can the person pick a base?");
+    hold(&hub, &s, "a2", "deploy", "block", "deploy needs the owner's approval");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     for id in ["g1", "h1", "n1"] {
