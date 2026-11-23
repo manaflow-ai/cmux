@@ -155,6 +155,8 @@ pub(super) struct SessionParts {
     pub keeps_turn: bool,
     /// Fires when the current TURN allocation's stream dies.
     pub turn_dead: Option<watch::Receiver<bool>>,
+    /// The underlay's current plain-UDP destination.
+    pub route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -197,6 +199,7 @@ pub(super) struct Session {
     /// stale).
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -251,6 +254,7 @@ impl Session {
             path_epoch: Arc::new(watch::channel(0).0),
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
+            route_to: parts.route_to,
         });
         lock(registry()).push(Arc::downgrade(&session));
         if let Some(dead) = turn_dead {
@@ -864,6 +868,14 @@ pub async fn network_changed() -> Vec<(String, Timeline)> {
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });
     futures_util::future::join_all(roams).await
+}
+
+/// Where each live session's plain UDP goes now (sessions on this side's
+/// own TURN allocation, or with no route yet, name none). The Mac's network
+/// watch reads it to tell a change on an interface a session uses from one
+/// on an interface none does (`cmux-mobile-host` netwatch).
+pub fn route_destinations() -> Vec<SocketAddr> {
+    live().iter().filter_map(|session| *session.route_to.borrow()).collect()
 }
 
 /// Move the sessions on `client`'s device that run on another (dead or
