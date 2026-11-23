@@ -1035,6 +1035,31 @@
           }
         },
         {
+          "key": "sidebar.workingShelf",
+          "note": "Chats waiting on background work (background tasks, subagents, watches) fold behind a Working (N) row at the end of their list and come back when they need the person. Off by default.",
+          "title": {
+            "key": "settings.sidebar.workingShelf",
+            "text": "Working Shelf"
+          },
+          "help": {
+            "key": "settings.sidebar.workingShelf.help",
+            "text": "Chats waiting on background tasks, subagents or watches fold into one Working row at the end of their list and come back when they need you."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "shelf",
+            "waiting",
+            "background",
+            "fold",
+            "working"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showAutomaticSessions",
           "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
           "title": {

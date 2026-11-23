@@ -38,6 +38,7 @@ pub use agent_pairs::PairGuard;
 mod aside;
 mod asks_below;
 mod atomic_json;
+mod background_waits;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
@@ -2194,6 +2195,8 @@ impl Hub {
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
             asks_below: StdMutex::new((0, 0)),
+            background_waits: StdMutex::new(0),
+            bg_notifying: std::sync::atomic::AtomicU32::new(0),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -3021,6 +3024,7 @@ impl Hub {
                 | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
+                | background_waits::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"

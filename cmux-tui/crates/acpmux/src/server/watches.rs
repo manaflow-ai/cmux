@@ -29,7 +29,7 @@ pub(super) async fn handle(
             let id = params["id"]
                 .as_str()
                 .ok_or_else(|| RpcError::invalid_params("watch id is required"))?;
-            match hub.watches.remove(id)? {
+            match hub.watches.remove(hub, id)? {
                 Some(owed) => Ok(json!({"removed": id, "owed": owed})),
                 None => Err(RpcError::not_found(format!("no watch {id:?}; call _acpmux/watch_ls"))),
             }
@@ -80,18 +80,21 @@ pub(super) async fn handle(
                 .iter()
                 .map(|k| (k.clone(), crate::hub::watches::seed(hub, k, a.match_text.as_deref())))
                 .collect();
-            hub.watches.add(Watch {
-                id: uuid::Uuid::now_v7().to_string(),
-                to,
-                sessions,
-                until: a.until,
-                match_text: a.match_text,
-                once: a.once.unwrap_or(true),
-                caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
-                active: true,
-                cursors,
-                offline: Default::default(),
-            })
+            hub.watches.add(
+                hub,
+                Watch {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    to,
+                    sessions,
+                    until: a.until,
+                    match_text: a.match_text,
+                    once: a.once.unwrap_or(true),
+                    caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+                    active: true,
+                    cursors,
+                    offline: Default::default(),
+                },
+            )
         }
     }
 }
