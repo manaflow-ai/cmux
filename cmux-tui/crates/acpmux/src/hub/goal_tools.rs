@@ -83,6 +83,7 @@ impl Hub {
     }
 
     /// The agent reports on `session`'s goal: running, blocked or complete, with an optional note.
+    /// Blocked or complete with no goal set records one (its done-when the chat's stop condition).
     pub(crate) fn goal_update(
         &self,
         session: &Session,
@@ -91,8 +92,27 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let value = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(goal) = m.goal.as_mut().filter(|g| generic_goal::is_generic(g)) else {
-                return Err(RpcError::invalid_params("this chat has no goal set with goal_set"));
+            let stop_condition = m.stop_condition.clone();
+            let goal = match m.goal.as_mut().filter(|g| generic_goal::is_generic(g)) {
+                Some(goal) => goal,
+                // A stop: blocked or complete is recorded also with no goal set, as a goal whose
+                // done-when is the chat's stop condition. A Chief subagent works under that
+                // condition, not under a `goal_set` goal, and its "blocked on Lucas" was refused,
+                // so it had no way to say it waits (user, 2026-11-23). Running needs `goal_set`.
+                None if status == Reported::Running => {
+                    return Err(RpcError::invalid_params(
+                        "this chat has no goal set with goal_set",
+                    ));
+                }
+                None => {
+                    let request = GoalRequest {
+                        objective: note.unwrap_or("This chat's task").to_owned(),
+                        done_when: stop_condition.unwrap_or_default(),
+                        token_budget: None,
+                        time_budget_minutes: None,
+                    };
+                    m.goal.insert(generic_goal::new_goal(&request, now_ms()))
+                }
             };
             generic_goal::apply_report(goal, status, note, now_ms());
             goal.to_value()
@@ -277,5 +297,32 @@ mod tests {
         let newer = step(&session);
         assert!(moved_on(check_goal_mark(&session, Some(&older))));
         assert!(check_goal_mark(&session, Some(&newer)).is_ok());
+    }
+
+    /// A Chief subagent has a stop condition but no `goal_set` goal. Its "blocked on Lucas" was
+    /// refused ("this chat has no goal set"), so it could not say it waits, and its finish check
+    /// kept re-prompting it (user, 2026-11-23). Blocked and complete now work with no goal set;
+    /// running still needs one, which only `goal_set` gives.
+    #[test]
+    fn blocked_and_complete_work_with_no_goal_set() {
+        let hub = hub();
+        let session = chat(&hub);
+        session.meta.lock().unwrap().stop_condition = Some("The task is landed.".into());
+        assert!(hub.goal_update(&session, Reported::Running, None).is_err());
+        assert!(session.meta.lock().unwrap().goal.is_none());
+
+        let got =
+            hub.goal_update(&session, Reported::Blocked, Some("waits for Lucas: push it")).unwrap();
+        assert_eq!(got["objective"], "waits for Lucas: push it");
+        let m = session.meta.lock().unwrap();
+        let goal = m.goal.as_ref().unwrap();
+        assert!(generic_goal::is_generic(goal));
+        assert_ne!(goal.lifecycle(), "running", "a blocked goal gets no continuation");
+        assert_eq!(generic_goal::done_when(goal), "The task is landed.");
+        drop(m);
+
+        let other = chat(&hub);
+        hub.goal_update(&other, Reported::Complete, None).unwrap();
+        assert_eq!(other.meta.lock().unwrap().goal.as_ref().unwrap().lifecycle(), "done");
     }
 }
