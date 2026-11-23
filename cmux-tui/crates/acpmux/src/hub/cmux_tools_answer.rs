@@ -94,7 +94,10 @@ mod tests {
         assert_eq!(here_for(settings, &json!({"harness": "claude"})), "on");
         assert_eq!(here_for(settings, &json!({})), "on", "no harness: the answer");
         assert_eq!(here_for(Some("{}"), &codex), "on", "on by default");
-        assert_eq!(here_for(Some(r#"{"agents": {"cmuxMcp": "off"}}"#), &json!({"harness": "claude"})), "off");
+        assert_eq!(
+            here_for(Some(r#"{"agents": {"cmuxMcp": "off"}}"#), &json!({"harness": "claude"})),
+            "off"
+        );
     }
 
     #[test]

@@ -26,6 +26,7 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,
@@ -103,11 +104,11 @@ import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -176,10 +177,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadCount,
   noteUnreadNews,
+  noteUnreadCount,
 } from "./conversation/unreadState";
-import { sinceCount, sinceNews } from "./conversation/sinceNews";
+import { sinceNews, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -192,7 +193,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -646,6 +647,23 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 
+/// A cold open at the chat's end (layoutConversation `roughAbove`): the px above the end measured
+/// whole, the view and the history mounted above it (HISTORY_VIEWPORTS) with a viewport of margin
+/// either side. Undefined when anything is already measured or kept, the box has no height yet, or
+/// the chat opens at a saved place in its rows.
+function coldOpenRoughAbove(
+  cache: ReadonlyMap<string, unknown>,
+  kept: LastEstimate | undefined,
+  resizing: unknown,
+  rows: readonly AcpmuxRow[],
+  view: { height: number; openAt?: ScrollAnchor },
+): number | undefined {
+  if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
+  const openAt = view.openAt;
+  if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
+  return (HISTORY_VIEWPORTS + 2) * view.height;
+}
+
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
 const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
 
@@ -923,6 +941,9 @@ function TranscriptView({
   const scrollRef = useRef({ top: 0, delta: 0 });
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
+  /// The session whose first followed frame has painted, so its history above the view mounts in full
+  /// (`deferHistory` below).
+  const [historySession, setHistorySession] = useState<string | undefined>();
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
   /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
@@ -3205,6 +3226,10 @@ function TranscriptView({
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
   const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
+  // The view's height and saved place for a cold open's estimate (`roughAbove`), read without making
+  // either an input of it.
+  const coldView = useRef({ height, openAt });
+  coldView.current = { height, openAt };
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3248,6 +3273,7 @@ function TranscriptView({
       sessionId,
       resizing,
       nearView(lastPlaced.current, rows, sessionId),
+      coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
     );
     lastEstimate.current = {
       rows,
@@ -3264,6 +3290,19 @@ function TranscriptView({
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
+  // A cold open's rough estimate is laid out whole once its first frame has painted: a frame, then a
+  // task, so the full layout never lands before that paint.
+  useEffect(() => {
+    if (!estimated.layout.rough) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(settleResize, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [estimated]);
   // What this chat laid out, for its next show in this page (conversation/keptLayouts.ts): references
   // only, so recording after each commit is O(1).
   useLayoutEffect(() => {
@@ -3434,7 +3473,8 @@ function TranscriptView({
       registry,
       look: chatLook,
       view: attachmentView,
-      partial: estimated.partial,
+      // A placement over a cold open's rough estimate keeps nothing either, once every row is measured.
+      partial: estimated.partial || estimated.layout.rough === true,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
@@ -3779,6 +3819,30 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
+  // A chat's first followed frame (a cold open, at its latest row) mounts only the rows it shows: the
+  // history above them (and the warm rows) are stand-ins at their estimated boxes until that frame has
+  // painted, then mount in full (the effect below). Built in the first commit they were about 3/4 of
+  // its render and of its page layouts, for rows no one sees in it. They are still there to scroll up
+  // into a frame later (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of
+  // anything up at all"). A stand-in reports no drawn height, so the estimates above stay as they were.
+  const deferHistory = renderFollowing && historySession !== sessionKey && rows.length > 0 && height > 0;
+  useEffect(() => {
+    if (!deferHistory) return;
+    // Two frames, then a task: the frame that drew the view paints, the next one starts (where the
+    // chat-open bench marks it painted), and only then do the history rows build.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let second: number | undefined;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        timer = setTimeout(() => setHistorySession(sessionKey), 0);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second !== undefined) cancelAnimationFrame(second);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [deferHistory, sessionKey]);
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
   // frames as the rest of them are.
@@ -3792,11 +3856,12 @@ function TranscriptView({
   // its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
-  const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
-    : undefined;
+  const history =
+    renderFollowing && !deferHistory
+      ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+      : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(deferHistory || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -4312,6 +4377,15 @@ function TranscriptView({
         // Where the view is from here: the settle's landed offset, else the one this pass read.
         const viewTop = settle ? settle.top : live;
         passTop = viewTop;
+        // The offset a render reads before this write's scroll event comes (`unplacedScroll`): a render
+        // in between with the same layout drew the rows at the old offset. One streamed line off is
+        // nothing, but a cold open's rough estimate laid out whole (`roughAbove`) moves the end by
+        // thousands of px: that render drew turns far above the view and unmounted the live reply.
+        // Past a view's height the offset is committed with the write, as an anchor correction's is.
+        if (settle?.moved && Math.abs(viewTop - scrollRef.current.top) > viewHeight) {
+          scrollPacer.current?.cancel();
+          setScrollAt(viewTop, scrollRef.current.delta);
+        }
         // The chase below reads where the view is from here, not from the scroller it just wrote.
         pinView.current = { top: viewTop, height: liveHeight };
         const settled = jumping ? clamped : settle?.moved || clamped;
@@ -4632,8 +4706,11 @@ function TranscriptView({
         // At the latest row the end is written as a following view's is (rounded up): floored, it
         // rested a pixel short of a fractional end until the next following pass put it there, and
         // a switch that mounts its rows at the end in its first commit has no next pass.
-        if (at < 0) node.scrollTop = Math.ceil(top - 0.01);
-        else writeAnchorScrollTop(node, top);
+        // Its fraction is kept, so the follow pass reads the end where it was written.
+        if (at < 0) {
+          node.scrollTop = Math.ceil(top - 0.01);
+          retainScrollOrigin(node, top);
+        } else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
