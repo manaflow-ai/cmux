@@ -2134,6 +2134,9 @@ mod tests {
             key: String::new(),
             evals_dir: PathBuf::new(),
             ledger_pre: false,
+            cases_dir: PathBuf::new(),
+            dream_model: String::new(),
+            max_words: 0,
         };
         summarize(rows, 1.0, &opts)
     }
@@ -2147,7 +2150,7 @@ mod tests {
         ]);
         assert_eq!(
             s["case_results"]["links-a"],
-            json!({"group": "links", "passed": 1, "runs": 2})
+            json!({"group": "links", "passed": 1, "runs": 2, "infra": 0})
         );
         assert_eq!(s["groups"]["links"], "1/2");
         assert_eq!(s["group_pass_rate"]["links"], 0.5);

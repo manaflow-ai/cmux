@@ -95,6 +95,12 @@ jobs:
             eval_tests+=(--test "${name%.rs}")
           done
           cargo test --locked --no-run "${eval_tests[@]}"
+      - name: Runner unit tests (scoring and baseline diff)
+        working-directory: Native/OptChat/optchat-chief
+        # The runner's own tests (case_counts, infra runs, baseline_diff,
+        # `chief_eval diff`): no other job runs an example's tests, and they
+        # went uncompiled once already.
+        run: cargo test --locked --example chief_eval
       - name: Deterministic cases (no model call)
         working-directory: Native/OptChat/optchat-chief
         run: evals/run.sh --no-model
