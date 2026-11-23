@@ -1338,13 +1338,7 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    // A turn the agent runs on its own (a helper finished, another agent's message, a wakeup) while
-    // acpmux lists the chat idle still draws the live line, as the prompt's turn does: its sends,
-    // reads and waits are work (Leo, 2026-11-22: "you sending messages or whatever aren't being
-    // accounted properly a la the "thinking" thing").
-    const ownLine =
-      !live && last && !sent && liveLine.length === 0 ? backgroundLiveLine(user, kept, clockOffset) : undefined;
-    const line = sent ? [sentLine(sent)] : ownLine ? [ownLine] : liveLine;
+    const line = sent ? [sentLine(sent)] : liveLine;
     // Other agents' messages that started a finished turn are its "Worked for"'s first entries
     // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
     // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
@@ -1525,35 +1519,6 @@ function sentLine(sent: AcpmuxRow): AcpmuxRow {
     ...LIVE_SLOT,
   };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
-  return line;
-}
-
-/// The live line of a turn the agent runs on its own (acpmux `background_turn`, still running) at the
-/// end of the latest turn's rows, or none. acpmux lists the chat idle then (only its own turns count
-/// as running, hub/background_turn.rs), so the turn is not `live`; the line is the one a live turn
-/// draws (``codexLiveTurn``), read from the background turn's rows and timed from its start: "Sending
-/// message to tests", "Thinking 12s", "Waiting 40s", never nothing under a send or a helper's finish.
-export function backgroundLiveLine(
-  user: AcpmuxRow,
-  rows: readonly AcpmuxRow[],
-  clockOffset = 0,
-): AcpmuxRow | undefined {
-  let from = rows.length - 1;
-  while (from >= 0 && rows[from]!.kind !== BACKGROUND_TURN) from -= 1;
-  const turn = rows[from];
-  if (!turn?.background?.running) return undefined;
-  const drawn = rows
-    .slice(from + 1)
-    .filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
-  let last: AcpmuxRow | undefined;
-  for (let index = drawn.length - 1; index >= 0 && !last; index -= 1)
-    if (drawn[index]!.kind !== STARTED_SESSIONS) last = drawn[index];
-  const named = last ? lineCall(drawn, last) : undefined;
-  const start = hasTimestamp(turn.at) ? turn.at : user.at;
-  const line = codexLiveTurn(user, drawn, drawn, last, named, start + clockOffset, clockOffset, false, 0, start).at(-1);
-  if (line?.kind !== THINKING) return undefined;
-  // Timed from the background turn, as `liveClock` reads it when nothing follows yet.
-  if (!last) Object.assign(line, liveClock([], start, clockOffset), { turnTotal: true, heardKey: turn.id });
   return line;
 }
 

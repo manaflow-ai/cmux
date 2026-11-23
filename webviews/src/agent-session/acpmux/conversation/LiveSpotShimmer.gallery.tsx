@@ -89,7 +89,7 @@ function Fixture({ surface = "plain" }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {STATUSES.map(([name, node]) => (
         <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-          <span style={{ flex: "none", width: 128, fontSize: 11, opacity: 0.6 }}>{name}</span>
+          <span style={{ flex: "none", width: 128, fontSize: "var(--text-caption)", opacity: 0.6 }}>{name}</span>
           <div style={{ position: "relative", flex: "1 1 auto", minWidth: 0 }}>{node}</div>
         </div>
       ))}

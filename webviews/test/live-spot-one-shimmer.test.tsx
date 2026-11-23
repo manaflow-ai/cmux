@@ -11,7 +11,6 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
-import { BACKGROUND_TURN } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import { SHIMMER_CLASS, Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { liveWait, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { type LiveWait, subagentsLabel, waitingLabel } from "../src/agent-session/acpmux/conversation/liveWait";
@@ -246,75 +245,4 @@ test("no status in the live spot has a colour of its own: the shimmer's tone is 
   };
   expect(rule(".cv-retrying")).not.toContain("color:");
   expect(rule(".cv-thinking.cv-waiting")).not.toContain("color:");
-});
-
-// A turn the agent runs on its own after its prompt's turn ended (acpmux `background_turn`): acpmux
-// lists the chat idle, so the turn is not `working`, yet its sends and waits are work.
-const prompt: AcpmuxRow = { id: "p1", version: 1, at: 1_000, kind: "user", text: "Coordinate the lanes" };
-const reply: AcpmuxRow = { id: "r1", version: 1, at: 2_000, kind: "assistant", text: "On it." };
-const summary: AcpmuxRow = { id: "s1", version: 1, at: 3_000, kind: "turnSummary", status: "completed" } as AcpmuxRow;
-const background = (running: boolean): AcpmuxRow =>
-  ({
-    id: "backgroundTurn-bg1",
-    version: running ? 1 : 2,
-    at: 10_000,
-    kind: BACKGROUND_TURN,
-    background: { id: "bg1", trigger: "task", running, ...(running ? {} : { quiet: false }) },
-  }) as AcpmuxRow;
-const send = (status: string): AcpmuxRow =>
-  ({
-    id: "a1",
-    version: 1,
-    at: 11_000,
-    kind: "activity",
-    inBackground: "backgroundTurn-bg1",
-    items: [
-      {
-        kind: "tool",
-        text: "SendMessage",
-        tool: {
-          id: "m1",
-          title: "SendMessage",
-          kind: "other",
-          status,
-          startedAt: 11_000,
-          ...(status === "completed" && { endedAt: 11_500 }),
-          inputSummary: JSON.stringify({ to: "picker", message: "Keep going." }),
-        },
-      },
-    ],
-  }) as AcpmuxRow;
-
-test("a turn whose newest activity is a send still going is live: the line names the recipient", () => {
-  const view = turnView([prompt, reply, summary, background(true), send("in_progress")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  const line = view.at(-1)!;
-  expect(line.kind).toBe(THINKING);
-  expect(line.doingSendTo).toBe("picker");
-});
-
-test("a turn whose newest activity is a finished send is still live: the line reads Thinking", () => {
-  const view = turnView([prompt, reply, summary, background(true), send("completed")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  const line = view.at(-1)!;
-  expect(line.kind).toBe(THINKING);
-  expect(line.doing).toBeUndefined();
-  expect(line.turnTotal).toBe(true);
-});
-
-test("a helper's finish that starts a turn of its own is live before its first step", () => {
-  const view = turnView([prompt, reply, summary, background(true)], new Set(), { now: 12_000, working: false });
-  expect(view.at(-1)?.kind).toBe(THINKING);
-});
-
-test("once that turn ends, no live line is left", () => {
-  const view = turnView([prompt, reply, summary, background(false), send("completed")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  expect(view.some((row) => row.kind === THINKING)).toBe(false);
 });
