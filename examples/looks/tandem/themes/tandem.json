@@ -88,7 +88,7 @@
   // The sidebar: a light gray, mostly opaque, frosted over the desktop, no edge line; quiet gray
   // section headings ("Pinned", "Chats", "Tabs") over hairline breaks.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#e4e4e4",
+  "appearance.surfaces.sidebar.color": "#f3f3f3",
   "appearance.surfaces.sidebar.opacity": 0.9,
   "sidebar.style": "standard",
   "sidebar.border": false,

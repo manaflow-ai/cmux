@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 671,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -1614,6 +1614,18 @@
           ]
         },
         {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
+          ]
+        },
+        {
           "key": "tabs.swapCmdTAndCmdN",
           "title": "Swap Cmd-T and Cmd-N",
           "help": "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -2708,6 +2720,14 @@
           "title": "Recent Backgrounds",
           "help": "The backgrounds shown before, newest first, so one click goes back.",
           "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
           "default": null,
           "group": "Window Background"
         },
@@ -7144,6 +7164,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
         },
         {
           "key": "phone.cloudDesktop",

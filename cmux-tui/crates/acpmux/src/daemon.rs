@@ -261,6 +261,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
     // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
     let _ = cmux_usage_patterns::install("acpmux");
+    // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
+    // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
+    // ids, never prompt, tool or file text.
+    let _ = cmux_usage_share::install(&home(), Some(crate::hand::pair::hostname()));
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
@@ -1097,6 +1101,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     });
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
+    let _usage_upload =
+        hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
     // An update that moves this executable away swaps to the installed build, make-before-break
