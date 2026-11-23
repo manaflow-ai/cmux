@@ -429,6 +429,29 @@
   text-overflow: ellipsis;
 }
 .wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
+/* `change` (shipped): the line is one button, the top change and how many more. The area in the text
+   color, the change in the quiet ink, cut at the edge; "+3 more" keeps its words at the line's end. */
+.wn-card-change {
+  display: flex;
+  align-items: baseline;
+  gap: var(--grid-base, 4px);
+  min-width: 0;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--page-text-2);
+  text-align: start;
+  cursor: default;
+}
+.wn-card-change > .wn-card-area { flex: none; }
+.wn-card-change > .wn-card-phrase { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wn-card-change > .wn-card-more { flex: none; color: var(--page-text-3); }
+.wn-card-change:hover > .wn-card-phrase { color: var(--page-text); }
+.wn-card-change:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 .wn-card-link {
   flex: none;
   appearance: none;

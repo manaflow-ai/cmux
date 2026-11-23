@@ -215,8 +215,16 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
  * the composer's near-capsule. Each is the one-line composer's box (48; Leo 2026-11-07: "the exact
  * same height as the composer") at the layout grid's card corner (--grid-card-radius, 16: a third
  * of the box, never a capsule), not the composer's 22, which is half its round controls plus the
- * inset and reads as a pill on a card with no round controls in it. Gallery variants. */
-export type UpdatedCardShape = "row" | "row-change" | "two-line";
+ * inset and reads as a pill on a card with no round controls in it. Gallery variants.
+ *
+ * `change` (shipped; Leo 2026-11-23, on `row` in his NIGHTLY: "updated to ellipsis, what's new with
+ * unnecessary gap at end + useless up arrow ... not useful info, not good design"): the one line is
+ * what changed, not that cmux updated: the update's top change ("Sidebar: pinned chats stay put")
+ * and how many more ("+3 more"), the whole line one button that opens What's New at that change. No
+ * version to cut to "...", no What's New link or arrow, no title. An update with no change to name
+ * (a maintenance build) shows no card at all, and none shows until the notes are in, so the line
+ * never swaps. */
+export type UpdatedCardShape = "change" | "row" | "row-change" | "two-line";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
@@ -231,7 +239,7 @@ export function UpdatedCard({
   decoration,
   animate = true,
   placement = "title",
-  shape = "row",
+  shape = "change",
   previewLayout = "header",
   previewMode,
   previewOpen,
@@ -261,7 +269,7 @@ export function UpdatedCard({
   animate?: boolean;
   /** Where What's New sits (gallery variants); `title` ships. A `row` card puts it at the line's end. */
   placement?: WhatsNewPlacement;
-  /** How many lines the resting card has (gallery variants); `row` ships. */
+  /** How many lines the resting card has, and what they say (gallery variants); `change` ships. */
   shape?: UpdatedCardShape;
   /** How the open hover preview is laid out (gallery variants); `header` ships. The sidebar host
       draws its x on the card's title line, wherever this layout puts it (SidebarUpdatedCardHost). */
@@ -399,6 +407,21 @@ export function UpdatedCard({
         )}
       </p>
     );
+  // `change`: the top change and how many more, or no card (UpdatedCardShape).
+  const others = summary.rows.reduce((count, row) => count + row.phrases.length, 0) + summary.more - 1;
+  if (shape === "change" && !doodle && (notesLoading || !top)) return null;
+  const changeLine = shape === "change" && top && (
+    <button
+      type="button"
+      className="wn-card-change"
+      id={titleId}
+      onClick={openWhatsNew}
+    >
+      <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
+      <span className="wn-card-phrase">{top.phrases[0]}</span>
+      {others > 0 && <span className="wn-card-more">{strings.format("updates.card.more", String(others))}</span>}
+    </button>
+  );
   if (doodle) {
     return (
       <Doodle animate={animate}>
@@ -424,7 +447,8 @@ export function UpdatedCard({
   return (
     <section
       className="wn-card wn-updated"
-      aria-labelledby={titleId}
+      aria-labelledby={changeLine ? undefined : titleId}
+      aria-label={changeLine ? strings.format(titleKey, name) : undefined}
       data-placement={placement}
       data-shape={shape}
       data-layout={previewLayout}
@@ -448,7 +472,7 @@ export function UpdatedCard({
       )}
       <div className="wn-card-rest" ref={restRef}>
         <div className="wn-card-head">
-          {title}
+          {changeLine || title}
           {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
               to fit What's New beside it); What's New leads the open preview. */}
           {shape === "row-change" && !preview.shown && (
