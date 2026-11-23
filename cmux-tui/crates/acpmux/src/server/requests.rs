@@ -255,7 +255,11 @@ pub(super) async fn handle_notification(
                 return cancel_refused::tell(hub, conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
-                if let Ok(s) = hub.resolve(key) {
+                // A chat that moved to a peer is stopped there (`hub/moved_forward.rs`).
+                let moved = hub.moved_forward(key);
+                if let Ok(s) = hub.resolve(key)
+                    && moved.is_none()
+                {
                     conn.cancel_preparation(&s.id);
                     s.abandon_prepared_connection(&conn.id);
                     // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
@@ -263,7 +267,7 @@ pub(super) async fn handle_notification(
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
-                } else if let Some((peer, id, row)) = hub.resolve_remote(key) {
+                } else if let Some((peer, id, row)) = moved.or_else(|| hub.resolve_remote(key)) {
                     let turn = cancel_refused::row_turn(&row);
                     let mut forwarded = json!({"sessionId": id});
                     super::remote_guard::mark_forwarded(

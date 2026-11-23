@@ -192,6 +192,8 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
+    follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -1830,6 +1832,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -2384,6 +2387,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the
     // same route as their session rows. A peer daemon's link names it by its own route.
     let routed = |mut params: Value| {
+        // A chat that moved to a peer keeps the shape its records had here (`follow.rs`).
+        if ev.remote.is_some() && conn.follows.following(&ev.session_id) {
+            return params;
+        }
         if conn.origin != Origin::Peer
             && let Some(remote) = &ev.remote
         {
@@ -2646,6 +2653,7 @@ mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod fix_from_link;
+mod follow;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
