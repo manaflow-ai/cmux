@@ -23,6 +23,11 @@ pub const HISTORY_CAPACITY: usize = 100;
 /// The file name inside the state directory.
 pub const HISTORY_FILE: &str = "settings-history.jsonl";
 
+/// The settings file's text as this owner last saw it parse, beside the
+/// history: a change made while no owner ran (or through a file that did not
+/// parse) is recorded against it, so an undo takes back only that change.
+pub const LAST_TEXT_FILE: &str = "settings-history.last";
+
 /// One published change of the settings file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -110,6 +115,36 @@ impl HistoryLog {
         &self.path
     }
 
+    fn last_text_path(&self) -> PathBuf {
+        self.path.with_file_name(LAST_TEXT_FILE)
+    }
+
+    /// The newest revision the history holds, if any.
+    pub fn newest_revision(&self) -> Option<u64> {
+        self.read().iter().map(|entry| entry.revision).max()
+    }
+
+    /// The file text saved by [`HistoryLog::save_last_text`], if any.
+    pub fn last_text(&self) -> Option<String> {
+        std::fs::read_to_string(self.last_text_path()).ok()
+    }
+
+    /// Saves the text the settings file parses with now. Best effort: a
+    /// failed save only makes the next start's catch-up record nothing.
+    pub fn save_last_text(&self, text: &str) {
+        let path = self.last_text_path();
+        if std::fs::read_to_string(&path).is_ok_and(|saved| saved == text) {
+            return;
+        }
+        if let Some(directory) = path.parent() {
+            let _ = std::fs::create_dir_all(directory);
+        }
+        if std::fs::symlink_metadata(&path).is_err() {
+            let _ = private_options().write(true).create_new(true).open(&path);
+        }
+        let _ = write_atomic(&path, text.as_bytes());
+    }
+
     /// The newest [`HISTORY_CAPACITY`] entries, oldest first.
     pub fn read(&self) -> Vec<HistoryEntry> {
         let text = std::fs::read_to_string(&self.path).unwrap_or_default();
@@ -131,7 +166,7 @@ impl HistoryLog {
                 .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
                 .unwrap_or(0),
         };
-        let appended = std::fs::OpenOptions::new()
+        let appended = private_options()
             .create(true)
             .append(true)
             .open(&self.path)
@@ -162,6 +197,19 @@ impl HistoryLog {
             Err(_) => None,
         };
     }
+}
+
+/// Open options for a history file: owner-only on unix, since the file holds
+/// whole settings texts. `write_atomic` keeps these bits on a rewrite.
+fn private_options() -> std::fs::OpenOptions {
+    #[allow(unused_mut, reason = "only unix sets the mode")]
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options
 }
 
 /// Unix milliseconds now.

@@ -38,6 +38,9 @@ pub struct ConfigStore {
     state_dir: Option<PathBuf>,
     /// `<state_dir>/settings-history.jsonl`; `None` without a state directory.
     history: Option<HistoryLog>,
+    /// The file text the last time it parsed: what a change out of a file
+    /// that did not parse is recorded against.
+    last_good: Option<String>,
     reader: Box<dyn ManagedReader>,
 }
 
@@ -79,8 +82,25 @@ impl ConfigStore {
             state = state.with_revision(revision + 1);
         }
         let history = state_dir.as_deref().map(HistoryLog::new);
-        let mut store = ConfigStore { state, config_path, seed_path, state_dir, history, reader };
+        // Revisions continue past the history's too (a lost cache must not
+        // reuse a revision an entry already names).
+        if let Some(newest) = history.as_ref().and_then(HistoryLog::newest_revision)
+            && newest > state.revision()
+        {
+            state = state.with_revision(newest);
+        }
+        let mut store = ConfigStore {
+            state,
+            config_path,
+            seed_path,
+            state_dir,
+            history,
+            last_good: None,
+            reader,
+        };
+        store.catch_up();
         store.migrate_once();
+        store.note_good();
         store.write_cache();
         store
     }
@@ -164,12 +184,62 @@ impl ConfigStore {
         entries
     }
 
+    /// Records a change of the file made while no owner ran: the text last
+    /// seen parsing differs from the file's now. One entry (origin `file`),
+    /// under a new revision, so undo takes back that change alone.
+    fn catch_up(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        let Some(before) = log.last_text() else { return };
+        if before == self.state.source() {
+            return;
+        }
+        let revision = self.state.revision().saturating_add(1);
+        self.state = self.state.clone().with_revision(revision);
+        log.append(&HistoryEntry {
+            revision,
+            at: history::now_ms(),
+            origin: crate::Origin::File.as_str().to_string(),
+            keys: Vec::new(),
+            before,
+            undoes: None,
+        });
+    }
+
+    /// Remembers the file text while it parses (see `last_good`).
+    fn note_good(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let text = self.state.source();
+        if self.last_good.as_deref() == Some(text) {
+            return;
+        }
+        self.last_good = Some(text.to_string());
+        if let Some(log) = &self.history {
+            log.save_last_text(text);
+        }
+    }
+
     /// Records a published change of the file whose text was `before`. A
     /// change that left the file text alone (managed values, a theme file)
     /// or that came from a file which did not parse is no setup to go back
     /// to, and is not recorded.
+    /// A change out of a file that did not parse is recorded against the
+    /// text it last parsed with, so the change into the broken text and the
+    /// one out of it undo as one.
     fn record(&mut self, change: &Change, before: &str, before_broken: bool, undoes: Option<u64>) {
-        if before_broken || before == self.state.source() {
+        let before = if before_broken {
+            match self.last_good.clone() {
+                Some(good) => good,
+                None => return,
+            }
+        } else {
+            before.to_string()
+        };
+        if before == self.state.source() {
             return;
         }
         let Some(log) = self.history.as_mut() else { return };
@@ -178,9 +248,10 @@ impl ConfigStore {
             at: history::now_ms(),
             origin: change.origin.as_str().to_string(),
             keys: change.keys.clone(),
-            before: before.to_string(),
+            before,
             undoes,
         });
+        self.note_good();
     }
 
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
@@ -251,6 +322,7 @@ impl ConfigStore {
         if !changes.is_empty() {
             self.write_cache();
         }
+        self.note_good();
         ApplyResult { changes, result }
     }
 
@@ -269,6 +341,7 @@ impl ConfigStore {
             self.record(change, &before, broken, None);
             self.write_cache();
         }
+        self.note_good();
         change
     }
 

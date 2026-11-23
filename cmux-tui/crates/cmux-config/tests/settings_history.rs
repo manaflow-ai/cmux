@@ -364,3 +364,72 @@ fn without_a_state_dir_there_is_no_history() {
     assert!(store.history().is_empty());
     assert!(matches!(undo(&mut store, Origin::Cli), Err(Refusal::InvalidParams { .. })));
 }
+
+/// A hand edit that passes through a file that does not parse (an editor
+/// saving mid-typing): the undo takes back only that edit, not the CLI set
+/// before it too.
+#[test]
+fn a_hand_edit_through_a_broken_file_undoes_alone() {
+    let scratch = Scratch::new("broken-mid");
+    let mut store = open(&scratch);
+    set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let after_set = scratch.text();
+    fs::write(scratch.config(), "{\"editor\": {\"tabSize\": 2, \"wordWrap\": ").unwrap();
+    store.reload();
+    fs::write(scratch.config(), "{\"editor\": {\"tabSize\": 2, \"wordWrap\": \"on\"}}\n").unwrap();
+    store.reload().expect("the edit out of the broken file is a change");
+
+    undo(&mut store, Origin::Cli).expect("the hand edit is undone");
+    assert_eq!(scratch.text(), after_set, "the CLI set stays");
+}
+
+/// An edit made while no owner ran is recorded when the next owner opens,
+/// so undo takes back that edit alone; its revision is new.
+#[test]
+fn an_edit_while_no_owner_ran_is_caught_up_at_open() {
+    let scratch = Scratch::new("offline");
+    let mut store = open(&scratch);
+    let set_revision = set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let after_set = scratch.text();
+    drop(store);
+    fs::write(scratch.config(), "{\"editor\": {\"tabSize\": 2, \"wordWrap\": \"on\"}}\n").unwrap();
+
+    let mut store = open(&scratch);
+    let history = store.history();
+    assert_eq!(history[0].origin, "file", "{history:?}");
+    assert_eq!(history[0].before, after_set);
+    assert!(history[0].revision > set_revision, "{history:?}");
+
+    undo(&mut store, Origin::Cli).expect("the offline edit is undone");
+    assert_eq!(scratch.text(), after_set, "the CLI set stays");
+}
+
+/// A lost cold-start cache does not restart revisions under the history's:
+/// the next change gets a revision no entry names yet.
+#[test]
+fn revisions_continue_past_the_history_without_the_cache() {
+    let scratch = Scratch::new("lost-cache");
+    let mut store = open(&scratch);
+    set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let newest = set(&mut store, "editor.wordWrap", json!("on"), Origin::Cli);
+    drop(store);
+    let _ = fs::remove_file(cmux_config::location::cache_path(&scratch.state_dir()));
+
+    let mut store = open(&scratch);
+    let next = set(&mut store, "editor.lineNumbers", json!("off"), Origin::Cli);
+    assert!(next > newest, "{next} after {newest}");
+}
+
+/// The history holds whole settings texts: only its owner reads it.
+#[cfg(unix)]
+#[test]
+fn the_history_files_are_private() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = Scratch::new("private");
+    let mut store = open(&scratch);
+    set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    for name in [HISTORY_FILE, cmux_config::history::LAST_TEXT_FILE] {
+        let mode = fs::metadata(scratch.state_dir().join(name)).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{name}: {mode:o}");
+    }
+}
