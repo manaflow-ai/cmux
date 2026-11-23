@@ -97,12 +97,14 @@ fn repo_slugs_come_from_github_style_urls_only() {
 }
 
 #[test]
-fn a_running_turn_needs_interrupt_and_a_moving_or_moved_chat_never_moves() {
+fn a_running_turn_moves_and_a_moving_or_moved_chat_never_moves() {
     let idle = json!({"status": "closed", "turn": null, "moving": false});
     assert_eq!(refusal(&idle, false), None, "a stopped chat moves");
     let running = json!({"status": "running", "turn": {"turnId": "t"}, "moving": false});
-    assert!(refusal(&running, false).unwrap().contains("--interrupt"));
-    assert_eq!(refusal(&running, true), None);
+    assert_eq!(refusal(&running, true), None, "a running turn moves with the chat");
+    // The preflight names it, with every way to move it.
+    let why = refusal(&running, false).unwrap();
+    assert!(why.contains("--after-turn") && why.contains("--interrupt"), "{why}");
     let moving = json!({"status": "ready", "moving": true});
     assert!(refusal(&moving, true).unwrap().contains("being moved"));
     let moved = json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "s"}});
