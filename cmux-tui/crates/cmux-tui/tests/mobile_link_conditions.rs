@@ -21,6 +21,12 @@
 //! makes the table. `#[ignore]`d: the script runs it (`--ignored`), not every test run.
 //! Env: `NETCOND_PROFILES` (comma list, default every profile), `NETCOND_SCALES` (1x,10x,100x),
 //! `NETCOND_RUNS` (5), `NETCOND_SEED_BASE` (0), `NETCOND_PROFILES_FILE` (the crate's file).
+//!
+//! The Cloud machine peer: `NETCOND_RELAY=<profile>` puts a second shaped hop between the phone's
+//! link and the daemon, so the daemon stands for the one a Cloud machine runs and the hop for
+//! the relay between the signed-in Mac and that machine (PROTOCOL.md `cloud-acpmux`: the phone
+//! reaches a Cloud machine through the Mac's link to it). Each hop ends its own TCP connection,
+//! as the Mac does. Rows then name both hops: `lte@1+relay-80@1`.
 
 #![cfg(unix)]
 
@@ -65,6 +71,41 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
 }
 
+/// The second hop of the Cloud machine peer (`NETCOND_RELAY`), if this run has one.
+static RELAY: std::sync::OnceLock<Option<LinkProfile>> = std::sync::OnceLock::new();
+
+fn relay() -> Option<&'static LinkProfile> {
+    RELAY
+        .get_or_init(|| {
+            let name =
+                std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+            let file = match std::env::var("NETCOND_PROFILES_FILE") {
+                Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+                Err(_) => ProfileFile::builtin(),
+            };
+            Some(
+                file.get(name.trim())
+                    .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+                    .clone(),
+            )
+        })
+        .as_ref()
+}
+
+/// A row's profile: the phone's link, then the relay hop when the peer is a Cloud machine.
+fn label(profile: &LinkProfile) -> String {
+    profile.label(relay())
+}
+
+/// The phone's link to `upstream`, and the relay hop behind it when there is one.
+async fn link(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    seed: u64,
+) -> std::io::Result<(Shaper, Option<Shaper>)> {
+    Shaper::start_through(upstream, profile.clone(), relay(), seed, &Trace::new()).await
+}
+
 fn emit(
     profile: &LinkProfile,
     phase: &str,
@@ -74,17 +115,14 @@ fn emit(
     run: u64,
     seed: u64,
 ) {
-    let row = json!({"surface": "terminal", "profile": format!("{}@{}", profile.name, profile.version),
+    let row = json!({"surface": "terminal", "profile": label(profile),
         "phase": phase, "scale": scale, "metric": metric,
         "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": seed});
     println!("NETCOND {row}");
 }
 
 fn error(profile: &LinkProfile, phase: &str, scale: &str, run: u64, what: &str) {
-    println!(
-        "NETCOND-ERROR terminal {}@{} {phase} {scale} run {run}: {what}",
-        profile.name, profile.version
-    );
+    println!("NETCOND-ERROR terminal {} {phase} {scale} run {run}: {what}", label(profile));
 }
 
 fn ms(duration: Duration) -> f64 {
@@ -100,6 +138,9 @@ struct Daemon {
     history: Vec<(String, u64)>,
     /// Prints a tick every 250 ms (the reconnect's live output).
     ticker: u64,
+    /// The pane new tabs go in, and the next tab's serial (`Daemon::tab`).
+    pane: Value,
+    serial: AtomicU64,
 }
 
 struct SyncClient {
@@ -169,7 +210,18 @@ impl Daemon {
             reader: BufReader::new(stream),
             next: 0,
         };
-        (Self { child, dir, socket, history: Vec::new(), ticker: 0 }, client)
+        (
+            Self {
+                child,
+                dir,
+                socket,
+                history: Vec::new(),
+                ticker: 0,
+                pane: Value::Null,
+                serial: AtomicU64::new(0x800),
+            },
+            client,
+        )
     }
 
     /// The pane that holds `surface`.
@@ -232,7 +284,24 @@ impl Daemon {
         }
         daemon.history = history;
         daemon.ticker = ticker;
+        daemon.pane = pane;
         daemon
+    }
+
+    /// A new tab in the bench's pane running `script`; its surface.
+    fn tab(&self, script: &str) -> u64 {
+        let stream = std::os::unix::net::UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let serial = self.serial.fetch_add(1, Ordering::SeqCst);
+        let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), serial);
+        surface_of(&client.call(json!({"cmd": "new-tab", "pane": self.pane,
+            "terminal_id": terminal_id, "cols": 120, "rows": 40, "env": {"SHELL": "/bin/sh"},
+            "shell_args": ["-c", script]})))
     }
 
     fn stop(mut self) {
@@ -295,6 +364,8 @@ struct Conn {
     next: u64,
     down_bytes: Arc<AtomicU64>,
     up_bytes: u64,
+    /// Every line either way by type (the bytes-per-minute bench reads it).
+    tap: Arc<std::sync::Mutex<Tap>>,
 }
 
 impl Conn {
@@ -305,6 +376,8 @@ impl Conn {
         let (send, inbound) = mpsc::unbounded_channel();
         let down_bytes = Arc::new(AtomicU64::new(0));
         let counted = down_bytes.clone();
+        let tap = Arc::new(std::sync::Mutex::new(Tap::default()));
+        let tapped = tap.clone();
         tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(read);
             let mut line = String::new();
@@ -316,8 +389,14 @@ impl Conn {
                 };
                 let total = counted.fetch_add(read, Ordering::SeqCst) + read;
                 let at = Instant::now();
-                let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-                let item = if let Some(id) = value.get("id").and_then(Value::as_u64) {
+                let parsed = serde_json::from_str::<Value>(&line);
+                tapped.lock().unwrap().down(parsed.as_ref().ok(), line.len());
+                let Ok(value) = parsed else { continue };
+                // A `cmux.protocol/2` reply's id is the string `rN` (`Conn::send_resources`).
+                let id = value.get("id").and_then(|id| {
+                    id.as_u64().or_else(|| id.as_str()?.strip_prefix('r')?.parse().ok())
+                });
+                let item = if let Some(id) = id {
                     Inbound::Reply(id, value)
                 } else {
                     let event = value.get("event").and_then(Value::as_str).unwrap_or_default();
@@ -341,18 +420,42 @@ impl Conn {
                 }
             }
         });
-        Ok(Self { writer, inbound, next: 0, down_bytes, up_bytes: 0 })
+        Ok(Self { writer, inbound, next: 0, down_bytes, up_bytes: 0, tap })
     }
 
     /// Writes `requests` in one write; returns their ids.
     async fn send(&mut self, requests: Vec<(&str, Value)>) -> std::io::Result<Vec<u64>> {
+        self.send_with_resources(requests, Vec::new()).await
+    }
+
+    /// Writes `requests`, then `operations` as `cmux.protocol/2` requests
+    /// (DaemonClient.resourceRequest's form, id `rN`), in one write; returns every id in order.
+    async fn send_with_resources(
+        &mut self,
+        requests: Vec<(&str, Value)>,
+        operations: Vec<(&str, Value)>,
+    ) -> std::io::Result<Vec<u64>> {
         let mut bytes = Vec::new();
         let mut ids = Vec::new();
         for (cmd, mut params) in requests {
             self.next += 1;
             params["id"] = json!(self.next);
             params["cmd"] = json!(cmd);
-            bytes.extend_from_slice(params.to_string().as_bytes());
+            let line = params.to_string();
+            self.tap.lock().unwrap().up(self.next, cmd, line.len() + 1);
+            bytes.extend_from_slice(line.as_bytes());
+            bytes.push(b'\n');
+            ids.push(self.next);
+        }
+        for (operation, mut params) in operations {
+            self.next += 1;
+            params["machine"] = json!("current");
+            params["session"] = json!("current");
+            let line = json!({"protocol": "cmux.protocol/2", "type": "request",
+                "id": format!("r{}", self.next), "operation": operation, "params": params})
+            .to_string();
+            self.tap.lock().unwrap().up(self.next, operation, line.len() + 1);
+            bytes.extend_from_slice(line.as_bytes());
             bytes.push(b'\n');
             ids.push(self.next);
         }
@@ -462,9 +565,8 @@ impl Bench {
         run: u64,
         seed: u64,
     ) {
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "cold", scale, run, &format!("shaper: {e}")),
         };
         let started = Instant::now();
@@ -580,9 +682,8 @@ impl Bench {
 
     async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
         let scale = "1x";
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
@@ -929,6 +1030,126 @@ struct OpenSample {
     shown: Option<u64>,
 }
 
+/// `list-workspaces-known-v1` (WorkspaceSync.knownCapability): the refresh sends `known`.
+const KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
+
+/// Until every reply of `ids` came, the first `must_ok` of them ok (the arrangement reads after
+/// them are best effort, as on the phone): when the last came and the bytes read up to it.
+async fn answered(conn: &mut Conn, ids: &[u64], must_ok: usize) -> Result<(Instant, u64), String> {
+    answered_keeping(conn, ids, must_ok, None).await.map(|(at, total, _)| (at, total))
+}
+
+/// `answered`, also returning the reply to `keep` (Null when not asked).
+async fn answered_keeping(
+    conn: &mut Conn,
+    ids: &[u64],
+    must_ok: usize,
+    keep: Option<u64>,
+) -> Result<(Instant, u64, Value), String> {
+    let deadline = Instant::now() + WAIT;
+    let mut pending: Vec<u64> = ids.to_vec();
+    let mut kept = Value::Null;
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| format!("replies {pending:?} missing at the bound"))?
+            .ok_or("the connection closed")?;
+        if let Inbound::Reply(got, reply) = item
+            && let Some(index) = pending.iter().position(|id| *id == got)
+        {
+            if ids[..must_ok].contains(&got) && reply["ok"] != json!(true) {
+                return Err(format!("request {got} failed: {reply}"));
+            }
+            if keep == Some(got) {
+                kept = reply;
+            }
+            pending.remove(index);
+            if pending.is_empty() {
+                return Ok((at, total, kept));
+            }
+        }
+    }
+}
+
+/// The Workspaces list settled (the Mac's order and pins applied) on a fresh connection.
+/// `batched` false is the phone before this change: the five-request setup, then `refresh()`'s
+/// `list-personal`, `sidebar_layout.get` and `list-workspaces` one after another (4 round
+/// trips). `batched` true is WorkspaceSync.prepare now: all seven in one write (1), its list
+/// with `known` `{}` so the reply carries the tree's revision, and the check `refresh()` makes
+/// after the list is drawn sends it back and gets `unchanged` (off the critical path: in
+/// `bytes_down`, not in `setup_ms` or `round_trips`). Both lists are the phone's: no `limit`.
+async fn settled_once(
+    addr: std::net::SocketAddr,
+    daemon: &OpenDaemon,
+    batched: bool,
+) -> Result<OpenSample, String> {
+    let started = Instant::now();
+    let mut conn = Conn::open(addr).await.map_err(|e| format!("connect: {e}"))?;
+    let knows = daemon.lists(KNOWN_CAPABILITY);
+    let list = if batched && knows { json!({"known": {}}) } else { json!({}) };
+    let setup = vec![
+        ("set-client-info", setup_client_info()),
+        ("identify", json!({})),
+        ("subscribe", json!({"tree_events": "deltas"})),
+        ("list-agents", json!({})),
+        ("list-workspaces", list),
+    ];
+    let write = |e: std::io::Error| format!("write: {e}");
+    let (at, bytes_down, round_trips) = if batched {
+        let mut setup = setup;
+        setup.push(("list-personal", json!({})));
+        let ids = conn
+            .send_with_resources(setup, vec![("sidebar_layout.get", json!({}))])
+            .await
+            .map_err(write)?;
+        let (at, mut bytes, reply) = answered_keeping(&mut conn, &ids, 5, Some(ids[4])).await?;
+        let revision = &reply["data"]["tree_revision"];
+        if knows && revision.is_string() {
+            let mut known = json!({"tree_revision": revision});
+            for field in [
+                "registry_id",
+                "generation",
+                "workspace_revision",
+                "pane_revision",
+                "terminal_revision",
+            ] {
+                if !reply["data"][field].is_null() {
+                    known[field] = reply["data"][field].clone();
+                }
+            }
+            let ids = conn
+                .send(vec![("list-workspaces", json!({"known": known}))])
+                .await
+                .map_err(write)?;
+            (_, bytes) = answered(&mut conn, &ids, 1).await?;
+        }
+        (at, bytes, 1)
+    } else {
+        let ids = conn.send(setup).await.map_err(write)?;
+        answered(&mut conn, &ids, 5).await?;
+        let ids = conn.send(vec![("list-personal", json!({}))]).await.map_err(write)?;
+        answered(&mut conn, &ids, 0).await?;
+        let ids = conn
+            .send_with_resources(Vec::new(), vec![("sidebar_layout.get", json!({}))])
+            .await
+            .map_err(write)?;
+        answered(&mut conn, &ids, 0).await?;
+        // The setup's list carried no `known` (no tree_revision held): the refresh sends `{}`.
+        let params = if knows { json!({"known": {}}) } else { json!({}) };
+        let ids = conn.send(vec![("list-workspaces", params)]).await.map_err(write)?;
+        let (at, bytes) = answered(&mut conn, &ids, 1).await?;
+        (at, bytes, 4)
+    };
+    Ok(OpenSample {
+        first_content_ms: ms(at - started),
+        interactive_ms: None,
+        bytes_down,
+        bytes_up: conn.up_bytes,
+        round_trips,
+        shown: None,
+    })
+}
+
 /// The Home tab's first window on a fresh connection.
 async fn home_once(addr: std::net::SocketAddr, daemon: &OpenDaemon) -> Result<OpenSample, String> {
     let started = Instant::now();
@@ -1075,6 +1296,10 @@ async fn stream_rate(addr: std::net::SocketAddr, surface: u64) -> Option<f64> {
 
 fn emit_sample(link: &str, phase: &str, fixture: &str, run: u64, sample: &OpenSample) {
     duress_emit(link, phase, fixture, "first_content_ms", Some(sample.first_content_ms), run);
+    if phase.starts_with("settled") {
+        // Link up to the settled list: the setup's round trips and the daemon's handler time.
+        duress_emit(link, phase, fixture, "setup_ms", Some(sample.first_content_ms), run);
+    }
     if phase == "reattach" {
         duress_emit(link, phase, fixture, "interactive_ms", sample.interactive_ms, run);
         if sample.interactive_ms.is_none() {
@@ -1181,11 +1406,14 @@ fn open_path_under_duress() {
                         None => None,
                     };
                     let addr = shaper.as_ref().map_or(upstream, |s| s.addr());
-                    for phase in ["home", "reattach"] {
-                        let sample = if phase == "home" {
-                            home_once(addr, &daemon).await
-                        } else {
-                            reattach_once(addr, &daemon, run).await
+                    // settled_serial / settled_batched: link up to the settled Workspaces list,
+                    // the phone's setup before and after the arrangement joined its one write.
+                    for phase in ["home", "settled_serial", "settled_batched", "reattach"] {
+                        let sample = match phase {
+                            "home" => home_once(addr, &daemon).await,
+                            "settled_serial" => settled_once(addr, &daemon, false).await,
+                            "settled_batched" => settled_once(addr, &daemon, true).await,
+                            _ => reattach_once(addr, &daemon, run).await,
                         };
                         match sample {
                             Ok(sample) => emit_sample(&label, phase, &fixture.name, run, &sample),
@@ -1208,4 +1436,279 @@ fn open_path_under_duress() {
         drop(runtime);
         daemon.daemon.stop();
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per minute, by line type
+
+/// What one connection carried, both ways, keyed by line type: a request's `cmd` up, its reply
+/// as `reply:<cmd>` down, an event as `event:<name>`. Bytes are the JSON line with its newline.
+#[derive(Default, Clone)]
+struct Tap {
+    cmds: std::collections::HashMap<u64, String>,
+    down: std::collections::BTreeMap<String, (u64, u64)>,
+    up: std::collections::BTreeMap<String, (u64, u64)>,
+    /// The terminal bytes `output` and `vt-state` events carried, decoded (their payload).
+    terminal_bytes: u64,
+}
+
+impl Tap {
+    fn add(map: &mut std::collections::BTreeMap<String, (u64, u64)>, key: String, bytes: u64) {
+        let slot = map.entry(key).or_default();
+        slot.0 += 1;
+        slot.1 += bytes;
+    }
+
+    fn up(&mut self, id: u64, cmd: &str, len: usize) {
+        self.cmds.insert(id, cmd.to_owned());
+        Self::add(&mut self.up, cmd.to_owned(), len as u64);
+    }
+
+    fn down(&mut self, value: Option<&Value>, len: usize) {
+        let key = match value {
+            None => "unparsed".to_owned(),
+            Some(v) => {
+                match (v.get("event").and_then(Value::as_str), v.get("id").and_then(Value::as_u64))
+                {
+                    (Some(event), _) => {
+                        if matches!(event, "output" | "vt-state")
+                            && let Some(data) = v.get("data").and_then(Value::as_str)
+                        {
+                            self.terminal_bytes += (data.len() as u64 / 4) * 3;
+                        }
+                        format!("event:{event}")
+                    }
+                    (None, Some(id)) => {
+                        format!("reply:{}", self.cmds.get(&id).map(String::as_str).unwrap_or("?"))
+                    }
+                    (None, None) => "?".to_owned(),
+                }
+            }
+        };
+        Self::add(&mut self.down, key, len as u64);
+    }
+
+    /// Everything so far, and a fresh start (the request ids stay known).
+    fn take(&mut self) -> Tap {
+        let out = self.clone();
+        self.down.clear();
+        self.up.clear();
+        self.terminal_bytes = 0;
+        out
+    }
+}
+
+/// Which app's requests the bandwidth bench sends.
+#[derive(Clone, Copy, PartialEq)]
+enum App {
+    /// cmux-next-ios: `WorkspaceSync.swift` on the control connection, `DaemonTerminalSession.swift`
+    /// on the attach (as `client_info` and `attach_params`).
+    Ios,
+    /// The macOS app: `DaemonConnection.swift` (identify, set-client-info, subscribe deltas) and
+    /// `AttachSurfaceRequest` (`Input.swift`: `mode: "bytes"`, the view's size).
+    Macos,
+    /// The phone with Settings > Transport > Agent CLI Screen Changes on, as #44619 declares it:
+    /// the hybrid frames (`agent-cli-hybrid-v1`, lean `-v2`), a shell as lean lines
+    /// (`terminal-shell-lines-v1`) and coalesced PTY output (`attach-output-coalesce-v1`).
+    IosLean,
+}
+
+/// What the lean phone adds to `client_info`'s capabilities.
+const LEAN_CAPABILITIES: &[&str] = &[
+    "agent-cli-hybrid-v1",
+    "agent-cli-hybrid-v2",
+    "terminal-shell-lines-v1",
+    "attach-output-coalesce-v1",
+];
+
+impl App {
+    fn name(self) -> &'static str {
+        match self {
+            App::Ios => "ios",
+            App::IosLean => "ios-lean",
+            App::Macos => "macos",
+        }
+    }
+
+    fn of(name: &str) -> Self {
+        match name {
+            "macos" => App::Macos,
+            "ios-lean" => App::IosLean,
+            _ => App::Ios,
+        }
+    }
+
+    fn control(self) -> Vec<(&'static str, Value)> {
+        match self {
+            App::Ios | App::IosLean => vec![
+                (
+                    "set-client-info",
+                    json!({"name": "bench", "kind": "ios", "device_kind": "iphone",
+                    "device_name": "bench", "device_id": "bench",
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]}),
+                ),
+                ("identify", json!({})),
+                ("subscribe", json!({"tree_events": "deltas"})),
+                ("list-agents", json!({})),
+                ("list-workspaces", json!({})),
+            ],
+            App::Macos => vec![
+                ("identify", json!({})),
+                ("set-client-info", json!({"name": "cmux-next", "kind": "macos"})),
+                ("subscribe", json!({"tree_events": "deltas"})),
+                ("list-workspaces", json!({})),
+            ],
+        }
+    }
+
+    fn setup(self) -> Vec<(&'static str, Value)> {
+        match self {
+            App::Ios => vec![("set-client-info", client_info()), ("identify", json!({}))],
+            App::IosLean => {
+                let mut info = client_info();
+                let caps = info["capabilities"].as_array_mut().unwrap();
+                caps.extend(LEAN_CAPABILITIES.iter().map(|c| json!(c)));
+                vec![("set-client-info", info), ("identify", json!({}))]
+            }
+            App::Macos => vec![
+                ("identify", json!({})),
+                ("set-client-info", json!({"name": "cmux-next", "kind": "macos"})),
+            ],
+        }
+    }
+
+    fn attach(self, surface: u64) -> Value {
+        match self {
+            App::Ios | App::IosLean => attach_params(surface),
+            App::Macos => json!({"surface": surface, "mode": "bytes", "cols": 120, "rows": 40}),
+        }
+    }
+}
+
+fn emit_rates(
+    profile: &LinkProfile,
+    phase: &str,
+    app: App,
+    taps: &[Tap],
+    wire: (u64, u64),
+    secs: Option<f64>,
+) {
+    let scale = secs.map_or(1.0, |s| 60.0 / s);
+    let unit = if secs.is_some() { "_per_min" } else { "" };
+    let put = |metric: String, bytes: u64| {
+        emit(profile, phase, app.name(), &metric, Some((bytes as f64 * scale).round()), 0, 0);
+    };
+    put(format!("bytes{unit}_down"), wire.1);
+    put(format!("bytes{unit}_up"), wire.0);
+    let mut all = Tap::default();
+    for tap in taps {
+        all.terminal_bytes += tap.terminal_bytes;
+        for (key, (n, b)) in &tap.down {
+            let slot = all.down.entry(key.clone()).or_default();
+            slot.0 += n;
+            slot.1 += b;
+        }
+        for (key, (n, b)) in &tap.up {
+            let slot = all.up.entry(key.clone()).or_default();
+            slot.0 += n;
+            slot.1 += b;
+        }
+    }
+    put(format!("terminal_bytes{unit}"), all.terminal_bytes);
+    for (way, map) in [("down", &all.down), ("up", &all.up)] {
+        let mut rows: Vec<_> = map.iter().collect();
+        rows.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
+        for (name, (n, bytes)) in rows.into_iter().take(5) {
+            put(format!("{way}:{name}"), *bytes);
+            put(format!("msgs_{way}:{name}"), *n);
+        }
+    }
+}
+
+/// Bytes per minute of a terminal tab in each app through the shaper, the app's control
+/// connection (`subscribe` deltas) open beside it: the attach, an idle terminal, then a
+/// `seq 1 200000` burst and a line a second for the rest of the window. One `NETCOND` line per
+/// value, `phase` `bw_attach|bw_idle|bw_burst`, `scale` the app. Env: `NETCOND_BW_PROFILE`
+/// (lte), `NETCOND_BW_SECS` (60), `NETCOND_BW_APPS` (ios,macos).
+#[test]
+#[ignore = "the bandwidth bench: run with --ignored --nocapture"]
+fn terminal_bytes_per_minute() {
+    let file = ProfileFile::builtin();
+    let name = std::env::var("NETCOND_BW_PROFILE").unwrap_or_else(|_| "lte".to_owned());
+    let profile = file.get(&name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+    let secs = env_u64("NETCOND_BW_SECS", 60);
+    let daemon = Daemon::start(&[]);
+    // The reconnect's ticker would make the idle tree busy: ^C ends it.
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let ctrl_c = base64::engine::general_purpose::STANDARD.encode([3u8]);
+        client.call(json!({"cmd": "send", "surface": daemon.ticker, "bytes": ctrl_c}));
+    }
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        for app_name in env_list("NETCOND_BW_APPS", "ios,ios-lean,macos") {
+            let app = App::of(&app_name);
+            let idle = daemon.tab("exec cat");
+            let burst = daemon.tab(
+                "read go; seq 1 200000; i=0; while :; do i=$((i+1)); printf 'trickle %06d\\n' $i; sleep 1; done",
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let (shaper, _relay) = link(upstream, &profile, 0).await.unwrap();
+            let (Ok(mut control), Ok(mut conn)) =
+                (Conn::open(shaper.addr()).await, Conn::open(shaper.addr()).await)
+            else {
+                return error(&profile, "bw_attach", app.name(), 0, "connect failed");
+            };
+            let ids = control.send(app.control()).await.unwrap();
+            control.reply(*ids.last().unwrap(), |_, _, _, _| {}).await;
+            let ids = conn.send(app.setup()).await.unwrap();
+            conn.reply(*ids.last().unwrap(), |_, _, _, _| {}).await;
+            let ids = conn.send(vec![("attach-surface", app.attach(idle))]).await.unwrap();
+            let reply = conn.reply(ids[0], |_, _, _, _| {}).await;
+            if reply.as_ref().map(|r| r["ok"] != json!(true)).unwrap_or(true) {
+                error(&profile, "bw_attach", app.name(), 0, &format!("attach: {reply:?}"));
+                continue;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let take = |control: &Conn, conn: &Conn| {
+                let c = shaper.counters();
+                shaper.reset_counters();
+                (
+                    [control.tap.lock().unwrap().take(), conn.tap.lock().unwrap().take()],
+                    (c.up_bytes, c.down_bytes),
+                )
+            };
+            let (taps, wire) = take(&control, &conn);
+            emit_rates(&profile, "bw_attach", app, &taps, wire, None);
+
+            let t0 = Instant::now();
+            tokio::time::sleep(Duration::from_secs(secs)).await;
+            let (taps, wire) = take(&control, &conn);
+            emit_rates(&profile, "bw_idle", app, &taps, wire, Some(t0.elapsed().as_secs_f64()));
+
+            let ids = conn.send(vec![("attach-surface", app.attach(burst))]).await.unwrap();
+            let _ = conn.reply(ids[0], |_, _, _, _| {}).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let _ = take(&control, &conn);
+            let go = base64::engine::general_purpose::STANDARD.encode(b"\n");
+            let t0 = Instant::now();
+            let _ = conn.send(vec![("send", json!({"surface": burst, "bytes": go}))]).await;
+            tokio::time::sleep(Duration::from_secs(secs)).await;
+            let (taps, wire) = take(&control, &conn);
+            emit_rates(&profile, "bw_burst", app, &taps, wire, Some(t0.elapsed().as_secs_f64()));
+            // The trickle ends, so the next app's idle terminal is idle.
+            let ctrl_c = base64::engine::general_purpose::STANDARD.encode([3u8]);
+            let _ = conn.send(vec![("send", json!({"surface": burst, "bytes": ctrl_c}))]).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+    drop(runtime);
+    daemon.stop();
 }
