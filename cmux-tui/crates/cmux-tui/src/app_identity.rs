@@ -288,12 +288,26 @@ fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
 
 /// The app's session socket: `DaemonLauncher` starts the owner with
 /// `TMPDIR` set to the per-user Darwin temp directory, whatever this
-/// process's `TMPDIR` is.
+/// process's `TMPDIR` is, and in the runtime directory of its HOME's scope
+/// (`cmux_daemon_launch_core::runtime_scope`; none on the account's own HOME).
 #[cfg(target_os = "macos")]
 pub(crate) fn app_daemon_socket(identity: &AppIdentity) -> Option<PathBuf> {
     let session = identity.daemon_session()?;
     let base = darwin_user_temp_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    cmux_tui_core::server::try_default_socket_path_in_base(&session, &base).ok()
+    let scope = app_runtime_scope();
+    cmux_tui_core::server::try_default_socket_path_in_base_scoped(&session, &base, scope.as_deref())
+        .ok()
+}
+
+/// The runtime scope of the app this process belongs to: the app's terminals
+/// carry the app's HOME, so the HOME rule gives the scope its launcher chose.
+#[cfg(target_os = "macos")]
+pub(crate) fn app_runtime_scope() -> Option<String> {
+    let home = std::env::var("HOME").ok();
+    cmux_daemon_launch_core::runtime_scope::scope(
+        home.as_deref(),
+        cmux_daemon_launch_core::runtime_scope::account_home().as_deref(),
+    )
 }
 
 /// `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the app's `userTemporaryDirectory`.
