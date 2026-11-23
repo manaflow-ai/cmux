@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import CmuxNextDesign
 public import Foundation
 public import Observation
@@ -10,10 +11,9 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        // Agents comes first: at first run it opens over Bring your history.
-        // The app may host importData as Bring your history (web); the standalone browser
-        // importer remains this model's native import tool.
-        case agents, importData, computerUse
+        // Agents comes first at a first run. importData is the browser importer (Import from Browser).
+        // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
+        case agents, importData, computerUse, makeItYours
     }
 
     /// The tool this window shows; it never changes.
@@ -23,18 +23,21 @@ public final class OnboardingModel {
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
     public let agents: AgentsStepModel
+    public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    public init(services: any OnboardingServices, step: Step) {
+    /// `choices`: Make cmux Yours' source, else the services' own.
+    public init(services: any OnboardingServices, step: Step, choices: (any FirstRunChoicesSource)? = nil) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
         agents = AgentsStepModel(source: services.agentSignIns)
+        makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
     }
 
     /// The primary button: Find Browsers on the import step before a person
@@ -46,7 +49,7 @@ public final class OnboardingModel {
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
-        if step == .agents { return OnboardingStrings.continueTitle }
+        if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
         return OnboardingStrings.done
     }
 
@@ -131,6 +134,7 @@ public final class OnboardingModel {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
         case .agents: agents.start()
+        case .makeItYours: makeItYours.start()
         }
     }
 
@@ -147,6 +151,7 @@ public final class OnboardingModel {
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
+        makeItYours.stop()
     }
 
     public func finish(completed: Bool) {
@@ -155,6 +160,7 @@ public final class OnboardingModel {
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
+        makeItYours.stop()
         onEnd?(completed)
     }
 }

@@ -42,6 +42,15 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     public var reconnectNoticeDue = false
     /// The elapsed reconnect diagnostic threshold. Crossing it does not show a notice.
     public static let reconnectNoticeDelay: Duration = QuietHold.connectionDelay
+    /// When the current first connect started (nil while none is coming up, or for a state no reducer
+    /// stamped): under ``connectNoticeDelay`` nothing shows over the empty pane, so a connect that lands
+    /// fast draws no "Connecting to …" card at all.
+    public var connectingSince: ContinuousClock.Instant?
+    /// The first connect has run for ``connectNoticeDelay``: the connecting card (with Cancel) shows now.
+    public var connectNoticeDue = false
+    /// How long a first connect stays silent (``QuietHold/comingUpDelay``). The card has Cancel, so it may
+    /// show once this short wait is over; a reconnect waits the longer ``reconnectNoticeDelay``.
+    public static let connectNoticeDelay: Duration = QuietHold.comingUpDelay
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
     /// Whether the path counts as high latency, held so one sample does not flip it.
@@ -75,15 +84,28 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// The centered card over the pane, if any.
     public var overlay: RemotePaneOverlay? {
         switch sessionState {
-        case .connecting: quietReconnect ? nil : .connecting
+        case .connecting: quietConnecting ? nil : .connecting
         case .waitingForConsent: .waitingForConsent
-        case .streaming: hasFrame || quietReconnect ? nil : .connecting
+        case .streaming: hasFrame || quietConnecting ? nil : .connecting
         case let .ended(reason): .ended(reason)
         }
     }
 
     /// Automatic reconnect keeps the last frame until recovery or an actionable ended state.
     public var quietReconnect: Bool { reconnecting }
+
+    /// A first connect (no picture yet, not a reconnect) that is still coming up: connecting, or
+    /// streaming before its first frame.
+    public var comingUp: Bool {
+        guard !reconnecting, !hasFrame else { return false }
+        return sessionState == .connecting || sessionState == .streaming
+    }
+
+    /// A first connect under ``connectNoticeDelay`` (stamped by the reducer): nothing to say yet.
+    public var quietConnect: Bool { comingUp && connectingSince != nil && !connectNoticeDue }
+
+    /// Either connect is still under its quiet time: no card, and the path badge does not say "connecting".
+    public var quietConnecting: Bool { quietReconnect || quietConnect }
 
     /// The "View only: high latency" banner with "Control Anyway".
     public var showsLatencyBanner: Bool {

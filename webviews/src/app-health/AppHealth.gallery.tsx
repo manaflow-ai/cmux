@@ -177,12 +177,14 @@ export default componentEntry<Props>({
   covers: ["app-health/AppHealth.tsx", "app-health/model.ts"],
   keywords: ["health", "stuck", "repair", "daemon", "renderer", "restore", "reconnecting", "status"],
   load: async () => {
-    const [views, { createStrings }, table] = await Promise.all([
+    const [views, { createStrings }, table, catalog, { englishTable }] = await Promise.all([
       import("./AppHealth"),
       import("../pages/shared/i18n"),
       import("../pages/server-cards/generated/strings.json"),
+      import("./Localizable.xcstrings?raw"),
+      import("./galleryStrings"),
     ]);
-    const strings = createStrings(table.default);
+    const strings = createStrings({ en: { ...table.default.en, ...englishTable(catalog.default).en } });
     const actions = { open: () => {}, repair: () => {} };
     return function GalleryAppHealth({ snapshot, treatment }: Props) {
       return (

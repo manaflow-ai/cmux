@@ -94,7 +94,7 @@ fn exhausted_reconnect_stays_quiet_until_ten_seconds_then_requests_action() {
     assert!(h.tick(11_000).is_empty(), "escalation does not send another repair");
     let failed = part(&h, "acpmux").expect("failed connection");
     assert_eq!((failed.state, failed.can_repair), (State::Failed, true));
-    assert_eq!(h.next_tick_ms(), None, "an actionable failure waits for the person");
+    assert_eq!(h.next_tick_ms(), Some(601_000), "a failed part retries by itself when its oldest attempt leaves the window");
 }
 
 #[test]

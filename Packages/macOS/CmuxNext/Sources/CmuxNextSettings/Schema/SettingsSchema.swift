@@ -11,19 +11,19 @@ public nonisolated enum SettingsSchema {
     /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
-        let next = GeneralSettingsSchema.history + GeneralSettingsSchema.window + TabSettingsSchema.descriptors + GeneralSettingsSchema.quitting + GeneralSettingsSchema.columns
+        let next = GeneralSettingsSchema.language + GeneralSettingsSchema.history + GeneralSettingsSchema.window + TabSettingsSchema.descriptors + GeneralSettingsSchema.quitting + GeneralSettingsSchema.columns
             + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + McpServersSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + ModelsSettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
+            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.hosts + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + McpServersSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + ModelsSettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
             + GeneralSettingsSchema.workspaceList + GeneralSettingsSchema.palette
-            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + MachineSettingsSchema.storage + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSettingsSchema.sidebar + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
             + NotificationSettingsSchema.dismissalDescriptors + NotificationSettingsSchema.bannerDescriptors + NotificationSettingsSchema.feedMirrorDescriptors
-            + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors
-            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors + NotificationSettingsSchema.deliveryDescriptors
+            + LabsSettingsSchema.descriptors + ExperimentsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
-            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors + AgentDefaultsSettingsSchema.toolsDescriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
             + DeveloperToolsSettingsSchema.internalDeveloperMode
-            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
+            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenViewing + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
             + MachineSettingsSchema.deviceHub + GeneralSettingsSchema.menus + MachineSettingsSchema.imessage
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors

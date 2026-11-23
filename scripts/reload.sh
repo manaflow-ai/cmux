@@ -737,7 +737,8 @@ Options:
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
   --prod-auth            Point this tagged Debug build at production Stack auth
-                         and cmux APIs.
+                         and cmux APIs; cmux NEXT launches on the production Cloud
+                         (CMUX_NEXT_CLOUD_ENV=prod), where your cmux.com account signs in.
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
@@ -1664,6 +1665,9 @@ reload_finalize() {
     echo
     echo "App path:"
     echo "  $APP_PATH"
+    # Sharing a build means a line, not a zipped bundle (docs/cmux-next/hot-reload.md, "Share your build").
+    echo "Share it with a teammate (one line to send; a SHA when the commit is merged):"
+    echo "  cmux app share --app $(printf '%q' "$APP_PATH")"
   fi
   if [[ -n "${CMUX_DEV_ORIGIN:-}" ]]; then
     echo
@@ -1773,6 +1777,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
+  -skipPackagePluginValidation
   -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
@@ -1813,10 +1818,6 @@ XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi
-# The helper is assembled before Xcode emits the host's processed Info.plist.
-# Pass the final tagged display name explicitly so its TCC entry matches the
-# app the user is dogfooding instead of falling back to the untagged product.
-XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
 fi
@@ -2135,6 +2136,9 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
 fi
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+  live_code_copy_resource_bundles "$APP_PATH"
+fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 
@@ -2239,6 +2243,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
+        # cmux NEXT picks its Cloud at launch (cmux-cloud-environment `resolve`), and a DEV bundle's default is
+        # the dev Workers, with their own accounts. A production build (cmux-ci build cmux --production, the
+        # fleet's default for a build made for a person) seeds every launch with production, where the person's
+        # own cmux.com account signs in. Leo: "why is the stuff so weird to log in to dev builds?"
+        set_plist_env "$INFO_PLIST" CMUX_NEXT_CLOUD_ENV prod
       fi
       if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
@@ -2273,19 +2282,12 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
-if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
-  echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
-else
-  "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
-    --helper-app "$CMUX_CUA_HELPER_APP"
-fi
 # The Screen Sharing helper, when this build has its binary (CMUX_NEXT_SCREEN_HELPER_BIN, above)
 # but the app came out without it: the Xcode phase's only declared output is its stamp in
 # TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
 # while the stamp stayed skips the phase, and the app falls back to sharing from its own process.
 # Bundle the same binary into the final app here, named and signed as the phase would.
-cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
 if [[ -x "${cmux_screen_helper_bins[0]}" ]]; then
   echo "Preserving Xcode-built Screen Sharing helper at ${cmux_screen_helper_bins[0]%/Contents/MacOS/*}"
 elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" ]]; then
@@ -2294,9 +2296,6 @@ elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bund
     EXPANDED_CODE_SIGN_IDENTITY="${CMUX_DEV_SIGN_IDENTITY:-}" CMUX_TIMESTAMP=none \
     "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" --app "$APP_PATH" || exit 1
 fi
-# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
-# RC, or none. Drop an ad-hoc helper an older build left in this app.
-"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
 # The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
 # with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
@@ -2499,7 +2498,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
-    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production CMUX_NEXT_CLOUD_ENV=prod)
   fi
   # cmux-next Debug builds load the agent pane from this loopback Vite dev
   # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).

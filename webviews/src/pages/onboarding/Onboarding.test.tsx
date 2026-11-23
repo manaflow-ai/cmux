@@ -16,7 +16,11 @@ function render(state: OnboardingState, look?: AgentsLook): string {
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ");
 
 describe("agents", () => {
   test("title, line, each agent with its sign-in, and Skip / Continue", () => {
@@ -101,7 +105,7 @@ describe("import", () => {
     const html = render(importState("finished"));
     expect(html).toContain('title="The profile’s history database is locked by the browser."');
     expect(text(html)).toContain(
-      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
+      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine. Passwords skipped: 9. Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
     );
   });
   test("the folder explainer replaces the list", () => {
