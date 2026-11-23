@@ -1,0 +1,139 @@
+// Broadsheet, Light: paper and ink. The page is a warm off-white and the ink a warm near-black
+// (16.4:1); the sidebar, tab strip and docks are the margin, one quiet step of lightness under the
+// page (L* 97.6 against 95, the same hue), with a hairline where margin meets page. That step is
+// Broadsheet's two-tone: lightness, never hue, and small enough that the chrome is never the focal
+// pull. Color is kept for two things: links and focus (a blue-black ink, 7.7:1) and status.
+{
+  "name": "Broadsheet",
+  "description": "A reading instrument, Light: paper and ink, a margin-toned sidebar, hairline rules, blue-black links.",
+
+  // The terminal follows the page; the window, sidebar and pages take this theme.
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // background: the page. foreground: the ink. selection: a highlighter under the text, not the
+  // accent. accent: the link and focus ink.
+  "colors": { "background": "#faf8f3", "foreground": "#111110", "selection": "#ebe1c4", "accent": "#2a4b9b" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the ink, and sixteen colors at a soft
+  // chroma, each readable over the page (the Folio look's palette, solved in OKLCH over a page
+  // within one step of this one).
+  "ghostty": [
+    "background = #faf8f3",
+    "foreground = #111110",
+    "cursor-color = #111110",
+    "cursor-text = #faf8f3",
+    "selection-background = #ebe1c4",
+    "selection-foreground = #111110",
+    "palette = 0=#111110",
+    "palette = 1=#a84f45",
+    "palette = 2=#217840",
+    "palette = 3=#816603",
+    "palette = 4=#4169af",
+    "palette = 5=#95518e",
+    "palette = 6=#08757d",
+    "palette = 7=#6b6f76",
+    "palette = 8=#848890",
+    "palette = 9=#b8513b",
+    "palette = 10=#03814e",
+    "palette = 11=#896d00",
+    "palette = 12=#4e6cc2",
+    "palette = 13=#a75293",
+    "palette = 14=#047c8b",
+    "palette = 15=#8f9195"
+  ],
+  // The terminal face: SF Mono at 13 pt, the code voice's size.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // A plain, opaque page: nothing moves or shows through behind text you are reading.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: flat, groups made by tone, spacing and one hairline between the margin and the page
+  // (never a card or a gutter); the tab strip in the margin's tone, so the selected tab, in the
+  // page's tone, reads as the top of the page it opens.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "cozy",
+  // The emphasis budget: a selected row spends two levers, a neutral wash and weight, never the
+  // accent as well.
+  "appearance.selection": "neutral",
+  // Corners grow by the padding between nested shapes: a control is 4, a tab and a pane 6 (4 plus
+  // the 2 px corner padding), a floating panel 8.
+  "layout.paneCornerRadius": 6,
+  "layout.cornerPadding": 2,
+
+  // Proportions, all on the 4 px baseline: chrome text is 13 px on a 20 px line; a row is its line
+  // plus 8 (28); the tab strip is a row plus 8 (36); the title bar a row plus 12 (40); the sidebar
+  // is 240, three eighths of the 640 px reading column.
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.tabMinActiveWidth": 160,
+  "appearance.metrics.tabMinInactiveWidth": 120,
+  "appearance.metrics.sidebarWidth": 240,
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The margin: the sidebar, tab strip, address bar and docks, one step of lightness off the page.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f3f0e9",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f3f0e9",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f3f0e9",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#f3f0e9",
+  "appearance.surfaces.docks.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 0.5,
+  "sidebar.sectionLook": "lines",
+
+  // The page: the chat, editors, diffs, Markdown, the terminal, Settings and every internal page
+  // on the same paper.
+  "appearance.surfaces.agentPane.color": "#faf8f3",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.editor.color": "#faf8f3",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#faf8f3",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#faf8f3",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.terminal.color": "#faf8f3",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.settings.color": "#faf8f3",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#faf8f3",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#faf8f3",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#faf8f3",
+  "appearance.surfaces.home.opacity": 1,
+  // The rule: the ink at about 12% over the page.
+  "appearance.surfaces.splitDivider.color": "#dedad0",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Status: a small dot in the row's own line, not a spinner.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.size": 0.9,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The address field: flat, no glass.
+  "browser.omnibar.glass": "off",
+
+  // Motion: color changes settle in 120 ms on an ease-out; nothing slides or bounces under text.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.duration": 120,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.colorSpace": "srgb",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+}

@@ -29,21 +29,53 @@ public struct CmuxPressFillButtonStyle: ButtonStyle {
     public var pressed: Color?
     /// The fill's corner; nil is `Metrics.buttonCornerRadius`.
     public var cornerRadius: CGFloat?
+    /// The fill's shape: the label's own shape, so a circle or capsule never shows a square wash.
+    public var shape: CmuxPressShape
 
-    public init(rest: Color? = nil, pressed: Color? = nil, cornerRadius: CGFloat? = nil) {
+    public init(rest: Color? = nil, pressed: Color? = nil, cornerRadius: CGFloat? = nil, shape: CmuxPressShape = .rounded) {
         self.rest = rest
         self.pressed = pressed
         self.cornerRadius = cornerRadius
+        self.shape = shape
     }
 
+    @ViewBuilder
     public func makeBody(configuration: Configuration) -> some View {
-        configuration.label.cmuxPressFill(configuration.isPressed, rest: rest, pressed: pressed, cornerRadius: cornerRadius)
+        let fill = configuration.isPressed ? (pressed ?? Color(nsColor: Palette.pressedFill)) : rest
+        switch shape {
+        case .rounded:
+            configuration.label.cmuxPressFill(configuration.isPressed, rest: rest, pressed: pressed, cornerRadius: cornerRadius)
+        case .circle:
+            configuration.label.background(fill ?? Color.clear, in: Circle()).contentShape(Circle())
+        case .capsule:
+            configuration.label.background(fill ?? Color.clear, in: Capsule()).contentShape(Capsule())
+        case .glass:
+            // Interactive Liquid Glass answers the press itself; only the rest fill is drawn.
+            configuration.label.background(rest ?? Color.clear, in: Circle())
+        }
     }
+}
+
+/// The shape of ``CmuxPressFillButtonStyle``'s fill. A button whose label is a circle, a capsule or a glass disc
+/// names it here; `scripts/cmux-next/check-pressed-state.py` refuses the default `.rounded` on those labels.
+public enum CmuxPressShape: Sendable {
+    /// A continuous rounded rectangle with the style's corner (the default).
+    case rounded
+    case circle
+    case capsule
+    /// No wash: the label is interactive Liquid Glass, whose own press response is the pressed look.
+    case glass
 }
 
 extension ButtonStyle where Self == CmuxPressFillButtonStyle {
     /// ``CmuxPressFillButtonStyle`` with no fill at rest and `Palette.pressedFill` while held.
     public static var cmuxPressFill: CmuxPressFillButtonStyle { CmuxPressFillButtonStyle() }
+    /// ``cmuxPressFill`` for a circular label.
+    public static var cmuxPressFillCircle: CmuxPressFillButtonStyle { CmuxPressFillButtonStyle(shape: .circle) }
+    /// ``cmuxPressFill`` for a capsule label.
+    public static var cmuxPressFillCapsule: CmuxPressFillButtonStyle { CmuxPressFillButtonStyle(shape: .capsule) }
+    /// For an interactive Liquid Glass label: no wash, the label unchanged.
+    public static var cmuxPressGlass: CmuxPressFillButtonStyle { CmuxPressFillButtonStyle(shape: .glass) }
 }
 
 extension View {

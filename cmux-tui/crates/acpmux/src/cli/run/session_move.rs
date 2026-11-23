@@ -1,11 +1,16 @@
-//! `acpmux session move SESSION... --host PEER|auto [--interrupt] [--leave-dirty] [--dry-run]`
+//! `acpmux session move SESSION... --host PEER|auto [--after-turn|--interrupt] [--leave-dirty]
+//! [--dry-run]`
 //! (or `--all-idle` for every idle chat here): moves chats from this machine's daemon to an ssh
 //! peer's, with their history, queue and draft, and their folder made there.
 //!
 //! For each chat, in order, stopping at the first step that fails (nothing after it is done):
 //!
-//! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
-//!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
+//! 1. Refused while it is being moved, once it moved away, or when its folder is gone here
+//!    (`session_move_plan.rs` `refusal`). A running turn moves with it: step 3 waits for its
+//!    tool calls in flight to end and stops it there, and it goes on on the target
+//!    (`transfer.rs` `begin_move_live`); `--after-turn` waits for the turn to end instead,
+//!    `--interrupt` stops it at once. A dry run names a running turn (`running_turn`), so its
+//!    caller can offer those choices.
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
 //!    the peers, never this machine and never one the registry marks interactive (a machine a
 //!    person works at, `placement::interactive`). A host the fleet registry holds (its `hold`, or
@@ -37,6 +42,7 @@
 use super::*;
 use crate::cli::session_move_carry::{self as carry, Carry};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
+use crate::placement::move_targets::ranked;
 use crate::ssh_forward::Forward;
 #[cfg(test)]
 use crate::ssh_forward::forward_argv;
@@ -46,6 +52,142 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
+#[path = "session_move_preflight.rs"]
+mod preflight;
+
+/// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
+pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// How often a move that waits on something says what (`waiting`).
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `fut`, with a line on stderr every [`PROGRESS_EVERY`] while it runs naming the chat and the
+/// step it waits on: no step of a move is silent for longer (a `--cwd --after-turn` move once
+/// sat 12 minutes with no output).
+async fn waiting<T>(chat: &str, step: &str, fut: impl std::future::Future<Output = T>) -> T {
+    progress_every(PROGRESS_EVERY, fut, |secs| eprintln!("{}", progress_line(chat, step, secs)))
+        .await
+}
+
+/// `move: CHAT: STEP (Ns so far)`.
+fn progress_line(chat: &str, step: &str, secs: u64) -> String {
+    format!("move: {chat}: {step} ({secs}s so far)")
+}
+
+/// Runs `fut`, calling `tick` with the whole seconds waited every `every` until it ends.
+async fn progress_every<T>(
+    every: std::time::Duration,
+    fut: impl std::future::Future<Output = T>,
+    mut tick: impl FnMut(u64),
+) -> T {
+    tokio::pin!(fut);
+    let start = tokio::time::Instant::now();
+    let mut ticks = tokio::time::interval_at(start + every, every);
+    loop {
+        tokio::select! {
+            out = &mut fut => return out,
+            _ = ticks.tick() => tick(start.elapsed().as_secs()),
+        }
+    }
+}
+
+/// How much longer than `--timeout` this client waits for the daemon's own bounded wait to
+/// answer before it gives up itself (a daemon too old to read the bound waits 15 minutes).
+const TURN_TIMEOUT_SLACK: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`super::transfer::begin_move`] for the chat `name`, every wait said: with `--after-turn`,
+/// a line every 5 s naming the turn it waits for, and an end at `args.turn_timeout` that names
+/// the chat and the step.
+async fn begin_waiting(
+    src: &Client,
+    id: &str,
+    name: &str,
+    watch: Option<Value>,
+    args: &MoveArgs,
+) -> Result<super::transfer::Begun> {
+    // Neither flag: a running turn moves with the chat, between its tool calls.
+    if !args.interrupt && !args.after_turn {
+        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        return waiting(name, "freezing the chat for its move", live).await;
+    }
+    let running = (args.interrupt, args.after_turn);
+    let bound = args.after_turn.then_some(args.turn_timeout);
+    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let Some(bound) = bound else {
+        return waiting(name, "freezing the chat for its move", begin).await;
+    };
+    let step = format!("waiting for its running turn to end (at most {}s)", bound.as_secs());
+    match tokio::time::timeout(bound + TURN_TIMEOUT_SLACK, waiting(name, &step, begin)).await {
+        Ok(Ok(begun)) => Ok(begun),
+        // The daemon's own bound (`hub/transfer_out.rs` `transfer_begin`) ended the wait.
+        Ok(Err(e)) if format!("{e:#}").contains("did not end within") => {
+            Err(e.context(after_turn_failed(name, bound)))
+        }
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(anyhow!("{}", after_turn_failed(name, bound))),
+    }
+}
+
+/// What an `--after-turn` move that ended without the turn says: the chat, the step, the bound.
+fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
+    format!(
+        "{name}: step `wait for the running turn` gave up: its turn did not end within {}s \
+         (--timeout); nothing moved. Try again later, raise --timeout, or pass --interrupt",
+        bound.as_secs()
+    )
+}
+
+/// How long a move waits, after its commit, for this machine to list the chat reachable on the
+/// target (`await_arrival`), and how often it asks.
+const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat as a
+/// reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
+/// (`peerState` connected or degraded, as `ls` reads it, `cli/ls_table.rs`). `Err`: why not yet.
+fn arrived(reply: &Value) -> Result<(), String> {
+    let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
+    let mut why = "not listed here yet".to_owned();
+    for row in rows.filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
+    {
+        let state = row.get("peerState").and_then(Value::as_str);
+        if row.get("stale").and_then(Value::as_bool) == Some(true) {
+            why = format!("listed as its last-known copy (peer {})", state.unwrap_or("down"));
+        } else if let Some(s) = state.filter(|s| !matches!(*s, "connected" | "degraded")) {
+            why = format!("peer {s}");
+        } else {
+            return Ok(());
+        }
+    }
+    Err(why)
+}
+
+/// Waits, at most `bound`, asking every `poll`, until `src` lists the moved chat `there` as
+/// reachable on its new machine (`arrived`): a move that ends before then leaves `ls` showing
+/// it unknown, its peer reconnecting, though it runs there. `Err`: why it is not, at the bound.
+async fn await_arrival(
+    src: &Client,
+    there: &str,
+    bound: std::time::Duration,
+    poll: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + bound;
+    let params = json!({"sessionIds": [there], "row": true});
+    loop {
+        let why = match src.request(method::MUX_INFO, params.clone()).await {
+            Ok(reply) => match arrived(&reply) {
+                Ok(()) => return Ok(()),
+                Err(why) => why,
+            },
+            Err(e) => format!("{e:#}"),
+        };
+        if tokio::time::Instant::now() + poll > deadline {
+            return Err(why);
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
 pub(crate) struct MoveArgs {
     pub sessions: Vec<String>,
     pub host: String,
@@ -53,6 +195,8 @@ pub(crate) struct MoveArgs {
     pub interrupt: bool,
     /// `--after-turn`: a running turn ends on its own first; the chat moves at its end.
     pub after_turn: bool,
+    /// `--timeout`: with `after_turn`, the longest the move waits for the running turn.
+    pub turn_timeout: std::time::Duration,
     pub leave_dirty: bool,
     /// `--carry-changes`: the checkout's uncommitted work goes with the chat
     /// (`session_move_carry.rs`).
@@ -106,6 +250,27 @@ struct Outcome {
     /// With `--carry-changes`: what was carried (`Carry::record`).
     carried: Option<Value>,
     error: Option<String>,
+    error_code: Option<&'static str>,
+    preflight: preflight::Preflight,
+}
+
+impl Outcome {
+    /// The chat `key` before any step ran: not moved, no error yet.
+    fn new(key: &str) -> Self {
+        Outcome {
+            session: key.to_owned(),
+            name: key.to_owned(),
+            host: None,
+            cwd: None,
+            moved: false,
+            there: None,
+            resumed: Ok(false),
+            carried: None,
+            error: None,
+            error_code: None,
+            preflight: preflight::Preflight::default(),
+        }
+    }
 }
 
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
@@ -151,11 +316,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         _ => None,
     };
     let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
-    if let Source::Peer { name, .. } = &source
-        && targets.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
-    {
-        bail!("the chats are on {name} already: name another machine");
-    }
+    targets.observer = Some(local);
+    targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
     let mut outcomes = Vec::new();
     for key in &ids {
         let outcome = move_one_from(&src, &source, key, &args, &home, &mut targets).await;
@@ -171,15 +333,28 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
-                       "error": o.error})
+                       "error": o.error, "errorCode": o.error_code,
+                       "preflight": o.preflight, "targetSessionId": o.there})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
     }
-    if failed > 0 {
-        bail!("{failed} of {} chats did not move", outcomes.len());
+    match not_moved(&outcomes) {
+        Some(why) => bail!("{why}"),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// The run's error when a chat did not move: how many, and each one's own reason (a caller
+/// that reads only the error, as `--json`'s does, still learns why).
+fn not_moved(outcomes: &[Outcome]) -> Option<String> {
+    let why: Vec<String> = outcomes
+        .iter()
+        .filter_map(|o| o.error.as_ref().map(|e| format!("{} ({}): {e}", o.name, o.session)))
+        .collect();
+    (!why.is_empty()).then(|| {
+        format!("{} of {} chats did not move: {}", why.len(), outcomes.len(), why.join("; "))
+    })
 }
 
 fn print_outcome(o: &Outcome, dry_run: bool) {
@@ -227,6 +402,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         all_idle: false,
         interrupt: false,
         after_turn: false,
+        turn_timeout: DEFAULT_TURN_TIMEOUT,
         leave_dirty: false,
         carry_changes: false,
         cwd: None,
@@ -282,17 +458,7 @@ async fn move_one_from(
     home: &Path,
     targets: &mut Targets,
 ) -> Outcome {
-    let mut o = Outcome {
-        session: key.to_owned(),
-        name: key.to_owned(),
-        host: None,
-        cwd: None,
-        moved: false,
-        there: None,
-        resumed: Ok(false),
-        carried: None,
-        error: None,
-    };
+    let mut o = Outcome::new(key);
     if let Err(e) = move_steps(src, source, key, args, home, targets, &mut o).await {
         o.error = Some(format!("{e:#}"));
     }
@@ -311,15 +477,13 @@ async fn move_steps(
     let id = resolve_id(src, key).await?;
     o.session = id.clone();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+    o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",
             info.get("peer").unwrap_or(&Value::Null)
         );
-    }
-    if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
-        bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
     // With --cwd nothing of the folder here is carried, so it need not exist any more.
@@ -338,6 +502,16 @@ async fn move_steps(
         })?
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
+    o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
+    // A dry run is the preflight: it names a running turn even with --after-turn, so the caller
+    // can offer Move after this turn or Move now. A real move goes on: by default it takes the
+    // turn along between its tool calls (`transfer.rs` `begin_move_live`), with --after-turn
+    // transfer_begin waits for the turn under its lock.
+    let running_ok = args.interrupt || !args.dry_run;
+    if let Some(why) = plan::refusal(&info, running_ok) {
+        o.error_code = preflight::session_refusal_code(&info, running_ok);
+        bail!("{why}");
+    }
     let home = match source {
         Source::Here => home.canonicalize().unwrap_or_else(|_| home.to_path_buf()),
         Source::Peer { .. } => home.to_path_buf(),
@@ -356,11 +530,11 @@ async fn move_steps(
         .unwrap_or(0),
         None => 0,
     };
-    let target = targets.pick(src, &group, need).await?;
+    let target = waiting(&o.name, "choosing the machine", targets.pick(src, &group, need)).await?;
     o.host = Some(target.name.clone());
     let remote = match target.probed.clone() {
         Some(r) => r,
-        None => target.remote().await?,
+        None => waiting(&o.name, "asking the target about itself", target.remote()).await?,
     };
     let target_cwd = args.cwd.as_deref();
     let planned = plan::plan_folder(
@@ -371,13 +545,30 @@ async fn move_steps(
         args.leave_dirty || args.carry_changes,
         target_cwd,
     )
-    .map_err(|e| anyhow!(e))?;
+    .map_err(|e| {
+        // Only classify a dirty refusal when accepting dirt makes this same plan valid.
+        // A detached HEAD or missing origin must never be shown as a proceed button.
+        if o.preflight.dirty == Some(true)
+            && !args.leave_dirty
+            && !args.carry_changes
+            && plan::plan_folder(&cwd, &home, checkout.as_ref(), &remote.home, true, target_cwd)
+                .is_ok()
+        {
+            o.error_code = Some("dirty_worktree");
+        }
+        anyhow!(e)
+    })?;
     if args.dry_run {
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
-            Folder::Worktree { repo, branch, subdir, .. } => {
+            Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
                 format!("a worktree of {repo} {branch}{}", sub_text(subdir))
             }
+            Folder::Worktree { repo, branch, subdir, snapshot: true, .. } => format!(
+                "a detached checkout of {repo} at this {branch}'s HEAD{} ({branch} is shared: \
+                 never pushed; the commit goes under {SNAPSHOT_REFS}, outside refs/heads)",
+                sub_text(subdir)
+            ),
         });
         return Ok(());
     }
@@ -392,9 +583,14 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun =
-        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
-    let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
+    let name = o.name.clone();
+    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    let prepared = waiting(
+        &name,
+        "making its folder on the target",
+        prepare(&cwd, &home, &target, &remote, args, source, o),
+    )
+    .await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
         Err(e) => {
@@ -403,12 +599,30 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved =
-        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record)
-            .await?;
+    let moved = waiting(
+        &name,
+        "copying the chat to the target",
+        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record),
+    )
+    .await?;
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    // Done only once this machine lists it where it went, reachable: else `ls` right after
+    // shows the chat unknown, its peer reconnecting (item D).
+    if let Some(there) = o.there.clone() {
+        let step = format!("waiting until this machine lists it reachable on {}", target.name);
+        let listed =
+            waiting(&name, &step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+        if let Err(why) = listed {
+            eprintln!(
+                "move: {name}: moved to {}, but this machine does not list it reachable there \
+                 after {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                target.name,
+                ARRIVAL_WAIT.as_secs()
+            );
+        }
+    }
     if args.resume_there
         && let Some(there) = o.there.clone()
     {
@@ -419,7 +633,9 @@ async fn move_steps(
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
-    drop(forward);
+    if let Some(forward) = forward {
+        forward.close().await;
+    }
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
         o.name = name.to_owned();
     }
@@ -451,18 +667,26 @@ async fn prepare(
     .map_err(|e| anyhow!(e))?;
     let mut record = json!({"host": target.name});
     let mut carry = None;
-    if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
+    let mut at = None;
+    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
+        // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
+        // of this move's own, and the target checks that commit out detached.
+        let dest = if *snapshot { snapshot_ref() } else { format!("refs/heads/{branch}") };
         let commit = tokio::task::spawn_blocking({
-            let (top, branch, ssh) =
-                (c.top.clone(), branch.clone(), source.ssh().map(str::to_owned));
+            let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
             move || match ssh {
-                None => push_branch(&top, &branch),
-                Some(ssh) => push_branch_on(&ssh, &top, &branch),
+                None => push_branch(&top, &dest),
+                Some(ssh) => push_branch_on(&ssh, &top, &dest),
             }
         })
         .await??;
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
+        if *snapshot {
+            record.set("snapshotRef", json!(dest));
+            record.set("detached", json!(true));
+            at = Some((dest, commit.clone(), c.top.clone()));
+        }
         if *dirty && args.carry_changes {
             // Read after the freeze and the push: what the agent left, against what was pushed.
             let read = tokio::task::spawn_blocking({
@@ -497,9 +721,20 @@ async fn prepare(
     }
     let there = tokio::task::spawn_blocking({
         let (host, folder) = (target.ssh.clone(), folder.clone());
-        move || prepare_folder(&host, &folder)
+        let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
+        move || prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
     })
-    .await??;
+    .await;
+    if let Some((dest, _, top)) = at {
+        // The target has the commit (or failed to): the move's own ref is not left on origin.
+        let ssh = source.ssh().map(str::to_owned);
+        let _ = tokio::task::spawn_blocking(move || match ssh {
+            None => drop_ref(&top, &dest),
+            Some(ssh) => drop_ref_on(&ssh, &top, &dest),
+        })
+        .await;
+    }
+    let there = there??;
     if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
@@ -545,7 +780,8 @@ async fn checkout_unless_named(
 }
 
 /// The fixed script that reads the checkout a folder is in on a source machine (`--from`): the
-/// folder on stdin; `none`, or tab-separated `top`, `branch` and `origin` lines and a `dirty`
+/// folder on stdin; `none`, or tab-separated `top`, `branch`, `origin` and `default` (origin's
+/// HEAD, `origin/main`) lines and a `dirty`
 /// line when it has uncommitted changes. Exit 3: git status failed.
 const CHECKOUT_SCRIPT: &str = r#"read -r d || exit 2
 top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) || { echo none; exit 0; }
@@ -554,17 +790,20 @@ top=$(cd -- "$top" && pwd -P) || exit 2
 printf 'top\t%s\n' "$top"
 printf 'branch\t%s\n' "$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)"
 printf 'origin\t%s\n' "$(git -C "$top" remote get-url origin 2>/dev/null)"
+printf 'default\t%s\n' "$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
 s=$(git -c core.fsmonitor=false -C "$top" status --porcelain --untracked-files=normal) || exit 3
 if [ -n "$s" ]; then echo dirty; fi"#;
 
 /// [`CHECKOUT_SCRIPT`]'s answer.
 pub(crate) fn parse_checkout(stdout: &str) -> Result<Option<Checkout>> {
     let (mut top, mut branch, mut origin, mut dirty) = (None, None, None, false);
+    let mut default_branch = None;
     for line in stdout.lines() {
         match line.split_once('\t') {
             Some(("top", v)) if !v.is_empty() => top = Some(PathBuf::from(v)),
             Some(("branch", v)) if !v.is_empty() => branch = Some(v.to_owned()),
             Some(("origin", v)) if !v.is_empty() => origin = Some(v.to_owned()),
+            Some(("default", v)) if !v.is_empty() => default_branch = origin_head(v),
             _ if line.trim() == "dirty" => dirty = true,
             _ if line.trim() == "none" => return Ok(None),
             _ => {}
@@ -578,7 +817,21 @@ pub(crate) fn parse_checkout(stdout: &str) -> Result<Option<Checkout>> {
     {
         bail!("the source's checkout folder is not a plain path");
     }
-    Ok(Some(Checkout { top, branch, origin, dirty }))
+    Ok(Some(Checkout { top, branch, origin, dirty, default_branch }))
+}
+
+/// The branch `git symbolic-ref --short refs/remotes/origin/HEAD` names (`origin/main` → `main`).
+fn origin_head(short: &str) -> Option<String> {
+    short.trim().strip_prefix("origin/").filter(|b| !b.is_empty()).map(str::to_owned)
+}
+
+/// Where a move's snapshot of a shared branch goes on origin: outside `refs/heads`, so no branch
+/// moves and no branch list shows it.
+const SNAPSHOT_REFS: &str = "refs/acpmux/moves/";
+
+/// A fresh ref of [`SNAPSHOT_REFS`] for one move.
+fn snapshot_ref() -> String {
+    format!("{SNAPSHOT_REFS}{}", uuid::Uuid::now_v7().simple())
 }
 
 /// The git checkout `cwd` is in on the ssh host `ssh`, if any.
@@ -596,16 +849,40 @@ fn checkout_on(ssh: &str, cwd: &Path) -> Result<Option<Checkout>> {
     parse_checkout(&out.stdout)
 }
 
-/// The fixed script that pushes a branch on a source machine, never forced: the checkout and
-/// the branch on stdin; prints the commit pushed.
-const PUSH_SCRIPT: &str = r#"read -r top; read -r branch
+/// The fixed script that pushes HEAD on a source machine, never forced: the checkout and the
+/// full ref it goes to (`refs/heads/BRANCH`, or a [`SNAPSHOT_REFS`] one) on stdin; prints the
+/// commit pushed.
+pub(crate) const PUSH_SCRIPT: &str = r#"read -r top; read -r dest
+case "$dest" in refs/heads/*|refs/acpmux/moves/*) ;; *) exit 2;; esac
 head=$(git -C "$top" rev-parse HEAD) || exit 2
-git -C "$top" push --quiet origin "HEAD:refs/heads/$branch" || exit 3
+git -C "$top" push --quiet origin "HEAD:$dest" || exit 3
 printf '%s\n' "$head""#;
 
+/// The fixed script that deletes a move's own [`SNAPSHOT_REFS`] ref on origin, best effort.
+const DROP_REF_SCRIPT: &str = r#"read -r top; read -r dest
+case "$dest" in refs/acpmux/moves/*) ;; *) exit 2;; esac
+git -C "$top" push --quiet origin ":$dest""#;
+
+/// Deletes the snapshot ref `dest` from origin, from the checkout `top` here; best effort.
+fn drop_ref(top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
+    let _ = run_here(DROP_REF_SCRIPT, input.as_bytes());
+}
+
+/// [`drop_ref`] on the ssh host `ssh`.
+fn drop_ref_on(ssh: &str, top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
+    let _ = crate::cli::hosts::Remote::exec(
+        &crate::cli::hosts::SshRemote(ssh),
+        DROP_REF_SCRIPT,
+        Some(input.as_bytes()),
+    );
+}
+
 /// [`push_branch`] on the ssh host `ssh`.
-fn push_branch_on(ssh: &str, top: &Path, branch: &str) -> Result<String> {
-    let input = format!("{}\n{branch}\n", top.display());
+fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
+    let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
+    let input = format!("{}\n{dest}\n", top.display());
     let out = crate::cli::hosts::Remote::exec(
         &crate::cli::hosts::SshRemote(ssh),
         PUSH_SCRIPT,
@@ -690,18 +967,22 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let origin = git(&top, &["remote", "get-url", "origin"]).filter(|u| !u.is_empty());
     let status = git(&top, &["status", "--porcelain", "--untracked-files=normal"])
         .ok_or_else(|| anyhow!("git status failed in {}", top.display()))?;
-    Ok(Some(Checkout { top, branch, origin, dirty: !status.is_empty() }))
+    let default_branch = git(&top, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
+        .and_then(|h| origin_head(&h));
+    Ok(Some(Checkout { top, branch, origin, dirty: !status.is_empty(), default_branch }))
 }
 
-/// Pushes `branch` (HEAD of `top`) to `origin`, never forced: a branch that moved on there
-/// refuses the move rather than losing either side. Returns the commit pushed.
-fn push_branch(top: &Path, branch: &str) -> Result<String> {
+/// Pushes HEAD of `top` to the full ref `dest` on `origin` (`refs/heads/BRANCH`, or a
+/// [`SNAPSHOT_REFS`] one), never forced: a branch that moved on there refuses the move rather
+/// than losing either side. Returns the commit pushed.
+fn push_branch(top: &Path, dest: &str) -> Result<String> {
+    let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
     let head = git(top, &["rev-parse", "HEAD"]).ok_or_else(|| anyhow!("no HEAD commit"))?;
     let out = StdCommand::new("git")
         .arg("-C")
         .arg(top)
         .args(["push", "--quiet", "origin"])
-        .arg(format!("HEAD:refs/heads/{branch}"))
+        .arg(format!("HEAD:{dest}"))
         .output()
         .context("git push")?;
     if !out.status.success() {
@@ -748,9 +1029,25 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
 /// values come on stdin, one per line, never in the script.
 const PLAIN_SCRIPT: &str = r#"read -r d || exit 2; mkdir -p -- "$d" && cd -- "$d" && pwd -P"#;
-const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
+/// With a `ref` and `at` line (a snapshot of a shared branch), a detached checkout of the commit
+/// `at`, fetched from origin's `ref`; never a checkout of the branch itself.
+pub(crate) const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
+read -r ref || true; read -r at || true
 PATH="$HOME/.local/bin:$PATH"
-if command -v wt >/dev/null 2>&1; then
+dir=
+if [ -n "$at" ]; then
+  if command -v wt >/dev/null 2>&1; then
+    out=$(wt new "$repo" --at "$at" --name "move-$(printf '%.12s' "$at")") && dir=$(printf '%s\n' "$out" | tail -n 1)
+  fi
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    base="$HOME/Projects/checkouts/$(printf '%s' "$repo" | tr / -)"
+    mkdir -p -- "$base" || exit 1
+    dir=$(mktemp -d "$base/move-$(printf '%.12s' "$at").XXXXXX") || exit 1
+    git clone -q --no-checkout -- "$url" "$dir" || exit 1
+    git -C "$dir" fetch -q origin "$ref" || exit 1
+    git -C "$dir" -c advice.detachedHead=false checkout -q --detach "$at" || exit 1
+  fi
+elif command -v wt >/dev/null 2>&1; then
   out=$(wt new "$repo" "$branch") || exit 1
   dir=$(printf '%s\n' "$out" | tail -n 1)
 else
@@ -767,11 +1064,13 @@ fi
 cd -- "$dir/$sub" && pwd -P"#;
 
 /// Makes `folder` on the ssh host `host` (this machine when empty) and returns its path there.
-fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
+/// `at`: a snapshot's ref and commit, checked out detached instead of the branch.
+fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Result<String> {
     let (script, input) = match folder {
         Folder::Plain { cwd } => (PLAIN_SCRIPT, format!("{cwd}\n")),
         Folder::Worktree { repo, url, branch, subdir, .. } => {
-            (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n"))
+            let pin = at.map_or_else(String::new, |(r, c)| format!("{r}\n{c}\n"));
+            (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n{pin}"))
         }
     };
     let out = if host.is_empty() {
@@ -785,14 +1084,28 @@ fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
     };
     let host = if host.is_empty() { "this machine" } else { host };
     if !out.ok {
-        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
-        bail!("making the folder on {host} failed: {}", last.trim());
+        return Err(folder_failure(host, &out));
     }
     let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {
         bail!("{host} answered no plain folder path for the chat");
     }
     Ok(path)
+}
+
+/// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
+/// wrappers occasionally leave stderr empty while the script writes its reason to stdout, and a
+/// quiet non-zero exit must still be distinguishable from a successful empty answer.
+fn folder_failure(host: &str, out: &crate::cli::hosts::RemoteOut) -> anyhow::Error {
+    let detail = out
+        .stderr
+        .lines()
+        .chain(out.stdout.lines())
+        .rfind(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .unwrap_or("remote command returned no diagnostic output");
+    anyhow!("making the folder on {host} failed (non-zero exit status): {detail}")
 }
 
 /// Runs one of the fixed scripts on this machine, `input` on its stdin.
@@ -855,6 +1168,8 @@ struct Targets {
     unreachable: HashMap<String, String>,
     /// This machine, when it is the named target (`--machine local` with `--from`).
     here: Option<Target>,
+    /// Placement must describe the initiating daemon's peers, even when the chat lives elsewhere.
+    observer: Option<std::sync::Arc<Client>>,
 }
 
 impl Targets {
@@ -886,6 +1201,7 @@ impl Targets {
                 placed: HashMap::new(),
                 unreachable: HashMap::new(),
                 here: Some(t),
+                observer: None,
             });
         }
         let named = (host != "auto").then(|| host.to_owned());
@@ -896,12 +1212,32 @@ impl Targets {
         }
         Ok(Self {
             here: None,
+            observer: None,
             named,
             peers,
             by_group: HashMap::new(),
             placed: HashMap::new(),
             unreachable: HashMap::new(),
         })
+    }
+
+    /// The source cannot also be a destination, including saved aliases for its SSH endpoint.
+    fn exclude_source(&mut self, source: &Source, registry: Option<&Value>) -> Result<()> {
+        let Source::Peer { name, ssh } = source else { return Ok(()) };
+        let identity = crate::placement::move_targets::identity;
+        let source_id = identity(registry, name);
+        let is_source = |peer: &str, endpoint: &str| {
+            identity(registry, peer) == source_id || endpoint.eq_ignore_ascii_case(ssh)
+        };
+        if let Some(named) = &self.named
+            && self.peers.iter().any(|(peer, endpoint)| {
+                peer.eq_ignore_ascii_case(named) && is_source(peer, endpoint)
+            })
+        {
+            bail!("the chats are on {name} already: name another machine");
+        }
+        self.peers.retain(|(peer, endpoint)| !is_source(peer, endpoint));
+        Ok(())
     }
 
     fn target(&self, name: &str) -> Option<Target> {
@@ -923,8 +1259,13 @@ impl Targets {
         }
         // A machine a person works at is never a target: moving there is what a move off one
         // avoids (`server/place.rs`). A named one is the caller's choice.
-        let verdict =
-            src.request("_acpmux/place", json!({"work": "agent", "offInteractive": true})).await?;
+        let observer = self.observer.as_deref().unwrap_or(src);
+        let verdict = observer
+            .request(
+                "_acpmux/place",
+                json!({"work": "agent", "offInteractive": true, "outdatedOk": true}),
+            )
+            .await?;
         let hosts = verdict.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
         // The registry's one reader of holds and reservations (`placement::held`); placement
         // already refuses such a host, and a named one is checked the same way.
@@ -940,11 +1281,11 @@ impl Targets {
             }
             None => {
                 let (order, mut skipped) = ranked(&hosts, &self.placed, |n| {
-                    if self.target(n).is_none() {
-                        return Some("not an ssh peer of this daemon".to_owned());
-                    }
-                    held(n)
+                    auto_refusal(n, self.target(n).is_some(), registry.as_ref())
                 });
+                for line in outdated_lines(&hosts, &order) {
+                    eprintln!("{line}");
+                }
                 let tries: Vec<Target> = order.iter().filter_map(|n| self.target(n)).collect();
                 let floors: HashMap<String, u64> = tries
                     .iter()
@@ -998,6 +1339,43 @@ impl Targets {
     fn placed(&mut self, name: &str) {
         *self.placed.entry(name.to_owned()).or_default() += 1.0;
     }
+}
+
+/// Why `--machine auto` passes over the placement host `name` (`ssh`: an ssh peer of this
+/// daemon), from the registry: not an ssh peer, a machine `placement::auto_move_refusal` names
+/// (a person's own, never a dependency; a last-resort host), or one `placement::held` holds or
+/// someone reserved. `None`: it may take the move.
+fn auto_refusal(name: &str, ssh: bool, registry: Option<&Value>) -> Option<String> {
+    if !ssh {
+        return Some("not an ssh peer of this daemon".to_owned());
+    }
+    crate::placement::auto_move_refusal(registry, name)
+        .map(|why| format!("{why} with --machine {name}"))
+        .or_else(|| crate::placement::held(registry, name))
+}
+
+/// One line for each host of `order` placement marks `outdated` (its build differs from this
+/// one's; `server/place.rs` `outdatedOk`): it stays ranked, since the move reaches its daemon
+/// over ssh, and the line gives the one command that refreshes it. Not run by the move: an
+/// update restarts that daemon and every chat live on it.
+fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
+    order
+        .iter()
+        .filter_map(|n| {
+            let h = hosts.iter().find(|h| h.get("name").and_then(Value::as_str) == Some(n))?;
+            (h.get("outdated").and_then(Value::as_bool) == Some(true)).then(|| {
+                let refresh = h
+                    .get("refresh")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| crate::placement::refresh_command(n), str::to_owned);
+                format!(
+                    "auto: {n} runs another acpmux build (a stale disk copy); ranked anyway, \
+                     since the move goes over ssh to its own daemon. Not refreshed here (an \
+                     update restarts its daemon and the chats on it); refresh it with `{refresh}`"
+                )
+            })
+        })
+        .collect()
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the
@@ -1067,47 +1445,6 @@ fn walk(
         w.pick = Some(t);
     }
     w
-}
-
-/// The hosts that may take the move, best first, and every other host with why it was passed
-/// over: hosts that take the work first (`ok`), else those passed over only for load (`load`,
-/// as `place` does: load caps only warn), by most room left, less the chats this run put there,
-/// then fewer agents. Never this machine, never one placement refuses for its role or
-/// `unusable` names a reason for.
-pub(crate) fn ranked(
-    hosts: &[Value],
-    placed: &HashMap<String, f64>,
-    unusable: impl Fn(&str) -> Option<String>,
-) -> (Vec<String>, Vec<(String, String)>) {
-    let name = |h: &Value| h.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let mine = |h: &Value| placed.get(&name(h)).copied().unwrap_or(0.0);
-    let room = |h: &Value| h.get("room").and_then(Value::as_f64).unwrap_or(-1.0) - mine(h);
-    // Fewer agents (live there, plus this run's) breaks a tie in room.
-    let busy = |h: &Value| h.get("live").and_then(Value::as_f64).unwrap_or(f64::MAX) + mine(h);
-    let mut usable_hosts: Vec<&Value> = Vec::new();
-    let mut skipped = Vec::new();
-    for h in hosts {
-        if h.get("local").and_then(Value::as_bool) == Some(true) {
-            continue;
-        }
-        let ok = h.get("ok").and_then(Value::as_bool) == Some(true);
-        let load = h.get("load").and_then(Value::as_bool) == Some(true);
-        if !ok && !load {
-            let why = h.get("refused").and_then(Value::as_str).unwrap_or("refused by placement");
-            skipped.push((name(h), why.to_owned()));
-            continue;
-        }
-        if let Some(why) = unusable(&name(h)) {
-            skipped.push((name(h), why));
-            continue;
-        }
-        usable_hosts.push(h);
-    }
-    usable_hosts.sort_by(|a, b| {
-        let fits = |h: &Value| h.get("ok").and_then(Value::as_bool) == Some(true) && room(h) >= 1.0;
-        fits(b).cmp(&fits(a)).then(room(b).total_cmp(&room(a))).then(busy(a).total_cmp(&busy(b)))
-    });
-    (usable_hosts.iter().map(|h| name(h)).collect(), skipped)
 }
 
 /// The first of [`ranked`]: the host with the most room left.

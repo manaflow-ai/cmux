@@ -39,9 +39,13 @@ jobs for a p50) gives no verdict for that pool, and a pool with no verdict route
 
 Slots: hosted Linux has HOSTED_SLOTS. It counts only jobs whose every label is a hosted Ubuntu one, and a running
 one only on a GitHub-hosted runner (the owned persistent pool's runners carry `ubuntu-24.04` too). More than
-HOSTED_RUNNING_SANE running is a wrong feed, so it gives no hosted verdict. An owned Mac family has the runner count
-CI_OWNED_POOL_SLOTS gives its labels, shared by every label of the family (root, side, gui, session). Its queued
-entries older than OWNED_QUEUED_MAX_AGE are ghosts, not load.
+HOSTED_RUNNING_SANE running is a wrong feed, so it gives no hosted verdict. An owned Mac family has as many slots as
+it has distinct online runners carrying any of its labels (root, side, gui, session, the pool), read from GitHub's
+runner listing each pass (owned_capacity(), read_runners()), and each label's own online runners are published beside
+it (`runners`). CI_OWNED_POOL_SLOTS was a hand-set count that drifted above what was online (cmuxterm-hq
+docs/handbook/hand-set-concurrency-number.md); it now only names the labels a route is configured for, which stay at
+1 or more, and is the count only when the listing cannot be read (owned_slots(), the max over a family's labels). Its
+queued entries older than OWNED_QUEUED_MAX_AGE are ghosts, not load.
 """
 
 from __future__ import annotations
@@ -143,6 +147,60 @@ def owned_slots(raw: str | None) -> dict[str, int]:
     return families
 
 
+def configured_labels(raw: str | None) -> set[str]:
+    """The owned family labels CI_OWNED_POOL_SLOTS routes to (any positive count): each stays at 1 or more."""
+    try:
+        data = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    return {str(label) for label, count in data.items() if owned_family(str(label))
+            and isinstance(count, int) and not isinstance(count, bool) and count > 0}
+
+
+def runner_labels(runner: Mapping[str, Any]) -> set[str]:
+    """A runner listing entry's label names (GitHub gives `labels` as [{"name": ...}])."""
+    names = set()
+    for label in runner.get("labels") or ():
+        name = label.get("name") if isinstance(label, Mapping) else label
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def owned_capacity(runners: Iterable[Mapping[str, Any]], slots_raw: str | None = None
+                   ) -> tuple[dict[str, int], dict[str, int]]:
+    """(label -> online runners carrying it, family -> distinct online runners carrying any label of it), from
+    GitHub's runner listing (read_runners()).
+
+    A family's slots are its distinct online runners: a mini's runner carries the pool label and its role label
+    (root, side, gui, session) at once, so a sum counts it twice, and the max over labels misses the runners that
+    carry only some of them. An offline runner takes no job, so it counts for nothing. A label CI_OWNED_POOL_SLOTS
+    routes to stays at 1 or more, and so does its family: pr_runner_pool.gui_runner() and side_runner() skip a label
+    at 0, so a configured route is never published as a label with no runner."""
+    members: dict[str, set[Any]] = {}
+    for runner in runners:
+        if not isinstance(runner, Mapping) or runner.get("status") != "online":
+            continue
+        key = runner.get("id") if runner.get("id") is not None else runner.get("name")
+        if key is None:
+            continue
+        for label in runner_labels(runner):
+            if owned_family(label):
+                members.setdefault(label, set()).add(key)
+    labels = {label: len(keys) for label, keys in members.items()}
+    by_family: dict[str, set[Any]] = {}
+    for label, keys in members.items():
+        by_family.setdefault(owned_family(label), set()).update(keys)
+    families = {family: len(keys) for family, keys in by_family.items()}
+    for label in configured_labels(slots_raw):
+        labels[label] = max(1, labels.get(label, 0))
+        family = owned_family(label)
+        families[family] = max(1, families.get(family, 0))
+    return labels, families
+
+
 def feed_fresh(feed: Mapping[str, Any], now: dt.datetime) -> bool:
     """The actions feed's newest delivery is within FEED_MAX_AGE (and not from the future)."""
     stamps = [parse_time(feed.get("receiver_last_delivery"))]
@@ -232,10 +290,13 @@ def previously_saturated(previous: Mapping[str, Any] | None, now: dt.datetime) -
 
 def verdicts(feed: Mapping[str, Any] | None, records: Iterable[Mapping[str, Any]] | None, *, now: dt.datetime,
              slots_raw: str | None = None, target_s: float = TARGET_SECONDS,
-             previous: Mapping[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+             previous: Mapping[str, Any] | None = None,
+             runners: Iterable[Mapping[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
     """Capped label -> its admission verdict. A pool without counts (or, hosted, a run p50) is left out: no verdict.
 
-    `previous` is the `_admission` the last pass published, for the hysteresis (previously_saturated())."""
+    `previous` is the `_admission` the last pass published, for the hysteresis (previously_saturated()). `runners` is
+    GitHub's runner listing (read_runners()): an owned family's slots are its distinct online runners and each label
+    gets its own online count (owned_capacity()); None (unread) falls back to CI_OWNED_POOL_SLOTS (owned_slots())."""
     if not isinstance(feed, Mapping) or not feed_fresh(feed, now):
         return {}
     records = list(records) if records is not None else None
@@ -269,7 +330,11 @@ def verdicts(feed: Mapping[str, Any] | None, records: Iterable[Mapping[str, Any]
         for label in labels:
             found[label] = dict(entry)
 
-    families = owned_slots(slots_raw)
+    online: dict[str, int] | None = None
+    if runners is not None:
+        online, families = owned_capacity(runners, slots_raw)
+    else:
+        families = owned_slots(slots_raw)
     load = label_load(jobs, now, OWNED_QUEUED_MAX_AGE)
     if families:
         totals: dict[str, dict[str, int]] = {}
@@ -278,6 +343,9 @@ def verdicts(feed: Mapping[str, Any] | None, records: Iterable[Mapping[str, Any]
             listed = [str(label) for label in json.loads(slots_raw or "{}")]
         except (TypeError, ValueError):
             listed = []
+        if not isinstance(listed, list):
+            listed = []
+        listed += list(online or ())
         for label in [*load, *listed]:
             family = owned_family(label)
             if family in families:
@@ -299,6 +367,8 @@ def verdicts(feed: Mapping[str, Any] | None, records: Iterable[Mapping[str, Any]
             for label in sorted(labels):
                 found[label] = {"queued": queued, "running": running, "slots": slots, "basis": "counts",
                                 "saturated": saturated}
+                if online is not None:
+                    found[label].update(slots_from="runners", runners=online.get(label, 0))
     return found
 
 
@@ -372,19 +442,48 @@ def read_feeds(controller: str, repo: str, now: dt.datetime, *,
     return feed, records
 
 
+def read_runners(token: str, repo: str, *, github: Callable[[str, str], Any] | None = None
+                 ) -> list[Mapping[str, Any]] | None:
+    """GitHub's runner listing, through the one reader the PR picker uses (pr_runner_pool.GitHub.runners(): the
+    repository's runners plus the org's glaeda-minis group, or the trusted runner-state document when it is fresh).
+    None when it cannot be read (no token, a refused or partial listing): the pass then falls back to
+    CI_OWNED_POOL_SLOTS rather than read a missing listing as runners gone."""
+    if not token or "/" not in repo:
+        return None
+    try:
+        if github is None:
+            # The probe has loaded main's policy (runner_pool_reconcile.load_policy()), which imports main's
+            # pr_runner_pool; otherwise this checkout's.
+            sys.path.append(str(Path(__file__).resolve().parent))
+            import pr_runner_pool  # noqa: PLC0415
+
+            github = pr_runner_pool.GitHub
+        return [runner for runner in github(token, repo).runners() if isinstance(runner, Mapping)]
+    except Exception as error:  # noqa: BLE001 - no listing is the variable's count
+        print(f"::warning title=Expected-wait admission::could not list the runners ({error}); "
+              "owned slots come from CI_OWNED_POOL_SLOTS")
+        return None
+
+
 def admission(env: Mapping[str, str], now: dt.datetime, *,
               request: Callable[[str, float], tuple[int, bytes, Any]] | None = None,
-              previous: Mapping[str, Any] | None = None) -> dict[str, Any]:
+              previous: Mapping[str, Any] | None = None,
+              github: Callable[[str, str], Any] | None = None) -> dict[str, Any]:
     """This pass's RUNNER_POOLS admission keys, or {} when RUNNER_ADMISSION_CONTROLLER is unset or nothing was read.
 
     The controller is opt-in (the probe workflow sets it), so a pass without it routes exactly as before. `previous`
-    is the `_admission` RUNNER_POOLS holds now (hysteresis, and no rewrite for numbers alone)."""
+    is the `_admission` RUNNER_POOLS holds now (hysteresis, and no rewrite for numbers alone). With
+    RUNNER_ADMISSION_RUNNERS_TOKEN (a token that reads the repository's and the org's self-hosted runners, as
+    ci.yml's routing token does) the owned slots come from the online runners (read_runners()); without it, or when
+    the listing cannot be read, from CI_OWNED_POOL_SLOTS."""
     controller = (env.get("RUNNER_ADMISSION_CONTROLLER") or "").strip()
     repo = (env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or "").strip()
     if not controller or not repo:
         return {}
     feed, records = read_feeds(controller, repo, now, request=request)
-    found = verdicts(feed, records, now=now, slots_raw=env.get("CI_OWNED_POOL_SLOTS"), previous=previous)
+    runners = read_runners((env.get("RUNNER_ADMISSION_RUNNERS_TOKEN") or "").strip(), repo, github=github)
+    found = verdicts(feed, records, now=now, slots_raw=env.get("CI_OWNED_POOL_SLOTS"), previous=previous,
+                     runners=runners)
     return record(found, now, previous=previous)
 
 

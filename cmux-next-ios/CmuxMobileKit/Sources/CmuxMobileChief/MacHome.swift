@@ -321,7 +321,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
                   message: String(localized: "\(macAtStart) is online, but this iPhone can't reach it."), canRetry: true)
         case .failed:
             Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Couldn't load conversations"),
-                  message: String(localized: "\(macAtStart) didn't answer. It tries again on its own."), canRetry: true)
+                  message: String(localized: "Can't reach \(macAtStart) right now. It reconnects on its own."), canRetry: true)
         case .connecting:
             nil
         }
