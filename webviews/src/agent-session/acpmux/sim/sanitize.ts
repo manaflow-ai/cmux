@@ -1,3 +1,4 @@
+// l10n-allow-file: the chat simulator's sanitizer, not shipped UI.
 // The chat simulator's sanitizer (sim/README.md "Replaying a real chat"): turns a real session's
 // records (~/.acpmux/sessions/<id>/events/*.ndjson) into a fixture that is safe to commit. It keeps
 // the chat's shape (which records, in what order, how far apart, how long each text is, where its
@@ -63,6 +64,9 @@ const DROP_KINDS = new Set([
   "config",
   "created",
 ]);
+
+/** The record kinds a fixture leaves out (`--drift` does not count them as missing). */
+export const DROPPED: ReadonlySet<string> = DROP_KINDS;
 
 const WORDS =
   "the a and to of in it is for on that this with as at by from run test file fix read check build line call step part note".split(
@@ -135,9 +139,10 @@ function scrub(value: unknown, key: string | undefined): unknown {
     // session by id after `acp:`.
     if (key === "from" && value === "fromAgent") return value;
     // An id's word parts are its kind (`bg-done-`, `call-`, `toolu_`): only the parts with a digit (the
-    // unique part) are replaced.
+    // unique part) are replaced. An id holding a path or spaces (a hook's `/home/…/hooks.json:exec-…`)
+    // is text: every word of it is replaced.
     if (key === "sessionId") return SIM_SESSION;
-    if (key && /id$/i.test(key) && value.length <= 120)
+    if (key && /id$/i.test(key) && value.length <= 120 && !/[/\\\s~]/.test(value))
       return value.replace(/[\p{L}\p{N}]+/gu, (token) => (/\d/.test(token) ? standIn(token) : token));
     return scrubText(value.length > MAX_TEXT && key !== "text" ? value.slice(0, MAX_TEXT) : value);
   }
