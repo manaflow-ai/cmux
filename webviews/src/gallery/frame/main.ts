@@ -13,7 +13,7 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
+import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
 import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
@@ -29,6 +29,7 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -218,6 +219,11 @@ const context: StageContext = {
   options: optionValues,
 };
 
+// The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
+// shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
+// relevant"); the stage does the same, or no gallery thumb could ever show.
+installScrollingMarks(document);
+
 if (stageRoot) {
   stageRoot.textContent = "";
   stageRoot.className = "";
@@ -292,6 +298,8 @@ function finishLoad(): void {
     boxShift: boxes.score,
     boxMoves: boxes.moves,
     boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 

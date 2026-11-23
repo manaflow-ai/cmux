@@ -54,6 +54,12 @@ export class IncrementalMarkdown {
   /// The characters the last update parsed (for tests and the debug perf report).
   lastParsedLength = 0;
 
+  /// How many of the blocks the last update returned are closed: they lie before the last safe
+  /// boundary, keep their objects and never parse again. The rest (the tail) is the open part.
+  get closedCount(): number {
+    return this.closed.length;
+  }
+
   /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
   update(source: string, options: { streaming?: boolean; messageAt?: number } = {}): KeyedBlock[] {
     const streaming = options.streaming ?? false;

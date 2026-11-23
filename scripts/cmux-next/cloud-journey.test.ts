@@ -7,12 +7,12 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
@@ -297,6 +297,11 @@ describe("cloud journey", () => {
     await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
     const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
     await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+    // The API's two refusals of a correct job say what to change (cmux#35703).
+    const ghOk = (status: number) => async (_m: string, url: string) => (url.startsWith("https://gh.example/") ? { status: 200, body: { value: "gh-oidc-jwt-value" } } : { status, body: {} });
+    const env = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" };
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(404) as never)).rejects.toThrow("has no POST /v1/auth/github-actions yet");
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(401) as never)).rejects.toThrow("no valid CI_SESSION_TRUST row matches it");
   });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
@@ -459,6 +464,14 @@ describe("cloud journey: Claude login route (cmux#40159)", () => {
     // A --preclaim-login run measures the spare.ready copy itself.
     expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
     expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
+  });
+
+  test("a preclaim miss starts the agent on its launch credential, not a post-bind copy", () => {
+    expect(loginPathAfterClaim({ receipt: true, launchCredential: false, launchOnMiss: true })).toBe("receipt");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: true })).toBe("launch");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: true, launchOnMiss: true })).toBe("launch");
+    // Codex, --gateway or --start-via app: no launch credential path, so the copy stays.
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: false })).toBe("copy");
   });
 });
 
@@ -2776,12 +2789,14 @@ describe("preclaim MET table fields", () => {
     const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: spare, team, at: 4_000 } };
     class FakeWire {
       private on: Record<string, Array<(e: unknown) => void>> = {};
-      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      constructor() { framed = false; setTimeout(() => this.emit("open", {}), 0); }
       addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
-      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      send() { setTimeout(() => { framed = true; this.emit("message", { data: JSON.stringify(frame) }); }, 0); }
       close() {}
       private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
     }
+    // The spare's record shows it running only once its frame went out, so the frame (with its `at`) times it.
+    let framed = false;
     const realWebSocket = (globalThis as any).WebSocket;
     (globalThis as any).WebSocket = FakeWire;
     try {
@@ -2798,7 +2813,7 @@ describe("preclaim MET table fields", () => {
           : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
           : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
-        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: framed ? "running" : "starting", host: "host-1", created_at: 1_000, running_since: 9_000 },
         op: async (_op: string, params: { size: unknown }) => {
           requestedSizes.push(params.size);
           return { machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] };
@@ -2819,7 +2834,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
-      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 2, memory_mb: 4096, disk_mb: 20480 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);
@@ -3214,5 +3229,33 @@ describe("the --surge proof (cmux-platform#1594)", () => {
   });
   test("the proof asks for the smallest burst: 2 machines, 300 s", () => {
     expect(SURGE_PROOF_REQUEST).toEqual({ count: 2, ttl_seconds: 300 });
+  });
+});
+
+describe("waitForSpareReady", () => {
+  const api = {} as any;
+  const never = (_a: unknown, _m: string, _b: number, signal?: AbortSignal) => new Promise<any>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+  test("an already-ready spare with no frame (production: no subscribe snapshot) is ready from its record", async () => {
+    let reads = 0;
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => (++reads < 2 ? { status: "starting" } : { status: "running", host: "h1", running_since: 5 }), pollMs: 1, sleep: async () => {} });
+    expect(got.by).toBe("record");
+    expect(got.frame).toBeNull();
+    expect(got.row.running_since).toBe(5);
+  });
+  test("the frame wins when it comes first, and the record poll stops", async () => {
+    let reads = 0;
+    const frame = { event: "cloud.spare.ready", data: { machine: "vm_spare", at: 7 } };
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: (async () => frame) as any, read: async () => { reads++; return { status: "starting" }; }, pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 5)) });
+    expect(got.by).toBe("frame");
+    expect(got.frame).toBe(frame as any);
+    const after = reads;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(reads - after).toBeLessThanOrEqual(1);
+  });
+  test("a failed spare says so instead of waiting the budget", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => ({ status: "failed", error: "boom" }), pollMs: 1, sleep: async () => {} })).rejects.toThrow(/failed before ready/);
+  });
+  test("neither within the budget names both routes", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
   });
 });

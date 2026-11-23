@@ -44,14 +44,21 @@ impl Identity {
         self.registry_id.as_deref().filter(|id| !id.is_empty()).map(str::to_lowercase)
     }
 
-    /// The identity in one reply line (`{"ok": true, "data": {...}}`).
+    /// The identity in one reply line (`{"ok": true, "data": {...}}`). As the
+    /// app's `DaemonIdentity` decodes it, the reply must name its boot's
+    /// `generation` as a string: a reply without one would let two boots'
+    /// replies fence as one (`handshake::metadata_fenced`).
     pub fn from_reply(line: &str) -> Result<Self, String> {
         #[derive(Deserialize)]
         struct Envelope {
             data: Identity,
         }
-        serde_json::from_str::<Envelope>(line)
+        let identity = serde_json::from_str::<Envelope>(line)
             .map(|e| e.data)
-            .map_err(|e| format!("DaemonIdentity: {e}"))
+            .map_err(|e| format!("DaemonIdentity: {e}"))?;
+        if !identity.generation.is_string() {
+            return Err("DaemonIdentity: generation must be a string".to_string());
+        }
+        Ok(identity)
     }
 }
