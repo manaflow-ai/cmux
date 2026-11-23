@@ -563,7 +563,7 @@ extension AgentPaneRequest {
             if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
             else { self = .unsupported(method) }
         case "pane.toastAvoidance":
-            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first) }
             else { self = .unsupported(method) }
         case "pane.toast":
             if let message = params?["message"] as? String, !message.isEmpty {
