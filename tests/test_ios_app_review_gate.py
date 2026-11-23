@@ -510,10 +510,18 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_info_plist(plist, "Info.plist")
         self.assertIn("privacy.bonjour", self.rules(lint))
 
-    def manifests(self, app: list[str], **extensions: list[str]) -> None:
+    # A valid reason code per category (the first one Apple lists that an app may use).
+    REASONS = {"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"], "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"],
+               "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"], "NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"],
+               "NSPrivacyAccessedAPICategoryActiveKeyboards": ["54BD.1"]}
+
+    def manifests(self, app: list[str], reasons: dict[str, list[str]] | None = None, extra: dict | None = None,
+                  **extensions: list[str]) -> None:
         def body(categories: list[str]) -> str:
-            return plistlib.dumps({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
-                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": ["X.1"]} for c in categories]}).decode()
+            codes = dict(self.REASONS, **(reasons or {}))
+            return plistlib.dumps(dict({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
+                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": codes.get(c, ["X.1"])}
+                for c in categories]}, **(extra or {}))).decode()
         write(self.root, "cmux-next-ios/App/PrivacyInfo.xcprivacy", body(app))
         for name in ("NotificationContent", "NotificationService"):
             if name in extensions:
@@ -532,6 +540,149 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("privacy.required-reason", self.privacy_rules())
         self.manifests(["NSPrivacyAccessedAPICategoryDiskSpace"], NotificationContent=[], NotificationService=[])
         self.assertEqual(self.privacy_rules(), set())
+
+    # ---- common-rejections.json: the public lists' rejections the gate now proves.
+
+    def test_a_reason_code_outside_its_category_or_for_sdks_only_blocks(self) -> None:
+        # ITMS-91056: a reason Apple does not list for the category invalidates the manifest.
+        for codes in (["35F9.1"], ["C56D.1"]):
+            self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], reasons={"NSPrivacyAccessedAPICategoryUserDefaults": codes},
+                           NotificationContent=[], NotificationService=[])
+            self.assertIn("privacy.manifest-reason-code", self.privacy_rules(), codes)
+        self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], NotificationContent=[], NotificationService=[])
+        self.assertNotIn("privacy.manifest-reason-code", self.privacy_rules())
+
+    def test_app_group_defaults_need_1c8f_in_the_manifest_of_the_bundle_that_reads_them(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/PushActions.swift",
+              'static func sharedDefaults() -> UserDefaults? { UserDefaults(suiteName: "group.x") }\n')
+        write(self.root, "cmux-next-ios/NotificationContent/View.swift", "let p = PushSharedPreference.live(group: g)\n")
+        ud = "NSPrivacyAccessedAPICategoryUserDefaults"
+        self.manifests([ud], NotificationContent=[ud], NotificationService=[])
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        where = {f.where.split(" -> ")[1] for f in lint.findings if f.rule == "privacy.reason-app-group"}
+        self.assertEqual(where, {"cmux-next-ios/App/PrivacyInfo.xcprivacy", "cmux-next-ios/NotificationContent/PrivacyInfo.xcprivacy"})
+        self.manifests([ud], reasons={ud: ["CA92.1", "1C8F.1"]}, NotificationContent=[ud], NotificationService=[])
+        self.assertNotIn("privacy.reason-app-group", self.privacy_rules())
+
+    def test_collected_data_must_use_apples_identifiers_and_tracking_needs_domains_and_att(self) -> None:
+        good = {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeEmailAddress", "NSPrivacyCollectedDataTypeLinked": True,
+                "NSPrivacyCollectedDataTypeTracking": False,
+                "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]}
+        self.manifests([], extra={"NSPrivacyCollectedDataTypes": [good]}, NotificationContent=[], NotificationService=[])
+        self.assertEqual(self.privacy_rules(), set())
+        bad = dict(good, NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypeEmail",
+                   NSPrivacyCollectedDataTypePurposes=["AppFunctionality"])
+        self.manifests([], extra={"NSPrivacyCollectedDataTypes": [bad]}, NotificationContent=[], NotificationService=[])
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        self.assertEqual(sum(f.rule == "privacy.collected-data" and f.where == "cmux-next-ios/App/PrivacyInfo.xcprivacy"
+                             for f in lint.findings), 2)
+        self.manifests([], extra={"NSPrivacyTracking": True}, NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.tracking", self.privacy_rules())
+
+    def lint_rules(self, plist: dict | None = None, lane: str = "appstore") -> set[str]:
+        lint = gate.Lint(self.root, lane)
+        lint.check_common_rejection_rules(plist or {})
+        return {f.rule for f in lint.findings}
+
+    def privacy_link(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Legal.swift",
+              'let p = URL(string: "https://cmux.com/privacy-policy")!\n')
+
+    def test_a_background_mode_the_app_never_uses_blocks(self) -> None:
+        self.privacy_link()
+        self.assertIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio"]}))
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Call.swift",
+              "try session.setCategory(.playAndRecord, mode: .voiceChat)\n")
+        self.assertNotIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio"]}))
+        self.assertIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio", "location"]}))
+
+    def test_uiwebview_in_source_or_binary_blocks(self) -> None:
+        self.privacy_link()
+        write(self.root, "cmux-next-ios/App/Old.swift", "// UIWebView was here\nlet w = WKWebView()\n")
+        self.assertNotIn("api.uiwebview", self.lint_rules())
+        write(self.root, "cmux-next-ios/App/Old.swift", "let w = UIWebView()\n")
+        self.assertIn("api.uiwebview", self.lint_rules())
+        app = self.root / "Payload/CmuxMobileApp.app"
+        app.mkdir(parents=True)
+        (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "CmuxMobileApp", "ITSAppUsesNonExemptEncryption": False,
+                                                         "CmuxMobileAppleSignIn": "YES"}))
+        (app / "CmuxMobileApp").write_bytes(b"\x00_OBJC_CLASS_$_UIWebView\x00")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(app)
+        self.assertIn("api.uiwebview", self.rules(lint))
+
+    def test_the_privacy_policy_must_be_linked_inside_the_app(self) -> None:
+        self.assertIn("privacy.policy-in-app", self.lint_rules())
+        self.privacy_link()
+        self.assertNotIn("privacy.policy-in-app", self.lint_rules())
+
+    def test_keywords_that_name_another_company_block_but_generic_words_do_not(self) -> None:
+        self.privacy_link()
+        rel = "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json"
+        write(self.root, rel, json.dumps({"description": "d", "keywords": "coding agent,cursor,warp,terminal"}))
+        self.assertNotIn("metadata.keyword-trademark", self.lint_rules())
+        write(self.root, rel, json.dumps({"description": "d", "keywords": "coding agent,Claude Code,chatgpt"}))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_common_rejection_rules({})
+        self.assertEqual(sorted(f.message.split("'")[1] for f in lint.findings if f.rule == "metadata.keyword-trademark"),
+                         ["Claude", "chatgpt"])
+
+    def test_a_build_that_sells_nothing_warns_on_a_listing_that_says_it_sells_in_the_app(self) -> None:
+        self.privacy_link()
+        self.write_no_sale("Sign in with the demo account {{DEMO_ACCOUNT_EMAIL}}. Settings > \"Plan\" is read-only.")
+        rel = "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json"
+        write(self.root, rel, json.dumps({"description": "cmux Pro is a monthly subscription bought in the app."}))
+        self.assertIn("metadata.iap-claim", self.lint_rules(lane="internal-submission"))
+        self.assertNotIn("metadata.iap-claim", self.lint_rules(lane="appstore"))
+        write(self.root, rel, json.dumps({"description": "Plans are managed on cmux.com."}))
+        self.assertNotIn("metadata.iap-claim", self.lint_rules(lane="internal-submission"))
+
+    def test_a_submission_without_sign_in_steps_in_the_notes_blocks(self) -> None:
+        self.privacy_link()
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", "cmux runs agents on your Mac.\n")
+        self.assertIn("review-notes.sign-in", self.lint_rules())
+        self.assertNotIn("review-notes.sign-in", self.lint_rules(lane="internal"))
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", "Sign in: {{DEMO_ACCOUNT_EMAIL}}\n")
+        self.assertNotIn("review-notes.sign-in", self.lint_rules())
+
+    def test_an_entitlement_the_app_never_uses_blocks(self) -> None:
+        ents = {"aps-environment": "production", "com.apple.developer.healthkit": True}
+        write(self.root, "cmux-next-ios/App/Push.swift", "UIApplication.shared.registerForRemoteNotifications()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_entitlements_used(ents, "x.entitlements")
+        self.assertEqual([f.message.split()[0] for f in lint.findings if f.rule == "entitlement.unused"],
+                         ["com.apple.developer.healthkit"])
+
+    def test_a_weakened_ats_warns(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False, "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True}}, "p")
+        self.assertNotIn("ats.exception", {f.rule for f in lint.findings})
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSAppTransportSecurity": {"NSExceptionDomains": {"x.com": {"NSExceptionAllowsInsecureHTTPLoads": True}}}}, "p")
+        self.assertIn("ats.exception", {f.rule for f in lint.findings})
+
+    def common(self, entries: list[dict]) -> list[str]:
+        write(self.root, gate.COMMON_REJECTIONS_FILE, json.dumps({"rejections": entries}))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_common_rejections()
+        return sorted(f.rule for f in lint.findings)
+
+    def test_a_common_rejection_must_name_a_real_detector_a_source_and_a_known_status(self) -> None:
+        src = ["https://github.com/x/y"]
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src,
+                                       "detectors": ["lint:account.deletion", "uitest:testX"]}]), [])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src,
+                                       "detectors": ["lint:no.such-rule", "uitest:testGone"]}]),
+                         ["common-rejections.detector-missing"] * 2)
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src}]),
+                         ["common-rejections.no-detector"])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "maybe", "sources": src}]),
+                         ["common-rejections.status"])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "follow-up"}]),
+                         ["common-rejections.no-follow-up", "common-rejections.source"])
+
 
     def test_an_extension_without_its_own_manifest_blocks(self) -> None:
         self.manifests([], NotificationContent=[])
@@ -700,7 +851,10 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertNotIn("for family in", reviewer)
         self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
         self.assertIn("pattern: review-gate-*", report)
-        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
         self.assertIn("find in -name '*.skipped.json'", report)
 
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
@@ -845,6 +999,23 @@ class RealTreeTests(unittest.TestCase):
         lint.check_history()
         self.assertEqual([f.message for f in lint.findings], [])
 
+    def test_every_common_rejection_is_mapped_to_a_detector_that_exists_here(self) -> None:
+        lint = gate.Lint(ROOT, "internal-submission")
+        entries = lint.check_common_rejections()
+        self.assertGreaterEqual(len(entries), 30)
+        self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_the_real_app_passes_the_common_rejection_rules(self) -> None:
+        # The App Group defaults reason, the background modes, UIWebView, the
+        # in-app privacy link, keywords, notes and the shipping entitlements.
+        for lane in gate.LANES:
+            lint = gate.Lint(ROOT, lane)
+            lint.check_privacy_manifests()
+            lint.check_common_rejection_rules(lint.project_info())
+            for rel in gate.APPSTORE_ENTITLEMENTS:
+                lint.check_entitlements_used(plistlib.loads((ROOT / rel).read_bytes()), rel)
+            self.assertEqual([f"{f.rule}: {f.message}" for f in lint.findings if f.severity == "blocker"], [], lane)
+
     def test_the_app_declares_a_specific_purpose_string_for_every_privacy_api_it_links(self) -> None:
         # Fails CI the moment the NEXT app (or a package it links) calls a
         # privacy API without its Info.plist purpose string, or a purpose
@@ -879,6 +1050,33 @@ class RealTreeTests(unittest.TestCase):
                 name = rest[0].split("/")[-1].removesuffix("()")
                 self.assertIn(f"func {name}(", tests, entry["key"])
             self.assertNotIn("agent", rule, "no agent rule is pinned")
+
+    def test_the_app_store_build_names_no_private_framework_path(self) -> None:
+        # The binary scan's api.private-framework blocker (2.5.1) failed the
+        # 1.0.0 upload's IPA check (run 44431574873): CmuxConversationUI named
+        # ChatKit's PrivateFrameworks path. Packages compile into every
+        # configuration, so the path lives only in the app target, compiled out
+        # of every shipping build (CMUX_MOBILE_PRODUCTION: Production, TestFlight,
+        # which builds the cmux INTERNAL record, TestFlightStaging and AppStore),
+        # and the package is handed the bundle.
+        packages = [p for p in (ROOT / "Packages/iOS").rglob("*.swift") if "PrivateFrameworks/" in p.read_text()]
+        self.assertEqual(packages, [], "an iOS package names a PrivateFrameworks path")
+        app = (ROOT / "cmux-next-ios/App/CmuxMobileApp.swift").read_text()
+        self.assertIn("PrivateFrameworks/ChatKit.framework", app)
+        depth = 0
+        for line in app.splitlines():
+            stripped = line.strip()
+            if stripped == "#if !CMUX_MOBILE_PRODUCTION":
+                depth += 1
+            elif depth and stripped.startswith("#if"):
+                depth += 1
+            elif depth and stripped == "#endif":
+                depth -= 1
+            elif "PrivateFrameworks/" in line:
+                self.assertGreater(depth, 0, f"outside #if !CMUX_MOBILE_PRODUCTION: {stripped}")
+        project = (ROOT / gate.PROJECT_YML).read_text()
+        for conditions in ("CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT", "CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE"):
+            self.assertIn(f"SWIFT_ACTIVE_COMPILATION_CONDITIONS: {conditions}", project)
 
     def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
@@ -960,7 +1158,7 @@ class GateWorkflowTests(unittest.TestCase):
                 for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
                              "cmux-next-ios/AppStoreReview/reviewer-setup.md",
                              "cmux-next-ios/AppStoreReview/known-blockers.json",
-                             "Packages/Shared/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
+                             "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
     def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
@@ -1225,8 +1423,11 @@ class DevicePlanTests(unittest.TestCase):
         self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', reviewer)
         self.assertIn("            .github/scripts\n", reviewer)
         self.assertIn("find in -name 'device-plan-mismatch.json'", report)
-        # The report's rules stay: iPhone and iPad required, only Duo may skip.
-        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        # The report's rules stay: iPhone required, Duo may skip, iPad may skip only on a pull request.
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
 
 
 class InternalSubmissionTests(unittest.TestCase):
