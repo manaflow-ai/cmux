@@ -84,8 +84,15 @@ def measure(binary, log, work, older):
     r["range_mid_ms"] = timed(sp + ["range", mid])
     r["range_mid_cold_ms"] = timed(sp + ["range", mid], drop=store)
     r["range_early_ms"] = timed(sp + ["range", early])
+    r["outline_ms"] = timed(sp + ["outline", "s"])
+    r["outline_cold_ms"] = timed(sp + ["outline", "s"], drop=store)
     if turns:
-        r["turn_ms"] = timed(sp + ["range", turns[len(turns) // 2]])
+        turn = turns[len(turns) // 2]
+        r["turn_ms"] = timed(sp + ["range", turn])
+        r["turn_bytes"] = len(run(sp + ["range", turn]))
+        r["digest_ms"] = timed(sp + ["range", turn, "--digest"])
+        r["digest_cold_ms"] = timed(sp + ["range", turn, "--digest"], drop=store)
+        r["digest_bytes"] = len(run(sp + ["range", turn, "--digest"]))
     if seqs:
         r["tool_result_ms"] = timed(sp + ["seq", "s", str(seqs[0])])
         r["tool_result_cold_ms"] = timed(sp + ["seq", "s", str(seqs[0])], drop=store)
@@ -119,7 +126,6 @@ def measure(binary, log, work, older):
     r["move_pct_of_raw"] = round(100 * ship["bytes"] / len(raw), 2)
     r["move_pct_of_pack"] = round(100 * ship["bytes"] / r["pack"], 1)
     r["new_raw_pct"] = round(100 * (len(raw) - cut) / len(raw), 1)
-    # Then the log grows by 1% and moves again.
     return r
 
 

@@ -27,7 +27,7 @@ use tokio::task::JoinSet;
 // end them are, so they hold on a paused or test clock too.
 use tokio::time::Instant;
 
-use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
+use crate::connection::{ConnectionError, LinkRejected, send_link_ready, send_link_rejection};
 use crate::crypto::{
     AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, ServiceAuthority,
     authorize_secure_link, verify_secure_link,
@@ -46,7 +46,15 @@ use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
-const MAX_CLIENT_CONNECTIONS: usize = 64;
+/// The fewest logical client sessions a daemon admits at once, whatever its
+/// open-file limit.
+pub const MIN_CLIENT_CONNECTIONS: usize = 64;
+/// The most logical client sessions a daemon admits at once. It bounds the
+/// per-client state (replay buffers, lane schedulers) a daemon can hold.
+pub const MAX_CLIENT_CONNECTIONS: usize = 4_096;
+/// Descriptors one connected client may hold: up to four lane links plus the
+/// pipes and PTYs of the commands and streams it runs.
+const DESCRIPTORS_PER_CLIENT: u64 = 16;
 const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 const MAX_PENDING_APPROVALS: usize = 64;
 const PREAUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -764,11 +772,47 @@ fn recoverable_server_session_error(error: &SessionError) -> bool {
     )
 }
 
+/// How many logical client sessions a daemon admits at once: half of its soft
+/// open-file limit at [`DESCRIPTORS_PER_CLIENT`] each, within
+/// [`MIN_CLIENT_CONNECTIONS`]..=[`MAX_CLIENT_CONNECTIONS`]. The daemon process
+/// raises its soft limit toward the hard limit at start (`owner_start`), so on
+/// a default Linux host (hard limit 524288, raised soft 65536) this is 2048.
+pub fn client_connection_limit() -> usize {
+    client_limit_for_open_files(soft_open_file_limit())
+}
+
+fn client_limit_for_open_files(soft_limit: Option<u64>) -> usize {
+    let Some(soft_limit) = soft_limit else {
+        return MIN_CLIENT_CONNECTIONS;
+    };
+    let fit = soft_limit / 2 / DESCRIPTORS_PER_CLIENT;
+    usize::try_from(fit).unwrap_or(usize::MAX).clamp(MIN_CLIENT_CONNECTIONS, MAX_CLIENT_CONNECTIONS)
+}
+
+#[cfg(unix)]
+fn soft_open_file_limit() -> Option<u64> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid writable storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return None;
+    }
+    Some(limit.rlim_cur)
+}
+
+#[cfg(not(unix))]
+fn soft_open_file_limit() -> Option<u64> {
+    None
+}
+
 pub struct RemoteDaemon {
     auth: Arc<AuthDatabase>,
     limits: SessionLimits,
     policy: DaemonSessionPolicy,
     state: Mutex<DaemonState>,
+    /// One permit per logical client session, held from its first link until
+    /// the daemon drops it, so admission is decided before link-ready.
+    client_slots: Arc<Semaphore>,
+    client_limit: usize,
     accepted_tx: mpsc::Sender<Arc<ServerConnection>>,
     handshakes: Semaphore,
     approvals: Semaphore,
@@ -777,6 +821,8 @@ pub struct RemoteDaemon {
 
 struct DaemonState {
     clients: HashMap<ClientKey, Arc<ServerConnection>>,
+    /// The admission permit of each registered client; removed with it.
+    client_permits: HashMap<ClientKey, OwnedSemaphorePermit>,
     pending: HashMap<(ClientKey, u64, ConnectionAttemptId), PendingLinks>,
     registration_locks: HashMap<ClientKey, Weak<Mutex<()>>>,
 }
@@ -789,6 +835,9 @@ struct PendingLinks {
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
     service_authority: ServiceAuthority,
+    /// A new session's admission permit, moved to `client_permits` once it
+    /// registers; a reconnect has none.
+    client_permit: Option<OwnedSemaphorePermit>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -814,7 +863,21 @@ impl RemoteDaemon {
         limits: SessionLimits,
         policy: DaemonSessionPolicy,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
+        Self::with_client_limit(auth, limits, policy, client_connection_limit())
+    }
+
+    /// [`Self::with_policy`] admitting at most `client_limit` logical client
+    /// sessions at once instead of the limit derived from the open-file limit.
+    pub fn with_client_limit(
+        auth: Arc<AuthDatabase>,
+        limits: SessionLimits,
+        policy: DaemonSessionPolicy,
+        client_limit: usize,
+    ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
         let policy = policy.validate()?;
+        if client_limit == 0 || client_limit > Semaphore::MAX_PERMITS {
+            return Err(DaemonError::Protocol("client limit must be positive".into()));
+        }
         let (accepted_tx, accepted_rx) = mpsc::channel(64);
         let daemon = Arc::new(Self {
             auth,
@@ -822,9 +885,12 @@ impl RemoteDaemon {
             policy,
             state: Mutex::new(DaemonState {
                 clients: HashMap::new(),
+                client_permits: HashMap::new(),
                 pending: HashMap::new(),
                 registration_locks: HashMap::new(),
             }),
+            client_slots: Arc::new(Semaphore::new(client_limit)),
+            client_limit,
             accepted_tx,
             handshakes: Semaphore::new(MAX_CONCURRENT_HANDSHAKES),
             approvals: Semaphore::new(MAX_PENDING_APPROVALS),
@@ -836,6 +902,11 @@ impl RemoteDaemon {
 
     pub fn auth(&self) -> &Arc<AuthDatabase> {
         &self.auth
+    }
+
+    /// How many logical client sessions this daemon admits at once.
+    pub fn client_limit(&self) -> usize {
+        self.client_limit
     }
 
     pub async fn accept(self: &Arc<Self>, inbound: InboundLink) -> Result<(), DaemonError> {
@@ -893,7 +964,8 @@ impl RemoteDaemon {
             )));
         }
         let now = Instant::now();
-        let (existing, expired) = {
+        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
+        let (existing, expired, joins_pending_group) = {
             let mut state = self.state.lock().await;
             // Per-group timers normally remove these entries. This bounded
             // scan is the admission-time safety net when a timer is delayed
@@ -908,11 +980,12 @@ impl RemoteDaemon {
                 .into_iter()
                 .filter_map(|key| state.pending.remove(&key))
                 .collect::<Vec<_>>();
-            (state.clients.get(&key).cloned(), expired)
+            (state.clients.get(&key).cloned(), expired, state.pending.contains_key(&pending_key))
         };
         for pending in expired {
             close_pending_links(Some(pending)).await;
         }
+        let mut client_permit = None;
         let (base_generation, daemon_resume) = match &existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
@@ -928,11 +1001,28 @@ impl RemoteDaemon {
             }
             None => {
                 if accepted.generation != 0 {
-                    send_link_rejection(&accepted.link, LinkRejection::SessionUnavailable).await?;
+                    send_link_rejection(&accepted.link, LinkRejected::session_unavailable())
+                        .await?;
                     return Err(DaemonError::Generation {
                         expected: 0,
                         actual: accepted.generation,
                     });
+                }
+                // A new session takes its slot before link-ready, so a full
+                // daemon refuses it with a reason the client can act on
+                // instead of closing it after it looked connected. The other
+                // links of the same group share the first link's slot.
+                if !joins_pending_group {
+                    let Ok(permit) = self.client_slots.clone().try_acquire_owned() else {
+                        send_link_rejection(
+                            &accepted.link,
+                            LinkRejected::too_many_clients(self.client_limit),
+                        )
+                        .await?;
+                        let _ = accepted.link.close().await;
+                        return Err(DaemonError::TooManyClients { limit: self.client_limit });
+                    };
+                    client_permit = Some(permit);
                 }
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
             }
@@ -940,7 +1030,6 @@ impl RemoteDaemon {
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
-        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
         let mut state = self.state.lock().await;
         let registry_matches = match (&existing, state.clients.get(&key)) {
             (Some(expected), Some(actual)) => {
@@ -995,8 +1084,12 @@ impl RemoteDaemon {
                 client_resume: accepted.resume.clone(),
                 grant_generation: accepted.grant.revocation_generation,
                 service_authority: accepted.grant.authority.clone(),
+                client_permit: None,
             }
         });
+        if pending.client_permit.is_none() {
+            pending.client_permit = client_permit.take();
+        }
         for lane in &accepted.lanes {
             let lane_was_new = pending.assigned.insert(*lane);
             debug_assert!(lane_was_new);
@@ -1014,6 +1107,7 @@ impl RemoteDaemon {
         }
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
+        let client_permit = pending.client_permit.take();
         drop(state);
         // Every lane is in: the grant that formed this group admits nothing
         // more, also once this session closes.
@@ -1081,11 +1175,16 @@ impl RemoteDaemon {
                     "client session was registered concurrently".into(),
                 ));
             }
-            if state.clients.len() >= MAX_CLIENT_CONNECTIONS {
+            // The group's first link took this permit. Only a group whose
+            // entry expired and was rebuilt between its links has none.
+            let Some(permit) =
+                client_permit.or_else(|| self.client_slots.clone().try_acquire_owned().ok())
+            else {
                 drop(state);
                 let _ = connection.close().await;
-                return Err(DaemonError::Protocol("too many connected clients".into()));
-            }
+                return Err(DaemonError::TooManyClients { limit: self.client_limit });
+            };
+            state.client_permits.insert(key.clone(), permit);
             state.clients.insert(key.clone(), connection.clone());
             drop(state);
             (connection, true)
@@ -1228,6 +1327,7 @@ impl RemoteDaemon {
             state.clients.get(key).is_some_and(|current| Arc::ptr_eq(current, connection));
         if matches {
             state.clients.remove(key);
+            state.client_permits.remove(key);
             state.pending.retain(|(pending_key, _, _), _| pending_key != key);
         }
         matches
@@ -1699,12 +1799,19 @@ pub enum DaemonError {
     Link(LinkError),
     Session(SessionError),
     Protocol(String),
-    Generation { expected: u64, actual: u64 },
+    Generation {
+        expected: u64,
+        actual: u64,
+    },
     GenerationExhausted,
     HandshakeBusy,
     ApprovalBusy,
     HandshakeTimeout,
     Closed,
+    /// The daemon already serves its limit of logical client sessions.
+    TooManyClients {
+        limit: usize,
+    },
 }
 
 impl fmt::Display for DaemonError {
@@ -1727,6 +1834,9 @@ impl fmt::Display for DaemonError {
             Self::ApprovalBusy => formatter.write_str("too many pending enrollment approvals"),
             Self::HandshakeTimeout => formatter.write_str("remote handshake timed out"),
             Self::Closed => formatter.write_str("daemon connection is closed"),
+            Self::TooManyClients { limit } => {
+                write!(formatter, "too many connected clients (the limit is {limit})")
+            }
         }
     }
 }
@@ -1981,5 +2091,39 @@ mod tests {
             }
         }
         assert!(!target.join("missing").exists());
+    }
+
+    #[test]
+    fn client_limit_scales_with_the_soft_open_file_limit() {
+        // No limit to read, or a small one: today's floor.
+        assert_eq!(client_limit_for_open_files(None), MIN_CLIENT_CONNECTIONS);
+        assert_eq!(client_limit_for_open_files(Some(256)), MIN_CLIENT_CONNECTIONS);
+        assert_eq!(client_limit_for_open_files(Some(1_024)), MIN_CLIENT_CONNECTIONS);
+        // Half the descriptors at 16 per client.
+        assert_eq!(client_limit_for_open_files(Some(10_240)), 320);
+        assert_eq!(client_limit_for_open_files(Some(65_536)), 2_048);
+        // An unlimited hard limit still bounds per-client state.
+        assert_eq!(client_limit_for_open_files(Some(u64::MAX)), MAX_CLIENT_CONNECTIONS);
+    }
+
+    #[test]
+    fn a_daemon_refuses_a_zero_client_limit() {
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "zero-client-limit", false).unwrap();
+        let result = RemoteDaemon::with_client_limit(
+            auth,
+            SessionLimits::default(),
+            DaemonSessionPolicy::default(),
+            0,
+        );
+        assert!(matches!(result, Err(DaemonError::Protocol(_))));
+    }
+
+    #[test]
+    fn too_many_clients_names_the_limit() {
+        assert_eq!(
+            DaemonError::TooManyClients { limit: 64 }.to_string(),
+            "too many connected clients (the limit is 64)"
+        );
     }
 }

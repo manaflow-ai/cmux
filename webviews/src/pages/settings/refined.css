@@ -268,6 +268,7 @@
 }
 /* The title and its description keep to the card's left ~60%; the control owns the right. */
 :root[data-settings-look="refined"] .settings .rows .row-label { max-width: 60%; }
+:root[data-settings-look="refined"] .settings .rows .hub-wide .row-label { max-width: none; }
 :root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; letter-spacing: var(--text-body--letter-spacing); }
 :root[data-settings-look="refined"] .settings .row-help {
   margin-top: var(--ds-space-1);

@@ -65,6 +65,14 @@ fn every_byte_reads_back_and_ranges_match() {
         for (i, l) in got.iter().enumerate() {
             assert!(l == lines[a as usize + i], "line {}", a as usize + i);
         }
+        let mut text = Vec::new();
+        p.write_range(a..b, &mut text).unwrap();
+        let mut want = lines[a as usize..b as usize].join(&b'\n');
+        // The log's last line is torn: no newline ends it.
+        if (b as usize) < lines.len() {
+            want.push(b'\n');
+        }
+        assert!(text == want, "write_range {a}..{b}");
     }
     let (line, rec) = p.by_seq(901).unwrap().unwrap();
     assert_eq!(line, 901);
@@ -107,9 +115,12 @@ fn an_appended_log_repacks_to_the_same_chunks_and_ships_only_the_new_ones() {
     let mut bad = bundle.clone();
     let last = bad.len() - 1;
     bad[last] ^= 1;
-    assert!(ship::unbundle(&there, &mut &bad[..]).is_err());
+    assert!(ship::unbundle(&there, &mut &bad[..], ship::Lacking::Refuse).is_err());
     assert_ne!(Manifest::load(&there, "s").unwrap().unwrap(), grown);
-    assert_eq!(ship::unbundle(&there, &mut &bundle[..]).unwrap(), grown);
+    assert_eq!(
+        ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Refuse).unwrap(),
+        Some(grown)
+    );
     let mut back = Vec::new();
     Pack::open(&there, "s").unwrap().cat(&mut back).unwrap();
     assert!(back == bytes);
@@ -130,4 +141,98 @@ fn a_rewritten_log_is_packed_from_the_start() {
     let mut back = Vec::new();
     Pack::open(&store, "s").unwrap().cat(&mut back).unwrap();
     assert!(back == bytes);
+}
+
+#[test]
+fn a_turn_comes_back_as_text_that_names_what_it_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path().join("store"));
+    let long = "x".repeat(5000);
+    let lines = [
+        r#"{"seq":1,"at":10,"dir":"mux","kind":"turn_started","msg":{"promptLine":"fix the build"}}"#.to_string(),
+        r#"{"seq":2,"at":11,"dir":"mux","kind":"user_message","msg":{"text":"fix the build"}}"#.to_string(),
+        r#"{"seq":3,"at":12,"dir":"in","kind":"tool_call","msg":{"params":{"update":{"_meta":{"claude":{"tool":"Bash"}},"rawInput":{"command":"make"},"status":"in_progress","toolCallId":"t1"}}}}"#.to_string(),
+        format!(r#"{{"seq":4,"at":13,"dir":"in","kind":"tool_call_update","msg":{{"params":{{"update":{{"content":[{{"content":{{"text":"{long}","type":"text"}},"type":"content"}}],"status":"completed","toolCallId":"t1"}}}}}}}}"#),
+        r#"{"seq":5,"at":14,"dir":"in","kind":"agent_message_chunk","msg":{"params":{"update":{"content":{"text":"It builds."}}}}}"#.to_string(),
+        r#"{"seq":6,"at":15,"dir":"mux","kind":"turn_started","msg":{"promptLine":"now ship it"}}"#.to_string(),
+    ];
+    let log = dir.path().join("log.ndjson");
+    std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+    pack(&store, "s", &[log], &Params::default(), false).unwrap();
+    let p = Pack::open(&store, "s").unwrap();
+
+    let outline = cmux_session_pack::digest::outline(&p).unwrap();
+    let rows: Vec<&str> = outline.lines().collect();
+    assert_eq!(rows, ["s@0-4\t10\t5\tfix the build", "s@5-5\t15\t1\tnow ship it"]);
+
+    let range = RangeId::parse("s@0-4").unwrap();
+    let text = cmux_session_pack::digest::digest(&p, &range, Default::default()).unwrap();
+    assert!(text.contains("user (seq 2): fix the build"), "{text}");
+    assert!(text.contains(r#"tool Bash (seq 3): {"command":"make"}"#), "{text}");
+    assert!(text.contains("result (completed, 5000 bytes): xxx"), "{text}");
+    assert!(text.contains("[4400 more bytes: session-pack seq s 4]"), "{text}");
+    assert!(text.contains("assistant: It builds."), "{text}");
+    assert!(text.len() < 1500, "{}", text.len());
+    // The whole result is one read away, by the name the text gave.
+    let (line, whole) = p.by_seq(4).unwrap().unwrap();
+    assert_eq!((line, whole.as_slice()), (3, lines[3].as_bytes()));
+}
+
+#[test]
+fn a_session_starts_elsewhere_from_its_tail_and_fetches_older_lines_when_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = log(6000);
+    let file = dir.path().join("log.ndjson");
+    std::fs::write(&file, &bytes).unwrap();
+    let here = Store::new(dir.path().join("here"));
+    let (m, _) = pack(&here, "s", &[file], &params(), false).unwrap();
+    let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
+
+    // The move carries the manifest and what the last 300 lines read: a small part of the pack.
+    let tail = m.lines - 300..m.lines;
+    let mut bundle = Vec::new();
+    let shipped =
+        ship::bundle_range(&here, "s", tail.clone(), &HashSet::new(), &mut bundle).unwrap();
+    assert!(shipped.bytes < shipped.session_bytes / 4, "{shipped:?}");
+
+    // A whole move refuses it; a move that starts from the tail takes it and reads the tail.
+    let there = Store::new(dir.path().join("there"));
+    assert!(ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Refuse).is_err());
+    assert_eq!(ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Allow).unwrap(), Some(m));
+    let p = Pack::open(&there, "s").unwrap();
+    assert!(p.lacking(tail.clone()).unwrap().is_empty());
+    let got = p.read_lines(tail.clone()).unwrap();
+    assert!(
+        got.iter()
+            .map(Vec::as_slice)
+            .eq(lines[tail.start as usize..tail.end as usize].iter().copied())
+    );
+
+    // An older range names the chunks it lacks; they arrive without a manifest, and it reads.
+    let old = 100..400u64;
+    let err = p.read_lines(old.clone()).unwrap_err().to_string();
+    assert!(err.starts_with(cmux_session_pack::MISSING), "{err}");
+    let mut rounds = 0;
+    loop {
+        let ids = p.lacking(old.clone()).unwrap();
+        if ids.is_empty() {
+            break;
+        }
+        rounds += 1;
+        let mut chunks = Vec::new();
+        ship::bundle_chunks(&here, "s", &ids, &mut chunks).unwrap();
+        assert_eq!(ship::unbundle(&there, &mut &chunks[..], ship::Lacking::Allow).unwrap(), None);
+    }
+    assert!((1..=2).contains(&rounds), "{rounds} rounds");
+    let got = p.read_lines(old.clone()).unwrap();
+    assert!(
+        got.iter()
+            .map(Vec::as_slice)
+            .eq(lines[old.start as usize..old.end as usize].iter().copied())
+    );
+    // Most of the log is still only on the first side.
+    assert!(!ship::want(&there, &p.manifest).unwrap().is_empty());
+
+    // A chunk of another session is not handed out under this one's name.
+    assert!(ship::bundle_chunks(&here, "s", &[[7u8; 32]], &mut Vec::new()).is_err());
 }
