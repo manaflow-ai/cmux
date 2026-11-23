@@ -26,11 +26,13 @@ import http.server
 import json
 import os
 import re
+import signal
 import socket
 import socketserver
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -95,31 +97,87 @@ const steps = {
     media('gdm', () => navigator.mediaDevices.getDisplayMedia({video: true})); },
   async loop(secs) {
     put('loop', {state: 'starting'});
-    const s = canvasStream(1280, 720, 30), a = new RTCPeerConnection(), b = new RTCPeerConnection();
-    a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate);
-    b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate);
-    s.getTracks().forEach(tr => a.addTrack(tr, s));
-    let got = false;
-    b.ontrack = e => { got = true; const v = document.createElement('video'); v.muted = true; v.autoplay = true; v.width = 320; v.srcObject = e.streams[0]; document.body.appendChild(v); };
-    const o = await a.createOffer(); await a.setLocalDescription(o); await b.setRemoteDescription(o);
-    const an = await b.createAnswer(); await b.setLocalDescription(an); await a.setRemoteDescription(an);
-    const samples = []; const t0 = t(); R.loop = {state: 'running'};
-    const iv = setInterval(async () => {
-      const sa = await a.getStats(), sb = await b.getStats(); const x = {s: Math.round((t() - t0) / 1000)};
-      sb.forEach(r => { if (r.type === 'inbound-rtp' && r.kind === 'video') { x.fps = r.framesPerSecond ?? null; x.w = r.frameWidth; x.h = r.frameHeight; x.decoder = r.decoderImplementation; x.dropped = r.framesDropped; } });
-      sa.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) x.rtt = r.currentRoundTripTime;
-        if (r.type === 'outbound-rtp' && r.kind === 'video') { x.encFps = r.framesPerSecond ?? null; x.limit = r.qualityLimitationReason; x.encoder = r.encoderImplementation; x.ew = r.frameWidth; } });
-      samples.push(x);
-      if (t() - t0 >= secs * 1000) {
-        clearInterval(iv); a.close(); b.close(); s.getTracks().forEach(z => z.stop());
-        const late = samples.filter(z => z.s >= 5), med = k => { const v = late.map(z => z[k]).filter(z => typeof z === 'number').sort((p, q) => p - q); return v.length ? v[Math.floor(v.length / 2)] : null; };
-        const last = samples[samples.length - 1] || {};
-        const fps = med('fps');
-        put('loop', {ok: got && fps !== null && fps >= 20, state: 'done', secs, gotTrack: got, fpsMedian: fps, encFpsMedian: med('encFps'),
-          rttMsMedian: med('rtt') === null ? null : Math.round(med('rtt') * 10000) / 10, size: last.w + 'x' + last.h, sentWidth: last.ew,
-          limit: last.limit, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
+    const stream = canvasStream(1280, 720, 30);
+    const sender = new RTCPeerConnection(), receiver = new RTCPeerConnection();
+    const video = document.createElement('video');
+    video.muted = video.autoplay = video.playsInline = true;
+    video.width = 320;
+    document.body.appendChild(video);
+    receiver.ontrack = event => { video.srcObject = event.streams[0]; };
+
+    // Exchange complete local descriptions so neither peer receives ICE before its remote SDP.
+    async function negotiate(from, to, description) {
+      await from.setLocalDescription(description);
+      if (from.iceGatheringState !== 'complete') {
+        await new Promise(resolve => {
+          const timer = setTimeout(resolve, 8000);
+          from.onicegatheringstatechange = () => {
+            if (from.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+          };
+        });
       }
-    }, 1000);
+      from.onicegatheringstatechange = null;
+      if (!from.localDescription.sdp.includes('a=candidate:'))
+        throw Error('No local ICE candidates for ' + description.type);
+      await to.setRemoteDescription(from.localDescription);
+    }
+
+    const previous = new Map();
+    function fps(report, counter) {
+      if (!report) return null;
+      const prior = previous.get(report.id);
+      previous.set(report.id, report);
+      if (Number.isFinite(report.framesPerSecond)) return report.framesPerSecond;
+      if (!prior || report.timestamp <= prior.timestamp ||
+          !Number.isFinite(report[counter]) || !Number.isFinite(prior[counter])) return null;
+      return (report[counter] - prior[counter]) * 1000 / (report.timestamp - prior.timestamp);
+    }
+    const isVideo = r => (r.kind || r.mediaType) === 'video';
+    const samples = [];
+    try {
+      sender.addTrack(stream.getVideoTracks()[0], stream);
+      await negotiate(sender, receiver, await sender.createOffer());
+      await negotiate(receiver, sender, await receiver.createAnswer());
+      const t0 = t();
+      put('loop', {state: 'running'});
+      do {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const [sent, received] = await Promise.all([sender.getStats(), receiver.getStats()]);
+        const sendStats = Array.from(sent.values());
+        const outbound = sendStats.find(r => r.type === 'outbound-rtp' && isVideo(r));
+        const inbound = Array.from(received.values()).find(r => r.type === 'inbound-rtp' && isVideo(r));
+        const remote = sent.get(outbound?.remoteId) ||
+          sendStats.find(r => r.type === 'remote-inbound-rtp' && outbound && r.localId === outbound.id);
+        const transport = sent.get(outbound?.transportId);
+        const pair = sent.get(transport?.selectedCandidatePairId) ||
+          sendStats.find(r => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded');
+        const rtcpRtt = remote?.roundTripTimeMeasurements === 0 ? null : remote?.roundTripTime;
+        samples.push({s: (t() - t0) / 1000, fps: fps(inbound, 'framesDecoded'), encFps: fps(outbound, 'framesEncoded'),
+          rtcpRtt, iceRtt: pair?.currentRoundTripTime,
+          w: inbound?.frameWidth || video.videoWidth, h: inbound?.frameHeight || video.videoHeight,
+          ew: outbound?.frameWidth, limit: outbound?.qualityLimitationReason, encoder: outbound?.encoderImplementation,
+          decoder: inbound?.decoderImplementation, dropped: inbound?.framesDropped, ice: sender.iceConnectionState});
+      } while (t() - t0 < secs * 1000);
+
+      const late = samples.filter(x => x.s >= Math.min(5, secs));
+      function median(key) {
+        const values = late.map(x => x[key]).filter(Number.isFinite).sort((a, b) => a - b);
+        return values.length ? values[Math.floor(values.length / 2)] : null;
+      }
+      const last = samples[samples.length - 1], decoded = median('fps');
+      const rtcpRtt = median('rtcpRtt'), rtt = rtcpRtt ?? median('iceRtt');
+      put('loop', {ok: decoded !== null && decoded >= 20 && rtt !== null, state: 'done', secs,
+        source: 'canvas', gotTrack: !!video.srcObject, ice: last.ice, fpsMedian: decoded, encFpsMedian: median('encFps'),
+        rttSource: rtcpRtt !== null ? 'RTCP' : rtt !== null ? 'ICE' : null,
+        rttMsMedian: rtt === null ? null : Math.round(rtt * 10000) / 10,
+        size: last.w && last.h ? last.w + 'x' + last.h : null, sentWidth: last.ew,
+        limit: last.limit, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
+    } finally {
+      sender.close(); receiver.close();
+      stream.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+      video.remove();
+    }
   },
   hiddenStart() { const log = []; let last = t(); R.hiddenLog = log;
     R.hiddenIv = setInterval(() => { const n = t(); log.push([n - last, document.visibilityState]); last = n; }, 100); put('hidden', {state: 'running'}); },
@@ -234,7 +292,7 @@ def select(rows, roots: set[int], path: str | None, extra: re.Pattern | None):
 def cpu_window(seconds: float, roots: set[int], path: str | None, extra: re.Pattern | None = None) -> dict:
     """CPU % of the browser's processes over `seconds` (cumulative CPU time from ps; 100 = one core)."""
     before = processes()
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window
     after = processes()
     keep = select(after, roots, path, extra)
     per = []
@@ -296,7 +354,18 @@ class Cmux:
                 break
             time.sleep(0.5)
         self.log(f"control socket {self.sock} pid {self.pid}")
-        time.sleep(5)  # the first window and its restore settle
+        # The first window and its restore are done once the snapshot's topology reads the same twice.
+        if self.sock:
+            deadline, last = time.monotonic() + 30, None
+            while time.monotonic() < deadline:
+                snap = self.rpc("snapshot.get", timeout=10)
+                current = json.dumps((snap or {}).get("topology", snap) if isinstance(snap, dict) else snap, sort_keys=True)
+                if current == last and not (isinstance(snap, dict) and snap.get("error")):
+                    break
+                last = current
+                time.sleep(0.5)
+            else:
+                self.log("snapshot still changing 30 s after launch")
         return self.sock is not None
 
     def stop(self):
@@ -414,25 +483,58 @@ class Chrome:
         self.log = log
         self.dir = work / f"chrome-{label}"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.port = free_port()
-        argv = [binary, f"--user-data-dir={self.dir}", f"--remote-debugging-port={self.port}", "--no-first-run",
-                "--no-default-browser-check", "--disable-search-engine-choice-screen", "--use-mock-keychain", "--window-size=1280,900", *flags, url]
-        self.flags = flags
-        self.proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=open(self.dir / "stderr.log", "w"))
+        self.binary = binary
         self.ws = None
+        self.pid = None
         self.next_id = 0
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline and not self.ws:
-            try:
-                targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=3))
-                page = next(t for t in targets if t.get("type") == "page" and "/t" in t.get("url", ""))
-                self.target = page["id"]
-                self.ws = WebSocket(page["webSocketDebuggerUrl"])
-            except Exception:  # Chrome is still starting
-                time.sleep(0.5)
-        if not self.ws:
-            raise RuntimeError("Chrome gave no DevTools page in 60 s")
-        self.call("Runtime.enable")
+        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.stderr = Path(OPTS.out) / (label + "-startup.log")
+        bundle = Path(binary).parents[2]
+        # Launch through the GUI session, just like cmux. Chrome publishes its own port in this profile.
+        argv = ["open", "-n", "-W", "--stderr", str(self.stderr), "-a", str(bundle), "--args",
+                f"--user-data-dir={self.dir}", "--remote-debugging-port=0", "--no-first-run",
+                "--no-default-browser-check", "--disable-search-engine-choice-screen", "--use-mock-keychain",
+                "--window-size=1280,900", *flags, "about:blank"]
+        with self.stderr.open("w") as errors:
+            self.launcher = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=errors)
+        try:
+            deadline = time.monotonic() + 60
+            while True:
+                if self.launcher.poll() is not None:
+                    raise RuntimeError(f"Chrome launch exited {self.launcher.returncode}")
+                try:
+                    self.port = int((self.dir / "DevToolsActivePort").read_text().splitlines()[0])
+                    break
+                except (FileNotFoundError, IndexError, ValueError) as error:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Chrome did not publish DevToolsActivePort in 60 s") from error
+                    time.sleep(0.2)
+            # A fresh profile may show a startup tab. Create our own and navigate it explicitly.
+            new_page = urllib.request.Request(f"http://127.0.0.1:{self.port}/json/new?about:blank", method="PUT")
+            with self.http.open(new_page, timeout=5) as response:
+                page = json.load(response)
+            self.target = page["id"]
+            self.ws = WebSocket(page["webSocketDebuggerUrl"])
+            self.call("Runtime.enable")
+            nav = self.call("Page.navigate", {"url": url})
+            if nav.get("error") or nav.get("errorText"):
+                raise RuntimeError(f"Chrome navigation failed: {nav}")
+            info = self.browser_call("SystemInfo.getProcessInfo")
+            self.pid = next((p["id"] for p in info.get("processInfo", []) if p["type"] == "browser"), None)
+            self.pid = self.pid or self.profile_pid()
+            if not self.pid:
+                raise RuntimeError("Chrome browser PID unavailable for CPU sampling")
+        except Exception as error:
+            self.quit()
+            tail = self.stderr.read_text(errors="replace")[-600:].strip()
+            raise RuntimeError(f"{error}; {self.stderr.name}: {tail}") from error
+
+    def profile_pid(self):
+        for pid, (_, _, command) in processes().items():
+            if (command.startswith(self.binary + " ") and " --type=" not in command
+                    and f" --user-data-dir={self.dir} " in command + " "):
+                return pid
+        return None
 
     def call(self, method, params=None, timeout=60):
         self.next_id += 1
@@ -445,14 +547,16 @@ class Chrome:
                 return reply.get("result") if "result" in reply else {"error": reply.get("error")}
 
     def browser_call(self, method, params=None):
-        info = json.load(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=5))
+        with self.http.open(f"http://127.0.0.1:{self.port}/json/version", timeout=5) as response:
+            info = json.load(response)
         ws = WebSocket(info["webSocketDebuggerUrl"])
-        ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
-        while True:
-            reply = json.loads(ws.recv())
-            if reply.get("id") == 1:
-                ws.conn.close()
-                return reply.get("result") or {"error": reply.get("error")}
+        with ws.conn:
+            ws.conn.settimeout(5)
+            ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+            while True:
+                reply = json.loads(ws.recv())
+                if reply.get("id") == 1:
+                    return reply.get("result", {"error": reply.get("error")})
 
     def js(self, script, gesture=False):
         reply = self.call("Runtime.evaluate", {"expression": script, "returnByValue": True, "userGesture": gesture})
@@ -469,26 +573,35 @@ class Chrome:
 
     def version(self):
         try:
-            return json.load(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=5)).get("Browser")
+            return json.load(self.http.open(f"http://127.0.0.1:{self.port}/json/version", timeout=5)).get("Browser")
         except Exception:
             return None
 
     def quit(self):
-        try:
-            self.browser_call("Browser.close")
-            self.proc.wait(timeout=20)
-        except Exception:
-            self.proc.terminate()
+        if self.ws:
+            self.ws.conn.close()
+        if hasattr(self, "port"):
             try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+                self.browser_call("Browser.close")
+            except (OSError, ValueError):
+                pass
+        pid = self.profile_pid()
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        try:
+            self.launcher.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pid = self.profile_pid()
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            self.launcher.terminate()
+            self.launcher.wait(timeout=5)
 
 
 def find_chrome(work: Path, log):
@@ -546,7 +659,9 @@ class Driver:
         secs = OPTS.call
         idle = self.cpu(10)
         self.js(f"__m.start('loop', {secs})")
-        time.sleep(3)
+        started = wait_result(self.run, "loop", 15, done=lambda v: v.get("state") in ("running", "done", "threw"))
+        if started.get("state") not in ("running", "done", "threw"):
+            self.log(f"  {self.run} loop: call not running 15 s after start")
         busy = self.cpu(max(10, secs - 6))
         value = wait_result(self.run, "loop", secs + 20)
         value = {k: v for k, v in value.items() if k != "samples"} | {"samples": value.get("samples", [])[-5:]}
@@ -556,16 +671,34 @@ class Driver:
 
     def hidden(self):
         self.js("__m.start('hiddenStart')")
-        time.sleep(3)
+        # A visible baseline: 20 visible timer ticks (100 ms each) logged before the tab is covered.
+        self.wait_ticks("visible", 20, 15)
         hidden_how = self.hide()
-        time.sleep(20)
+        time.sleep(20)  # sleep-ok: the hidden window, the timer's throttling over 20 s covered is what is measured
         self.show()
-        time.sleep(2)
+        # Uncovered: wait until the page logs visible ticks again (10 of them, after the hidden ones).
+        self.wait_ticks("visible", 10, 15, after="hidden")
         self.js("__m.start('hiddenStop')")
         value = wait_result(self.run, "hidden", 10)
         value["how"] = hidden_how
         self.log(f"  {self.run} hidden: {json.dumps(value)[:300]}")
         return value
+
+    def wait_ticks(self, state, count, seconds, after=None):
+        """Wait until the page's hidden-test log has `count` ticks in `state` (after the last `after` tick)."""
+        expr = (f"(() => {{ const l = __m.R.hiddenLog || []; let i = {json.dumps(after)} ? "
+                f"l.map(z => z[1]).lastIndexOf({json.dumps(after)}) : -1; "
+                f"return l.slice(i + 1).filter(z => z[1] === {json.dumps(state)}).length; }})()")
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                if int(self.js(expr) or 0) >= count:
+                    return True
+            except (TypeError, ValueError):
+                pass
+            time.sleep(0.1)
+        self.log(f"  {self.run} hidden: fewer than {count} {state} ticks in {seconds} s")
+        return False
 
     def meet(self):
         out = {}
@@ -578,10 +711,13 @@ class Driver:
                     seen = json.loads(self.js(NAV_JS) or "null")
                 except ValueError:
                     seen = None
-                if seen and (seen.get("load") or 0) > 0 and "google" in (seen.get("url") or ""):
+                if seen and (seen.get("load") or 0) > 0 and urllib.parse.urlsplit(seen.get("url") or "").hostname in (
+                        "meet.google.com", "workspace.google.com", "accounts.google.com") and not nav:
                     break
                 time.sleep(0.25)
-            ok = bool(seen and (seen.get("load") or 0) > 0)
+            else:
+                seen = None
+            ok = bool(seen)
             out[phase] = {"ok": ok, "loadMs": seen.get("load") if seen else None, "dclMs": seen.get("dcl") if seen else None,
                           "ttfbMs": seen.get("ttfb") if seen else None, "url": seen.get("url") if seen else None,
                           "wallS": round(time.monotonic() - started, 2), "nav": nav}
@@ -655,7 +791,7 @@ def run_chrome(binary: str, label: str, run: str, flags: list[str], full: bool, 
         return (reply or {}).get("errorText") or (reply or {}).get("error")
 
     driver = Driver(run, chrome.js, chrome.click, hide, show, navigate,
-                    lambda secs: cpu_window(secs, {chrome.proc.pid}, None), log)
+                    lambda secs: cpu_window(secs, {chrome.pid}, None), log)
     try:
         driver.media(out, full)
         if meet:
@@ -701,7 +837,9 @@ def cell(run: dict, key: str) -> str:
     if key == "loop":
         if not v:
             return "not run"
-        return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian')} fps, rtt {v.get('rttMsMedian')} ms, "
+        if v.get("fpsMedian") is None or v.get("rttMsMedian") is None:
+            return f"fail: {v.get('message') or v.get('ice') or v.get('state')} (no complete FPS/RTT sample)"
+        return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian'):.1f} fps, rtt {v.get('rttMsMedian')} ms ({v.get('rttSource')}), "
                 f"{v.get('size')}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%)")
     if key == "hidden":
         if not v:
@@ -713,14 +851,17 @@ def cell(run: dict, key: str) -> str:
         m = (run.get("meet") or {}).get(key.split("_")[1])
         if not m:
             return "not run"
-        return f"{'pass' if m['ok'] else 'fail'} {m.get('loadMs')} ms"
+        if not m["ok"]:
+            return "fail: no completed navigation"
+        landed = urllib.parse.urlsplit(m["url"])
+        return f"{m['loadMs']} ms ({landed.hostname}{landed.path})"
     return "?"
 
 
 ROWS = [("getUserMedia (camera+mic)", "gum"), ("getDisplayMedia", "gdm"), ("Picture-in-Picture", "pip"),
         ("Notification.requestPermission", "notif"), ("loopback call 720p", "loop"),
-        ("hidden-tab 100 ms timer", "hidden"), ("meet.google.com load, cold", "meet_cold"),
-        ("meet.google.com load, warm", "meet_warm")]
+        ("hidden-tab 100 ms timer", "hidden"), ("Signed-out Meet navigation, cold", "meet_cold"),
+        ("Signed-out Meet navigation, warm", "meet_warm")]
 
 
 def table(runs: dict, header: str) -> str:
@@ -743,6 +884,7 @@ def main():
     parser = argparse.ArgumentParser()
     for flag in ("--side", "--name", "--work", "--out", "--dmg", "--version"):
         parser.add_argument(flag, required=True)
+    parser.add_argument("--build-job", default="")
     parser.add_argument("--call", type=int, default=60)
     parser.add_argument("--only", default="")
     OPTS = parser.parse_args()
@@ -770,9 +912,9 @@ def main():
                     runs[n] = {"browser": "cmux", "error": "the side copy gave no control socket"}
         cmux.stop()
     if want("cmux-chromium-fake"):
-        if cmux.launch(FAKE):
-            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", False, False, log) | {
-                "flags": FAKE + ["(as app arguments)"]}
+        if cmux.launch(["--cmux-measure-fake-media"]):
+            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, False, log) | {
+                "flags": ["--cmux-measure-fake-media (requests CEF fake device and UI)"]}
         else:
             runs["cmux-chromium-fake"] = {"browser": "cmux chromium", "error": "the side copy gave no control socket"}
         cmux.stop()
@@ -786,18 +928,28 @@ def main():
             if want("chrome-fake"):
                 runs["chrome-fake"] = run_chrome(binary, label, "chrome-fake", FAKE, True, True, work, log)
             if want("chrome-plain"):
-                runs["chrome-plain"] = run_chrome(binary, label, "chrome-plain", FAKE[:1], False, False, work, log)
+                runs["chrome-plain"] = run_chrome(binary, label, "chrome-plain", FAKE[:1], True, True, work, log)
 
     host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    header = (f"Meet-in-browser measurement: cmux NEXT NIGHTLY {OPTS.version} on {host} (macOS {macos}), "
+    source = f"build {OPTS.build_job}" if OPTS.build_job else "NIGHTLY"
+    header = (f"Meet-in-browser measurement: cmux NEXT {source} {OPTS.version} (macOS {macos}), "
               f"local test page on 127.0.0.1, loopback call {OPTS.call} s. CPU is the browser's processes from ps "
               "(100% = one core; cmux: every process of the copy, WebKit adds the system WebContent/GPU/Networking).")
-    report = {"host": host, "macos": macos, "dmg": OPTS.dmg, "version": OPTS.version, "call": OPTS.call, "runs": runs}
+    report = {"host": host, "macos": macos, "dmg": OPTS.dmg or None, "buildJob": OPTS.build_job or None, "version": OPTS.version, "call": OPTS.call, "runs": runs}
     (out_dir / "results.json").write_text(json.dumps(report, indent=2))
     (out_dir / "table.md").write_text(table(runs, header))
     print("MEET_BROWSER " + json.dumps(report)[:20000], flush=True)
-    return 0 if runs and not any(r.get("error") for r in runs.values()) else 1
+    # Permission denials are results. A comparison needs measured frames and RTT on both sides.
+    chrome = [r for name, r in runs.items() if name.startswith("chrome-")]
+    cmux_rows = [r for name, r in runs.items() if name.startswith("cmux-")]
+
+    def measured(run):
+        loop = run.get("loop") or {}
+        return (loop.get("fpsMedian") or 0) > 0 and loop.get("rttMsMedian") is not None
+
+    complete = all(map(measured, chrome)) and (not cmux_rows or any(map(measured, cmux_rows)))
+    return 0 if runs and complete and not any(r.get("error") for r in runs.values()) else 1
 
 
 OPTS = None

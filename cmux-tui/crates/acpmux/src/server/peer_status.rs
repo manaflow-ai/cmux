@@ -214,7 +214,14 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health["build"]
+                        .as_str()
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {

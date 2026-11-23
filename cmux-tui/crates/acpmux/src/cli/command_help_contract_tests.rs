@@ -331,11 +331,13 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         all_idle: false,
         interrupt: true,
         after_turn: false,
+        timeout: 600,
         leave_dirty: false,
         carry_changes: true,
         cwd: None,
         dry_run: true,
         from: Some("mini-3".into()),
+        from_snapshot: false,
     };
     for verb in [&["move-sessions"][..], &["session", "move"][..]] {
         for machine in ["--machine", "--host"] {

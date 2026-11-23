@@ -1080,7 +1080,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 if args.peek().is_some_and(|next| next == "--json") {
                     println!("{}", version_report_json());
                 } else {
-                    println!("cmux {}", version_string());
+                    let exe = std::env::current_exe()
+                        .ok()
+                        .and_then(|path| std::fs::canonicalize(path).ok());
+                    let app_commit = exe.as_deref().and_then(version_report::app_commit);
+                    println!(
+                        "{}",
+                        version_report::version_lines(&version_string(), app_commit.as_deref())
+                    );
                 }
                 client_log::exit(0);
             }
@@ -2803,6 +2810,10 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
+    // The agent-share audit rows go to the host's own audit log (remote_host/config.rs).
+    if let Ok(dir) = remote_host::config::dir() {
+        cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
+    }
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener

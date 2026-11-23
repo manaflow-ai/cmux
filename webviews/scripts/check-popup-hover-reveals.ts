@@ -121,7 +121,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-done-row:hover .cv-subagent-done__actions",
     "copy affordance",
   ],
-  ["agent-session/acpmux/prototype/prototype.css|.proto-tab:hover .proto-tab-close", "close affordance"],
   ["pages/settings/styles.css|.backdrop-pending:hover .backdrop-thumb", "pending wallpaper brightness"],
   ["pages/settings/styles.css|.backdrop-own:hover .backdrop-remove:not(:disabled)", "remove affordance"],
   ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover img", "gallery preview brightness"],
@@ -242,15 +241,20 @@ function cssRules(source: string): Rule[] {
 /** The flag form (the header): `.X:hover REST` is covered by `.X:has([data-popup-open]) { --popup-in-X: 1 }`
  * and `@container style(--popup-in-X: 1) { .X.X REST { the same reveal } }` in the same context. */
 function flagCovers(rules: Rule[], context: string, selector: string, covers: (key: string) => boolean): boolean {
-  const anchor = /(\.[\w-]+):hover\b/.exec(selector)?.[1];
-  if (!anchor || selector.split(":hover").length !== 2) return false;
+  // `.X:hover`, `.X[attr]:hover` or `.X[attr]:is(:hover, :focus-within)`: the flag is on `.X[attr]`.
+  const source = normalized(selector);
+  const found = /(\.[\w-]+)((?:\[[^\]]*\])*)(:hover\b|:is\(\s*:hover\s*(?:,[^()]*)?\))/.exec(source);
+  if (!found || source.split(":hover").length !== 2) return false;
+  const [hovered, anchor, attrs] = found as unknown as [string, string, string];
   const flag = `--popup-in-${anchor.slice(1)}`;
   const set = rules.some(
     (rule) =>
       new RegExp(`(?:^|;)\\s*${flag}\\s*:\\s*1\\s*(?:;|$)`).test(rule.body.trim()) &&
-      splitSelectorList(rule.selector).some((part) => normalized(part).endsWith(`${anchor}:has([data-popup-open])`)),
+      splitSelectorList(rule.selector).some((part) =>
+        normalized(part).endsWith(`${anchor}${attrs}:has([data-popup-open])`),
+      ),
   );
-  const part = normalized(selector.replace(`${anchor}:hover`, `${anchor}${anchor}`));
+  const part = normalized(source.replace(hovered, `${anchor}${anchor}${attrs}`));
   return set && covers(`${context}@container style(${flag}: 1);|${part}`);
 }
 

@@ -187,6 +187,11 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        // A person's live resize of the window: a pane out of this screen's viewport (a column scrolled past its edge)
+        // keeps its size and only moves, out of sight, and lays out once at the resize's end (`windowLiveResizeEnded`) or
+        // in the first presentation that brings any of it into view. Only the visible panes lay out in each tick (#50672).
+        let defersOffscreen = laysOutNow && windowResizeListeners != nil
+        let viewport = bounds
         if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
@@ -221,7 +226,16 @@ extension ScreenContentView {
             // out first at the frame's size, which it leaves in the next frame.
             if restChanged, springing { host.announceRest() }
             if host.restOffset != restOffset { host.restOffset = restOffset }
-            if host.frame.size != placed.size {
+            if host.frame.size != placed.size, defersOffscreen, !springing, carried == .zero, !placed.intersects(viewport),
+               !CGRect(origin: placed.origin, size: host.frame.size).intersects(viewport) {
+                // Neither where it rests nor at its old size from there does any of it show (the screen's layer clips to
+                // its bounds): its strip, content and terminal grid wait for the end, not every tick.
+                if host.frame.origin != placed.origin {
+                    host.setFrameOrigin(placed.origin)
+                    changed = true
+                }
+                deferredOffscreenLayout = true
+            } else if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
                 // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a

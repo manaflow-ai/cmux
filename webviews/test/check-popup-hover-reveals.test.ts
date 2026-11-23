@@ -119,3 +119,14 @@ test("the flag form covers a hover reveal (a subject :has sets it, a style query
     ),
   ).toHaveLength(1);
 });
+
+test("the flag form covers an attribute-scoped :is(:hover, :focus-within) reveal", () => {
+  const css = `
+    .tools[data-look=peek]:is(:hover, :focus-within) [data-dormant] { opacity: 1; }
+    .tools[data-look=peek]:has([data-popup-open]) { --popup-in-tools: 1; }
+    @container style(--popup-in-tools: 1) { .tools.tools[data-look=peek] [data-dormant] { opacity: 1; } }
+  `;
+  expect(findHoverRevealViolations(css)).toEqual([]);
+  // A flag set on another look of the block does not cover this one.
+  expect(findHoverRevealViolations(css.replace(".tools[data-look=peek]:has(", ".tools[data-look=other]:has("))).toHaveLength(1);
+});
