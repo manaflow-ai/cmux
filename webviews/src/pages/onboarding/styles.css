@@ -219,6 +219,19 @@
   gap: var(--ds-space-3);
 }
 
+/* A provider signing in (logins done right): the row grows and the device card sits under its name. */
+.onb-agent-list[data-look] .onb-agent[data-signing] {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--onb-agent-row);
+  padding-block: var(--ds-space-2);
+}
+.onb-agent-signin {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--onb-agent-icon) + var(--ds-space-3));
+}
+
 /* A: a rounded card per agent (the Swift step's look). */
 .onb-agent-list[data-look="cards"] {
   display: flex;
