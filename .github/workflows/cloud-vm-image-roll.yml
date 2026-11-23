@@ -24,6 +24,8 @@ name: Cloud VM image roll
 #
 # images/cmux-vm/auto-roll.json is the switch: "off" (only a dispatch runs), "dry-run" (bake and gate, then
 # make the commit and upload its diff without pushing) or "live". The dispatch input dry_run overrides it.
+# Its large_image (false unless set) also bakes the large image and publishes it on the image's entry, only when
+# the Worker at the tip reads `large` (workers/cmux-vm/README.md, "Rolling a new image").
 #
 # Concurrency: one roll runs at a time, and one waits. A newer request replaces the waiting one (GitHub's
 # pending-run replacement), so a burst of merges bakes the newest build next. A running roll is never
@@ -149,6 +151,7 @@ jobs:
       pin: ${{ steps.plan.outputs.pin }}
       dry_run: ${{ steps.plan.outputs.dry_run }}
       plan: ${{ steps.plan.outputs.plan }}
+      large: ${{ steps.plan.outputs.large }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -213,6 +216,12 @@ jobs:
           pinned="$(jq -r '.programs[] | select(.name == "cmux-tui") | .version' images/cmux-vm/inputs.lock.json)"
           if ! git cat-file -e "$pinned^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$pinned"; fi
           if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$COMMIT" || true; fi
+          # With the large switch on, the plan asks this checkout's Worker whether it reads `large` (auto-roll.ts
+          # largeDecision), which needs the Worker's dependencies: no package scripts, and this job holds no secret.
+          # A failed install plans a roll without a large image.
+          if [ "$(jq -r '.large_image // false' images/cmux-vm/auto-roll.json)" = true ]; then
+            (cd workers/cmux-vm && bun install --frozen-lockfile --ignore-scripts) || echo "::warning title=Large image::the Worker's dependencies did not install; this roll bakes no large image"
+          fi
           bun images/cmux-vm/auto-roll.ts plan --event "$EVENT" --commit "$COMMIT" --before "${BEFORE:-}" --dry-run "$DRY_RUN" --tip HEAD > "$RUNNER_TEMP/plan.json"
           cat "$RUNNER_TEMP/plan.json"
           {
@@ -220,18 +229,53 @@ jobs:
             echo "pin=$(jq -r .pin "$RUNNER_TEMP/plan.json")"
             echo "dry_run=$(jq -r .dryRun "$RUNNER_TEMP/plan.json")"
             echo "plan=$(jq -c . "$RUNNER_TEMP/plan.json")"
+            echo "large=$(jq -r .large "$RUNNER_TEMP/plan.json")"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Cloud VM image roll: plan"
             echo
             echo "$(jq -r '"Roll: \(.roll) (\(.reason)). Dry run: \(.dryRun)."' "$RUNNER_TEMP/plan.json")"
+            echo "$(jq -r 'if .large then "Large image: asked for, when this repository deploys the Worker (publish-mode)." else "Large image: not baked (\(.largeReason))." end' "$RUNNER_TEMP/plan.json")"
             echo
             jq -r '.fixes[] | "- `\(.sha[0:12])` \(.mergedAt) \(.subject)"' "$RUNNER_TEMP/plan.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  bake:
+  # Which repository deploys the Worker is the production environment's CMUX_VM_DEPLOY_ENABLED, which only a job
+  # in that environment can read. 1 is direct mode: the roll commit writes this repository's wrangler.jsonc and
+  # its push deploys it beside this repository's Worker, the one the plan asked. Anything else is platform mode:
+  # the lists are cmux-platform's, written from a checkout with no Worker source to ask, so a large image could
+  # never be published and none is baked. Runs only when the plan already wants one, so with the switch off
+  # (auto-roll.json large_image) no roll runs it. It takes no secret and no checkout.
+  publish-mode:
     needs: plan
-    if: needs.plan.outputs.roll == 'true'
+    if: needs.plan.outputs.roll == 'true' && needs.plan.outputs.large == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    environment: cmux-vm-production
+    permissions: {}
+    outputs:
+      direct: ${{ steps.mode.outputs.direct }}
+    steps:
+      - name: Read which repository deploys the Worker
+        id: mode
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [ "$ENABLED" = 1 ]; then
+            echo "direct=true" >> "$GITHUB_OUTPUT"
+            echo "Large image: baked. This repository deploys the Worker (direct mode)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "direct=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Large image::the large image is not baked: cmux-platform deploys the Worker (platform mode), and the roll cannot ask its Worker whether it reads a large image"
+            echo "The large image is not baked: cmux-platform deploys the Worker (platform mode), and the roll cannot ask its Worker whether it reads one. images/cmux-vm/auto-roll.json large_image has no effect in this mode." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  bake:
+    # publish-mode is skipped on every roll that wants no large image, and fails closed (no large image) when it
+    # fails: neither may skip the bake, so the condition names what it needs instead of the default success().
+    needs: [plan, publish-mode]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.roll == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/cloud-vm-image-bake.yml
@@ -242,6 +286,11 @@ jobs:
       probes: true
       agent_tools: true
       layered: true
+      # Only when the promote job could publish it: images/cmux-vm/auto-roll.json large_image is on and the tip's
+      # Worker reads `large` (plan), and this repository deploys that Worker (publish-mode). The bake then also
+      # makes and smokes the large image and records it on the candidate; one that fails is a warning there,
+      # never a red roll. A large snapshot nothing publishes would be a wasted bake and an orphan at the provider.
+      large_image: ${{ needs.plan.outputs.large == 'true' && needs.publish-mode.outputs.direct == 'true' }}
       roll: true
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
     # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
@@ -253,7 +302,8 @@ jobs:
 
   promote:
     needs: [plan, bake]
-    if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
+    # !cancelled(): the bake's skipped publish-mode (a roll with no large image) must not skip this job with it.
+    if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
@@ -314,6 +364,16 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      # auto-roll.ts approve publishes the candidate's large image only when the tip's Worker reads `large`, and it
+      # asks the Worker's own list parser (workerReadsLarge), which needs the Worker's dependencies. The install
+      # runs no package scripts. The parser itself runs later, inside "Land the roll commit", whose environment
+      # holds the push tokens: workerReadsLarge loads it in a child process that gets PATH, HOME, TMPDIR and LANG
+      # and none of them. A failed install rolls the image without its large image, and the notes step says so.
+      - name: Install the Worker's dependencies (to ask it whether it reads a large image)
+        if: needs.plan.outputs.large == 'true'
+        continue-on-error: true
+        working-directory: workers/cmux-vm
+        run: bun install --frozen-lockfile --ignore-scripts
       - name: Write the roll commit's message
         id: message
         env:
@@ -411,6 +471,25 @@ jobs:
             --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN "${platform_args[@]}" \
             --platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc" | tee "$RUNNER_TEMP/push.out"
           tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
+      # Whatever the push step did (pushed, nothing, a dry run, a failure): every roll the byte trim dropped from a
+      # list, and a large snapshot the bake made and kept that no list names, by name and id, so someone removes it
+      # at the provider. Nothing here deletes a provider object.
+      - name: Say what the roll dropped or left unpublished
+        id: notes
+        if: ${{ !cancelled() }}
+        env:
+          RESULT: ${{ steps.push.outputs.result }}
+        run: |
+          set -euo pipefail
+          [ -s "$RUNNER_TEMP/candidate.json" ] || exit 0
+          args=(--candidate "$RUNNER_TEMP/candidate.json" --result "${RESULT:-}")
+          if [ -s "$RUNNER_TEMP/approve.json" ]; then args+=(--approve "$RUNNER_TEMP/approve.json"); fi
+          bun images/cmux-vm/auto-roll.ts notes "${args[@]}" > "$RUNNER_TEMP/notes.txt"
+          while IFS= read -r note; do
+            [ -n "$note" ] || continue
+            echo "::warning title=Cloud VM image roll::${note}"
+            echo "- ${note}" >> "$GITHUB_STEP_SUMMARY"
+          done < "$RUNNER_TEMP/notes.txt"
       - name: Upload the roll commit's diff
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
