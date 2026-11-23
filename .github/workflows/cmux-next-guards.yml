@@ -178,6 +178,10 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
+      # Trees only, and only the folders the three checks read. The full tree took 1.3 min median (4,652 of the job's
+      # 10,000 runner-min a day, 2026-11-22T21..11-23T21) for about 30 s of checks. zizmor and gitleaks read the
+      # change through git (git show, git log -p), which fetches the blobs of the changed files on demand in one
+      # batch, so files outside these folders are still scanned.
       - name: Checkout
         timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -185,6 +189,12 @@ jobs:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base).
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /.github/
+            /tests/
 
       - name: Fail on a workflow security hole this change adds (zizmor)
         if: ${{ !cancelled() }}
