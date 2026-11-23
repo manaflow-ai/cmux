@@ -25,7 +25,7 @@ extension SettingsSchema {
 
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
-        "window.titlebar",
+        "agentPane.links.openCitationsInEditor", "window.titlebar",
         "shortcuts.showModifierHoldHints",
         // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
         "customize.fromTheApp",
@@ -34,8 +34,8 @@ extension SettingsSchema {
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
-        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
-        "workspaceColors.indicatorStyle",
+        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showAutomaticSessions", "sidebar.showColors",
+        "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
@@ -52,7 +52,9 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
-        "tabs.overflow",
+        // The language cmux's own text is in; ends no work.
+        "app.language",
+        "tabs.overflow", "tabs.shellIconTheme",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
@@ -89,23 +91,23 @@ extension SettingsSchema {
         "appearance.experimentalControls", "app.uiScale", "appearance.glassTransparency", "appearance.hue",
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
-        "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
-        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.cornerFlush",
-        "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
-        "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
-        "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",
-        "ui.animations.cursor", "ui.animations.indicators", "ui.animations.feedback", "ui.animations.web",
-        "ui.paneAnimations", "ui.calm", "appearance.colorTransition.enabled", "appearance.colorTransition.duration",
-        "appearance.colorTransition.curve", "appearance.colorTransition.springResponse",
-        "appearance.colorTransition.springDamping", "appearance.colorTransition.bezierX1",
-        "appearance.colorTransition.bezierY1", "appearance.colorTransition.bezierX2",
-        "appearance.colorTransition.bezierY2", "appearance.colorTransition.colorSpace",
-        "appearance.colorTransition.reduceMotion", "layout.panePadding", "layout.paneCornerRadius",
-        "layout.cornerPadding", "layout.paneBorder", "layout.paneSeparation", "sidebar.border", "sidebar.borderWidth",
-        "layout.paneBorderColor", "layout.paneBorderWidth", "focusRing.enabled", "focusRing.style",
-        "focusRing.contrast", "focusRing.color", "focusRing.width", "focusRing.showWhenSinglePane",
-        "appearance.statusIndicator.style", "appearance.statusIndicator.animation", "appearance.statusIndicator.size",
-        "appearance.statusIndicator.thickness", "appearance.statusIndicator.color",
+        "appearance.borders", "appearance.liquidGlass", "appearance.previousGlass", "appearance.sidebarSurface",
+        "appearance.chromeStyle", "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.twoTone",
+        "appearance.cornerFlush", "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed",
+        "ui.animations.newTab", "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar",
+        "ui.animations.tabs", "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards",
+        "ui.animations.home", "ui.animations.cursor", "ui.animations.indicators", "ui.animations.feedback",
+        "ui.animations.web", "ui.paneAnimations", "ui.calm", "appearance.colorTransition.enabled",
+        "appearance.colorTransition.duration", "appearance.colorTransition.curve",
+        "appearance.colorTransition.springResponse", "appearance.colorTransition.springDamping",
+        "appearance.colorTransition.bezierX1", "appearance.colorTransition.bezierY1",
+        "appearance.colorTransition.bezierX2", "appearance.colorTransition.bezierY2",
+        "appearance.colorTransition.colorSpace", "appearance.colorTransition.reduceMotion", "layout.panePadding",
+        "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorder", "layout.paneSeparation",
+        "sidebar.border", "sidebar.borderWidth", "layout.paneBorderColor", "layout.paneBorderWidth",
+        "focusRing.enabled", "focusRing.style", "focusRing.contrast", "focusRing.color", "focusRing.width",
+        "focusRing.showWhenSinglePane", "appearance.statusIndicator.style", "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.size", "appearance.statusIndicator.thickness", "appearance.statusIndicator.color",
         "appearance.statusIndicator.honorStatusStyle", "appearance.statusIndicator.showAgentWorkingOnTabs",
         "appearance.statusIndicator.showPageLoading", "status.inferCommandBusy", "status.inferCommandBusyAfter",
         "terminal.fontFamily", "terminal.fontSize", "terminal.term", "sidebar.sectionLook", "sidebar.topBandMaxShare",
@@ -155,7 +157,9 @@ extension SettingsSchema {
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
-        "agentPane.newChatsIn",
+        "agentPane.newChatsIn", "agentPane.sessionWorktrees",
+        // The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.
+        "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
@@ -241,11 +245,12 @@ extension SettingsSchema {
         "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
-        "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
-        "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
-        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.commandLabels",
+        "agentPane.display.presentation", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
+        "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton",
+        "agentPane.display.harnessPlacement", "agentPane.display.rail.side", "agentPane.display.rail.show",
+        "agentPane.display.rail.control", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",

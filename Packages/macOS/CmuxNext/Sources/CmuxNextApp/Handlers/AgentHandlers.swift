@@ -28,10 +28,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
-    /// leave it out while Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
-    /// place it (InspectElementScopeTests).
+    /// Point at Element (#24707, ask-5077a4ec48): the menus that place it (the agent chat page's, and the native
+    /// tab, pane, workspace row and sidebar item menus) leave it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -89,7 +88,7 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
+                         }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -184,11 +183,12 @@ enum AgentHandlers {
                 "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
-            // A targeted context-menu invocation starts at the right-click point.
+            // A right-click menu's run starts on what was right-clicked: the chat page's element, or the native
+            // tab, pane, workspace row or sidebar item the menu belongs to.
             if invocation.target == nil {
                 context.services.uiInspector.toggle()
             } else {
-                context.services.uiInspector.inspectFromContextMenu()
+                context.services.uiInspector.inspectFromContextMenu(menu: invocation.menuContext, target: invocation.target)
             }
         })
         gatePointerInspectorMenuRows(in: registry)

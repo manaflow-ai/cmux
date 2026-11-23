@@ -82,14 +82,6 @@ def job(doc: dict, key: str = "fast-gates") -> dict:
     return doc["jobs"][key]
 
 
-def runner_text(job_body: dict) -> str:
-    """The job's runs-on, every matrix cell on its own line; a matrix nothing resolves fails."""
-    cells = workflow_jobs.runs_on_cells(job_body)
-    if cells is None:
-        raise AssertionError("runs-on reads a matrix value nothing resolves")
-    return "\n".join(cells)
-
-
 def step_named(steps: list[dict], fragment: str) -> dict:
     found = [s for s in steps if fragment in s.get("name", "")]
     if len(found) != 1:
@@ -97,56 +89,46 @@ def step_named(steps: list[dict], fragment: str) -> dict:
     return found[0]
 
 
+# Jobs that hold a write token stay on an ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+WRITE_TOKEN_JOBS = {"receipt", "post"}
+
+
 class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["portable-placement", "resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
-        # The reconciled Linux pool is the default for every trusted job; fork
-        # pull requests retain their ephemeral Blacksmith branch, and reruns
-        # accept bounded overflow explicitly.
-        guards_runner = runner_text(workflow_jobs.jobs(GUARDS)["own-change-checks"])
-        self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
-        self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
-        fast_runner = runner_text(doc["jobs"]["fast-gates"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
-        self.assertIn("inputs.runner", fast_runner)
-        self.assertNotIn("macos", fast_runner.lower())
-        # resolve and post are light jobs: the reconciled Blacksmith pool on every attempt. They took
-        # hosted Ubuntu on attempt 1 until 2026-11-18, when GitHub-hosted runners left them queued
-        # for hours (cmux#45735).
-        light = {"resolve", "receipt", "post"}
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
+        # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
+        # Blacksmith branch. The light jobs never took hosted Ubuntu again after it left them queued for hours
+        # (cmux#45735).
+        self.assertNotIn("runner", doc[True]["workflow_dispatch"]["inputs"])
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
-        for key in light:
-            with self.subTest(light=key):
-                runner = runner_text(doc["jobs"][key])
-                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
-                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
-                # receipt and post hold write tokens, so they read the ephemeral-only linux_4 pool
-                # (tests/test_ci_ephemeral_pool_readers.py); resolve keeps the reconciled linux pool.
-                pool = "linux_4" if key in ("receipt", "post") else "linux"
-                self.assertTrue(runner.endswith(f"|| fromJSON(vars.RUNNER_POOLS).{pool} }}}}"), runner)
-                self.assertNotIn("vars.LINUX_RUNNER", runner)
-        # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
-        # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
-        place = step_named(job(doc, "portable-placement")["steps"], "Place")["env"]
-        self.assertEqual(set(place["LINUX_ONLY"].split()), light)
-        self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
             # fast-check-route is held to the 2-vCPU pool by fast_check_route.py check (the decision takes no pool runner).
-            if key in light or key in ("portable-placement", "fast-check-route"):
+            if key == "fast-check-route":
                 continue
             with self.subTest(runner=key):
-                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 cells = workflow_jobs.runs_on_cells(each)
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
-                    self.assertIn("cmux-fleet-linux-x64", runner)
-                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                    "a stalled literal fleet label must not bypass the reconciled live pool")
-                    self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
+                    self.assertTrue(runner.startswith(
+                        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                        "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                        "'blacksmith-"), runner)
+                    self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
+                    self.assertNotIn("needs.", runner)
+                    self.assertNotIn("inputs.", runner)
+                    if key in WRITE_TOKEN_JOBS:
+                        # receipt and post hold write tokens: the ephemeral-only linux_4 pool, never the persistent
+                        # cmux-linux label (tests/test_ci_ephemeral_pool_readers.py, #49007).
+                        self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runner)
+                    else:
+                        self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                        self.assertNotIn("vars.", runner)
+                    self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
@@ -372,7 +354,7 @@ class WorkflowShape(unittest.TestCase):
     def test_receipt_job_runs_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         receipt = job(doc, "receipt")
-        self.assertEqual(receipt["needs"], ["resolve", "portable-placement"])
+        self.assertEqual(receipt["needs"], ["resolve", "fast-check-route"])
         # No runner and no API call unless a same-repository pull request names a receipt in its body.
         for fragment in ("github.event_name == 'pull_request'",
                          "github.event.pull_request.head.repo.full_name == github.repository",
@@ -398,7 +380,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "portable-placement"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", poster["if"])
@@ -1391,7 +1373,7 @@ class BunInstallScriptWithoutGnuTimeout(BunInstallScript):
     """The same bun-install.sh tests through scripts/ci/timeout.sh's perl watchdog, the path a Mac runner takes.
 
     2026-11-11: bun-install.sh called GNU `timeout` bare; tooling-tests passed on Linux and failed on the Macs
-    portable-placement sends it to ("timeout: command not found") on #40892, #41288, #41299 and #41305.
+    it then ran on ("timeout: command not found") on #40892, #41288, #41299 and #41305.
     """
 
     def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:

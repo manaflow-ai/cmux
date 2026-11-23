@@ -500,6 +500,18 @@ pub fn publish(current: Current) {
         if now.as_ref() == Some(&current) {
             return false;
         }
+        // One line per change phones hear, so a run times this hop of a theme change
+        // (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the hostd log).
+        let terminal_background = current
+            .terminal
+            .as_ref()
+            .and_then(|lines| lines.iter().rev().find_map(|line| line.strip_prefix("background = ")))
+            .unwrap_or("none");
+        tracing::info!(
+            background = %current.theme.background,
+            terminal_background = %terminal_background,
+            "appearance: published a changed appearance"
+        );
         *now = Some(current);
         true
     });

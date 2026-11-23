@@ -18,6 +18,25 @@ fn kind_of(e: &RpcError) -> Option<&str> {
     e.data.as_ref()?.get("errorKind")?.as_str()
 }
 
+/// A turn the agent failed because it does not know its model (Claude Code refused
+/// `fable-5.2`, Leo 2026-11-22) is `model.unrecognized`, for a sweeper; capacity is not.
+#[test]
+fn a_model_the_agent_does_not_know_is_model_unrecognized() {
+    let e = RpcError::new(
+        -32603,
+        "[claude-code:unrecognized_model] There's an issue with the selected model \
+             (fable-5.2). It may not exist or you may not have access to it.",
+    );
+    let mut typed = e.clone();
+    annotate_as(&mut typed, None, dead_process(&e));
+    assert_eq!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+    let busy =
+        RpcError::new(-32603, "Selected model is at capacity. Please try a different model.");
+    let mut typed = busy.clone();
+    annotate_as(&mut typed, None, dead_process(&busy));
+    assert_ne!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+}
+
 /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP
 /// closes, "Internal error" and a short -32603. A long -32603 is the agent's own answer.
 #[test]

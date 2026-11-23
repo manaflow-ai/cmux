@@ -74,6 +74,51 @@ fn offset_limit_state_and_full_pick_the_page() {
     assert_eq!(text, "No lost tasks.");
 }
 
+/// `status` is `state`'s near miss (as `runing` is `running`'s): it picks exactly the page
+/// `state` picks, and the answer says it was read that way. It used to go to the daemon,
+/// which does not read it either, so the call answered an unfiltered page.
+#[test]
+fn status_picks_the_page_state_picks_and_says_so() {
+    let (by_status, text) = page(json!({"status": "running", "limit": 5})).apply(listed(10), NOW);
+    let (by_state, _) = page(json!({"state": "running", "limit": 5})).apply(listed(10), NOW);
+    assert_eq!(by_status, by_state);
+    let ids: Vec<&str> =
+        by_status["tasks"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["t9", "t7", "t5", "t3", "t1"]);
+    assert_eq!(by_status["total"], json!(5), "the filter ran, so the page is not the whole list");
+    assert!(text.ends_with("(key \"status\" read as \"state\")"), "{text}");
+    // A near-miss key takes the state's own near-miss reading too, and both are said.
+    let (s, text) = page(json!({"status": "runing"})).apply(listed(4), NOW);
+    assert_eq!(s["total"], json!(2));
+    assert!(text.contains("(key \"status\" read as \"state\")"), "{text}");
+    assert!(text.contains("(state \"runing\" read as \"running\")"), "{text}");
+    // A near miss is not read over a key the call already gave.
+    let (s, text) = page(json!({"status": "running", "state": "failed"})).apply(listed(8), NOW);
+    assert_eq!(s["total"], json!(2), "state failed stands: {text}");
+}
+
+/// A key that is nobody's near miss is named in the answer, not quietly passed on: a filter
+/// the call thought it set and did not is worse than a page it knows is unfiltered.
+#[test]
+fn an_unknown_key_is_named_not_ignored() {
+    let (s, text) = page(json!({"nonsense": "running", "limit": 2})).apply(listed(6), NOW);
+    assert_eq!(s["total"], json!(6), "nothing was filtered");
+    assert!(
+        text.ends_with(
+            "(\"nonsense\" is not one of state, limit, offset, full, all, so it picked nothing)"
+        ),
+        "{text}"
+    );
+    let mut args = json!({"nonsense": 1, "sessionId": "s", "all": true});
+    let taken = Page::take(&mut args).unwrap();
+    assert_eq!(
+        args,
+        json!({"sessionId": "s", "all": true}),
+        "the daemon's keys stay, the stray one goes"
+    );
+    assert_eq!(taken.notes.len(), 1, "{:?}", taken.notes);
+}
+
 #[test]
 fn ages_and_cuts() {
     assert_eq!(

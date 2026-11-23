@@ -23,6 +23,17 @@
 //! so does a command with [`FOREGROUND_OK`] or a trailing `&`. Any other
 //! command still in the foreground after a minute goes to the background on its own
 //! (`hub/auto_background.rs`), since no list knows a person's own scripts.
+//!
+//! A CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
+//! rewritten too, a subagent's included, so no wait runs as a shell under the harness. Before,
+//! a background subagent's foreground `glaeda-gh wait` (with a 90-minute Bash `timeout`, so
+//! neither `hub/auto_background.rs` nor Claude Code moved it) kept its chat's idle harness up:
+//! the lead's turn had ended, no turn, queue or command ran, and the idle census saw a bash
+//! under the harness (`hub/idle_census.rs`). A Ctrl-B or a Bash `timeout` cannot hand a running
+//! shell to the daemon; only the hook, before it starts, can. A wait whose own bound is short
+//! (`--timeout 60`, [`QUICK_WAIT_SECS`]) is a read and runs as asked. Leo, on 60 such chats of
+//! about 190 awake on the fleet: "thats extremely dumb. simply clear th bullshit. theres noway
+//! tere's >100 of actually needed stuff much less >400".
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -95,6 +106,8 @@ const SLOW: &[(&str, Option<&str>, Option<&str>, &str)] = &[
     ("xcodebuild", None, None, "an Xcode build"),
     ("gh", Some("run"), Some("watch"), "a CI wait"),
     ("gh", Some("pr"), Some("--watch"), "a CI wait"),
+    ("glaeda-gh", Some("wait"), None, "a CI wait"),
+    ("lane-gh", Some("call"), Some("ci_wait"), "a CI wait"),
     ("tail", None, Some("-f"), "a follow that never ends on its own"),
     ("tail", None, Some("-F"), "a follow that never ends on its own"),
     ("tail", None, Some("--follow"), "a follow that never ends on its own"),
@@ -195,6 +208,11 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
             if program == "tail" && rest.iter().any(|w| w.starts_with("--pid")) {
                 continue;
             }
+            // `glaeda-gh wait ... --timeout 60 --json` reads the state now: a wait whose own
+            // bound is short holds the turn no longer than a read.
+            if program == "glaeda-gh" && short_bound(rest) {
+                continue;
+            }
             if !rest.iter().any(|w| QUICK.contains(w)) {
                 found = Some(*why);
                 return;
@@ -202,6 +220,36 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
         }
     });
     found
+}
+
+/// The longest own bound (`--timeout S` or `--max S`) of a wait that is a read, not a wait.
+const QUICK_WAIT_SECS: u64 = 120;
+
+/// Whether a wait's words set its own bound to at most [`QUICK_WAIT_SECS`].
+fn short_bound(rest: &[&str]) -> bool {
+    let mut words = rest.iter();
+    while let Some(w) = words.next() {
+        let value = match w.split_once('=') {
+            Some(("--timeout" | "--max", v)) => Some(v),
+            None if matches!(*w, "--timeout" | "--max") => words.next().copied(),
+            _ => None,
+        };
+        if value.and_then(seconds).is_some_and(|v| v <= QUICK_WAIT_SECS as f64) {
+            return true;
+        }
+    }
+    false
+}
+
+/// A wait's bound in seconds: `90`, `90s`, `2m`, `1h`.
+fn seconds(value: &str) -> Option<f64> {
+    let (number, unit) = match value.char_indices().last()? {
+        (at, 's') => (&value[..at], 1.0),
+        (at, 'm') => (&value[..at], 60.0),
+        (at, 'h') => (&value[..at], 3600.0),
+        _ => (value, 1.0),
+    };
+    number.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * unit)
 }
 
 /// How the hook names this binary's `process start` in a rewritten call ([`decide`]): the CLI's

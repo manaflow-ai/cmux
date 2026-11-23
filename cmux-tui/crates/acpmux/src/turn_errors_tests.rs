@@ -1,5 +1,8 @@
 use super::*;
 
+/// Claude Code's whole error on a Freestyle lane (2026-11-22).
+const CLAUDE_TLS_UNVERIFIED: &str = "API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE). The certificates the server sent don't lead to a trusted authority. If the server leaves out an intermediate certificate, which browsers fetch by themselves, whoever runs it must have it send its full chain. If it is a TLS-inspecting corporate proxy or a gateway signed by a private CA, set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config";
+
 #[test]
 fn transport_errors_are_told_from_limits_and_bugs() {
     for m in [
@@ -11,8 +14,13 @@ fn transport_errors_are_told_from_limits_and_bugs() {
         "read ECONNRESET",
         "API Error: Connection lost mid-response. The response above may be incomplete.",
         "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+        // Freestyle lanes, 2026-11-22: a restarted daemon's egress proxy had a new CA.
+        CLAUDE_TLS_UNVERIFIED,
+        "error sending request: invalid peer certificate: UnknownIssuer",
+        "request to https://api.anthropic.com failed, reason: self-signed certificate in certificate chain (SELF_SIGNED_CERT_IN_CHAIN)",
     ] {
         assert!(is_transport_error(m), "{m}");
+        assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
     }
     for m in [
         "You've reached your usage limit for this account",

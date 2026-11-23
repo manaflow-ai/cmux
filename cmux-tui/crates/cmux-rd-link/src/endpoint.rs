@@ -134,6 +134,11 @@ pub struct Endpoint {
     /// A responder still in the handshake punches every path at this time
     /// ([`crate::TAG_PUNCH`]); a new path makes it due at once.
     next_punch_us: u64,
+    /// When this endpoint was made: [`crate::SIGNALING_TIMEOUT_US`] counts from here.
+    created_us: u64,
+    /// Whether a route has arrived (a path from signaling, or a packet); the handshake's
+    /// own timeout counts from then.
+    routed: bool,
 }
 
 impl Endpoint {
@@ -160,7 +165,17 @@ impl Endpoint {
             sent_us: now_us,
             traffic_us: now_us,
             next_punch_us: now_us,
+            created_us: now_us,
+            routed: false,
         })
+    }
+
+    /// The first route to the peer arrived: the handshake's timeout starts now.
+    fn route_arrived(&mut self, now_us: u64) {
+        if !self.routed {
+            self.routed = true;
+            self.link.start_handshake_clock(now_us);
+        }
     }
 
     /// A responder whose handshake has not finished: it punches its paths.
@@ -234,6 +249,7 @@ impl Endpoint {
         // A route to the peer means the peer has the answer and is dialing:
         // a responder's handshake clock starts now, not at its own start.
         self.link.peer_contact(now_us);
+        self.route_arrived(now_us);
         if self.punching() {
             self.next_punch_us = self.next_punch_us.min(now_us);
         }
@@ -291,6 +307,7 @@ impl Endpoint {
         now_us: u64,
     ) -> Result<Vec<EndpointEvent>, LinkError> {
         self.clock_us = self.clock_us.max(now_us);
+        self.route_arrived(now_us);
         let was_established = self.link.is_established();
         let events = self.link.on_packet(packet, now_us)?;
         if events.iter().any(|e| matches!(e, Event::Datagram(_) | Event::Control(_))) {
@@ -376,12 +393,19 @@ impl Endpoint {
         // Keep handshake/control output queued until signaling has supplied at least one
         // route. The initiator starts Noise before the viewer's candidate command reaches the
         // network thread; draining `Link::out` while `routes()` is empty loses that first packet
-        // and makes startup wait for the 250 ms handshake retry. Advance the handshake timer
-        // without queueing another copy so a delayed candidate still gets the original packet
-        // and a route-less session still reaches its normal timeout.
+        // and makes startup wait for the 250 ms handshake retry. A delayed candidate still gets
+        // the original packet. The handshake's timeout counts from the first route
+        // (route_arrived), so slow signaling does not spend it; a session that never gets one
+        // ends at SIGNALING_TIMEOUT_US.
         self.clock_us = self.clock_us.max(now_us);
         if self.paths.is_empty() {
-            self.link.poll_handshake_timers(now_us)?;
+            if self.routed {
+                self.link.poll_handshake_timers(now_us)?;
+            } else if !self.link.is_established()
+                && now_us.saturating_sub(self.created_us) > crate::SIGNALING_TIMEOUT_US
+            {
+                return Err(self.link.fail_no_route());
+            }
             return Ok(Vec::new());
         }
         // Probes that timed out are lost.
@@ -509,10 +533,20 @@ impl Endpoint {
             }
         });
         let punch = (self.punching() && !self.paths.is_empty()).then_some(self.next_punch_us);
-        [self.link.next_deadline_us(), probe, timeout, silence, self.keep_awake_at(), punch]
-            .into_iter()
-            .flatten()
-            .min()
+        let signaling = (!self.routed && !established)
+            .then_some(self.created_us + crate::SIGNALING_TIMEOUT_US + 1);
+        [
+            self.link.next_deadline_us(),
+            probe,
+            timeout,
+            silence,
+            self.keep_awake_at(),
+            punch,
+            signaling,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Tells the peer the session ends, on the current routes.

@@ -221,6 +221,16 @@ mod restore_freeze_tests;
 /// move with the chat.
 const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// How long a `transfer_begin` with `afterTurn` waits for the running turn: its
+/// `afterTurnTimeoutMs` (the mover's `--timeout`), at most [`AFTER_TURN_WAIT`]; that when absent.
+pub(super) fn after_turn_wait(params: &Value) -> std::time::Duration {
+    params
+        .get("afterTurnTimeoutMs")
+        .and_then(Value::as_u64)
+        .map(std::time::Duration::from_millis)
+        .map_or(AFTER_TURN_WAIT, |d| d.min(AFTER_TURN_WAIT))
+}
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
@@ -262,7 +272,9 @@ impl Hub {
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, gates).await
+                // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
+                let turn_wait = after_turn.then(|| after_turn_wait(params));
+                self.transfer_begin(&session, interrupt, turn_wait, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -313,8 +325,8 @@ impl Hub {
         }
     }
 
-    /// Freezes the chat for its move and makes its bundle. With `after_turn`, a running turn is
-    /// neither refused nor stopped: the move first waits (up to [`AFTER_TURN_WAIT`]) for the
+    /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
+    /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
     /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
     #[allow(clippy::too_many_arguments)]
@@ -322,7 +334,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         interrupt: bool,
-        after_turn: bool,
+        after_turn: Option<std::time::Duration>,
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
@@ -341,13 +353,13 @@ impl Hub {
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
-        let early = if after_turn {
-            match tokio::time::timeout(AFTER_TURN_WAIT, session.turn_lock.lock()).await {
+        let early = if let Some(wait) = after_turn {
+            match tokio::time::timeout(wait, session.turn_lock.lock()).await {
                 Ok(guard) => Some(guard),
                 Err(_) => {
                     let why = format!(
                         "the running turn did not end within {}s; try again, or pass --interrupt",
-                        AFTER_TURN_WAIT.as_secs()
+                        wait.as_secs()
                     );
                     return Err(transfer_error("busy", why));
                 }
@@ -792,5 +804,51 @@ impl Hub {
 }
 
 #[cfg(test)]
-#[path = "transfer_out_fencing_tests.rs"]
-mod fencing_tests;
+mod fencing_tests {
+    use super::*;
+
+    #[test]
+    fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {
+        // The four protocol operations all use the same fencing predicate. Keep this table
+        // explicit so a new endpoint cannot silently accept an old host's epoch.
+        for operation in ["read", "write", "commit", "abort"] {
+            let error = require_epoch(9, Some(8)).expect_err(operation);
+            assert!(error.message.contains("transfer.stale_epoch"));
+        }
+    }
+
+    #[test]
+    fn transfer_epoch_marker_survives_resume_and_only_moves_forward() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "4").unwrap();
+        assert_eq!(transfer_epoch(&dir).unwrap(), 4);
+        // A resumed owner can never accept the old epoch after a retry increments it.
+        assert!(require_epoch(5, Some(4)).is_err());
+        assert!(require_epoch(5, Some(5)).is_ok());
+        assert!(reject_stale_epoch(4, 5).is_ok());
+        assert!(reject_stale_epoch(5, 4).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn malformed_epoch_marker_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-bad-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "not-an-epoch").unwrap();
+        assert!(transfer_epoch_marker(&dir).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn epoch_parser_distinguishes_legacy_missing_from_malformed() {
+        assert_eq!(parse_epoch(None).unwrap(), None);
+        assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
+        assert!(parse_epoch(Some(&json!("7"))).is_err());
+        assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+}
+
+#[cfg(test)]
+#[path = "transfer_out_after_turn_wait_tests.rs"]
+mod after_turn_wait_tests;

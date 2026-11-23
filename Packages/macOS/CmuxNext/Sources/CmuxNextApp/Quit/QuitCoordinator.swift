@@ -156,7 +156,7 @@ final class QuitCoordinator {
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
                     agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
-                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
+                    agentImages: { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))

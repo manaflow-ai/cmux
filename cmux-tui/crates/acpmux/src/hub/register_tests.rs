@@ -92,6 +92,26 @@ fn auto_is_the_first_step_only() {
     assert!(RegisterRequest::from_params(&both).is_err());
 }
 
+/// Repro (Leo, 2026-11-20, of a terminal coordinator restarted with `--resume`: "isn't one I
+/// can message through acpmux"): the restarted process handed acpmux no token, so sends
+/// waited on `bridge.registration_stale` until a person ran `acpmux register` in it.
+#[test]
+fn only_a_registered_chat_resumed_for_its_own_conversation_renews() {
+    assert!(renewable(true, Some("6e0bad7d"), "6e0bad7d"));
+    assert!(!renewable(false, Some("6e0bad7d"), "6e0bad7d"), "never registered");
+    assert!(!renewable(true, None, "6e0bad7d"), "a launch that names no conversation");
+    assert!(!renewable(true, Some("other"), "6e0bad7d"), "another conversation");
+}
+
+#[test]
+fn renew_takes_no_code() {
+    let renew =
+        json!({"name": "claude-code-6e0bad7d", "socket": "/s", "token": "t", "renew": true});
+    assert!(RegisterRequest::from_params(&renew).unwrap().renew);
+    let both = json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
+    assert!(RegisterRequest::from_params(&both).is_err());
+}
+
 #[test]
 fn a_tag_alone_never_registers_a_chat() {
     assert!(!with_registered(|set| set.contains("never-registered-chat")));

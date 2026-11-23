@@ -134,7 +134,7 @@ extension AgentPaneView {
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
             guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)
-            model.droppedPaths.stash(urls, kind: .drop)
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(

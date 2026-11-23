@@ -1,3 +1,7 @@
+//! `acpmux --help` against the docs and skills: every command they name
+//! parses, and every command parses as documented. Split out of
+//! `command.rs` to keep that file under 100 KB.
+
 use super::Cli;
 use clap::{CommandFactory, Parser};
 use std::collections::{HashMap, HashSet};
@@ -309,7 +313,7 @@ fn agent_skills_use_current_command_names() {
     assert!(
         stale.is_empty(),
         "a skill teaches an old acpmux spelling; use machine, machine pick, machine dedicated, \
-             --machine:\n{}",
+         --machine:\n{}",
         stale.join("\n")
     );
 }
@@ -327,6 +331,7 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         all_idle: false,
         interrupt: true,
         after_turn: false,
+        timeout: 600,
         leave_dirty: false,
         carry_changes: true,
         cwd: None,

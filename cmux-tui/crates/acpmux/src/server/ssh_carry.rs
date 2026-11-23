@@ -35,8 +35,9 @@ pub(super) const CARRY_DEADLINE: Duration = Duration::from_secs(30);
 /// link and its retry found it down again (about 2 s on the outbox's schedule).
 pub(super) const CARRY_FROM_ATTEMPT: u32 = 2;
 
-/// The `--relay` name the far daemon records for a carried message.
-const RELAY_NAME: &str = "acpmux-ssh";
+/// The `--relay` name the far daemon records for a carried message: its inbox wakes the chat
+/// for it (`prompt_provenance::waited`).
+const RELAY_NAME: &str = crate::prompt_provenance::SSH_CARRY_RELAY;
 
 /// What one carry did.
 #[derive(Debug)]
@@ -92,7 +93,7 @@ pub(super) struct Message {
 
 /// `request` as ssh carries it, or None when it holds what the far CLI cannot take on stdin (an
 /// attachment, any block but text): the link or the mesh relay keeps it.
-pub(super) fn message(request: &Value, from: Option<&str>, machine: &str) -> Option<Message> {
+pub(super) fn message(request: &Value, from: &Sender, machine: &str) -> Option<Message> {
     let mut texts = Vec::new();
     for block in request.get("prompt").and_then(Value::as_array).into_iter().flatten() {
         match (block.get("type").and_then(Value::as_str), block.get("text").and_then(Value::as_str))
@@ -116,10 +117,20 @@ pub(super) fn message(request: &Value, from: Option<&str>, machine: &str) -> Opt
     if let Some(key) = word("supersede") {
         flags.push(format!("--supersede={key}"));
     }
-    if let Some(from) = from.filter(|f| !f.trim().is_empty()) {
-        flags.push(format!("--from={from}"));
-        flags.push(format!("--relay={RELAY_NAME}"));
-        flags.push(format!("--relayed-from={machine}/{from}"));
+    match from {
+        Sender::Named(from) => {
+            flags.push(format!("--from={from}"));
+            flags.push(format!("--relay={RELAY_NAME}"));
+            flags.push(format!("--relayed-from={machine}/{from}"));
+        }
+        // No name to give, and still not the person's: the relay record alone names this
+        // machine, so the far daemon records another agent's message (`cli/run/standard.rs`
+        // names a relayed send with no `--from` by where it came from).
+        Sender::Program => {
+            flags.push(format!("--relay={RELAY_NAME}"));
+            flags.push(format!("--relayed-from={machine}"));
+        }
+        Sender::Person => {}
     }
     Some(Message { text: texts.join("\n\n"), flags })
 }
@@ -140,24 +151,66 @@ pub(super) fn script(key: &str, flags: &[String]) -> String {
     )
 }
 
-/// The sender a carry names: the session this daemon proved sent it, else the name it gave.
-fn sender(hub: &Hub, delivery: &Delivery) -> Option<String> {
-    delivery.caller.as_deref().map(|id| hub.session_name(id)).or_else(|| {
-        delivery
-            .request
-            .pointer("/_meta/acpmux/fromAgent")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    })
+/// Who a carry says sent a delivery. The far CLI runs under a plain ssh login, which declares a
+/// terminal and holds no caller token: a carry that says nothing is recorded there as the far
+/// machine's owner typing at a terminal (`server/requests/prompt_sender.rs` `owner_terminal`).
+/// So only the person's own send says nothing.
+///
+/// Leo, 2026-11-22, on a lane's messages drawn in his chat as his own bubbles, "you · via CLI on
+/// cosmic-gray": "these shouldn't have been shown like that." The lane's send had proved no
+/// session to its own daemon, the carry named no one for it, and the far record read
+/// `origin: {actor: "person", verified: true}`.
+#[derive(Debug, PartialEq)]
+pub(super) enum Sender {
+    /// A session or a name: the one this daemon proved, else the one the send gave.
+    Named(String),
+    /// A program that is not the person and has no name here: a send that declared no terminal
+    /// or claimed a harness, a relay or a route (`Delivery::not_terminal`, `SENDER_CLAIMS`).
+    Program,
+    /// The person's own send, carried as the far machine's owner's terminal send.
+    Person,
+}
+
+/// The `_meta.acpmux` fields that make a send a program's and never the owner's terminal's, as
+/// `prompt_sender.rs` `claims_a_sender` reads them on a direct send.
+const SENDER_CLAIMS: &[&str] = &[
+    crate::prompt_provenance::FROM_HARNESS,
+    crate::sender_harness::META_KEY,
+    crate::prompt_provenance::FROM_RELAY,
+    "via",
+];
+
+/// Who a carry of `delivery` names, with `name_of` this daemon's name for a session id: the
+/// session it proved, the name the send gave, the session it named without proof (still an
+/// agent's, by the name this daemon has for it), a program with no name, or the person.
+pub(super) fn sender(delivery: &Delivery, name_of: impl Fn(&str) -> String) -> Sender {
+    let mux = delivery.request.pointer("/_meta/acpmux");
+    let said = |key: &str| mux.and_then(|m| m.get(key)).filter(|v| !v.is_null());
+    let named = |name: String| Some(name).filter(|n| !n.trim().is_empty()).map(Sender::Named);
+    let from_agent = || said("fromAgent").and_then(Value::as_str).map(str::to_owned);
+    delivery
+        .caller
+        .as_deref()
+        .and_then(|id| named(name_of(id)))
+        .or_else(|| from_agent().and_then(named))
+        .or_else(|| delivery.unproven_caller.as_deref().and_then(|id| named(name_of(id))))
+        .unwrap_or_else(|| {
+            let program = delivery.caller.is_some()
+                || delivery.unproven_caller.is_some()
+                || delivery.not_terminal
+                || said("fromAgent").is_some()
+                || SENDER_CLAIMS.iter().any(|key| said(key).is_some());
+            if program { Sender::Program } else { Sender::Person }
+        })
 }
 
 /// One ssh carry of `delivery`, when it has a route ([`route`]) and a message ssh carries
 /// ([`message`]); None otherwise (the outbox goes on as before).
 pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> {
     let route = route(hub, &delivery.target)?;
-    let from = sender(hub, delivery);
+    let from = sender(delivery, |id| hub.session_name(id));
     let machine = crate::pairing::machine_name();
-    let message = message(&delivery.request, from.as_deref(), &machine)?;
+    let message = message(&delivery.request, &from, &machine)?;
     let argv = crate::cli::hosts::ssh_argv(&route.destination, &script(&route.key, &message.flags))
         .ok()?;
     let started = std::time::Instant::now();

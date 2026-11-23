@@ -125,6 +125,7 @@ async fn an_automatic_step_with_a_waiting_code_is_answered_before_the_proof() {
         token: Some("tok-early".into()),
         code: None,
         auto,
+        renew: false,
     };
     let v = hub.register_caller(1, req(true)).await.unwrap();
     assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));

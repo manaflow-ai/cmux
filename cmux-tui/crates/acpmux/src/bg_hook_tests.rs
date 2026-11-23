@@ -89,6 +89,62 @@ fn a_slow_foreground_command_is_rewritten_into_a_daemon_task_start() {
     assert_eq!(words.last().unwrap(), "tail -f /var/log/app.log");
 }
 
+/// The two chats that would not hibernate (2026-11-22): a background subagent blocked in a
+/// foreground `glaeda-gh wait` for 40 and 90 minutes, a bash under an idle harness. The wait
+/// now starts as a daemon task, still marked as that subagent's, so its end reaches it or its
+/// lead and the harness can hibernate meanwhile.
+#[cfg(unix)]
+#[test]
+fn a_subagents_foreground_ci_wait_is_rewritten_into_a_daemon_task_start() {
+    for command in [
+        "timeout 5500 glaeda-gh wait pr o/r#45270 --until done --sha 641e4a7 --timeout 5400 \
+--max 5400 2>&1 | grep -v 'WARNING: the daemon' | tail -25",
+        "timeout 2500 glaeda-gh wait pr o/r#17815 --until merged --timeout 2400 2>&1 | tail -15",
+        "glaeda-gh wait run o/r/7",
+        "lane-gh call ci_wait o/r '{\"id\":3}'",
+    ] {
+        let mut input = foreground(command);
+        input["tool_input"]["timeout"] = json!(5_600_000);
+        input["agent_id"] = json!("aaa3e4dce28a52538");
+        input["agent_type"] = json!("claude");
+        let updated = rewritten(&input, Route::Direct);
+        let words = argv(&updated);
+        let slow = words.iter().position(|w| w == "--slow").expect("--slow");
+        assert_eq!(words[slow + 1], "a CI wait", "{command}");
+        assert_eq!(words.last().unwrap(), command);
+        // `main` marks the rewritten call as the subagent's, so `process start` names it.
+        let mut call = input.clone();
+        call["tool_input"] = updated;
+        let marked = subagent_mark(&call).expect("marked");
+        let text = marked["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+        assert!(
+            text.starts_with("export ACPMUX_CALLER_SUBAGENT=claude:aaa3e4dce28a52538\n"),
+            "{text}"
+        );
+    }
+}
+
+/// A wait with a short bound of its own reads the state now: it runs as asked.
+#[test]
+fn a_wait_with_a_short_bound_is_a_read() {
+    for command in [
+        "timeout 300 glaeda-gh wait pr o/r#1 --until done --sha abc --timeout 60 --json",
+        "glaeda-gh wait pr o/r#1 --max=30",
+        "glaeda-gh wait run o/r/7 --timeout 2m",
+        "glaeda-gh wait --help",
+    ] {
+        assert_eq!(slow_reason(command), None, "{command}");
+    }
+    for command in [
+        "glaeda-gh wait pr o/r#1",
+        "glaeda-gh wait pr o/r#1 --timeout 600",
+        "glaeda-gh wait run o/r/7 --timeout 30m",
+        "glaeda-gh status",
+    ] {
+        assert_eq!(slow_reason(command).is_some(), command.contains(" wait "), "{command}");
+    }
+}
+
 #[test]
 fn without_the_acpmux_server_or_in_the_foreground_the_shell_runs() {
     assert_eq!(decide(&call(true), None, &cli()), None);

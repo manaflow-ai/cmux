@@ -1102,3 +1102,33 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     assert!(!rd_signed_in_for(&dir, &mark));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What `peers` lists as `deviceHub` on a machine only the mesh hub reaches: the device hub's
+/// record of its name (its first label, any case), or that there is none; nothing before the
+/// list was read.
+#[test]
+fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
+    let home = tempfile::tempdir().unwrap();
+    let shared = shared(home.path());
+    assert_eq!(shared.device_hub_of("lane-1"), None);
+    let own = shared.hub().device.id.clone();
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos", "macScreenShared": true},
+        {"id": "d1", "name": "Lane-1.internal", "platform": "linux", "online": true,
+         "macScreenShared": true},
+        {"id": "d2", "name": "lane-2", "platform": "linux", "online": false},
+        {"id": "d3", "name": "lane-2", "platform": "linux", "online": true,
+         "macScreenShared": false},
+    ]}));
+    assert_eq!(
+        shared.device_hub_of("lane-1"),
+        Some(json!({"listed": true, "platform": "linux", "screenShared": true}))
+    );
+    assert_eq!(
+        shared.device_hub_of("lane-2"),
+        Some(json!({"listed": true, "platform": "linux", "screenShared": false}))
+    );
+    assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
+    // This device's own record is never another machine's.
+    assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
+}

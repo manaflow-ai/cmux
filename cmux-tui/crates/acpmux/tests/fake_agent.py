@@ -837,6 +837,22 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "opencode-task" runs a subagent as OpenCode 1.19 does: only as its `task` tool call, whose
+    # end names the child's own session and model (manaflow-ai/cmux#50203).
+    if text == "opencode-task":
+        call, child = "chatcmpl-tool-oc1", "ses_child_oc1"
+        task = {"description": "Reply PONG", "prompt": "Reply PONG.", "subagent_type": "general"}
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "pending", "rawInput": {}, "locations": []})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "in_progress", "rawInput": task, "locations": []})
+        out = f'<task id="{child}" state="completed">\n<task_result>\nPONG\n</task_result>\n</task>'
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "Reply PONG", "kind": "think",
+                     "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": out}}],
+                     "rawOutput": {"output": out, "metadata": {"model": {"modelID": "big-pickle", "providerID": "opencode"},
+                                                               "parentSessionId": sid, "sessionId": child, "truncated": False}}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
     # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
     if text.startswith("child-gate:"):
@@ -1339,6 +1355,22 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "quit-after: X" answers the turn, then, idle, prints X on stderr and exits 0 on its own, as
+    # a CLI that quits after its account's 429 does between turns.
+    if text.startswith("quit-after:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        line = text[len("quit-after:"):].strip()
+
+        def quit_later():
+            time.sleep(0.5)
+            sys.stderr.write(line + "\n")
+            sys.stderr.flush()
+            time.sleep(0.2)
+            os._exit(0)
+
+        threading.Thread(target=quit_later, daemon=True).start()
+        return
     # "overloaded: X": the provider's overload with no HTTP status in the text.
     # "surfaces-tour": one turn that draws every content surface of the chat (design/chat-surfaces.md,
     # scripts/cmux-next/chat-surfaces-shots.py): a plan, a shell call with its output, a new 55-line
@@ -1776,6 +1808,25 @@ def handle_prompt(rid, params):
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
+        return
+    # "tagged:N:MS" streams N rounds of a reply chunk, a thought, a tool call and its end and a
+    # plan, every MS ms. Each update carries one tag [[t:ROUND:KIND]] that names it alone, so a
+    # client that follows the chat can count each update it got (tests/follower_once.rs).
+    if text.startswith("tagged:"):
+        n, ms = (int(v) for v in text[len("tagged:"):].split(":"))
+        for i in range(n):
+            tag = lambda k: f"[[t:{i}:{k}]]"
+            send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}} for u in [
+                {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{tag('m')} said "}},
+                {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"{tag('th')} thought "}},
+                {"sessionUpdate": "tool_call", "toolCallId": f"tg-{i}", "title": tag("tc"), "kind": "execute",
+                 "status": "in_progress", "rawInput": {"command": f"echo {tag('tc')}"}},
+                {"sessionUpdate": "tool_call_update", "toolCallId": f"tg-{i}", "status": "completed",
+                 "content": [{"type": "content", "content": {"type": "text", "text": f"{tag('tu')} out"}}]},
+                {"sessionUpdate": "plan", "entries": [{"content": f"{tag('p')} step", "priority": "medium", "status": "in_progress"}]},
+            ]])
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
     # each sign well inside the stall limit (`hub/stalled_turn.rs`).

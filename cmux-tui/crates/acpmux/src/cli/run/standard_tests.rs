@@ -34,7 +34,7 @@ fn team_receipt_shows_the_hubs_canonical_resolution() {
     assert!(line.contains("@user_42/coordinator"));
     assert!(line.contains("startWork=information"));
 }
-use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
+use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers};
 use serde_json::json;
 
 /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
@@ -95,14 +95,6 @@ fn a_session_read_through_the_hub_is_sent_through_the_hub() {
     assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
     assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
     assert!(!read_through_hub(&json!({"sessionId": "s"})));
-}
-
-#[test]
-fn a_sub_session_names_the_parent_that_started_it() {
-    let child = json!({"sessionId": "child", "startedBy": "p"});
-    assert_eq!(started_by(&child).as_deref(), Some("p"));
-    assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
-    assert_eq!(started_by(&json!({"sessionId": "old"})), None);
 }
 
 #[test]

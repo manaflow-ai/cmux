@@ -180,21 +180,24 @@ import CmuxNextTestSupport
     }
 
     /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
-    /// back to its leave picture, but only one of the page as it is now (its picture version): a page that navigated
-    /// while hidden must not wake behind a picture of its earlier URL.
-    @Test(arguments: [true, false])
-    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(current: Bool) async throws {
+    /// back to its leave picture, but only one of the URL it has now: a page that navigated while hidden must not wake
+    /// behind a picture of its earlier URL, and one whose title or load state moved while hidden keeps its picture
+    /// (a mail tab counting unread kept none, so every such page woke blank).
+    @Test(arguments: ["current", "retitled", "stale"])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(state: String) async throws {
+        let current = state != "stale"
         let rig = try Rig()
         defer { rig.close() }
         rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
         rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
-        let page = try await rig.page(current ? "current" : "stale", body: "<p>leave picture</p>")
+        let page = try await rig.page(state, body: "<p>leave picture</p>")
         let key = try await rig.hide(page)
         let cache = rig.services.cache
         try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
         let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
         cache.pageThumbnails.insert(leave, for: key)
-        cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        cache.pageThumbnailURLs[key] = current ? page.state.url?.absoluteString : "https://earlier.example/"
         rig.hibernation.pressureDidChange(.critical)
         rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
         rig.hibernation.replan()
@@ -204,7 +207,7 @@ import CmuxNextTestSupport
         if current {
             #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
         } else {
-            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier version of itself")
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL")
         }
     }
 
@@ -302,6 +305,36 @@ import CmuxNextTestSupport
         #expect(wake.snapshot, "the pane had no snapshot while the page came back")
         #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
         #expect(rig.hibernation.snapshots.count == 0, "the woken page's snapshot stayed in the store")
+    }
+
+    /// "Shows its last frame in under 100 ms" had no number: the log timed the page being back and
+    /// loaded, never the picture. A wake now carries when the pane got its last frame (`picture_ms`).
+    @Test func aWakeCarriesWhenItsLastFrameShowed() throws {
+        var log = HibernationWakes()
+        let start = ContinuousClock.now
+        log.start("a", engine: .cef, snapshot: true, at: start)
+        log.pictureShown("a", at: start.advanced(by: .milliseconds(18)))
+        log.mounted("a", visible: true, at: start.advanced(by: .milliseconds(60)))
+        #expect(log.records.last?.pictureMs == 18 && log.records.last?.mountedMs == 60)
+        // A picture already on screen when the wake starts counts as 0; a wake with none says none.
+        log.pictureShown("b", at: start)
+        log.start("b", engine: .cef, snapshot: true, at: start.advanced(by: .milliseconds(5)))
+        log.mounted("b", visible: true, at: start.advanced(by: .milliseconds(40)))
+        #expect(log.records.last?.pictureMs == 0)
+        log.start("c", engine: .webkit, snapshot: false, at: start)
+        log.mounted("c", visible: true, at: start.advanced(by: .milliseconds(9)))
+        #expect(log.records.last?.tab == "c" && log.records.last?.pictureMs == nil)
+        // A page closed asleep leaves no picture time for a later page of the same key.
+        log.pictureShown("d", at: start)
+        log.forget("d")
+        log.start("d", engine: .cef, snapshot: false, at: start)
+        log.mounted("d", visible: true, at: start.advanced(by: .milliseconds(3)))
+        #expect(log.records.last?.pictureMs == nil)
+        guard case .array(let rows) = log.json, case .object(let first)? = rows.first else {
+            Issue.record("the wake log's JSON is not a list of objects")
+            return
+        }
+        #expect(first["picture_ms"] == .number(18))
     }
 
     /// Leo (PR 23083): a hibernated page comes back where it was, with what its fields held.

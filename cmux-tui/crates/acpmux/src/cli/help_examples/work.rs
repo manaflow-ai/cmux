@@ -83,13 +83,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "board",
-        &[
-            ("The local branch board (Labs > Show Preview Features)", "acpmux board"),
-            ("The same board as JSON", "acpmux board --json"),
-        ],
-    ),
-    (
         "gc",
         &[
             ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),
@@ -420,13 +413,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "watch rm",
         &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
-    ),
-    (
-        "board",
-        &[
-            ("Show this machine's branch board", "acpmux board"),
-            ("The same board as JSON", "acpmux --json board"),
-        ],
     ),
     (
         "chats",

@@ -150,7 +150,7 @@ jobs:
     name: action export areas
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -209,7 +209,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -329,7 +329,7 @@ jobs:
     if: >-
       ${{ !cancelled() && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) &&
           (needs.action-areas.outputs.mac_busy == 'true' || needs.pushed-exports.outputs.deferred == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -551,7 +551,7 @@ jobs:
     name: webviews vp fmt
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -724,6 +724,7 @@ jobs:
     permissions:
       actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head and fleet-compile-check.yml (the compile gate)
       contents: write
+      pull-requests: write # the Swift rewrites' pull request when the App's pull-request token can't be minted
       statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -928,8 +929,27 @@ jobs:
           private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          # contents: write only. The App's installation has no pull-requests permission, and asking for
+          # one fails the whole mint: from 6a2706df247 (2026-11-17) every run fell back to GITHUB_TOKEN,
+          # whose push feat-cmux-next's required checks refuse (GH013 "2 of 2 required status checks are
+          # expected"), so base autofix failed on every run (20:34-21:28Z on 2026-11-20 and before).
           permission-contents: write
-          # base-autofix-land.sh opens the pull request for Swift rewrites it cannot compile (as package-deps-heal does).
+
+      # base-autofix-land.sh opens the pull request for Swift rewrites it cannot compile (as
+      # package-deps-heal does). Its own mint, so a missing pull-requests grant on the App costs only
+      # that pull request (opened with GITHUB_TOKEN instead), never the push.
+      - name: Mint the pull-request token
+        id: pr-token
+        if: steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
           permission-pull-requests: write
 
       - name: Push the repairs
@@ -957,6 +977,8 @@ jobs:
           # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
           # never to the repair it runs again on a moved tip.
           TOKEN: ${{ steps.push-token.outputs.token || github.token }}
+          # The Swift rewrites' pull request only (gh pr list/create in base-autofix-land.sh).
+          PR_TOKEN: ${{ steps.pr-token.outputs.token || github.token }}
           # The compile gate (base-autofix-compile-gate.sh): a repair that changes Swift is pushed only after
           # fleet-compile-check.yml passes its candidate. Like TOKEN, only the push sees it.
           COMPILE_GATE_TOKEN: ${{ github.token }}

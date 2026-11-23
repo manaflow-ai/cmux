@@ -13,6 +13,7 @@ fn report(turn: u64, prs: &[&str]) -> Report {
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     }
 }
 
@@ -371,6 +372,7 @@ fn queued_report(lane: &str) -> Report {
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     }
 }
 
@@ -579,6 +581,7 @@ async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     };
     hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
     // The report is taken; the lane closes (its link retired) before it is handed over.

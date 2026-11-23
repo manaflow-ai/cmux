@@ -141,13 +141,6 @@
         "why": "routed by its workflow's own job (needs.changes.outputs.compile_admitted, needs.changes.outputs.full_suite, needs.changes.outputs.macos in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": []
       },
-      "portable-placement": {
-        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
-        "suggested_inputs": [
-          "scripts/ci/",
-          "scripts/ci/portable_job_placement.py"
-        ]
-      },
       "pr-red-checks": {
         "why": "a roll-up: it judges the results of jobs that are routed themselves; its cost is one small runner",
         "suggested_inputs": [
@@ -302,13 +295,6 @@
         ],
         "suggested_inputs_more": 100
       },
-      "portable-placement": {
-        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
-        "suggested_inputs": [
-          "scripts/ci/",
-          "scripts/ci/portable_job_placement.py"
-        ]
-      },
       "post": {
         "why": "a roll-up: it judges the results of jobs that are routed themselves; its cost is one small runner",
         "suggested_inputs": [
@@ -425,57 +411,15 @@
           ".github/workflows/ci-guards.yml"
         ]
       },
-      "portable-placement": {
-        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
-        "suggested_inputs": [
-          ".cargo/",
-          ".claude/",
-          ".claude/settings.json",
-          ".github/",
-          ".github/CODEOWNERS",
-          ".github/actions/",
-          ".github/actions/cache-restore/action.yml",
-          ".github/actions/ghostty-zig-packages/",
-          ".github/actions/runner-cargo-home/",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/actions/setup-cmux-tui-rust/action.yml",
-          ".github/actions/tree-result/",
-          ".github/actions/tree-result/action.yml",
-          ".github/checkout-lean.json",
-          ".github/github-token-budget.json",
-          ".github/runners.json",
-          ".github/scripts/",
-          ".github/warm-sources.json",
-          ".github/workflows/",
-          ".github/workflows/app-ffi-release.yml",
-          ".github/workflows/backend-migrations.yml",
-          ".github/workflows/ci-guards.yml",
-          ".github/workflows/ci-macos.yml",
-          ".github/workflows/ci-web.yml",
-          ".github/workflows/ci.yml",
-          ".github/workflows/classic-migration-staging.yml",
-          ".github/workflows/cloud-journey-pr.yml",
-          ".github/workflows/cmux-next-batch.yml",
-          ".github/workflows/cmux-next-fast-tier-seed.yml",
-          ".github/workflows/cmux-next-ios-kit.yml",
-          ".github/workflows/cmux-next-web.yml",
-          ".github/workflows/cmux-next.yml",
-          ".github/workflows/cmux-tui-spec.yml",
-          ".github/workflows/cmux-tui.yml",
-          ".github/workflows/gallery-health.yml",
-          ".github/workflows/ios-e2e.yml",
-          ".github/workflows/ios-review-gate.yml",
-          ".github/workflows/main-compile-probe.yml",
-          ".github/workflows/nightly.yml",
-          ".github/workflows/risk-tier-tests.yml"
-        ],
-        "suggested_inputs_more": 589
-      },
       "pr-red-checks": {
         "why": "a roll-up: it judges the results of jobs that are routed themselves; its cost is one small runner",
         "suggested_inputs": [
           ".github/workflows/pr-red-checks-comment.yml"
         ]
+      },
+      "security-holes": {
+        "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
+        "suggested_inputs": []
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {

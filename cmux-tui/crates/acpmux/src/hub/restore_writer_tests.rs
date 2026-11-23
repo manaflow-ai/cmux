@@ -6,8 +6,8 @@
 fn a_chat_journal_is_appended_in_one_place() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
     let allowed = ["hub/mod.rs", "hub/journal_restore.rs", "hub/transfer.rs", "write_journal.rs"];
-    // A bench home's fixture and the store's stress tests write their own homes, no hub's.
-    let fixtures = ["god_fixture.rs", "stress/"];
+    // A bench home's fixtures and the store's stress tests write their own homes, no hub's.
+    let fixtures = ["god_fixture.rs", "chat_size_fixture.rs", "stress/"];
     let mut found = Vec::new();
     let mut dirs = vec![std::path::PathBuf::from(root)];
     while let Some(dir) = dirs.pop() {

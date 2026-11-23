@@ -543,6 +543,14 @@ class PipelineTest(unittest.TestCase):
                          "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
         self.assertNotIn("if", wf["jobs"]["rust"])
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+        self.assertEqual(steps["submodule-forward-only"].job, "linux")
+        gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
+        self.assertTrue(gitlinks)
+        self.assertLessEqual({".gitmodules", *gitlinks}, set(steps["submodule-forward-only"].inputs))
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",

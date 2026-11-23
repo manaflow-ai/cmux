@@ -36,6 +36,10 @@ pub struct MoveSessionsArgs {
     /// runs, and prompts sent meanwhile move with the chat.
     #[arg(long)]
     pub after_turn: bool,
+    /// With --after-turn: the longest the move waits for a running turn to end, in seconds;
+    /// past it the move gives up (non-zero), naming the chat and the step.
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub timeout: u64,
     /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
     #[arg(long)]
     pub leave_dirty: bool,
@@ -343,7 +347,7 @@ pub enum Command {
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
         aliases = aliases::SEND,
-        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
+        after_help = "A send that returns once handed off (--no-wait, an agent's send) prints one stable first line, `sent STATE id=ID to=TARGET`, where STATE is queued (in the outbox or behind the target's turn), held (in an idle receiver's inbox, read with its next turn), delivered or steered (into its running turn); the lines after it are for people. --json prints {\"ok\":true,\"state\":STATE,\"id\":ID,...}. Scripts and retry loops check the exit code, never the text.\n\nExit codes: 0 sent (every STATE above, or the reply of a send that waits), 1 any other failure, 2 usage, 3 timeout (the prompt may have been accepted: resend with --prompt-id), 4 no such session, 5 a permission refused (--on-permission fail), 7 the target refused the message at once and nothing was delivered.\n\nA name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
@@ -634,7 +638,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off, link.
     #[command(subcommand)]
     ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
@@ -766,6 +770,10 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
+    PauseAgent { session: String },
+    #[command(hide = true)]
+    WakeAgent { session: String },
+    #[command(hide = true)]
     ResumeQueue {
         session: String,
         #[arg(long)]
@@ -797,15 +805,22 @@ pub enum Command {
     /// `acpmux send` takes the first step itself, as claude-desktop-<first 8 of its session id>,
     /// so a chat that messages an agent gets the code without asking
     #[command(
-        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'\n  # In a Claude Code SessionStart and Stop hook: reachable again after a restart\n  acpmux register --renew"
     )]
     Register {
         /// The name, e.g. desktop-zoe.
-        name: String,
+        #[arg(required_unless_present = "renew")]
+        name: Option<String>,
         /// The one-time code acpmux delivered into this session's inbox after a first
         /// `acpmux register NAME`: the second step, run by the session that received it.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "renew")]
         code: Option<String>,
+        /// For a Claude Code hook (SessionStart, Stop): hand a registered chat's new token to
+        /// acpmux after Claude Code restarted with `--resume`, so its name reaches it again with
+        /// no one running `register`. Silent, never fails, and delivers nothing to a chat that
+        /// never registered.
+        #[arg(long)]
+        renew: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
@@ -893,6 +908,12 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
+    #[command(hide = true)]
+    DaemonPrune {
+        #[arg(long)]
+        apply: bool,
+    },
     #[command(hide = true)]
     DaemonService {
         #[command(subcommand)]
@@ -1213,6 +1234,13 @@ pub enum SessionCmd {
         #[command(flatten)]
         condition: StopIf,
     },
+    /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
+    /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
+    /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
+    Pause { session: String },
+    /// Resume a paused session now: its agent starts on the same conversation, and the time it
+    /// took is printed. A prompt resumes it too, without this.
+    Wake { session: String },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
     /// It then runs the installed version and gets a new caller token (after
@@ -1611,6 +1639,18 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
+    /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
+    /// never stopped from outside: one whose executable is gone stops itself once unused for 5
+    /// minutes. A dry run that lists every home, what it would clear and why each other is left,
+    /// unless --apply. A daemon on the person's own homes runs this by itself every 10 minutes
+    /// (`ACPMUX_DAEMON_PRUNE=0` turns that and the retired stop off).
+    Prune {
+        /// Stop the retired daemons (SIGTERM: their hosted agents keep running for the next
+        /// daemon of that home), each logged with pid, build, age and reason.
+        #[arg(long)]
+        apply: bool,
+    },
     /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
     /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
     Service {
@@ -1702,6 +1742,8 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Pause { session } => Command::PauseAgent { session },
+            SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Rename { session, new_name, handle } => {
                 Command::Rename { session, new_name, handle }
             }
@@ -1796,6 +1838,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,

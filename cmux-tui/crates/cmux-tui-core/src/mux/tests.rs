@@ -92,6 +92,7 @@ mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
+mod tab_identity;
 mod tab_update_scoped;
 mod tab_workspace_move;
 mod tabs;

@@ -24,6 +24,31 @@ fn a_cancel_frees_the_slot_at_once_and_the_late_answer_is_not_sent() {
     assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
 }
 
+/// The stop takes every request in flight, each once, and refuses a later one; a drained
+/// request's own late answer is not sent.
+#[test]
+fn the_shutdown_drain_takes_each_request_once_and_refuses_later_ones() {
+    let gauge = Arc::new(AtomicUsize::new(0));
+    let flights = InFlight::counted(gauge.clone());
+    assert!(flights.counts_into(&gauge));
+    assert!(!flights.counts_into(&Arc::default()));
+    let a = flights.begin(&json!(1), "session/prompt", None, None);
+    let b = flights.begin(&json!("b"), "_acpmux/sessions", None, None);
+    let mut taken = flights.drain_at_shutdown();
+    taken.sort_by_key(|(id, _, _)| id.to_string());
+    let ids: Vec<_> = taken.iter().map(|(id, m, _)| (id.clone(), m.clone())).collect();
+    assert_eq!(
+        ids,
+        [(json!("b"), "_acpmux/sessions".to_owned()), (json!(1), "session/prompt".to_owned())]
+    );
+    assert_eq!((flights.len(), gauge.load(Ordering::Relaxed)), (0, 0));
+    assert!(!flights.finish(&a) && !flights.finish(&b), "the drain answered them");
+    assert!(flights.drain_at_shutdown().is_empty(), "each is taken once");
+    let late = flights.begin(&json!(3), "m", None, None);
+    assert!(late.refused());
+    assert_eq!(flights.len(), 0, "a refused request is never in flight");
+}
+
 #[test]
 fn a_reused_id_keeps_its_own_slot_and_is_not_cancelled_for_the_first() {
     let flights = InFlight::default();

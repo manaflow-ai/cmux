@@ -17,8 +17,11 @@ usage() {
   sed -n '2,11p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-screen-sharing-helper.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+Usage: build-screen-sharing-helper.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed] [--print-key]
   --output PATH  also copy the binary (and PATH.ref) there
+  --print-key    print the source key and exit (no build; runs on Linux too): the key the
+                 signed helper `cmux app try` carries is published under
+                 (cmux-tui/screen-sharing-helper/<key>/, cmux-tui-team-signed.yml)
 Environment:
   CMUX_NEXT_SCREEN_HELPER_ARCHS  space/comma-separated arm64 and/or x86_64 (default: ARCHS, else host)
   CMUX_NEXT_SCREEN_HELPER_CACHE  cache root (default: cmux-tui/crates/cmux-rd-host/target/hosted/screen-sharing-helper)
@@ -28,6 +31,7 @@ USAGE
 build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 cached_only=0
 print_path=0
+print_key=0
 output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
     --check-build-allowed) build_allowed; exit $? ;;
+    --print-key) print_key=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -67,7 +72,10 @@ while IFS= read -r untracked; do
   [[ -n "$untracked" ]] || continue
   key_material+="$untracked $(git -C "$repo_root" hash-object -- "$untracked" 2>/dev/null || echo unreadable)"$'\n'
 done < <(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)
-source_key="$(printf '%s' "$key_material" | shasum -a 256 | cut -c1-16)"
+# shasum on a Mac; sha256sum where perl's shasum is missing (a Linux runner reading --print-key).
+if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256; }; else sha256() { sha256sum; }; fi
+source_key="$(printf '%s' "$key_material" | sha256 | cut -c1-16)"
+if [[ "$print_key" -eq 1 ]]; then printf '%s\n' "$source_key"; exit 0; fi
 
 normalize_archs() {
   local raw="${CMUX_NEXT_SCREEN_HELPER_ARCHS:-${ARCHS:-}}"

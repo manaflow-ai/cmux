@@ -365,13 +365,228 @@ pub fn print_report_with_mode(
 mod tests;
 
 #[cfg(test)]
-#[path = "zero_baseline_tests.rs"]
-mod zero_baseline_tests;
+mod zero_baseline_tests {
+    use super::*;
+
+    #[test]
+    fn missing_nightly_measure_is_named_as_a_failure() {
+        let (value, missing) = report_value(&[], true).unwrap();
+        assert!(missing);
+        assert!(report(&[]).is_err());
+        let rows = value["rows"].as_array().unwrap();
+        let row = rows.iter().find(|row| row["name"] == "v2.pr01.append_time").unwrap();
+        assert_eq!(row["status"], "failed");
+        assert_eq!(row["reason"], "the gate did not report a measure");
+    }
+
+    #[test]
+    fn the_spec_run_marks_measured_rows_not_run_without_input() {
+        let (value, missing) = report_value(&[], false).unwrap();
+        assert!(!missing);
+        let rows = value["rows"].as_array().unwrap();
+        assert!(rows.iter().any(|row| row["status"] == "not_run"));
+        assert!(!rows.iter().any(|row| row["status"] == "ok"));
+    }
+
+    fn zero_measure(god: f64) -> Value {
+        let row = GATE_ROWS.first().unwrap();
+        let measure = parse_measure(
+            json!({"name":row.name,"small_p95":0,"god_p95":god,"unit":"bytes"}),
+            Path::new("zero-test"),
+        )
+        .unwrap();
+        let joined = merge_measures(&[measure], &[row.name]).unwrap();
+        measured_row(row, joined.get(row.name).unwrap())
+    }
+    #[test]
+    fn zero_at_both_sizes_is_in_bound() {
+        let row = zero_measure(0.0);
+        assert_eq!(row.get("status"), Some(&json!("ok")));
+        assert_eq!(row.get("ratio"), Some(&json!(1.0)));
+    }
+    #[test]
+    fn zero_small_and_nonzero_god_is_red() {
+        assert_eq!(zero_measure(1.0).get("status"), Some(&json!("red")));
+    }
+}
 
 #[cfg(test)]
-#[path = "gate_failed_tests.rs"]
-mod gate_failed_tests;
+mod gate_failed_tests {
+    use super::*;
+
+    fn kin_line(mark: Option<Value>) -> Value {
+        let mut line = json!({"name": "v2.pr05e.kin_table_change", "small_p95": 1000,
+            "god_p95": 1100, "god_p95_all": 1200, "unit": "ns"});
+        if let Some(mark) = mark {
+            line["gate_failed"] = mark;
+        }
+        line
+    }
+
+    fn kin_row(line: Value) -> Value {
+        let row = GATE_ROWS.iter().find(|row| row.name == "v2.pr05e.kin_table_change").unwrap();
+        measured_row(row, &parse_measure(line, Path::new("fixture")).unwrap())
+    }
+
+    #[test]
+    fn a_marked_line_reads_red_with_its_numbers_kept() {
+        let row = kin_row(kin_line(Some(json!(true))));
+        assert_eq!(row["status"], "red");
+        assert_eq!(row["reason"], "a test in this row's filter failed");
+        assert_eq!(row["small_p95"], 1000.0);
+        assert_eq!(row["god_p95"], 1100.0);
+        assert_eq!(row["ratio"], 1.1);
+    }
+
+    #[test]
+    fn a_line_without_the_mark_reads_as_before() {
+        for mark in [None, Some(json!(false)), Some(json!("yes")), Some(Value::Null)] {
+            let row = kin_row(kin_line(mark.clone()));
+            assert_eq!(row["status"], "ok", "{mark:?}");
+            assert_eq!(row["reason"], "within the row's bounds", "{mark:?}");
+        }
+    }
+
+    /// The gate script with a stand-in cargo (scripts/cmux-next/tests/run-v2-gates.test.sh): a
+    /// filter that wrote a line and failed, one that wrote a line and passed, one that failed with
+    /// no line. The home reads the file the script left.
+    #[cfg(unix)]
+    #[test]
+    fn the_gate_script_marks_a_failed_filters_rows_red() {
+        // affected-reads: scripts/cmux-next cmux-tui
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        let status = std::process::Command::new("bash")
+            .arg(root.join("scripts/cmux-next/tests/run-v2-gates.test.sh"))
+            .arg(measures.path())
+            .status()
+            .unwrap();
+        assert!(status.success(), "run-v2-gates.test.sh failed: {status}");
+        let (value, missing) = report_value(&[measures.path().to_path_buf()], true).unwrap();
+        assert!(missing);
+        let rows = value["rows"].as_array().unwrap();
+        let status_of = |name: &str| {
+            let row = rows.iter().find(|row| row["name"] == name).unwrap();
+            (row["status"].clone(), row["reason"].clone())
+        };
+        assert_eq!(
+            status_of("v2.pr05e.kin_table_change"),
+            (json!("red"), json!("a test in this row's filter failed"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.sibling_insert"),
+            (json!("ok"), json!("within the row's bounds"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.family_page"),
+            (json!("failed"), json!("the gate did not report a measure"))
+        );
+    }
+}
 
 #[cfg(test)]
-#[path = "unreadable_line_tests.rs"]
-mod unreadable_line_tests;
+mod unreadable_line_tests {
+    use super::*;
+
+    fn in_bound_line(row: &GateRow) -> Value {
+        let value = row.god_max.unwrap_or(1.0).min(1.0);
+        json!({"name": row.name, "small_p95": value, "god_p95": value, "god_p95_all": value,
+            "unit": "ns"})
+    }
+
+    fn status_of<'a>(value: &'a Value, name: &str) -> &'a Value {
+        value["rows"].as_array().unwrap().iter().find(|row| row["name"] == name).unwrap()
+    }
+
+    /// One malformed line, one that is not JSON and one with no registered name among good
+    /// lines: the malformed line's row reads `failed` with the parser's reason, the other two go
+    /// into `errors`, every other row is judged, the report is written, and the run fails.
+    #[test]
+    fn a_line_the_home_cannot_read_fails_its_row_only_and_the_report_is_written() {
+        let broken = "v2.pr01.append_time";
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured) {
+            let mut line = in_bound_line(row);
+            if row.name == broken {
+                line.as_object_mut().unwrap().remove("small_p95");
+            }
+            lines.push_str(&format!("{line}\n"));
+        }
+        lines.push_str("not json\n");
+        let unknown =
+            json!({"name": "v2.pr99.unknown", "small_p95": 1, "god_p95": 1, "unit": "ns"});
+        lines.push_str(&format!("{unknown}\n"));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let output = tempfile::NamedTempFile::new().unwrap();
+        let error =
+            print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
+                .unwrap_err();
+        assert!(error.contains(broken) && error.contains("no numeric small_p95"), "{error}");
+        let value: Value = serde_json::from_str(&fs::read_to_string(output.path()).unwrap())
+            .expect("the report is written");
+        let row = status_of(&value, broken);
+        assert_eq!(row["status"], "failed");
+        assert!(row["reason"].as_str().unwrap().contains("has no numeric small_p95"), "{row}");
+        for other in GATE_ROWS.iter().filter(|row| row.measured && row.name != broken) {
+            assert_eq!(status_of(&value, other.name)["status"], "ok", "{}", other.name);
+        }
+        let errors = value["errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors.iter().any(|error| error.as_str().unwrap().contains("unknown v2 gate row")));
+    }
+
+    /// A row the home cannot join (a second line of it, or no `god_p95_all` where the row
+    /// requires one) reads `failed` with that reason; the report is still built.
+    #[test]
+    fn a_line_the_home_cannot_join_fails_its_row() {
+        let duplicate = GATE_ROWS.iter().find(|row| row.measured).unwrap();
+        let needs_all = GATE_ROWS
+            .iter()
+            .find(|row| row.measured && row.ratio_all.is_some() && row.name != duplicate.name)
+            .unwrap();
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured) {
+            let mut line = in_bound_line(row);
+            if row.name == needs_all.name {
+                line.as_object_mut().unwrap().remove("god_p95_all");
+            }
+            lines.push_str(&format!("{line}\n"));
+        }
+        lines.push_str(&format!("{}\n", in_bound_line(duplicate)));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let (value, stops) = report_value(&[measures.path().to_path_buf()], true).unwrap();
+        assert!(stops);
+        assert_eq!(status_of(&value, duplicate.name)["status"], "failed");
+        assert!(
+            status_of(&value, duplicate.name)["reason"].as_str().unwrap().contains("duplicate")
+        );
+        assert_eq!(status_of(&value, needs_all.name)["status"], "failed");
+        assert!(
+            status_of(&value, needs_all.name)["reason"]
+                .as_str()
+                .unwrap()
+                .contains("requires god_p95_all")
+        );
+        assert_eq!(value["errors"], json!([]));
+    }
+
+    /// The thirty-unit row is one-sided: `small_p95` 0, its capped p95 as `god_p95`, judged by
+    /// the row's absolute 10 ms bound, present or not in the measured set.
+    #[test]
+    fn the_thirty_unit_line_is_judged_by_its_absolute_bound() {
+        let row =
+            GATE_ROWS.iter().find(|row| row.name == "v2.pr08.mirror_local_row_thirty").unwrap();
+        let line = |god: u64| {
+            json!({"name": row.name, "small_p95": 0, "god_p95": god, "god_p95_all": god,
+                "capped_p95": god, "capped_p95_all": god, "lifted_p95": god, "origins": 30,
+                "unit_changes": 30, "turn_changes": 30, "unit": "ns"})
+        };
+        let judged =
+            |god| measured_row(row, &parse_measure(line(god), Path::new("thirty")).unwrap());
+        assert_eq!(judged(9_000_000)["status"], "ok");
+        assert_eq!(judged(10_300_000)["status"], "red");
+        assert_eq!(judged(10_300_000)["reason"], "god p95 exceeds the row's absolute maximum");
+    }
+}

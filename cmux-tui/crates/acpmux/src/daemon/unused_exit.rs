@@ -152,17 +152,21 @@ fn grace() -> Option<Duration> {
 
 /// Resolves, with why, once this daemon is unused (see the module doc). Never for a daemon its
 /// service unit runs or while a Cloud machine's reports wait; for the shared home or a grace of 0,
-/// only after its owner app exited.
-pub(super) async fn unused(hub: Weak<crate::hub::Hub>) -> String {
+/// only after its owner app exited. Once its executable is gone (`prune.rs`), a daemon on a home of
+/// its own with that grace and a stored chat log stops after only `prune::RETIRED_GRACE` unused,
+/// by the same census; never a memory-store one (`memory_store`), whose stop loses its chats.
+pub(super) async fn unused(hub: Weak<crate::hub::Hub>, memory_store: bool) -> String {
     if super::managed_by_acpmux_unit() {
         return std::future::pending().await;
     }
     let own_home = !super::uses_shared_home();
     let grace = grace().filter(|_| own_home);
     let owner = owner_exit::follow();
-    if grace.is_none() && owner.is_none() {
-        return std::future::pending().await;
-    }
+    #[cfg(unix)]
+    let retirable = grace.is_some() && !memory_store && super::prune::enabled();
+    #[cfg(not(unix))]
+    let _ = memory_store;
+    let born = std::time::Instant::now();
     let in_use = move || {
         let hub = hub.upgrade();
         async move {
@@ -180,15 +184,51 @@ pub(super) async fn unused(hub: Weak<crate::hub::Hub>) -> String {
             }
         }
     };
-    let (owner_pid, owner_gone) = match owner {
-        Some((pid, gone)) => (Some(pid), gone),
-        // No owner: a sender that never sends and is never dropped.
-        None => (None, NO_OWNER.subscribe()),
+    // A retired build: the same census, with the short wait, from the moment it retired.
+    #[cfg(unix)]
+    let retired = {
+        let in_use = in_use.clone();
+        async move {
+            if !retirable {
+                return std::future::pending().await;
+            }
+            let retired = super::prune::retired().await;
+            tracing::info!(
+                "retired: {retired}; it stops once unused for {}s",
+                super::prune::RETIRED_GRACE.as_secs()
+            );
+            let unused = unused_for(
+                CLIENTS.subscribe(),
+                Some(super::prune::RETIRED_GRACE),
+                NO_OWNER.subscribe(),
+                in_use,
+            )
+            .await;
+            super::prune::retired_stop_line(&retired, &unused, born.elapsed())
+        }
     };
-    let why = unused_for(CLIENTS.subscribe(), grace, owner_gone, in_use).await;
-    match owner_pid {
-        Some(pid) if why.starts_with(OWNER_GONE) => format!("{why} (app pid {pid})"),
-        _ => why,
+    #[cfg(not(unix))]
+    let retired = std::future::pending::<String>();
+    #[cfg(not(unix))]
+    let _ = born;
+    let usual = async move {
+        if grace.is_none() && owner.is_none() {
+            return std::future::pending().await;
+        }
+        let (owner_pid, owner_gone) = match owner {
+            Some((pid, gone)) => (Some(pid), gone),
+            // No owner: a sender that never sends and is never dropped.
+            None => (None, NO_OWNER.subscribe()),
+        };
+        let why = unused_for(CLIENTS.subscribe(), grace, owner_gone, in_use).await;
+        match owner_pid {
+            Some(pid) if why.starts_with(OWNER_GONE) => format!("{why} (app pid {pid})"),
+            _ => why,
+        }
+    };
+    tokio::select! {
+        why = usual => why,
+        why = retired => why,
     }
 }
 

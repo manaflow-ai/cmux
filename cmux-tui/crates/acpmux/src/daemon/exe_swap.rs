@@ -155,16 +155,15 @@ impl Swap for ExeSwap {
         if let Some(restart) = service_restart()
             && let Some((program, args)) = restart.split_first()
         {
+            let command = restart.join(" ");
             let status = cmux_process::Command::new(program)
                 .args(args)
                 .stdin(cmux_process::Stdio::null())
                 .status()
-                .map_err(|e| format!("{}: {e}", restart.join(" ")))?;
-            return if status.success() {
-                Ok(())
-            } else {
-                Err(format!("{} exited {status}", restart.join(" ")))
-            };
+                .map_err(|e| format!("{command}: {e}"))?;
+            restart_outcome(&command, status)?;
+            tracing::info!("update: handed over to the new build through {command}");
+            return Ok(());
         }
         let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
@@ -240,6 +239,27 @@ pub(super) fn handover_args(args: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// What the end of the service manager's restart command says about the handover. Exit 0: the
+/// restart was queued. Killed by SIGTERM: the stop was issued already. The command runs as this
+/// daemon's child, so it is in the job it restarts (systemd's unit cgroup, launchd's job), and the
+/// manager's stop of that job (`restart --no-block`, `kickstart -k`) sends SIGTERM to it too, in
+/// the moment between queueing the restart and exiting. Before this, every hourly update logged
+/// "the new build did not take over ... exited signal: 15 (SIGTERM)" while the new build served
+/// 0.9 s later (cmuxterm-hq #19255, findings 2026-11-22 section 2).
+///
+/// Signal 15 alone decides it, not this daemon's own stop flag (`supervision::stopping`): the
+/// daemon's SIGTERM is read on the async runtime after its sender is looked up, so the flag can
+/// trail the reap of this child, and waiting for it would only add a race. Any other signal or
+/// exit code is a failed handover, and this daemon serves on.
+fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<(), String> {
+    use std::os::unix::process::ExitStatusExt as _;
+    if status.success() || status.signal() == Some(libc::SIGTERM) {
+        Ok(())
+    } else {
+        Err(format!("{command} exited {status}"))
+    }
 }
 
 /// The service manager's own restart command for the job that runs this daemon, if one does.

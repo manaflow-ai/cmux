@@ -63,6 +63,7 @@ export interface AcpmuxRequestMeta {
   requestId?: unknown;
   requireFullAccess?: unknown;
   resend?: unknown;
+  restricted?: unknown;
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
@@ -1103,7 +1104,9 @@ export interface ProcessKillParams {
 
 export interface ProcessListParams {
   _meta?: RequestMeta;
+  calls?: unknown;
   cursor?: unknown;
+  endedWithin?: unknown;
   limit?: unknown;
   recent?: unknown;
   sessionId?: unknown;

@@ -6,7 +6,7 @@
 //! 24 h on one VM). `limit`, `offset` and `state` pick the page; `full` adds each task's whole
 //! command and output tail; `all` still widens it to other callers' tasks.
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The tasks a bare call lists, and the most any call does.
 const LIMIT: usize = 30;
@@ -15,6 +15,10 @@ const MAX_LIMIT: usize = 500;
 const COMMAND_CHARS: usize = 100;
 /// What `state` takes: a task's own state, or its outcome (`bg_run::outcome`).
 const STATES: [&str; 7] = ["running", "exited", "stopped", "killed", "lost", "ok", "failed"];
+/// The keys a call picks its page with, in the order a hint lists them.
+const KEYS: [&str; 5] = ["state", "limit", "offset", "full", "all"];
+/// The keys the daemon or the server itself reads, which are not a page's and not a mistake.
+const PASSED_ON: [&str; 4] = ["sessionId", "callerSubagent", "description", "_meta"];
 
 /// The page a call asks for, taken out of its arguments (the daemon lists the whole chat).
 #[derive(Debug, PartialEq)]
@@ -23,7 +27,7 @@ pub(super) struct Page {
     offset: usize,
     state: Option<&'static str>,
     full: bool,
-    /// What the call's arguments were read as, when not as given (a misspelt state).
+    /// What the call's arguments were read as, when not as given (a misspelt state or key).
     notes: Vec<String>,
 }
 
@@ -33,6 +37,7 @@ impl Page {
             return Err("arguments must be an object".into());
         };
         let mut notes = Vec::new();
+        Self::read_near_miss_keys(p, &mut notes);
         let number = |v: Option<Value>, key: &str| -> Result<Option<usize>, String> {
             match v {
                 None | Some(Value::Null) => Ok(None),
@@ -75,6 +80,31 @@ impl Page {
             }
         };
         Ok(Self { limit, offset, state, full, notes })
+    }
+
+    /// A key no argument has, read as the page key it is a near miss for (`status` for `state`,
+    /// as a misspelt state value is read as the state it means), else named in the answer and
+    /// dropped. Both used to go to the daemon, which does not read them either, so
+    /// `{"status": "running"}` quietly answered a whole unfiltered page that looked like one.
+    fn read_near_miss_keys(p: &mut Map<String, Value>, notes: &mut Vec<String>) {
+        let strange: Vec<String> = (p.keys())
+            .filter(|k| !KEYS.contains(&k.as_str()) && !PASSED_ON.contains(&k.as_str()))
+            .cloned()
+            .collect();
+        for key in strange {
+            let meant = crate::mcp_hint::nearest(&key, KEYS).filter(|k| !p.contains_key(*k));
+            let value = p.remove(&key).unwrap_or(Value::Null);
+            match meant {
+                Some(k) => {
+                    notes.push(format!("key {key:?} read as {k:?}"));
+                    p.insert(k.to_owned(), value);
+                }
+                None => notes.push(format!(
+                    "{key:?} is not one of {}, so it picked nothing",
+                    KEYS.join(", ")
+                )),
+            }
+        }
     }
 
     /// The daemon's whole list as this page: the structured result, its tasks newest first and

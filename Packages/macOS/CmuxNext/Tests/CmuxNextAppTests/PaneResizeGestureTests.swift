@@ -151,4 +151,30 @@ struct PaneResizeGestureTests {
         harness.land()
         #expect(harness.provider.follower.heard.isEmpty)
     }
+
+    /// Leo, 2026-11-22: "interior resizing is good and fast. exterior (whole-window of app) resizing is bad". A person's
+    /// live resize of the window is followed as a divider drag: `true` at its start, the pane views' frame notices held
+    /// through it, `false` once at its end with the pane at its final frame, and the notices given back.
+    @Test func aWindowLiveResizeIsFollowedAsADividerDrag() throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let screen = try #require(harness.root.screenViews["s"])
+        screen.windowLiveResizeBegan()
+        #expect(harness.provider.follower.heard == [true])
+        #expect(screen.paneFrameNotices.isHolding)
+        screen.windowLiveResizeBegan()
+        #expect(harness.provider.follower.heard == [true], "a second start told the follower again")
+        for step in 1...10 {
+            harness.window.setContentSize(NSSize(width: 1200 + step * 10, height: 800))
+            harness.root.layoutSubtreeIfNeeded()
+        }
+        #expect(harness.provider.follower.heard == [true])
+        screen.windowLiveResizeEnded()
+        #expect(harness.provider.follower.heard == [true, false])
+        let host = try #require(harness.root.context.hosts["p2"])
+        #expect(harness.provider.follower.frameAtEnd == host.frame, "the follower heard the end before its pane's final frame")
+        #expect(!screen.paneFrameNotices.isHolding)
+        screen.windowLiveResizeEnded()
+        #expect(harness.provider.follower.heard == [true, false], "an end with no start told the follower")
+    }
 }

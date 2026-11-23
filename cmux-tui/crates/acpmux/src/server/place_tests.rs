@@ -73,6 +73,35 @@ fn only_peers_whose_link_is_up_are_candidates() {
     );
 }
 
+/// Item A: a move (`outdatedOk`) keeps a peer whose only fault is a stale build as a
+/// candidate, marked with the one command that refreshes it; a peer whose link is down, or
+/// that is outdated and down, still is none.
+#[test]
+fn a_move_ranks_a_peer_whose_only_fault_is_its_build_with_its_refresh_command() {
+    let rows = vec![
+        json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
+        json!({"name": "old-disk", "connected": true, "state": "connected", "outdated": true,
+               "health": health(40, 0)}),
+        json!({"name": "old-gone", "connected": false, "state": "offline", "outdated": true}),
+    ];
+    let (peers, down, outdated) = split_peers_with(rows.clone(), true);
+    assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up", "old-disk"]);
+    assert_eq!(outdated, ["old-disk"]);
+    assert_eq!(down, [("old-gone".to_owned(), "outdated peer build (stale disk copy)".to_owned())]);
+    // Every other caller is unchanged: an outdated peer takes no placed work.
+    let (peers, _, outdated) = split_peers_with(rows, false);
+    assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
+    assert!(outdated.is_empty());
+
+    let verdict = with_outdated(
+        json!({"hosts": [{"name": "up"}, {"name": "old-disk"}]}),
+        &["old-disk".to_owned()],
+    );
+    assert_eq!(verdict["hosts"][0].get("outdated"), None);
+    assert_eq!(verdict["hosts"][1]["outdated"], json!(true));
+    assert_eq!(verdict["hosts"][1]["refresh"], json!("acpmux machine update old-disk"));
+}
+
 /// gcp-codex-swarm-07, 2026-11-20: a lane VM at its lane cap whose only other machine is one
 /// the mesh hub lists. `new --machine auto` picked that machine (no reading, so it took the
 /// work once no host with one was under its cap) and the start failed with `no peer`. Now
