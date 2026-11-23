@@ -1431,10 +1431,45 @@ jobs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git reset -q --hard HEAD
+          fi
+
+      # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
+      # 2026-11-23 01:38-02:49Z 31 of this workflow's jobs ended red on "API rate limit" with github.token spent).
+      # No pool, a refused mint: the step keeps github.token (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
+      - name: Move a rate-limited gh call to the next pool
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Find the macOS targets the build left without artifacts
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # no wait: a reset is up to an hour away and this job has 5 minutes; every pool is tried once
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -3409,10 +3444,23 @@ jobs:
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
 
+      # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
+      # 2026-11-23 01:38-02:49Z 31 of this workflow's jobs ended red on "API rate limit" with github.token spent).
+      # No pool, a refused mint: the step keeps github.token (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       - name: Re-run the runs that deferred to this tree
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
         run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY" --published
@@ -4731,10 +4779,23 @@ jobs:
           permission-actions: write
           permission-pull-requests: read
 
+      # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
+      # 2026-11-23 01:38-02:49Z 31 of this workflow's jobs ended red on "API rate limit" with github.token spent).
+      # No pool, a refused mint: the step keeps github.token (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       - name: Start the cmux-next tree jobs a refused tree notify left
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN_SPARE: ${{ env.CI_POOL_GH_TOKEN && (steps.cmux-bot-token.outputs.token || github.token) || steps.cmux-bot-token.outputs.token && github.token || '' }}
         run: |
           pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
           python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending --pending-file "$pending"
@@ -5216,13 +5277,27 @@ jobs:
             git reset -q --hard HEAD
           fi
 
+      # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
+      # 2026-11-23 01:38-02:49Z 31 of this workflow's jobs ended red on "API rate limit" with github.token spent).
+      # No pool, a refused mint: the step keeps github.token (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       # A run whose daemon tests found it superseded publishes no tree on
       # purpose: no failure to report. It still hands the key on (below).
       - name: Report the unpublished tree to the cmux-next runs that wait for it
         if: needs.tree-preflight.outputs.tree_ready != 'true' && needs.cmux-next-daemon-tests.outputs.superseded != 'true'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ env.CI_POOL_GH_TOKEN && github.token || '' }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -5258,8 +5333,8 @@ jobs:
       - name: Hand the key to a run that deferred to this one
         if: github.event_name == 'push'
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
         run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY"

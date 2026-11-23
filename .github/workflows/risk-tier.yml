@@ -46,8 +46,28 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+      # CI_POOL_FIRST: 2026-11-23 00:30-03:30Z about 290 of 322 risk tier runs ended red on "API rate limit": every
+      # job's github.token shares the repository installation's hour. The grade's reads go out on the CI pool Apps
+      # first (each its own installation hour; leo-workspace tools/gh-app-new ci-create), a refused pool hands the
+      # call to the next at once (gh_budget_wait.sh, GH_TOKEN_SPARES) and github.token is the last. Base code only:
+      # the mint runs the base's script, never the pull request's.
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"contents":"read","pull_requests":"read","issues":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+      - name: Move a rate-limited gh call to the next pool
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
+        run: bash scripts/ci/gh_budget_wait.sh --install
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
       # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
@@ -72,13 +92,18 @@ jobs:
       - name: Grade the pull request
         id: grade
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # No wait: a reset is up to an hour away and this job has 8 minutes; every pool is tried once.
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
             --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
+      # It stays on github.token: a label an App adds starts every `labeled` workflow again (this one included), and
+      # one github.token makes does not.
       - name: Set the risk label
         continue-on-error: true
         env:

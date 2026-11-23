@@ -257,8 +257,20 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           filter: blob:none
-          sparse-checkout: /scripts/ci/gh_budget_wait.sh
+          sparse-checkout: |
+            /scripts/ci/gh_budget_wait.sh
+            /scripts/ci/ci_pool_tokens.py
           sparse-checkout-cone-mode: false
+      # CI_POOL_FIRST: the dispatch goes out on a CI pool App first (each its own installation hour), then cmux-bot,
+      # then the other pools, then github.token (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES).
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
       # Run 45060092627 (2026-11-22 19:22Z): the dispatch went out on github.token alone, whose hour (one of the
       # repository's GITHUB_TOKEN buckets, every workflow's job token) read 5000 used, 0 left, reset 19:52:36Z; the
       # 20-minute retry ended before the reset and the PR got no look. The cmux-bot App's installation has its own
@@ -278,8 +290,9 @@ jobs:
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Dispatch the look
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           GH_BUDGET_WAIT_MAX_SECONDS: 3900
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
