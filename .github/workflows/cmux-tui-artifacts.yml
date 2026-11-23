@@ -4976,13 +4976,16 @@ jobs:
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
   # as a landing push. The payload maker re-downloads and hashes every Mac binary.
+  # A PR head (every non-main, non-lane/ branch push whose commit manifest published, cx-r2is) gets its own
+  # cmux-tui/<sha>/mac-live.json too, so `cmux app try PR` goes live for a daemon-only PR; only
+  # feat-cmux-next moves cmux-tui/channels/mac-live.json (--commit-only below).
   point-mac-live-channel:
     name: publish the Mac live update
     needs: [publish, verify-publish, adopt-commit-manifest]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && !startsWith(github.ref, 'refs/heads/lane/'))) && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     environment:
       name: artifacts
-      deployment: true
+      deployment: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
@@ -5025,7 +5028,10 @@ jobs:
           ml="$RUNNER_TEMP/mac-live"
           mkdir -p "$ml" && chmod 700 "$ml"
           helper=() status=0
-          record="$(timeout 1260 scripts/ci/mac-live-screen-sharing-helper.sh "$GITHUB_SHA" "$ml" 1200)" || status=$?
+          # A PR head takes the helper already signed for its key, or none: team-signed signs feat-cmux-next.
+          wait=1200 only=""
+          if [[ "$GITHUB_REF" != refs/heads/feat-cmux-next ]]; then wait=0 only=--commit-only; fi
+          record="$(timeout 1260 scripts/ci/mac-live-screen-sharing-helper.sh "$GITHUB_SHA" "$ml" "$wait")" || status=$?
           if [[ "$status" != 0 ]]; then
             echo "::warning::the Screen Sharing helper of $GITHUB_SHA was not copied (exit $status); its Mac live update file carries none"
           elif [[ -n "$record" ]]; then
@@ -5033,7 +5039,7 @@ jobs:
           else
             echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
           fi
-          export ml GITHUB_SHA GITHUB_RUN_ID
+          export ml GITHUB_SHA GITHUB_RUN_ID only
           timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
                  python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
@@ -5041,7 +5047,7 @@ jobs:
                    --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
                    --download-dir "$ml/binaries" --out "$ml/payload.json" "$@"
                  rm -rf "$ml/binaries"
-                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"' _ ${helper[@]+"${helper[@]}"}
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml" ${only:+"$only"}' _ ${helper[@]+"${helper[@]}"}
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
