@@ -46,7 +46,7 @@
   // A deeper blush sidebar as its own pane, sections as soft cards.
   "appearance.chromeStyle": "card",
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#fbe1ea",
+  "appearance.surfaces.sidebar.color": "#fff6f9",
   "appearance.surfaces.sidebar.opacity": 0.78,
   "sidebar.sectionLook": "card",
   "sidebar.density": "comfortable",
@@ -71,7 +71,7 @@
 
   // Motion: a pink pulsing dot, and colors that drift in like petals.
   "appearance.statusIndicator.style": "dot",
-  "appearance.statusIndicator.color": "#e2588c",
+  "appearance.statusIndicator.color": "#c93d72",
   "appearance.colorTransition.curve": "easeInOut",
   "appearance.colorTransition.duration": 450,
 

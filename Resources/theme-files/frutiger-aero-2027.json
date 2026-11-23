@@ -13,7 +13,7 @@
     "background": "#eef7ff",
     "foreground": "#0b2a44",
     "cursor": "#007fc4",
-    "selection": "#c6e3fa",
+    "selection": "#dcefff",
     "accent": "#007fc4",
     "0": "#0b2a44",
     "1": "#d6334a",
@@ -27,7 +27,7 @@
     "9": "#f0566a",
     "10": "#5cc23a",
     "11": "#f0b31e",
-    "12": "#36a9f0",
+    "12": "#1a8ad6",
     "13": "#b07ae8",
     "14": "#22c8d8",
     "15": "#ffffff"
@@ -45,7 +45,7 @@
   // Floating glass panes; an icy-blue sidebar of cards.
   "appearance.chromeStyle": "floating",
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#d9ecfb",
+  "appearance.surfaces.sidebar.color": "#ebf6ff",
   "appearance.surfaces.sidebar.opacity": 0.62,
   "sidebar.sectionLook": "card",
   "appearance.surfaces.tabBar.color": "#d9ecfb",

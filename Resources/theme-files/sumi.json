@@ -12,7 +12,7 @@
     "background": "#f4eee1",
     "foreground": "#1f1c18",
     "cursor": "#b8322a",
-    "selection": "#e3d9c3",
+    "selection": "#6b5a48",
     "accent": "#b8322a",
     "0": "#1f1c18",
     "1": "#b8322a",
@@ -43,7 +43,7 @@
   // One sheet of paper: no borders, a slightly darker sidebar, quiet sections in lines.
   "appearance.chromeStyle": "flat-sidebar-line",
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#ebe3d1",
+  "appearance.surfaces.sidebar.color": "#f3eddf",
   "appearance.surfaces.sidebar.opacity": 0.9,
   "sidebar.sectionLook": "lines",
   "appearance.surfaces.terminal.color": "#f4eee1",
