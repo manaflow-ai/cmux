@@ -53,6 +53,7 @@ import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
 import { MoveDock, PlaceChip } from "../place/PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -1350,14 +1351,24 @@ export function drawPaneComposer({
               ? {}
               : {
                   placeControl: (
-                    <PlaceChip
-                      session={snapshot.sessionId}
-                      say={notices.transient}
-                      claims={() => ({
-                        queued: snapshot.queue.length,
-                        hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                      })}
-                    />
+                    <>
+                      <PlaceChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                      <HybridChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                    </>
                   ),
                 })}
             // The floating chat has no tab to move.

@@ -228,6 +228,7 @@ import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
+import { useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -4941,6 +4942,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [quick, sessionInfoLocal, remoteControlState],
   );
+  // Session Info's cloud controls (RFD 0075): where the chat may run, through chatPlace.set. Where
+  // the app reports a place they stand in Remote Control's row.
+  const sessionInfoCloud = useSessionInfoCloud(snapshot.sessionId, notices.transient);
   // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
@@ -5008,6 +5012,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     remoteControl: sessionInfoRemoteControl,
+    cloud: quick ? undefined : sessionInfoCloud,
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,

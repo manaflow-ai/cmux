@@ -21,12 +21,13 @@ export type SessionInfoCloudLook = "switch" | "where" | "button";
 
 export type SessionInfoCloudControl = {
   view: HybridView;
-  setLit(on: boolean): void;
+  /// Absent while high priority has no wire: the Keep Running row is not drawn.
+  setLit?(on: boolean): void;
   setPin(pin: HybridPin): void;
 };
 
 const PINS = ["auto", "cloud", "local"] as const;
-const PIN_KEYS = { auto: "hybrid.pin.auto", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+const PIN_KEYS = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
 
 export function SessionInfoCloudRows({
   control,
@@ -43,35 +44,38 @@ export function SessionInfoCloudRows({
   const name = t("hybrid.keepRunning");
   const help = view.waiting ? t("hybrid.waiting") : t(view.lit ? "hybrid.keepRunning.help" : "hybrid.auto.help");
   const count = t("hybrid.slots", { used: view.used, total: view.total });
+  const setLit = control.setLit;
   return (
     <>
-      <li className="acpmux-session-info-row acpmux-hybrid-row" data-testid="session-info-keep-running">
-        <Icon name="cloud" size={ROW_ICON} row fit />
-        {look === "button" ? (
-          <>
-            <span className="acpmux-session-info-row__name">{name}</span>
-            <span className="acpmux-hybrid-row__count">{count}</span>
-            <CloudToggle view={view} look={toggleLook} form="icon" onChange={control.setLit} />
-          </>
-        ) : (
-          <WithFacts facts={[{ value: help }]}>
-            {(facts) => (
-              <label {...facts} className="acpmux-session-info-switch">
-                <span className="acpmux-session-info-row__name">{name}</span>
-                <span className="acpmux-hybrid-row__count">{count}</span>
-                <Switch
-                  className="acpmux-session-info-switch__input"
-                  size="md"
-                  aria-label={name}
-                  checked={on}
-                  onCheckedChange={control.setLit}
-                />
-              </label>
-            )}
-          </WithFacts>
-        )}
-      </li>
-      {look === "where" && (
+      {setLit && (
+        <li className="acpmux-session-info-row acpmux-hybrid-row" data-testid="session-info-keep-running">
+          <Icon name="cloud" size={ROW_ICON} row fit />
+          {look === "button" ? (
+            <>
+              <span className="acpmux-session-info-row__name">{name}</span>
+              <span className="acpmux-hybrid-row__count">{count}</span>
+              <CloudToggle view={view} look={toggleLook} form="icon" onChange={setLit} />
+            </>
+          ) : (
+            <WithFacts facts={[{ value: help }]}>
+              {(facts) => (
+                <label {...facts} className="acpmux-session-info-switch">
+                  <span className="acpmux-session-info-row__name">{name}</span>
+                  <span className="acpmux-hybrid-row__count">{count}</span>
+                  <Switch
+                    className="acpmux-session-info-switch__input"
+                    size="md"
+                    aria-label={name}
+                    checked={on}
+                    onCheckedChange={setLit}
+                  />
+                </label>
+              )}
+            </WithFacts>
+          )}
+        </li>
+      )}
+      {(look === "where" || !setLit) && (
         <li className="acpmux-session-info-row acpmux-hybrid-row" data-testid="session-info-runs-on">
           <Icon name="cloud" size={ROW_ICON} row fit />
           <span className="acpmux-session-info-row__name">{t("hybrid.pin")}</span>
