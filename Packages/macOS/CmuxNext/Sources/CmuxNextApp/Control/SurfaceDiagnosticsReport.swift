@@ -112,7 +112,7 @@ enum SurfaceDiagnosticsReport {
     private static func hibernation(_ services: AppServices) -> JSONValue {
         guard let hibernation = services.cache.hibernation else { return .null }
         let setting = hibernation.setting
-        return [
+        let report: [String: JSONValue] = [
             "mode": setting.configValue.stringValue.map(JSONValue.string) ?? .number(setting.hiddenMinutes ?? 0),
             "pressure": .string(hibernation.pressure.rawValue),
             "hibernated": .array(services.cache.dormantTabs.ids.sorted().map(JSONValue.string)),
@@ -128,9 +128,8 @@ enum SurfaceDiagnosticsReport {
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
-            "snapshots": JSONValue(hibernation.snapshots.count),
-            "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),
             "wakes": hibernation.wakeLog.json,
         ]
+        return .object(report.merging(hibernation.snapshots.json) { kept, _ in kept })
     }
 }
