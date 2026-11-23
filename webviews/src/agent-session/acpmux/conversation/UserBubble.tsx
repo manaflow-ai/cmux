@@ -42,6 +42,8 @@ import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
+import { Slot } from "../../../slots/Slot";
+import { sendTransitionSlot } from "../../../slots/sendTransition";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -237,20 +239,25 @@ export function UserBubble({
       <div className="cv-user__body">
         {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
-          <div className="ui-glass cv-user__bubble selectable">
-            {hasInterleaved ? (
-              <InlinePromptContent
-                rowId={row.id}
-                messageAt={row.at}
-                parts={shownParts!}
-                show={show}
-                renderImage={renderImage}
-                renderFile={renderFile}
-              />
-            ) : (
-              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
-            )}
-          </div>
+          // The bubble is the theme slot `chat.sendTransition` (slots/sendTransition): its default draws
+          // the glass div this row drew before.
+          <Slot
+            slot={sendTransitionSlot}
+            props={{
+              children: hasInterleaved ? (
+                <InlinePromptContent
+                  rowId={row.id}
+                  messageAt={row.at}
+                  parts={shownParts!}
+                  show={show}
+                  renderImage={renderImage}
+                  renderFile={renderFile}
+                />
+              ) : (
+                <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
+              ),
+            }}
+          />
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
