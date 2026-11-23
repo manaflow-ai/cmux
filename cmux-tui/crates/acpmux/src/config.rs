@@ -1150,7 +1150,8 @@ pub struct WebSocketConfig {
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name, or the name peers dial on a non-loopback `listen`, where every
-    /// other name is refused). Both lists are read when the listener starts.
+    /// other name is refused). Both lists apply from the next connection after
+    /// `_acpmux/reload_config` (`acpmux config --set` and `acpmux web --tailnet` send it).
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
