@@ -775,6 +775,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/census",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bg/start",
       "params": true,
       "result": true
