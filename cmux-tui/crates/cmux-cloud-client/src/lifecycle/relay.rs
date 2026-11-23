@@ -67,6 +67,8 @@ impl Request {
     }
 
     /// Accepted and completed operations remain distinct observed states.
+    /// The error hands the request back so its caller can retry.
+    #[allow(clippy::result_large_err)]
     pub fn complete(
         self,
         value: Value,

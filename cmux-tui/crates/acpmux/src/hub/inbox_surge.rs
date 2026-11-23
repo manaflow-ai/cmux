@@ -15,6 +15,16 @@ impl Counts {
         json!({"held": self.held, "needYou": self.need_you})
     }
 
+    /// Sets `held` to the journal's count of undecided held messages, read through record
+    /// `through`, unless a newer snapshot came since. The running counter (+1 a hold, minus a
+    /// record's ids) drifts: a resent prompt id counts twice, a fork counts its parent's
+    /// (`Hub::surge_held_now`).
+    pub(super) fn settle_held(&mut self, held: u64, through: u64) {
+        if self.seq <= through {
+            self.held = held;
+        }
+    }
+
     pub(super) fn restore(&mut self, event: &EventRecord) {
         if event.seq <= self.seq {
             return;
