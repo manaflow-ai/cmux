@@ -387,7 +387,11 @@ fn move_from_auto_excludes_source_registry_and_ssh_aliases() {
         {"name": "target", "url": "ssh://target-host"}
     ]});
     let registry = json!({"machines": {"source": {"aliases": ["source-alias"]}}});
-    let source = Source::Peer { name: "SOURCE.local".into(), ssh: "source-host".into() };
+    let source = Source::Peer {
+        name: "SOURCE.local".into(),
+        ssh: "source-host".into(),
+        socket: "/remote/acpmux.sock".into(),
+    };
     let mut targets = Targets::new("auto", &peers).unwrap();
     targets.exclude_source(&source, Some(&registry)).unwrap();
     let hosts = json!([
@@ -554,7 +558,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         from: None,
         from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+    let e = match begin_waiting(&client, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };
@@ -758,7 +762,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
             {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
         ]})
     };
-    let replies = vec![
+    let replies = [
         json!({"rows": []}),
         row(true, "reconnecting"),
         row(false, "reconnecting"),

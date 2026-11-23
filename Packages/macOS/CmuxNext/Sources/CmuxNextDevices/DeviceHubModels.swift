@@ -266,6 +266,33 @@ public struct HubMe: Codable, Sendable, Equatable {
     }
 }
 
+/// The account's settings (`GET /v1/settings`): one value per account, read by every device.
+public struct HubAccountSettings: Codable, Sendable, Equatable {
+    /// "My agents can turn screen sharing and control on my machines" (off unless a person turned it on).
+    public var agentsMayShare: Bool
+
+    public init(agentsMayShare: Bool) {
+        self.agentsMayShare = agentsMayShare
+    }
+
+    enum CodingKeys: String, CodingKey { case agentsMayShare }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agentsMayShare = c.flag(.agentsMayShare)
+    }
+}
+
+/// The owner's agent session behind a sharing change (the hub's audit detail).
+public struct HubAgentActor: Codable, Sendable, Equatable {
+    public var session: String
+    public var device: String
+
+    public init(session: String, device: String) {
+        self.session = session; self.device = device
+    }
+}
+
 /// One ICE server (`{urls, username, credential}`), as the server's `ice`
 /// lists and the user's relays give them.
 public struct DeviceHubICEServer: Codable, Sendable, Equatable {
