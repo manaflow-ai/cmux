@@ -123,8 +123,38 @@ struct AttentionRingTimingTests {
         #expect(fixture.controller.content?.layoutModel === model, "b did not come back from its parked content")
         #expect(model.attention[pane] != nil, "b's ring was read though nothing looks at it")
         #expect(model.holdsAttentionUntilShown, "the switch's own frame draws b's ring before b's content")
+        let overlay = try #require(fixture.controller.content?.layoutView.context.hosts[pane]?.chrome, "b's pane has no overlay")
+        #expect(overlay.attentionLayer.isHidden, "b's ring is on the overlay in the switch's own frame, over the old workspace")
         try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "b's ring never drew after the switch" })
         #expect(model.attention[pane] != nil, "b's ring went instead of drawing")
+        #expect(!overlay.attentionLayer.isHidden, "b's ring stayed hidden after its frame")
+    }
+
+    /// The same switch with cmux active: the switch reads b's ring, and its dismiss blink still plays on the overlay,
+    /// once the switch's frame lets the ring draw. Holding the rings must keep the overlay's mark, or the blink
+    /// (which needs the ring it blinks out) never starts.
+    @Test func switchingToAWorkspaceStillBlinksItsReadRingOnTheOverlay() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let fixture = try await Self.open(active: false)
+        defer { fixture.close() }
+        let pane = LayoutPaneID(fixture.ringing.id)
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b }, report: { "workspace b never showed" })
+        let model = try #require(fixture.controller.content?.layoutModel)
+        let overlay = try #require(fixture.controller.content?.layoutView.context.hosts[pane]?.chrome, "b's pane has no overlay")
+        try await PinnedPageTests.until({ model.attention[pane] != nil && overlay.attentionRingShown }, report: { "b's ring never drew" })
+        fixture.controller.showWorkspace(requested: fixture.a.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a && fixture.controller.focus.state.pane != fixture.ringing.id })
+        fixture.services.appActiveSource = { true }
+
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        #expect(model.attention[pane] == nil && model.attentionReadByEntry.contains(pane), "the switch did not read b's ring")
+        #expect(overlay.attentionLayer.isHidden, "the read ring blinks over the old workspace's frame")
+        try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
+        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") },
+                                        report: { "the switch took b's ring without the dismiss blink on the overlay" })
+        #expect(!overlay.attentionLayer.isHidden, "the blink plays hidden")
     }
 
     /// Case 2 of the issue, from the sidebar: a press on b's row switches to it. The press is on the
@@ -176,6 +206,36 @@ struct AttentionRingTimingTests {
         #expect(model.attention[pane] == nil, "clicking the focused pane's tab left its ring for a later pass")
         #expect(model.attentionReadByEntry.contains(pane), "the tab click took the ring without the dismiss blink")
         try await PinnedPageTests.until({ fixture.ringing.tabs.first?.showsUnread == false }, report: { "the tab click left the blue dot" })
+    }
+
+    /// A press on the focused ringing pane's tab, while its agent replaces its attention request: the mouse-up was a
+    /// click on the old request, so the new one keeps its ring (a press on request A never dismisses request B).
+    @Test func aClickReleasedAfterTheRequestWasReplacedLeavesTheNewRing() async throws {
+        let fixture = try await Self.open(active: false)
+        defer { fixture.close() }
+        let pane = LayoutPaneID(fixture.ringing.id)
+        let tab = try #require(fixture.ringing.tabs.first)
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Confirm A", atMs: 1_000, requestID: String(repeating: "a", count: 32))), progress: nil)
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b && fixture.controller.focus.state.pane == fixture.ringing.id },
+                                        report: { "workspace b never showed with its pane focused" })
+        let content = try #require(fixture.controller.content)
+        let model = content.layoutModel
+        try await PinnedPageTests.until({ model.attention[pane] != nil }, report: { "b's pane never rang" })
+        content.contentView.layoutSubtreeIfNeeded()
+        let strip = try #require(content.panes[pane]?.view.stripView, "the pane has no tab strip")
+        try #require(strip.window === fixture.window && !strip.isHiddenOrHasHiddenAncestor && strip.bounds.width > 0, "the pane shows no tab strip")
+        let point = strip.convert(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY), to: nil)
+        fixture.services.appActiveSource = { true }
+
+        let notifications = fixture.services.notifications
+        notifications.noteMouseDown(in: fixture.window, at: point, synthetic: true)
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Confirm B", atMs: 2_000, requestID: String(repeating: "b", count: 32))), progress: nil)
+        try await PinnedPageTests.until({ model.attention[pane] != nil }, report: { "the new request did not ring" })
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(model.attention[pane] != nil, "releasing a press on request A dismissed request B's ring")
+        #expect(!model.attentionReadByEntry.contains(pane), "request B's ring blinked out for a click on request A")
+        #expect(tab.attention?.requestID == String(repeating: "b", count: 32), "request B was cleared")
     }
 
     /// Case 4: a tab behind the shown one is unread (its blue dot shows on the strip; its pane draws no ring, the shown

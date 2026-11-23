@@ -367,8 +367,7 @@ final class NotificationCenterService {
     func owner(of tab: TabModel) -> DaemonService? { services?.machines.daemon(forTab: tab) }
 
     func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
-        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
-        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
+        guard target.isCurrent else { return } // a closed tab or replaced store, or a newer request
         interacted(trigger, tab: target.tab, owner: services?.machines.daemons.first { $0.store === target.store })
     }
 

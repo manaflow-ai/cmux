@@ -170,6 +170,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        /// ``LayoutModel/holdsAttentionUntilShown``: the rings keep their marks (a blink starts) but draw nothing yet.
+        var holdsAttention: Bool
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
         var canvases: [ScreenID: CanvasScreen]
@@ -543,6 +545,10 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         }
         updateVisibility()
         overlayIsStale = true
+        // A layout just shown draws its rings from the frame that shows its content, not over the one before (cmux#46908).
+        if snapshot.holdsAttention || previous?.holdsAttention == true {
+            for host in context.hosts.values { host.chrome.holdsAttention = snapshot.holdsAttention }
+        }
         flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
@@ -775,7 +781,7 @@ extension LayoutRootView.Snapshot {
         self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
                   focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
-                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.holdsAttentionUntilShown ? [:] : model.attention,
+                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention, holdsAttention: model.holdsAttentionUntilShown,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
     }
 }
