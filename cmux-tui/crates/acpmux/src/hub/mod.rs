@@ -17,6 +17,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create over the cap with nowhere to go asks the fleet for a machine.
+pub(crate) mod admission_scale_up;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
