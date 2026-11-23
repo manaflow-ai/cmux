@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
@@ -215,6 +215,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   onChange,
   onLost,
   onLeave,
+  onList,
   readImage,
   onSideChat,
   commands,
@@ -242,6 +243,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   onLost?(text: string, id: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
+  /// Hears the queue's list mount (its element) and leave (null): the composer marks its form
+  /// `data-queue` from it, never with a `:has(> .acpmux-composer-queue)` (transcript-motion-model step 7).
+  onList?(list: HTMLOListElement | null): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
   /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
@@ -505,6 +509,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
+  const listHeard = useRef(onList);
+  useLayoutEffect(() => {
+    listHeard.current = onList;
+  });
+  const attachList = useCallback((node: HTMLOListElement | null) => {
+    list.current = node;
+    listHeard.current?.(node);
+  }, []);
   const unfold = (next: boolean) => {
     setUnfolded(next);
     if (chat === undefined) return;
@@ -1091,7 +1103,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   return (
     <>
       <ol
-        ref={list}
+        ref={attachList}
         className="ui-glass ui-glass-floats acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
         // The prompts the fold hides, still queued: the transcript keeps no room for them as it
