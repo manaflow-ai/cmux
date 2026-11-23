@@ -160,6 +160,11 @@ const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
 /// printed as the functions with the most self time over all rounds (an unminified build).
 const PROFILE = process.env.PROFILE === "1";
+/// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
+/// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
+/// derived bound for open_recent and restart (settled-page.bench.ts `fromRestartBench`).
+const BOUND = process.env.BOUND === "1";
+const BOUND_DRAWS = Number(process.env.BOUND_DRAWS ?? 3);
 const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
@@ -658,6 +663,8 @@ type Round = {
   socketOpenedMs: number | null;
   initializeAnsweredMs: number | null;
   attachAnsweredMs: number | null;
+  /// BOUND=1: the settled page drawn from scratch, ms (median of BOUND_DRAWS draws); else null.
+  boundMs: number | null;
   /// How many times the page asked for a socket, and when it made the ask that opened one (ms from
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
@@ -665,6 +672,35 @@ type Round = {
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
 };
+
+/** The settled page drawn from scratch in this page (BOUND=1): body swapped for a copy of its settled DOM, scroll
+ *  offset restored, timed to the next painted frame; the median of BOUND_DRAWS draws. Ends the page's app. */
+async function drawBound(page: Page): Promise<number> {
+  const copy = await page.evaluate(() => {
+    const clone = document.body.cloneNode(true) as HTMLElement;
+    for (const node of clone.querySelectorAll("script")) node.remove();
+    return { body: clone.innerHTML, scrollTop: document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0 };
+  });
+  const draws: number[] = [];
+  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1)
+    draws.push(
+      await page.evaluate(
+        ({ body, scrollTop }) =>
+          new Promise<number>((resolve) => {
+            document.body.innerHTML = "";
+            void document.body.offsetHeight;
+            const t0 = performance.now();
+            document.body.innerHTML = body;
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            if (scroller) scroller.scrollTop = scrollTop;
+            requestAnimationFrame(() => setTimeout(() => resolve(performance.now() - t0), 0));
+          }),
+        copy,
+      ),
+    );
+  draws.sort((a, b) => a - b);
+  return draws[Math.floor(draws.length / 2)]!;
+}
 
 const releases: [string, () => unknown][] = [];
 const release = async () => {
@@ -1169,6 +1205,7 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
+        boundMs: null,
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
@@ -1245,6 +1282,7 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await drawBound(page) : null;
       return {
         mode,
         metrics: classifyFrames(got.frames),
@@ -1262,6 +1300,7 @@ try {
         socketOpenedMs: since(load.socketOpenedAt),
         initializeAnsweredMs: since(load.initializeAnsweredAt),
         attachAnsweredMs: since(load.attachAnsweredAt),
+        boundMs,
         asks: got.asks.length,
         bytesDown: load.bytesDown,
         lastAskMs: (() => {
