@@ -111,7 +111,18 @@ pub const OUT: Argument = Argument { name: "out", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const KEEP_SESSIONS: Argument = Argument { name: "keepSessions", title: t("Localizable", "argument.keepSessions", "Keep Sessions Running"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const END_SESSIONS: Argument = Argument { name: "endSessions", title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const IF_NEWER: Argument = Argument { name: "ifNewer", title: t("ActionCatalog", "argument.ifNewer", "Only When a Newer Build Is Installed"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const END_SESSIONS: Argument = Argument {
+    name: "endSessions",
+    title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"),
+    kind: ArgKind::Bool,
+    required: true,
+    suggestions: None,
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
 #[rustfmt::skip]
 pub const END_EVERYTHING: Argument = Argument { name: "endEverything", title: t("Localizable", "argument.endEverything", "End Everything"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -716,6 +727,22 @@ pub const FEED_ITEM: Argument = Argument { name: "item", title: t("ActionCatalog
 pub const FEED_GITHUB_ACTION: Argument = Argument { name: "action", title: t("ActionCatalog", "argument.feed.githubAction", "GitHub Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionCatalog", "argument.feed.comment", "Comment"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+// cloud.computerControl (Chief computer take-over) and cloud.chiefComputer (a Chief of this Mac uses its own
+// Cloud computer).
+#[rustfmt::skip]
+pub const CASES_COMPUTER_CONTROL: &[EnumCase] = &[EnumCase { value: "status", title: t("CloudSessionActions", "argument.value.cloud.computerControl.status", "Status") }, EnumCase { value: "take_over", title: t("CloudSessionActions", "argument.value.cloud.computerControl.takeOver", "Take Over") }, EnumCase { value: "hand_back", title: t("CloudSessionActions", "argument.value.cloud.computerControl.handBack", "Give Back to Chief") }, EnumCase { value: "request_human", title: t("CloudSessionActions", "argument.value.cloud.computerControl.requestHuman", "Ask the Person to Take Over") }];
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_MACHINE: Argument = Argument { name: "machine", title: t("CloudSessionActions", "argument.cloud.computerControl.machine", "Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_ACTION: Argument = Argument { name: "action", title: t("CloudSessionActions", "argument.cloud.computerControl.action", "Control"), kind: ArgKind::Enumeration(CASES_COMPUTER_CONTROL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_REASON: Argument = Argument { name: "reason", title: t("CloudSessionActions", "argument.cloud.computerControl.reason", "Reason"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_CHIEF: Argument = Argument { name: "chief", title: t("CloudSessionActions", "argument.cloud.chiefComputer.chief", "Chief"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_OP: Argument = Argument { name: "op", title: t("CloudSessionActions", "argument.cloud.chiefComputer.op", "Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_ARGS: Argument = Argument { name: "args", title: t("CloudSessionActions", "argument.cloud.chiefComputer.args", "Arguments"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
