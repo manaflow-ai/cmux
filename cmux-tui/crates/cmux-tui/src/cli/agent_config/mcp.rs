@@ -121,7 +121,9 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
                 "unknown part {other:?}: `skills`, `subagents`, `commands`, `hooks`, `settings` or `mcp`"
             ));
         }
-        None => return Err("name a part: skills, subagents, commands, hooks, settings or mcp".into()),
+        None => {
+            return Err("name a part: skills, subagents, commands, hooks, settings or mcp".into());
+        }
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,
