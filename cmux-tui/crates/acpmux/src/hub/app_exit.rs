@@ -74,7 +74,7 @@ impl Hub {
         let config = self.harness_homes().claude;
         let (hub, chat) = (Arc::downgrade(self), session.id.clone());
         let runtime = tokio::runtime::Handle::current();
-        drop(runtime.spawn_blocking(move || {
+        drop(tokio::task::spawn_blocking(move || {
             // The entry's process, proven the one that wrote it; its start read after that proof.
             let live = crate::claude_peers::entry(&config, pid)
                 .filter(|p| p.session_id == conversation)
