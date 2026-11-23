@@ -204869,6 +204869,798 @@
         }
       }
     },
+    "settings.agents.appControl": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents Can Change cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء تغيير cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti mogu mijenjati cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ændre cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten dürfen cmux ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden cambiar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent modifier cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti possono modificare cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントによる cmux の変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចផ្លាស់ប្តូរ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트의 cmux 변경 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan endre cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą zmieniać cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes podem alterar o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут изменять cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์เปลี่ยนแปลง cmux ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar cmux'u değiştirebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть змінювати cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân có thể thay đổi cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可更改 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可變更 cmux"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.change": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read and Change"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القراءة والتغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čitanje i mijenjanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læse og ændre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lesen und ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leer y cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire et modifier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leggere e modificare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りと変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាន និងផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 및 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lese og endre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczyt i zmiany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ler e alterar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение и изменение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านและเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okuma ve değiştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читання та зміна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc và thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取和更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取和變更"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.read": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read Only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قراءة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo čitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun læse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare lese"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko odczyt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salt okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.summary": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whether agents in cmux may drive and change the app"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما إذا كان يمكن للوكلاء في cmux تشغيل التطبيق وتغييره"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om agenter i cmux må styre og ændre appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ob Agenten in cmux die App steuern und ändern dürfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si los agentes en cmux pueden controlar y cambiar la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si les agents dans cmux peuvent piloter et modifier l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se gli agenti in cmux possono controllare e modificare l’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内のエージェントがアプリを操作・変更できるかどうか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាតើភ្នាក់ងារក្នុង cmux អាចបញ្ជា និងផ្លាស់ប្តូរកម្មវិធីបានឬអត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 안의 에이전트가 앱을 조작하고 변경할 수 있는지 여부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om agenter i cmux kan styre og endre appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czy agenci w cmux mogą sterować aplikacją i ją zmieniać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se os agentes no cmux podem controlar e alterar o app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Могут ли агенты в cmux управлять приложением и изменять его"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ใน cmux ควบคุมและเปลี่ยนแปลงแอปได้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чи можуть агенти в cmux керувати застосунком і змінювати його"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的代理能否操作和更改应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的代理能否操作和變更 App"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.help": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قراءة فقط: يمكن للوكلاء في طرفيات cmux ومحادثات الوكلاء قراءة cmux دون تغييره: لا مساحات عمل أو علامات تبويب أو أجزاء جديدة، ولا كتابة في طرفيات أخرى، ولا تغيير للإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo čitanje: agenti u terminalima i agent chatovima cmuxa mogu čitati cmux, ali ga ne mogu mijenjati: nema novih radnih prostora, kartica ni panela, nema kucanja u druge terminale, nema promjena postavki."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun læse: agenter i cmux’ terminaler og agentchats kan læse cmux, men ikke ændre det: ingen nye arbejdsområder, faner eller ruder, ingen indtastning i andre terminaler, ingen ændringer af indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen: Agenten in den Terminals und Agent-Chats von cmux können cmux lesen, aber nicht ändern: keine neuen Arbeitsbereiche, Tabs oder Bereiche, keine Eingaben in andere Terminals, keine Änderungen an Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura: los agentes en las terminales y los chats de agentes de cmux pueden leer cmux pero no cambiarlo: sin nuevos espacios de trabajo, pestañas ni paneles, sin escribir en otras terminales, sin cambios de ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule : les agents dans les terminaux et les chats d’agents de cmux peuvent lire cmux sans le modifier : pas de nouveaux espaces de travail, onglets ni volets, pas de saisie dans d’autres terminaux, pas de modification des réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura: gli agenti nei terminali e nelle chat degli agenti di cmux possono leggere cmux ma non modificarlo: niente nuovi spazi di lavoro, schede o riquadri, niente digitazione in altri terminali, nessuna modifica alle impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りのみ: cmux のターミナルとエージェントチャット内のエージェントは cmux を読み取れますが、変更はできません。新しいワークスペース、タブ、ペインの作成、他のターミナルへの入力、設定の変更はできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានតែប៉ុណ្ណោះ៖ ភ្នាក់ងារក្នុងទែមីណាល់ និងការជជែកភ្នាក់ងាររបស់ cmux អាចអាន cmux ប៉ុន្តែមិនអាចផ្លាស់ប្តូរវាបានទេ៖ គ្មានកន្លែងធ្វើការ ផ្ទាំង ឬបន្ទះថ្មី គ្មានការវាយបញ្ចូលទៅទែមីណាល់ផ្សេង គ្មានការផ្លាស់ប្តូរការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 전용: cmux의 터미널과 에이전트 채팅에 있는 에이전트는 cmux를 읽을 수 있지만 변경할 수 없습니다. 새 작업 공간, 탭, 패널을 만들거나 다른 터미널에 입력하거나 설정을 바꿀 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare lese: agenter i cmux’ terminaler og agentchatter kan lese cmux, men ikke endre det: ingen nye arbeidsområder, faner eller ruter, ingen skriving i andre terminaler, ingen endringer i innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko odczyt: agenci w terminalach i czatach agentów cmux mogą odczytywać cmux, ale nie mogą go zmieniać: żadnych nowych obszarów roboczych, kart ani paneli, żadnego pisania w innych terminalach, żadnych zmian ustawień."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura: agentes nos terminais e chats de agentes do cmux podem ler o cmux, mas não alterá-lo: sem novos espaços de trabalho, abas ou painéis, sem digitar em outros terminais, sem alterar ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение: агенты в терминалах и чатах агентов cmux могут читать cmux, но не изменять его: никаких новых рабочих пространств, вкладок и панелей, никакого ввода в другие терминалы, никаких изменений настроек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียว: เอเจนต์ในเทอร์มินัลและแชตเอเจนต์ของ cmux อ่าน cmux ได้แต่เปลี่ยนแปลงไม่ได้ ไม่มีพื้นที่ทำงาน แท็บ หรือบานหน้าต่างใหม่ ไม่มีการพิมพ์ลงเทอร์มินัลอื่น และไม่มีการเปลี่ยนการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salt okunur: cmux terminallerindeki ve ajan sohbetlerindeki ajanlar cmux'u okuyabilir ama değiştiremez: yeni çalışma alanı, sekme veya bölme yok, başka terminallere yazma yok, ayar değişikliği yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання: агенти в терміналах і чатах агентів cmux можуть читати cmux, але не змінювати його: жодних нових робочих просторів, вкладок чи панелей, жодного введення в інші термінали, жодних змін налаштувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc: tác nhân trong terminal và cuộc trò chuyện tác nhân của cmux có thể đọc cmux nhưng không thay đổi được: không tạo không gian làm việc, tab hay khung mới, không gõ vào terminal khác, không đổi cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读：cmux 终端和代理聊天中的代理可以读取 cmux，但不能更改它：不能新建工作区、标签页或窗格，不能在其他终端中输入，不能更改设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀：cmux 終端機和代理聊天中的代理可以讀取 cmux，但不能變更它：不能新增工作區、分頁或窗格，不能在其他終端機中輸入，不能變更設定。"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.ask": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "묻기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詢問"
+          }
+        }
+      }
+    },
     "settings.computerUse.cursorTag": {
       "comment": "Settings > Computer Use: when an agent cursor shows its tag (the agent's workspace name or a tag it set)",
       "extractionState": "manual",
