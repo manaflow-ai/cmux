@@ -74,6 +74,48 @@ async fn a_fresh_relay_listing_is_kept_and_the_next_ls_serves_it_without_waiting
     assert_eq!(remote["source"], "sh");
 }
 
+/// A kept listing older than [`FRESH_AGE_MS`] is as old as the caller's last `ls`: the relay is
+/// read for it, by [`KEPT_WAIT`], and the kept rows listed only when that misses (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-serves-idle-gap.md`).
+#[tokio::test]
+async fn an_old_kept_listing_is_read_again_and_kept_only_when_the_relay_misses() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join(CACHE_FILE);
+    let old = crate::store::now_ms() - 60_000;
+    let kept_row = serde_json::json!({"peer": "p", "sessionId": "old"});
+    write_cache(&cache, "sh", std::slice::from_ref(&kept_row), old);
+
+    // A healthy relay: the fresh rows, not the kept ones, and they are kept in turn.
+    let fresh = start_with(Some(sh_relay(ONE_ROW)), cache.clone(), None, FAR_BUDGET)
+        .finish()
+        .await
+        .relay
+        .unwrap();
+    assert_eq!(fresh.state, RemoteState::Fresh);
+    assert_eq!(fresh.rows[0]["sessionId"], "r-1");
+    assert!(read_cache(&cache, crate::store::now_ms()).unwrap().0 > old);
+
+    // A stalled relay with no refresh running: read by KEPT_WAIT, then the kept rows.
+    write_cache(&cache, "sh", std::slice::from_ref(&kept_row), old);
+    let started = std::time::Instant::now();
+    let kept =
+        start_with(Some(stalled_relay()), cache.clone(), None, FAR_BUDGET).finish().await.relay;
+    let took = started.elapsed();
+    assert!(took >= KEPT_WAIT && took < KEPT_WAIT * 2, "the old kept listing took {took:?}");
+    let kept = kept.unwrap();
+    assert_eq!(kept.state, RemoteState::Stale { as_of_ms: old });
+    assert_eq!(kept.rows[0]["sessionId"], "old");
+    assert!(cache.with_file_name(REFRESH_MARK).exists(), "the miss starts a refresh");
+
+    // While that refresh runs, the next ls lists the kept rows at once.
+    let started = std::time::Instant::now();
+    let kept =
+        start_with(Some(stalled_relay()), cache, None, FAR_BUDGET).finish().await.relay.unwrap();
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(200), "a running refresh was waited on: {took:?}");
+    assert_eq!(kept.state, RemoteState::Stale { as_of_ms: old });
+}
+
 #[tokio::test]
 async fn a_failing_relay_without_a_kept_listing_names_the_failure() {
     let dir = tempfile::tempdir().unwrap();
