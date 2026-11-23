@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -12,7 +13,6 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
-  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -26,9 +26,9 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -104,11 +104,11 @@ import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -177,10 +177,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadCount,
   noteUnreadNews,
+  noteUnreadCount,
 } from "./conversation/unreadState";
-import { sinceCount, sinceNews } from "./conversation/sinceNews";
+import { sinceNews, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -193,7 +193,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -1076,10 +1076,10 @@ function TranscriptView({
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
-    const was = followingRef.current;
     // Following starting or stopping goes to the host at once, apart from the settled report
     // (`onAnchor`, once per rested scroll): Toggle Terminal and Chat reads it on the next key.
     if (next !== followingRef.current && onFollowingAnchor) queueMicrotask(() => reportAnchorRef.current(next));
+    const was = followingRef.current;
     followingRef.current = next;
     if (next && !was) keepFromNow.current();
     onFollowingChange?.(next);
