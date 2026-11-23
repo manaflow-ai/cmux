@@ -166,7 +166,7 @@ fn bundle(bytes: usize) -> Vec<u8> {
 /// again (`reconnect`) or not, noted in `journal`.
 async fn run_move(src: &Fake, dst: &Fake, reconnect: bool, journal: &Path) -> Result<Value> {
     let (s, d) = (Client::connect(&src.socket).await?, Client::connect(&dst.socket).await?);
-    let begun = begin_move(&s, "chat", None, (false, false), None).await?;
+    let begun = begin_move(&s, "chat", None, (false, false), None, None).await?;
     let pick = |f: &Fake| if reconnect { f.reach() } else { None };
     let mut s_end = MoveEnd::new("source", &s, pick(src)).with_waits(SHORT, SHORT * 5);
     let mut d_end = MoveEnd::new("target", &d, pick(dst)).with_waits(SHORT, SHORT * 5);
