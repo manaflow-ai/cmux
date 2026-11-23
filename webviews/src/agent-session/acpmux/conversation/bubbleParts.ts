@@ -5,6 +5,7 @@ import { isImageOriginal } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { readsAsText } from "./inlinePromptContentModel";
+import { sentVideosOf, withoutRepeatedVideos } from "./sentVideos";
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
 /// original file after it).
@@ -61,5 +62,9 @@ export function bubbleLayout(
   const originals = imageOriginals(row);
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
   if (!inlineBubbleParts(parts)) return undefined;
-  return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
+  // A video attached twice is one tile (sentVideos.ts `withoutRepeatedVideos`).
+  return {
+    parts: parts.filter((part) => !isStripMedia(part)),
+    band: withoutRepeatedVideos(parts.filter(isStripMedia), sentVideosOf(row)),
+  };
 }
