@@ -430,8 +430,6 @@ impl Hub {
         gates_receiver: bool,
         precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
-        let tt = std::time::Instant::now();
-        eprintln!("TIMING begin entered");
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
                 "epoch_unreadable",
@@ -479,13 +477,11 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
-        eprintln!("TIMING after_turn {:?}", tt.elapsed());
         self.refuse_while_history_awaited(session)?;
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
         // The freeze begins when the chat is marked moving, just below: its length to this
         // begin's answer is `frozenMs`, the share of a move's freeze this daemon can time.
-        eprintln!("TIMING refuse+sweep {:?}", tt.elapsed());
         let frozen_at = std::time::Instant::now();
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
@@ -587,7 +583,6 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
-        eprintln!("TIMING turn_lock {:?}", tt.elapsed());
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
         let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
@@ -597,7 +592,6 @@ impl Hub {
             Some(Ok(prefix)) => Some(prefix),
             None => None,
         };
-        eprintln!("TIMING check_prefix {:?}", tt.elapsed());
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -646,7 +640,6 @@ impl Hub {
                 return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
-        eprintln!("TIMING export+held {:?}", tt.elapsed());
         let restored = match (&folded, &prefix) {
             (Some(f), Some(p)) => self
                 .ownership_epoch_after(&session.id, p.after_seq, f.epoch)
@@ -660,7 +653,6 @@ impl Hub {
                 carried,
             ));
         }
-        eprintln!("TIMING epoch {:?}", tt.elapsed());
         let epoch = session.bump_ownership_epoch();
         if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
@@ -684,7 +676,6 @@ impl Hub {
                 carried,
             ));
         }
-        eprintln!("TIMING append {:?}", tt.elapsed());
         drop(guard);
         if let Some(socket) = to {
             let _ = crate::home_fs::write(dir.join("to"), socket);
@@ -741,7 +732,6 @@ impl Hub {
         {
             answer.set("harness", manifest.get("harness").cloned().unwrap_or(Value::Null));
         }
-        eprintln!("TIMING end {:?}", tt.elapsed());
         Ok(answer)
     }
 
