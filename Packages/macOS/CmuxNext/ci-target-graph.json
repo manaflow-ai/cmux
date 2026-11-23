@@ -952,7 +952,8 @@
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPalette",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -966,7 +967,8 @@
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextTestSupport",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
