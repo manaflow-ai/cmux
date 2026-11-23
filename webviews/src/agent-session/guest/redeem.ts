@@ -125,13 +125,21 @@ const joinedVia = (shareId: string, storage: Storage): JoinedVia => {
   return storage.getItem(key(shareId, "role")) === null ? "link" : "invite";
 };
 
+/** A saved Drive grant may resume only on its named invite page. */
+function canResume(shareId: string, storage: Storage, invite: boolean): boolean {
+  if (storage.getItem(key(shareId, "role")) === "drive") {
+    return invite && storage.getItem(key(shareId, "via")) === "invite";
+  }
+  return !invite || joinedVia(shareId, storage) === "invite";
+}
+
 /**
  * The guest id this tab joined the share as (its cookie is set), so a reload goes straight to the
  * chat. On an invite page (`invite`) only an invite's join counts: a tab that joined by the link is
  * an anonymous guest, so it accepts again as the account (and gets the invite's role).
  */
 export const joinedAs = (shareId: string, storage: Storage, invite = false) => {
-  if (invite && joinedVia(shareId, storage) !== "invite") return undefined;
+  if (!canResume(shareId, storage, invite)) return undefined;
   return storage.getItem(key(shareId, "joined")) ?? undefined;
 };
 
@@ -144,9 +152,9 @@ export const joinedName = (shareId: string, storage: Storage) => storage.getItem
  * link watches only, unless its redeem named `talk` (it joined as a signed-in account).
  */
 export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
+  if (!canResume(shareId, storage, invite)) return undefined;
   const via = joinedVia(shareId, storage);
-  if (invite && via !== "invite") return undefined;
-  const kept = role(storage.getItem(key(shareId, "role")), storage.getItem(key(shareId, "via")) === "invite");
+  const kept = role(storage.getItem(key(shareId, "role")), invite);
   // A link guest watches unless the redeem named `talk` (a signed-in account on a talk link); the
   // daemon refuses an anonymous guest's messages whatever this tab kept.
   if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return kept ?? "view";
