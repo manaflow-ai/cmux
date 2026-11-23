@@ -2685,28 +2685,17 @@ struct TabGroupChip: View {
     }
 
     /// The nine Mac group colors (its vibrant palette, light or dark), or a custom `#RRGGBB`:
-    /// dots and swatches. SwiftUI's system yellow and red did not match the Mac's group, and grey
-    /// was not a case (it fell back to `Color.gray`).
+    /// dots and swatches, as the Workspaces list draws them. SwiftUI's system yellow and red did
+    /// not match the Mac's group, and grey was not a case (it fell back to `Color.gray`).
     static func color(_ token: String) -> Color {
-        if let rgb = Self.rgb(token), WorkspaceColor(stored: token) == nil { return Color(uiColor: Self.uiColor(rgb)) }
-        let color = WorkspaceColor(stored: token) ?? .grey
-        return Color(uiColor: UIColor { Self.uiColor(color.vibrant(dark: $0.userInterfaceStyle == .dark)) })
+        WorkspaceSwatch.color(stored: token) ?? WorkspaceSwatch.color(.grey)
     }
 
     /// The chip's background, carrying white text over a card: the Mac's dark chip fill. Raw
     /// system yellow (or a light custom color) left the white name unreadable.
     static func fill(_ token: String) -> Color {
-        let rgb = WorkspaceColor(stored: token)?.vibrant(dark: true) ?? Self.rgb(token) ?? WorkspaceColor.grey.vibrant(dark: true)
-        return Color(uiColor: Self.uiColor(WorkspaceColor.darkFill(rgb)))
-    }
-
-    static func rgb(_ token: String) -> UInt32? {
-        guard token.hasPrefix("#"), token.count == 7 else { return nil }
-        return UInt32(token.dropFirst(), radix: 16)
-    }
-
-    private static func uiColor(_ rgb: UInt32) -> UIColor {
-        UIColor(red: CGFloat(rgb >> 16 & 0xFF) / 255, green: CGFloat(rgb >> 8 & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+        let rgb = WorkspaceColor(stored: token)?.vibrant(dark: true) ?? WorkspaceSwatch.hex(token) ?? WorkspaceColor.grey.vibrant(dark: true)
+        return Color(uiColor: WorkspaceSwatch.rgb(WorkspaceColor.darkFill(rgb)))
     }
 }
 #endif
