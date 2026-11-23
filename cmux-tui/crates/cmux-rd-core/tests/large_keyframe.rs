@@ -4,9 +4,9 @@
 //! at 6 Mbit/s). Run with `--nocapture` for the numbers.
 
 use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::packetize::Packetizer;
 use cmux_rd_core::reassembly::Reassembler;
 use cmux_rd_proto::{DatagramHeader, FrameBody, REF_NONE, flags};
-use cmux_rd_core::packetize::Packetizer;
 
 const MTU: usize = 1152;
 const DEADLINE_US: u64 = 200_000;
@@ -43,17 +43,30 @@ struct Run {
     released_us: Option<u64>,
 }
 
-/// One keyframe of `bytes` paced at `target_bps` through `link`; no repairs, so the
-/// keyframe is shown only if every datagram arrives and the deadline allows it.
-fn send_keyframe(bytes: usize, target_bps: u64, mut link: Bottleneck) -> Run {
+/// One keyframe of `bytes` paced at `target_bps` through `link` (or, `old`, spread
+/// evenly over 8 ms as the uncapped pacer sent it); no repairs, so the keyframe is
+/// shown only if every datagram arrives and the deadline allows it.
+fn send_keyframe(bytes: usize, target_bps: u64, mut link: Bottleneck, old: bool) -> Run {
     let mut packetizer = Packetizer::new(0, MTU);
     let body = FrameBody { t_capture_us: 0, ref_frame: REF_NONE, access_unit: vec![7; bytes] };
     let frame = packetizer.packetize(1, flags::KEYFRAME, &body, 0).expect("packetize");
     let mut pacer = Pacer::new();
-    pacer.push_frame(frame.datagrams, target_bps, 33_333, 0);
+    if !old {
+        pacer.push_frame(frame.datagrams.clone(), target_bps, 33_333, 0);
+    }
     let mut arrivals = Vec::new();
     let (mut sent, mut dropped) = (0, 0);
     let mut now = 0;
+    if old {
+        let n = frame.datagrams.len() as u64;
+        for (i, d) in frame.datagrams.into_iter().enumerate() {
+            sent += 1;
+            match link.offer(i as u64 * 8_000 / n, d.len()) {
+                Some(at) => arrivals.push((at, d)),
+                None => dropped += 1,
+            }
+        }
+    }
     loop {
         for d in pacer.due(now) {
             sent += 1;
@@ -79,15 +92,20 @@ fn send_keyframe(bytes: usize, target_bps: u64, mut link: Bottleneck) -> Run {
 }
 
 /// The real pair's numbers: a 0.5 MB keyframe, a 19 Mbit/s target and a path that
-/// delivered under 8 Mbit/s with a 100 ms queue. Uncapped it left at about 550 Mbit/s
-/// and the queue dropped most of it; capped at 6 times the target it still overruns a
-/// path that much slower than the target, so the drop count only has to fall.
+/// delivered under 8 Mbit/s, here with a 100 ms queue. A path that much slower than the
+/// target drops part of any keyframe (NACKs repair it, now inside the deadline); the
+/// capped pacer only has to lose less of it than the 8 ms burst did.
 #[test]
 fn a_motion_keyframe_loses_less_through_a_slow_bottleneck() {
-    let run = send_keyframe(500_000, 19_000_000, Bottleneck::new(8e6, 100_000.0));
-    println!("19 Mbit/s target, 8 Mbit/s path: {} of {} lost", run.dropped, run.sent);
-    // Uncapped, 8 ms at line rate: a 100 KB queue keeps about 100 of 440 datagrams.
-    assert!(run.dropped * 100 < run.sent * 75, "{} of {} lost", run.dropped, run.sent);
+    let link = || Bottleneck::new(8e6, 100_000.0);
+    let old = send_keyframe(500_000, 19_000_000, link(), true);
+    let new = send_keyframe(500_000, 19_000_000, link(), false);
+    println!(
+        "19 Mbit/s target, 8 Mbit/s path: 8 ms burst lost {} of {}, paced lost {} of {}",
+        old.dropped, old.sent, new.dropped, new.sent
+    );
+    assert_eq!(old.sent, new.sent);
+    assert!(new.dropped < old.dropped, "paced {} vs burst {}", new.dropped, old.dropped);
 }
 
 /// A target the path can carry (the controller has converged): the keyframe arrives
@@ -95,8 +113,11 @@ fn a_motion_keyframe_loses_less_through_a_slow_bottleneck() {
 #[test]
 fn a_keyframe_longer_than_the_deadline_to_arrive_is_released() {
     // 6 Mbit/s target and path (the pair's capped run), a 0.5 MB keyframe: 670 ms of wire.
-    let run = send_keyframe(500_000, 6_000_000, Bottleneck::new(6e6, 1_000_000.0));
-    println!("6 Mbit/s: {} of {} lost, released at {:?} us", run.dropped, run.sent, run.released_us);
+    let run = send_keyframe(500_000, 6_000_000, Bottleneck::new(6e6, 1_000_000.0), false);
+    println!(
+        "6 Mbit/s: {} of {} lost, released at {:?} us",
+        run.dropped, run.sent, run.released_us
+    );
     assert_eq!(run.dropped, 0);
     let released = run.released_us.expect("the keyframe is shown");
     assert!(released > DEADLINE_US, "it took longer than one deadline to arrive: {released}");

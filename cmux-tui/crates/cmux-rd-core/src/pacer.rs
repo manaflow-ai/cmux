@@ -427,8 +427,8 @@ impl Pacer {
         let window_us = (interval_us as f64 * SPREAD_SHARE).clamp(1_000.0, MAX_SPREAD_US);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
         let queued = self.queued_bytes as f64;
-        let ceiling = (target_bps as f64 * LARGE_FRAME_FACTOR / 8.0 / 1e6)
-            .max(queued / MAX_LARGE_SPREAD_US);
+        let ceiling =
+            (target_bps as f64 * LARGE_FRAME_FACTOR / 8.0 / 1e6).max(queued / MAX_LARGE_SPREAD_US);
         let fit = (queued / window_us).min(ceiling);
         self.rate_bytes_per_us = floor.max(fit);
         if self.budget_bytes <= 0.0 {
