@@ -63,6 +63,19 @@ cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
 
 Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
 
+### Tonal: one seed, every color
+
+Every color from one sage-teal seed, in tonal steps: the sidebar and tab strip a few tones off
+the page, opaque surfaces with no glass or blur, the work in one rounded card, and the primary
+color for selection, focus and Send. It brings Tonal Dark too
+(`cmux settings set appearance.themeFile tonal-dark`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/tonal.json
+```
+
+Or ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass"
+
 ### Ukiyo-e: the Great Wave
 
 Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages. It ships its theme file (`themes/ukiyo-e.json`).
@@ -235,6 +248,43 @@ cmux customize use ~/.local/state/cmux/customize/recipes/vertical-tabs.json
 
 Or ask: "put my tabs in a vertical list"
 
+### A review desk
+
+The chat stays the main pane and every diff, file and link it opens lands in a column on its
+right; new terminals split instead of stacking as tabs; the edited-files card stays open; the tab
+bar gets Split Right, Split Down, Open Diff Viewer and Zoom. Shift-Command-D opens the diff, and in
+the diff `] F`, `[ F`, `N`, `Shift-N` and `G G` step files and hunks. Two palette actions show the
+branch against main and start Claude to review it. It brings its own `keybindings.json`, so while
+it previews it takes the place of yours.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/review-desk.json
+```
+
+Or ask: "set up a review layout with the chat, the diff and a terminal side by side"
+
+### Every bar at the bottom
+
+The tab bars, the browser and Markdown address bars, the sidebar's spaces, the Chief and docked
+columns all move to the bottom edge.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/bottom-deck.json
+```
+
+Or ask: "move the tab bar, the address bars and the docks to the bottom"
+
+### Workspaces like browser tabs
+
+Each workspace is one line, groups get a colored rail like a browser's tab groups, Command-1 to 9
+picks a workspace, and you drag a workspace onto a pane's edge to show it beside yours.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/workspace-tabs.json
+```
+
+Or ask: "make my workspaces work like browser tabs"
+
 ## Type
 
 ### A different font
@@ -317,6 +367,20 @@ cmux customize use ~/.local/state/cmux/customize/recipes/pane-keys.json
 
 Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
 
+### A keyboard mode on Command-J
+
+Press Command-J, let go, then one key: V or minus splits, Z zooms, E evens the splits, O floats
+the pane, C opens a terminal tab, A a chat beside you, D the diff, B hides the sidebar, X closes
+the tab, ] and [ step workspaces. Command-J W, R or M, then H, J, K or L, moves focus, resizes or
+moves the tab. Command-J is cmux's own leader, so no key a terminal or a chat types is taken. Like
+the pane keys, it takes the place of your own `keybindings.json` while it previews.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/leader.json
+```
+
+Or ask: "give me leader keys to split, zoom, resize and move panes"
+
 ## App looks
 
 Each of these changes the whole window at once: the colors, the sidebar, the chat and the
@@ -395,3 +459,5 @@ Or ask: "make cmux look like a violet desktop coding app"
 - Apply and discard are the person's call.
 - A recipe is a profile file, the format `cmux customize save NAME` writes. Save your own setup
   the same way to share it.
+- To share a whole customization as a git repo that others install from its URL, see
+  [setup repos](setup-repos.md); `cmux setup check DIR` checks one before you push it.

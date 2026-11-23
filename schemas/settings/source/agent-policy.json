@@ -41,6 +41,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -137,6 +144,13 @@
       "why": "The menu bar item; looks only, ends no work.",
       "keys": [
         "app.showMenuBarIcon"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
       ]
     },
     {
@@ -271,7 +285,9 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -300,6 +316,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
@@ -460,6 +477,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -492,6 +510,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
@@ -548,6 +568,13 @@
       "keys": [
         "agentPane.composerLook",
         "agentPane.emptyChatComposerPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.",
+      "keys": [
+        "agentPane.followUpMode"
       ]
     },
     {
@@ -1037,6 +1064,21 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
+      "keys": [
+        "worktrees.autoCleanup",
+        "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
@@ -1224,8 +1266,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "The app that opens your files from a menu: an agent must not pick what runs them.",
+      "why": "The apps that open your folders and files: an agent must not pick what runs them.",
       "keys": [
+        "editor.default",
         "files.textEditor"
       ]
     },
@@ -1263,6 +1306,13 @@
       "why": "Whether attached photos and videos send their location.",
       "keys": [
         "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
       ]
     },
     {
@@ -1341,6 +1391,13 @@
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {
@@ -1444,7 +1501,9 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
       ]
     },
     {
@@ -1588,6 +1647,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1625,6 +1691,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
       "keys": [
         "macScreen.shareWithoutAsking"
@@ -1635,6 +1708,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.",
+      "keys": [
+        "remote.agentShareIdleMinutes"
       ]
     },
     {
