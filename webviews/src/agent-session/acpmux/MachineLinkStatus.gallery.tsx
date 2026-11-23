@@ -54,7 +54,7 @@ function Row({ link, look, before = false, quietMs = 0, now }: Props) {
       data-machine-link-fixture
       style={{ padding: 16, width: "100%", boxSizing: "border-box" }}
     >
-      <form className="acpmux-composer" style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+      <form className="acpmux-composer" data-foot="" style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
             <span className="acpmux-access">

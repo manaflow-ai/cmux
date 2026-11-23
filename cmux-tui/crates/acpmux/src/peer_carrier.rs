@@ -209,6 +209,14 @@ mod tests {
     fn a_down_link_with_a_named_reason_is_offline_with_it() {
         let cases = [
             ("credential-unavailable: the hub answered 503", OfflineReason::CredentialUnavailable),
+            // A dial the relay refused: the machine's Register ticket ran out unrenewed
+            // (cmux-remote `relay_unavailable`, relay code `credential-unavailable`).
+            (
+                "relay allocation is temporarily unavailable: credential-unavailable: the \
+                 machine's relay ticket expired and was not renewed (relay code \
+                 credential-unavailable)",
+                OfflineReason::CredentialUnavailable,
+            ),
             ("relay credential source callback failed", OfflineReason::CredentialUnavailable),
             ("write: No space left on device (os error 28)", OfflineReason::DiskFull),
             ("relay refused: vm.agent_stopping", OfflineReason::MachineStopped),

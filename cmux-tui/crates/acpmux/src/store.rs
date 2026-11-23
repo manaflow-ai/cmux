@@ -27,8 +27,10 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
 mod segment_starts;
+mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -82,6 +84,16 @@ pub struct EventRecord {
     /// that adopts the host resumes after it (agent hosts, durable sessions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_seq: Option<u64>,
+}
+
+/// Where a read of a log's newest records starts ([`Store::newest_window`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NewestWindow {
+    /// The seq after which the newest records lie: 0 when the log holds no more than asked for,
+    /// else the seq of the newest record left out, so records `1..=after` are the older ones.
+    pub after: u64,
+    /// The newest record's seq (0 for an empty log): the count of records the chat has logged.
+    pub newest: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -242,6 +254,12 @@ pub struct SessionMeta {
     /// applied at spawn, not through set_model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
+    /// The effort a new Claude Code chat starts on, given at spawn as `--effort` instead of a
+    /// `session/set_config_option` after `initialize` (`hub/lifecycle.rs`). A start before the
+    /// harness reported its options reads it (`model_options::spawn_effort`); its reported
+    /// effort wins after that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_request: Option<String>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -258,6 +276,11 @@ pub struct SessionMeta {
     /// Codex keeps the goal in its thread, so it is set once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_condition_sent: bool,
+    /// Read-only work in a folder the person chose not to trust (`_meta.acpmux.restricted`,
+    /// `hub/restricted.rs`): every start of its Claude Code skips the folder's settings and MCP
+    /// servers, and it keeps the review policy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -467,6 +490,13 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The agent of the unstored conversation (`claude_unstored`) did work in a turn that did
+    /// not end Ok: it said something, thought or called a tool (`Hub::unstored_turn_worked`). Only
+    /// such a conversation is kept awake (`idle.rs`) and refused by `stop --if-idle`; one whose
+    /// turns only ever got agent errors (a 503, an exhausted account) wakes as the same fresh
+    /// conversation with its transcript restored either way (cmux#48917).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored_work: bool,
     /// Its creator asked every start of its agent to wait on the harness rather than a wall
     /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
     /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
@@ -479,6 +509,13 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The journal seq the agent's own session ends at, when the journal went past it without
+    /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
+    /// to a fresh machine from an older disk). The agent resumes its own older session, so its
+    /// next prompt carries the turns after this seq (`hub/transcript.rs` `missed_turns`), and the
+    /// mark goes. Saved with the meta: the agent's file and this mark are on one disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_behind_seq: Option<u64>,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -1018,6 +1055,13 @@ impl SessionMeta {
 
     /// The Claude store this session's harness reads when it spawns on a
     /// profile with `env`.
+    /// A Claude chat whose conversation is not stored (`claude_unstored`) and whose agent did
+    /// work in it (`claude_unstored_work`): hibernating or stopping it would lose that work's
+    /// context, so `idle.rs` keeps it awake and `stop --if-idle` refuses it (`unstored`).
+    pub fn keeps_unstored_awake(&self) -> bool {
+        self.claude_unstored && self.claude_unstored_work && self.turn_count > 0
+    }
+
     pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
         let mut env = env.clone();
         self.apply_chat_store(&mut env);
@@ -1342,6 +1386,13 @@ pub trait Store: Send + Sync {
         })?;
         Ok((count, last))
     }
+    /// Where the newest `n` records before seq `before` start ([`NewestWindow`]): a replay that
+    /// may send only `n` records sends the newest ones (`session/load`), not the oldest. A file
+    /// store reads the lines' seqs back from the end and parses none, so the answer costs `n`
+    /// lines however long the log is.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        newest_window_by_scan(self, id, before, n)
+    }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
     /// parses no other line (the queue restore at daemon start reads its few kinds out of
     /// logs that are mostly agent output).
@@ -1453,6 +1504,30 @@ pub trait Store: Send + Sync {
     /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
+    /// `scan_heads` of the records from `from` on, each with where its line is ([`LinePos`]) in
+    /// a store that knows: an adoption that resumes from its checkpoint
+    /// (`hub/hosts/checkpoint.rs`). `hint` is where the line of `from` was; a file store reads
+    /// from there, when that line still holds `from`, and from the segment that holds `from`
+    /// otherwise. Never more records than `scan_heads`, never fewer past `from`.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        _hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
+    }
+    /// The adoption checkpoint of `id` (`hub/hosts/checkpoint.rs`), as saved. None in a store
+    /// that keeps none.
+    fn adoption_checkpoint(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s adoption checkpoint, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_adoption_checkpoint(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
     }
     /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
     /// text copy (`store/text_index.rs`) and only the bytes appended past it.
@@ -1635,8 +1710,37 @@ pub trait Store: Send + Sync {
     }
 }
 
+/// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
+pub(crate) fn newest_window_by_scan<S: Store + ?Sized>(
+    store: &S,
+    id: &str,
+    before: u64,
+    n: u64,
+) -> Result<NewestWindow> {
+    let mut window = NewestWindow::default();
+    let mut seen = 0u64;
+    store.scan_back(id, 0, before, &|_, _| false, &mut |rec| {
+        window.newest = window.newest.max(rec.seq);
+        seen += 1;
+        if seen > n {
+            window.after = rec.seq;
+            return false;
+        }
+        true
+    })?;
+    Ok(window)
+}
+
 mod log_line;
 pub use log_line::RecordHead;
+
+/// Where a log line is: its segment's number and the byte offset its line starts at
+/// (`Store::scan_heads_from`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinePos {
+    pub segment: u32,
+    pub offset: u64,
+}
 
 #[cfg(test)]
 pub(crate) use log_line::PARSED_LINES;
@@ -1670,15 +1774,21 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 }
 
 mod durability;
-pub use durability::{Durability, ShowAfter};
+pub use durability::{Durability, FULL_WAIT, ShowAfter};
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
+#[cfg(test)]
+pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
+mod segment_writer;
+use segment_writer::SegmentWriter;
 pub mod open_logs;
 #[cfg(test)]
-pub(crate) use journal_store::pause_next_log_write_on_this_thread;
+pub(crate) use journal_store::{
+    hold_next_read_fence_on_this_thread, pause_next_log_write_on_this_thread,
+};
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -1692,6 +1802,15 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+/// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
+const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
+
+/// `path`'s bytes, read in the held home (`None` when it is missing or unreadable).
+fn held_file_bytes(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    crate::home_fs::private_state_file(path).ok()?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
 
 pub struct LocalStore {
     root: PathBuf,
@@ -1718,6 +1837,7 @@ pub struct LocalStore {
     kind_heads: kind_heads::KindHeads,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
+    segment_table: segment_table::SegmentTable,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1739,29 +1859,6 @@ const PARKED: &str = "parked.json";
 /// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
 const HELD: &str = "held";
 
-struct SegmentWriter {
-    index: u32,
-    file: File,
-    written: u64,
-    used: u64,
-}
-
-impl SegmentWriter {
-    /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than `open_logs` and a session's
-    /// records stay in order. A failed sync is logged and noted in `failed`: its records were
-    /// written (an append is never synced on its own), so only a machine crash before the kernel
-    /// writes them back loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
-        if let Err(e) = log_sync::sync_segment(&self.file, false) {
-            #[cfg(test)]
-            log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
-            failed.store(true, std::sync::atomic::Ordering::SeqCst);
-            tracing::warn!(session = %id, "sync event log on close: {e}");
-        }
-    }
-}
-
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
         crate::config::private_state_dir(&root)
@@ -1779,6 +1876,7 @@ impl LocalStore {
             parts: Default::default(),
             kind_heads: Default::default(),
             segment_starts: Default::default(),
+            segment_table: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -1805,7 +1903,7 @@ impl LocalStore {
     /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
     /// rehydrate may have put the log back since the first, and this one then answers false
     /// (review of #39141: an append went on in `000001` of a log that ran on past it).
-    fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segments(&self, id: &str) -> Result<SegmentList> {
         let (segments, cut_pending) = self.list_segments(id)?;
         if !cut_pending {
             return Ok(segments);
@@ -1821,7 +1919,7 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
-    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
+    fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
         let listed = self.listed_files(id)?;
         if listed.0.is_empty() {
             self.rehydrate(id)?;
@@ -1831,31 +1929,13 @@ impl LocalStore {
     }
 
     /// The segments on the disk now, never rehydrated.
-    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segment_files(&self, id: &str) -> Result<SegmentList> {
         Ok(self.listed_files(id)?.0)
     }
 
     /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let mut cut_pending = false;
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok((out, false));
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name == compact::CUT {
-                cut_pending = true;
-            } else if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok((out, cut_pending))
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+        self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
     fn list_entry(
@@ -1975,7 +2055,7 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = cut_torn_tail(&file, &path)?;
-        Ok(SegmentWriter { index, file, written, used: 0 })
+        Ok(SegmentWriter::new(index, file, written, 0))
     }
 }
 
@@ -2012,79 +2092,6 @@ fn note_write_budget(record: &EventRecord, bytes: usize) {
     }
     if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
         tracing::warn!("{warning}");
-    }
-}
-
-impl LocalStore {
-    /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
-    /// body of [`Store::append`], and the journal store's write of a journaled line
-    /// (`store/journal_store.rs`). Refused once the store is sealed.
-    pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
-        // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `open_logs` are ever open, and no other
-        // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `open_logs` sessions are written.
-        let _open = self.writable()?;
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.open.contains_key(id)
-            && writers.open.len() >= self.open_logs
-            && let Some(oldest) =
-                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            && let Some(w) = writers.open.remove(&oldest)
-        {
-            w.close(&oldest, &self.sync_failed);
-        }
-        if !writers.open.contains_key(id) {
-            // A cut left halfway is finished before anything is appended past it.
-            self.finish_cut_locked(id, &mut writers)?;
-            let writer = self.open_writer(id)?;
-            writers.open.insert(id.to_owned(), writer);
-        }
-        writers.clock += 1;
-        let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
-            let index = old.index + 1;
-            old.close(id, &self.sync_failed);
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
-        }
-        let Some(w) = writers.open.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
-        };
-        w.used = clock;
-        #[cfg(debug_assertions)]
-        disk_fault::write()?;
-        #[cfg(test)]
-        let wrote = match test_write_fault::take() {
-            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
-                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
-            )),
-            None => w.file.write_all(line),
-        };
-        #[cfg(not(test))]
-        let wrote = w.file.write_all(line);
-        if let Err(e) = wrote {
-            // A full disk (or a signal) can write part of the line before the error. Cut it back
-            // to the last whole record, or the next append is glued onto the torn bytes: the
-            // merged line reads as no record, so that record is lost and a strict read fails.
-            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
-            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
-            // as synced), and the next open cuts the tail.
-            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
-            if cut_back(&segment, w.written).is_err()
-                && let Some(w) = writers.open.remove(id)
-            {
-                w.close(id, &self.sync_failed);
-            }
-            return Err(e.into());
-        }
-        w.written += line.len() as u64;
-        Ok(())
     }
 }
 
@@ -2297,7 +2304,7 @@ impl Store for LocalStore {
     fn flush_session(&self, id: &str) -> Result<()> {
         let writers = self.writers.lock_or_recover();
         if let Some(writer) = writers.open.get(id) {
-            log_sync::sync_segment(&writer.file, true).map_err(SyncFailed)?;
+            log_sync::sync_segment(writer.file(), true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -2395,10 +2402,103 @@ impl Store for LocalStore {
         self.scan_lines(id, after, true, None, visit)
     }
 
+    /// Reads from `hint` when the line there holds `from` (an adoption's checkpoint: no byte
+    /// before it), else from the start of the segment that holds `from`, passing the lines
+    /// before `from` on their `seq` alone.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        use std::io::{Seek, SeekFrom};
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        let hinted = hint.and_then(|h| {
+            let (index, (_, path)) =
+                segments.iter().enumerate().find(|(_, (n, _))| *n == h.segment)?;
+            let mut reader =
+                BufReader::with_capacity(64 * 1024, crate::config::private_state_file(path).ok()?);
+            reader.seek(SeekFrom::Start(h.offset)).ok()?;
+            line.clear();
+            reader.read_until(b'\n', &mut line).ok()?;
+            (record_seq(&line) == Some(from)).then_some((index, h.offset, reader))
+        });
+        let (start, mut first) = match hinted {
+            Some((index, offset, reader)) => (index, Some((offset, reader))),
+            None => (self.segment_starts.start(id, &segments, from.saturating_sub(1))?, None),
+        };
+        for (index, path) in segments.get(start..).unwrap_or_default() {
+            let (mut pos, mut reader) = match first.take() {
+                Some((offset, reader)) => (offset, reader),
+                None => {
+                    line.clear();
+                    let file = crate::config::private_state_file(path)?;
+                    (0, BufReader::with_capacity(256 * 1024, file))
+                }
+            };
+            loop {
+                // The hinted line was read already.
+                let n =
+                    if line.is_empty() { reader.read_until(b'\n', &mut line)? } else { line.len() };
+                if n == 0 {
+                    break;
+                }
+                let at = LinePos { segment: *index, offset: pos };
+                pos += n as u64;
+                let more = if line.iter().all(u8::is_ascii_whitespace)
+                    || record_seq(&line).is_some_and(|seq| seq < from)
+                {
+                    true
+                } else {
+                    match RecordHead::read(&line) {
+                        Some(head) => visit(&head, Some(at)),
+                        None => match parse_record(&line) {
+                            Ok(rec) if rec.seq >= from => {
+                                visit(&RecordHead::parsed(&rec), Some(at))
+                            }
+                            _ => true,
+                        },
+                    }
+                };
+                line.clear();
+                if !more {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// None once the log was compacted since it was saved: a compaction cuts records' strings
+    /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
+    /// first line is the digest of the compaction marker it was saved under.
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let nl = bytes.iter().position(|&b| b == b'\n')?;
+        let (head, body) = bytes.split_at(nl);
+        (head == self.compaction_digest(id).as_bytes())
+            .then(|| body.get(1..).unwrap_or_default().to_vec())
+    }
+
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As `save_restore_point`: a chat whose folder went away gets no file of its own again.
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        let mut file = self.compaction_digest(id).into_bytes();
+        file.push(b'\n');
+        file.extend_from_slice(bytes);
+        write_atomic(&dir.join(ADOPTION_CHECKPOINT), &file)
+    }
+
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
     /// for, or a line whose head does not read.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, true);
         for (_, path) in self.segments(id)? {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
@@ -2407,6 +2507,7 @@ impl Store for LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2463,6 +2564,42 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    /// Back from the end of the records before `before`, segment by segment, reading each line's
+    /// seq from its first bytes: no line is parsed but one whose header does not read.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        let mut window = NewestWindow::default();
+        let mut seen = 0u64;
+        let mut done = false;
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
+                let Some(seq) = record_seq(line).or_else(|| parse_record(line).ok().map(|r| r.seq))
+                else {
+                    return true;
+                };
+                if seq >= before {
+                    return true;
+                }
+                window.newest = window.newest.max(seq);
+                seen += 1;
+                if seen > n {
+                    window.after = seq;
+                    done = true;
+                    return false;
+                }
+                true
+            })?;
+            if done {
+                break;
+            }
+        }
+        Ok(window)
     }
 
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
@@ -2566,7 +2703,7 @@ impl Store for LocalStore {
 
     fn flush(&self) -> Result<()> {
         for w in self.writers.lock_or_recover().open.values() {
-            log_sync::sync_segment(&w.file, false)?;
+            log_sync::sync_segment(w.file(), false)?;
         }
         Ok(())
     }
@@ -2582,9 +2719,7 @@ impl Store for LocalStore {
 
     fn close_log(&self, id: &str) {
         let mut writers = self.writers.lock_or_recover();
-        if let Some(w) = writers.open.remove(id) {
-            w.close(id, &self.sync_failed);
-        }
+        self.close_writer_locked(id, &mut writers);
     }
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
@@ -2719,9 +2854,12 @@ impl Store for LocalStore {
 
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
-        self.writers.lock_or_recover().open.remove(id);
+        if let Some(w) = self.writers.lock_or_recover().open.remove(id) {
+            w.retire();
+        }
         self.kind_heads.forget(id);
         self.segment_starts.forget(id);
+        self.segment_table.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
@@ -2871,6 +3009,7 @@ impl LocalStore {
         }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, after == 0);
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
@@ -2882,6 +3021,7 @@ impl LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }

@@ -1,4 +1,5 @@
 import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
+import { intl } from "../../ui/intl";
 
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
@@ -210,7 +211,7 @@ export function environmentSections(environments: readonly Environment[]): Map<s
   );
 }
 
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 /// The environments in the order the picker lists them: This Mac, then the person's machines, then
 /// Cloud and VMs; in each, the machines a chat can start on first, then the ones still connecting or

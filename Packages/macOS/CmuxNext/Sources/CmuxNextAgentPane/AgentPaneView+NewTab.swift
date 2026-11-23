@@ -5,11 +5,14 @@ extension AgentPaneView {
     /// 2.2): the model takes the tab's context, the page gets it as an
     /// `acpmux-newtab-adopt` event (WebKit runs it before any key typed after
     /// Cmd-T) and remounts the screen unless it already draws that context
-    /// (``prepareNewTab(_:)``), and the theme follows the scope the view moved into. A page still loading reads the context from its
-    /// handshake instead.
+    /// (``prepareNewTab(_:)``), and the theme follows the scope the view moved into. A page whose handshake the host did not
+    /// answer yet can be a page that does not listen yet: such a page loses the event. With no page host, the reply to its
+    /// `ready` calls this again (``AgentPaneBridge/reply(to:)``). With a page host no reply does: by a read of the page's
+    /// source, a page there gets no context with its document, and it asks `newTab.context` only after it listens.
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
         model.newTabPrepared = false
+        model.newTabAdoptUnheard = !model.hasHandshake
         // With what a new chat of the window left, unless the host already gave it one (cmux#32276).
         show(page, sending: model.newTabForPage)
     }

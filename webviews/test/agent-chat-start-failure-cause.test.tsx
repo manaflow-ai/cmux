@@ -178,16 +178,27 @@ test("a refused open of the started chat logs the chat's session id", async () =
   }
 });
 
-test("a start with no connection to acpmux says the agent service is unreachable and what to do", async () => {
+// Leo, 2026-11-12: "if we do the recovery needs to be a lot better and it shouldn't talk so much
+// bullshit", and on a Try again line: "try what? no, it should just automatically do stuff". A start
+// with no connection to acpmux drew "cmux lost its connection to the agent service while starting
+// Claude Code. Try again, and if it keeps happening, quit and reopen cmux to reconnect." with Retry.
+test("a start with no connection to acpmux draws no card, keeps starting, and logs its cause", async () => {
   const { client, harnessSwitch } = await startPath();
   client.close();
-  captureLog();
-  const card = await failedCard(harnessSwitch);
-  expect(card.sentence).toBe(
-    "cmux lost its connection to the agent service while starting Claude Code. Try again, and if it keeps happening, quit and reopen cmux to reconnect.",
-  );
-  expect(card.details).toContain("code native.not_connected");
+  const causeLogged = new Promise<void>((resolve) => {
+    console.error = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      logged.push(line);
+      if (line.includes("native.not_connected")) resolve();
+    };
+  });
+  void harnessSwitch.switchTo("claude", "/tmp/project");
+  await causeLogged;
+  const intent = harnessSwitch.view().intent;
+  expect(intent?.phase).toBe("starting");
+  expect(intent?.error).toBeUndefined();
   expect(logged.some((entry) => entry.includes("code native.not_connected"))).toBe(true);
+  harnessSwitch.disconnect();
 });
 
 /// A start the host could not send: the pane had no link (`native.not_connected`) and acpmux says
@@ -199,7 +210,9 @@ function unsentStart(): Error {
   });
 }
 
-test("with reconnect status off (the default), a start that hits host-not-ready fails fast: no hold, no retry", async () => {
+// Off (the default), the client itself never holds the start: one request, no "Sending when ready"
+// hold. The switch then starts again by itself with no card (#50654, harnessSwitch `retryAfterLoss`).
+test("with reconnect status off (the default), a start that hits host-not-ready is not held by the client", async () => {
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   const { sendsHeldForHost } = await import("../src/agent-session/acpmux/sendWhenReady");
   setComposerSettings({ showPeerReconnectStatus: false });
@@ -213,14 +226,24 @@ test("with reconnect status off (the default), a start that hits host-not-ready 
     starts += 1;
     return unsentStart();
   });
-  captureLog();
+  const causeLogged = new Promise<void>((resolve) => {
+    console.error = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      logged.push(line);
+      if (line.includes("native.not_connected")) resolve();
+    };
+  });
   try {
-    await harnessSwitch.switchTo("claude", "/tmp/project");
-    expect(harnessSwitch.view().intent?.phase).toBe("failed");
+    void harnessSwitch.switchTo("claude", "/tmp/project");
+    await causeLogged;
     expect(starts).toBe(1);
     expect(held).toBe(false);
     expect(sendsHeldForHost.get()).toBe(false);
+    const intent = harnessSwitch.view().intent;
+    expect(intent?.phase).toBe("starting");
+    expect(intent?.error).toBeUndefined();
   } finally {
+    harnessSwitch.disconnect();
     unsubscribe();
     client.close();
   }
