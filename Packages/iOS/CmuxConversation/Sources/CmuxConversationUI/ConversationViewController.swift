@@ -231,6 +231,12 @@ public final class ConversationViewController: UIViewController {
     var pressOpenedMenu = false
     /// When that press's finger lifted.
     var pressLiftUptime: TimeInterval?
+    /// A press held on a bubble's text: the row it selects a word in once
+    /// held `MessagePressTiming.textSelectionHold`, and the pending start.
+    var pressTextRowID: String?
+    var pressTextStart: Task<Void, Never>?
+    /// That press's hold started a text selection; moving the finger extends it.
+    var pressSelectingText = false
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false

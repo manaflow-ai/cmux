@@ -22,6 +22,12 @@ public enum MessagePressTiming {
     public static let liftBegins: TimeInterval = 0.15
     public static let clickDown: TimeInterval = 0.4
     public static let clickTimeout: TimeInterval = 0.725
+    /// A press on a bubble's text selects the word under the finger after
+    /// this hold (UIKit's text long press, 0.5 s), instead of lifting the
+    /// bubble with its menu (Leo, 2026-11-23: hold should highlight text as
+    /// normal, never lift the whole bubble). The menu stays in the edit
+    /// menu's Message Actions…, the tapbacks a double tap away.
+    public static let textSelectionHold: TimeInterval = 0.5
     /// Points the long side grows while the press is held.
     public static let pressGrowth: CGFloat = 14
     /// Points the long side grows once the menu opens.

@@ -11,6 +11,14 @@ import Testing
         #expect(MessagePressTiming.clickTimeout == 0.725)
     }
 
+    /// A hold on text selects a word on UIKit's text long-press time, after a
+    /// quick tap's window and before the old menu's timeout.
+    @Test func textHoldSelectsOnUIKitsTextTime() {
+        #expect(MessagePressTiming.textSelectionHold == 0.5)
+        #expect(!MessagePressTiming.tapOpensItem(afterHolding: MessagePressTiming.textSelectionHold))
+        #expect(MessagePressTiming.textSelectionHold < MessagePressTiming.clickTimeout)
+    }
+
     @Test func liftingBeforeTheClickCancels() {
         // A 0.33 s hold: the bubble grew, then settled back with no menu.
         #expect(MessagePressTiming.release(afterHolding: 0.33) == .cancel)

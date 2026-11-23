@@ -3,7 +3,7 @@ import XCTest
 /// Leo, 2026-11-23: holding on a bubble should not lift the whole bubble; it should highlight text as
 /// normal, then you adjust the selection. In Chief's transcript a hold on a text bubble selects the
 /// word under the finger in place (handles and the edit menu), with no lifted bubble or tapback menu;
-/// a double tap still opens the bubble's tapbacks and menu.
+/// a double tap still opens the tapbacks.
 final class ChiefHoldSelectsWordUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false

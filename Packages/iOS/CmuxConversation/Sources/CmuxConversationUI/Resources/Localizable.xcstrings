@@ -341,6 +341,23 @@
         }
       }
     },
+    "conversation.menu.messageActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message Actions…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージのアクション…"
+          }
+        }
+      }
+    },
     "conversation.menu.more": {
       "extractionState": "manual",
       "localizations": {
@@ -609,6 +626,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "共有"
+          }
+        }
+      }
+    },
+    "conversation.selection.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したテキスト"
           }
         }
       }

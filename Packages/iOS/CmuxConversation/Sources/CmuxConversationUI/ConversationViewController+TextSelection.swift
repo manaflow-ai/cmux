@@ -3,9 +3,11 @@ import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
 
-/// The long-press menu's "Select": Messages selects the bubble's whole text
-/// in place, with grab handles and the system edit menu (Copy, Look Up,
-/// Translate, more), instead of entering multi-message select mode ("More…").
+/// In-place text selection in a bubble, with grab handles and the system
+/// edit menu (Copy, Look Up, Translate, more). A hold on a bubble's text
+/// selects the word under the finger, as text does across iOS (Leo,
+/// 2026-11-23: "just hold and it should highlight text as normal"); the
+/// menu's "Select" selects the bubble's whole text, as Messages does.
 ///
 /// A transparent, selectable `UITextView` laid exactly over the bubble's
 /// label supplies the system selection UI; the label keeps drawing the text
@@ -19,12 +21,17 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
     var onEnd: (() -> Void)?
     /// Reply with Selection, when the host takes it (`onReplyWithSelection`).
     private let onReply: (@MainActor (ConversationSelectionReply) -> Void)?
+    /// The message's own actions (tapbacks, Reply, Edit, More…), the menu a
+    /// hold opened before it selected text: the edit menu's last item.
+    var onMessageActions: (() -> Void)?
+    /// The word the hold selected: a drag from it keeps it selected.
+    private var anchorRange: NSRange?
     private var ended = false
     /// UITextView keeps its own edit menu private; this one gathers the same
     /// system actions from the responder chain: Copy, Look Up, Translate,
-    /// Share. Without Reply with Selection it has no delegate, so the menu
-    /// is the system's alone.
-    private lazy var menuInteraction = UIEditMenuInteraction(delegate: onReply == nil ? nil : self as any UIEditMenuInteractionDelegate)
+    /// Share, then Reply with Selection and Message Actions… when the host
+    /// offers them.
+    private lazy var menuInteraction = UIEditMenuInteraction(delegate: self)
 
     init(rowID: String, messageID: String, text: NSAttributedString, tint: UIColor,
          onReply: (@MainActor (ConversationSelectionReply) -> Void)? = nil) {
@@ -46,8 +53,10 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
         textContainer.lineFragmentPadding = 0
         tintColor = tint
         delegate = self
-        // VoiceOver already reads (and offers Copy on) the bubble itself.
-        accessibilityElementsHidden = true
+        // Read as the selected words (the bubble itself reads its whole
+        // text); UI tests find it by this identifier.
+        accessibilityIdentifier = "chat.textSelection"
+        accessibilityLabel = String(localized: "conversation.selection.label", defaultValue: "Selected text", bundle: .module)
         addInteraction(menuInteraction)
     }
 
@@ -59,6 +68,51 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
         _ = becomeFirstResponder()
         selectedRange = NSRange(location: 0, length: (text as NSString).length)
         showEditMenu()
+    }
+
+    /// Selects the word at `point` (in this view) and, with `showsMenu`, shows
+    /// the edit menu. A point on blank space takes the nearest word.
+    func selectWord(at point: CGPoint, showsMenu: Bool = true) {
+        _ = becomeFirstResponder()
+        layoutIfNeeded()
+        guard let position = closestPosition(to: point),
+              let range = Self.wordRange(at: position, in: tokenizer),
+              !range.isEmpty else { return selectAllAndShowMenu() }
+        selectedTextRange = range
+        anchorRange = selectedRange
+        if showsMenu { showEditMenu() }
+    }
+
+    /// The word around `position`, else the one before or after it.
+    private static func wordRange(at position: UITextPosition, in tokenizer: any UITextInputTokenizer) -> UITextRange? {
+        let backward = UITextDirection(rawValue: UITextStorageDirection.backward.rawValue)
+        let forward = UITextDirection(rawValue: UITextStorageDirection.forward.rawValue)
+        return tokenizer.rangeEnclosingPosition(position, with: .word, inDirection: forward)
+            ?? tokenizer.rangeEnclosingPosition(position, with: .word, inDirection: backward)
+            ?? tokenizer.position(from: position, toBoundary: .word, inDirection: forward).flatMap { end in
+                tokenizer.rangeEnclosingPosition(end, with: .word, inDirection: backward)
+            }
+    }
+
+    /// The held finger moved to `point` (in this view): the selection runs
+    /// from the held word to the character under it, either way.
+    func extendSelection(to point: CGPoint) {
+        guard let anchor = anchorRange, let position = closestPosition(to: point) else { return }
+        menuInteraction.dismissMenu()
+        let offset = self.offset(from: beginningOfDocument, to: position)
+        let lower = min(anchor.location, offset)
+        let upper = max(NSMaxRange(anchor), offset)
+        guard upper > lower else { return }
+        selectedRange = NSRange(location: lower, length: upper - lower)
+    }
+
+    /// The selected words, as assistive technologies and UI tests read them.
+    override var accessibilityValue: String? {
+        get {
+            guard selectedRange.length > 0, let range = Range(selectedRange, in: plainText) else { return nil }
+            return String(plainText[range])
+        }
+        set {}
     }
 
     /// Messages hangs the menu under the selected text, pointing up.
@@ -102,15 +156,25 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
         return true
     }
 
+    /// The message's actions, last in the edit menu, when the host offers them.
+    private func messageActionElements() -> [UIMenuElement] {
+        guard onMessageActions != nil else { return [] }
+        let title = String(localized: "conversation.menu.messageActions", defaultValue: "Message Actions…", bundle: .module)
+        return [UIAction(title: title, image: UIImage(systemName: "ellipsis.circle")) { [weak self] _ in
+            self?.onMessageActions?()
+        }]
+    }
+
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
-        UIMenu(children: replyMenuElements() + suggestedActions)
+        UIMenu(children: replyMenuElements() + suggestedActions + messageActionElements())
     }
 
     /// The menu UIKit shows itself after the handles move.
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        let reply = replyMenuElements()
-        return reply.isEmpty ? nil : UIMenu(children: reply + suggestedActions)
+        let extra = (replyMenuElements(), messageActionElements())
+        guard !extra.0.isEmpty || !extra.1.isEmpty else { return nil }
+        return UIMenu(children: extra.0 + suggestedActions + extra.1)
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -137,7 +201,9 @@ extension ConversationViewController {
         !cell.textLabel.isHidden && cell.cellLayout?.textFrame != nil && (cell.textLabel.attributedText?.length ?? 0) > 0
     }
 
-    func beginTextSelection(rowID: String) {
+    /// Selects text in the row's bubble: the word at `point` (in the
+    /// collection view) when given, else the whole text with its menu.
+    func beginTextSelection(rowID: String, wordAt point: CGPoint? = nil, showsMenu: Bool = true) {
         endTextSelection()
         guard let indexPath = indexPath(for: rowID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
@@ -158,9 +224,20 @@ extension ConversationViewController {
             if self.textSelection === selection { self.textSelection = nil }
             selection.removeFromSuperview()
         }
+        selection.onMessageActions = { [weak self] in
+            self?.endTextSelection()
+            guard let self, let indexPath = self.indexPath(for: rowID),
+                  let cell = self.collectionView.cellForItem(at: indexPath) as? MessageCell,
+                  let model = cell.model else { return }
+            self.presentActions(for: model, cell: cell, mode: .menu)
+        }
         collectionView.addSubview(selection)
         textSelection = selection
-        selection.selectAllAndShowMenu()
+        if let point {
+            selection.selectWord(at: collectionView.convert(point, to: selection), showsMenu: showsMenu)
+        } else {
+            selection.selectAllAndShowMenu()
+        }
     }
 
     /// The selection's Reply with Selection action: the selection ends, then
