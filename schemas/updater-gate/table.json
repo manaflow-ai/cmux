@@ -1,0 +1,2909 @@
+{
+  "events": [
+    "hold_resume",
+    "hold_connect",
+    "inside_hold_resume",
+    "inside_hold_connect",
+    "begin_bind",
+    "end_bind",
+    "held_left",
+    "run_all",
+    "run_all_but_resume",
+    "run_nothing",
+    "restart_queued",
+    "flip_restart_queued",
+    "run_finished_queued",
+    "run_finished_unqueued",
+    "service_started",
+    "take_own_flip",
+    "unreadable_file"
+  ],
+  "refusals": "A refusal leaves the file unchanged and unwritten, except run_nothing (a rollback) meeting a bind in flight: it writes the pending restart, best effort, so no new bind starts before it.",
+  "source": "cmux-tui/crates/cmux-host/src/updater/gate/machine.rs",
+  "states": [
+    "hold=none restart=idle bind=idle own_flip=none",
+    "hold=none restart=idle bind=idle own_flip=marked",
+    "hold=none restart=idle bind=in_flight own_flip=none",
+    "hold=none restart=idle bind=in_flight own_flip=marked",
+    "hold=none restart=pending bind=idle own_flip=none",
+    "hold=none restart=pending bind=idle own_flip=marked",
+    "hold=none restart=pending bind=in_flight own_flip=none",
+    "hold=none restart=pending bind=in_flight own_flip=marked",
+    "hold=resume restart=idle bind=idle own_flip=none",
+    "hold=resume restart=idle bind=idle own_flip=marked",
+    "hold=resume restart=idle bind=in_flight own_flip=none",
+    "hold=resume restart=idle bind=in_flight own_flip=marked",
+    "hold=resume restart=pending bind=idle own_flip=none",
+    "hold=resume restart=pending bind=idle own_flip=marked",
+    "hold=resume restart=pending bind=in_flight own_flip=none",
+    "hold=resume restart=pending bind=in_flight own_flip=marked",
+    "hold=connect restart=idle bind=idle own_flip=none",
+    "hold=connect restart=idle bind=idle own_flip=marked",
+    "hold=connect restart=idle bind=in_flight own_flip=none",
+    "hold=connect restart=idle bind=in_flight own_flip=marked",
+    "hold=connect restart=pending bind=idle own_flip=none",
+    "hold=connect restart=pending bind=idle own_flip=marked",
+    "hold=connect restart=pending bind=in_flight own_flip=none",
+    "hold=connect restart=pending bind=in_flight own_flip=marked"
+  ],
+  "time": "Every bound (hold, pending restart, bind in flight) is an absolute expiry; at a later time a state reads as the one with the lapsed bounds dropped. No event shortens a hold; unreadable_file replaces a file whose contents are lost.",
+  "transitions": [
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=idle bind=idle own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=idle bind=idle own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=none restart=pending bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "not_held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=none restart=pending bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=none restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "run_skipping_resume_hold",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "run_skipping_resume_hold",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "run_skipping_resume_hold",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=idle bind=idle own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "run_skipping_resume_hold",
+      "write": true
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=idle bind=idle own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=resume restart=pending bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=resume restart=pending bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=resume restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=idle bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=idle bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "hold_taken",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "bind_begun",
+      "write": true
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_cold",
+      "write": false
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=idle bind=idle own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=pending bind=idle own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "run",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=idle bind=idle own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=pending bind=idle own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=idle own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=none",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "no_own_flip",
+      "write": false
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "hold_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "hold_connect",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "hold_taken_restart_pending",
+      "write": true
+    },
+    {
+      "event": "inside_hold_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "inside_hold_connect",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "begin_bind",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_restart_pending",
+      "write": false
+    },
+    {
+      "event": "end_bind",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=idle own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "held_left",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "held",
+      "write": false
+    },
+    {
+      "event": "run_all",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_all_but_resume",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_held",
+      "write": false
+    },
+    {
+      "event": "run_nothing",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "refused_bind_in_flight",
+      "write": true
+    },
+    {
+      "event": "restart_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "flip_restart_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "run_finished_queued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": false
+    },
+    {
+      "event": "run_finished_unqueued",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "done",
+      "write": true
+    },
+    {
+      "event": "service_started",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=idle bind=in_flight own_flip=marked",
+      "verdict": "started_as_queued_restart",
+      "write": true
+    },
+    {
+      "event": "take_own_flip",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "own_flip_fresh",
+      "write": true
+    },
+    {
+      "event": "unreadable_file",
+      "from": "hold=connect restart=pending bind=in_flight own_flip=marked",
+      "to": "hold=connect restart=pending bind=in_flight own_flip=none",
+      "verdict": "done",
+      "write": true
+    }
+  ],
+  "version": 1
+}

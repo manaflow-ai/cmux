@@ -93,7 +93,6 @@ SCOPED: dict[str, str] = {
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",

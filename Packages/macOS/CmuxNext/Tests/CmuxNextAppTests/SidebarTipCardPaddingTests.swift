@@ -8,8 +8,8 @@ import Testing
 /// Lawrence 2026-11-19 (msg 40504), on the sidebar's "Did you know?" tip card: "need more padding here". The text,
 /// the Try It button and the ⇧⌘P shortcut sat 6 pt (``Metrics/space3``) from the card's edges, inside the curve of
 /// its 14 pt corner, and the button row sat 4 pt under the text. The tip and every other notice card hold their
-/// content one card padding (``Metrics/space5``, 12 pt at the default density) in from each edge, round concentric
-/// with their buttons from it, and keep the button row a row gap (``Metrics/space4``, 8 pt) under the text, at every
+/// content one card padding (``Metrics/cardPadding``, 10 pt at the default density since #49579) in from each edge, round concentric
+/// with their buttons from it, and keep the button row a row gap (``Metrics/cardRowGap``, 6 pt) under the text, at every
 /// density.
 @MainActor @Suite(.serialized) struct SidebarTipCardPaddingTests {
     /// The Command Palette tip as `SidebarCardFeed.noticeCard` builds it.
@@ -21,7 +21,7 @@ import Testing
     func theTipCardHoldsItsContentOnePaddingInAndRoundsFromIt(density: DensityPreset) throws {
         try DensityTokens.$scoped.withValue(density.tokens) {
             let card = SidebarNoticeCardColumnTests.placed(Self.tip, sidebarWidth: 240)
-            let pad = Metrics.space5, gap = Metrics.space4, b = card.bounds
+            let pad = Metrics.cardPadding, gap = Metrics.cardRowGap, b = card.bounds
             let eyebrow = try #require(SidebarNoticeCardColumnTests.label("Did you know?", in: card))
             let detail = try #require(SidebarNoticeCardColumnTests.label(Self.tip.detail ?? "", in: card))
             let shortcut = try #require(SidebarNoticeCardColumnTests.label("⇧⌘P", in: card))
