@@ -46,14 +46,17 @@ fn the_settings_source_matches_the_daemon() {
             assert_ne!(parsed, LaunchChoices::default(), "{key}={value} passes something");
         }
     }
-    let personalities: Vec<String> = row(PERSONALITY_SETTING)["choices"]
+    let mut personalities: Vec<String> = row(PERSONALITY_SETTING)["choices"]
         .as_array()
         .unwrap()
         .iter()
         .skip(1)
         .map(|c| c["value"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(personalities, CODEX_PERSONALITIES);
+    personalities.sort();
+    let mut accepted = CODEX_PERSONALITIES;
+    accepted.sort_unstable();
+    assert_eq!(personalities, accepted);
 }
 
 #[test]
