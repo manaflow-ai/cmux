@@ -885,6 +885,18 @@ private struct LiveCallHost: ViewModifier {
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
                 ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
+            .task(id: shell.live.map(ObjectIdentifier.init)) {
+                // The call's Mac link never parks, in front or not: the Chief
+                // call runs on the focused Mac's link, voice mode on its chat's.
+                guard let live = shell.live else { return }
+                for await mac in Observations({ [call, voice] in
+                    if let session = call.session, !session.hasEnded { return live.focusedMacID }
+                    return voice.macID
+                }) {
+                    live.setCallMac(mac)
+                }
+                live.setCallMac(nil)
+            }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
                 voice.install(accountID: nil)

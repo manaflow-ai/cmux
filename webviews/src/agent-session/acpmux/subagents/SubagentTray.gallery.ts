@@ -7,8 +7,7 @@
 // remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
 // Restart on hover for one that did not finish. The tray's lines are the summary card's
-// Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
-// subagents.gallery.ts, under Debug Settings agentPane.debug.subagentTray off.
+// Subagents rows (AgentLine.tsx). The summary card and a subagent's own view are subagents.gallery.ts.
 import { agentPaneEntry } from "../../../gallery/format";
 import {
   activity,

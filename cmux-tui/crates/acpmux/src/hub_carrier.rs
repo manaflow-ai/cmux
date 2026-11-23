@@ -6,7 +6,7 @@
 //! Nothing here is a second relay or a second handshake. The relay is the Cloud carrier's
 //! (cmux `relays/cloudflare-do`, Worker `cmux-remote-relay-<env>`), reached with cmux-remote's
 //! relay client ([`RelayProvider`] to dial, [`spawn_relay_daemon_registration`] to serve), and
-//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link`],
+//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link_pipelined`],
 //! [`accept_secure_link`]) with each machine's node key (`node.wg.key`, whose public half the hub
 //! already holds as the machine's `daemonId`). The relay and the platform see ciphertext only.
 //!
@@ -80,7 +80,7 @@ use bytes::Bytes;
 use cmux_remote::crypto::{
     AuthGrant, AuthKind, AuthRequest, ClientAuthMode, ClientHandshake, ConnectionAttemptId,
     CryptoError, InboundAuthEvidence, NetworkPeer, ServerAuthenticator, ServiceAuthority,
-    StaticIdentity, accept_secure_link, initiate_secure_link, public_key_fingerprint,
+    StaticIdentity, accept_secure_link, initiate_secure_link_pipelined, public_key_fingerprint,
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
@@ -717,6 +717,7 @@ impl HubCarrier {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
         let Some(hello) = service_hello(service) else {
+            crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
             let (secure, stages) = self.open_circuit(daemon).await?;
             stages.log(daemon, "plain");
             return Ok(self.carry_plain(secure));
@@ -742,6 +743,7 @@ impl HubCarrier {
         daemon: &str,
         hello: Bytes,
     ) -> Result<Result<cmux_remote::crypto::SecureLink, ServiceRefusal>, String> {
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, mut stages) = self.open_circuit(daemon).await?;
         let answered = Instant::now();
         let answer = Self::ask_service(&secure, hello, self.timings.handshake).await;
@@ -868,6 +870,7 @@ impl HubCarrier {
         &self,
         daemon: &str,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
+        crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
@@ -987,7 +990,9 @@ impl HubCarrier {
             .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         stages.peer_join = step.elapsed();
         let step = Instant::now();
-        let secure = initiate_secure_link(
+        // The service hello rides behind the last Noise message; its first receive checks the
+        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
+        let secure = initiate_secure_link_pipelined(
             link,
             ClientHandshake {
                 identity: self.identity(),
@@ -1559,6 +1564,8 @@ async fn pump<S>(link: Box<dyn FrameLink>, io: S, stats: &Stats)
 where
     S: AsyncRead + AsyncWrite + Send + Unpin,
 {
+    // Held while the circuit is carried: `gauges.links.hubPlainOpen`.
+    let _open = crate::gauges::Held::on(&crate::gauges::links().hub_plain_open);
     let link: Arc<dyn FrameLink> = Arc::from(link);
     let (mut read, mut write) = tokio::io::split(io);
     let chunk = link.maximum_frame_bytes().clamp(1, CHUNK_BYTES);
