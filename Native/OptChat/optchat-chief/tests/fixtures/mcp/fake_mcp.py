@@ -6,7 +6,8 @@
 --era stateless  2026-07-28: no initialize (method not found), server/discover,
                  the Tasks extension (tasks/get carries the result),
                  subscriptions/listen.
---http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio
+--http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio (0: a free
+                 port, printed as the first stdout line)
                  (session era; --token T makes it answer 401 without it).
 """
 import json, sys, threading, time, uuid
@@ -199,7 +200,7 @@ def http(port, token):
         def authed(self):
             if token and self.headers.get("Authorization") != f"Bearer {token}":
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % port)
+                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % self.server.server_address[1])
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return False
@@ -218,7 +219,7 @@ def http(port, token):
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path == "/register":
                 return self.reply(201, {"client_id": "fake-client", "redirect_uris": json.loads(body)["redirect_uris"]})
             if self.path == "/token":
@@ -250,7 +251,7 @@ def http(port, token):
             self.wfile.write(data)
 
         def do_GET(self):
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path.startswith("/.well-known/oauth-protected-resource"):
                 return self.reply(200, {"resource": base + "/mcp", "authorization_servers": [base]})
             if self.path.startswith("/.well-known/oauth-authorization-server"):
@@ -282,7 +283,11 @@ def http(port, token):
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-    ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", port), H)
+    # Port 0 asks the kernel for a free port; its number is the first stdout line, so no other
+    # test can take the port between a pick and a bind.
+    print(server.server_address[1], flush=True)
+    server.serve_forever()
 
 
 if "--http" in sys.argv:

@@ -57,14 +57,24 @@ final class ChromiumQuestionKeyChannel {
     /// Await this during page setup, before its first load. No `runImmediately`: a loaded page
     /// cannot prove our focus capture listener preceded its main-world listeners.
     func prepareDocumentGuard() async throws {
-        guard !documentGuardPrepared, let page else { return }
-        let result = try await page.devTools("Page.addScriptToEvaluateOnNewDocument", params: [
+        try await startDocumentGuard()?()
+    }
+
+    /// ``prepareDocumentGuard()`` in two steps: sends the registration now, so it goes out in the
+    /// same turn as the page's other setup calls (``ChromiumPageHostBridge/startSetUp(documentScripts:)``),
+    /// and returns what awaits its answer; nil when there is nothing to send.
+    func startDocumentGuard() -> (@MainActor () async throws -> Void)? {
+        guard !documentGuardPrepared, let page else { return nil }
+        let answer = page.startDevTools("Page.addScriptToEvaluateOnNewDocument", params: [
             "source": PageQuestionKeyScript.documentGuard(secret: guardSecret), "worldName": world,
         ])
-        guard let identifier = ChromiumPageHostWire.object(result)?["identifier"] as? String, !identifier.isEmpty else {
-            throw PageError.unavailable("question key focus guard was not registered")
+        return {
+            let result = try await answer()
+            guard let identifier = ChromiumPageHostWire.object(result)?["identifier"] as? String, !identifier.isEmpty else {
+                throw PageError.unavailable("question key focus guard was not registered")
+            }
+            self.documentGuardPrepared = true
         }
-        documentGuardPrepared = true
     }
 
     /// The native owner must first invalidate its previous pending question/person-key witness.

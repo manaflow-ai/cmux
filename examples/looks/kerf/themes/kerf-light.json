@@ -1,0 +1,132 @@
+// Kerf Light: the same fast editor in the One family's light: a near-white editor, light gray
+// panels, the lightest-gray title and tab bars, one-pixel borders, an indigo-blue accent and the
+// One Light palette in the terminal, deepened where a color would not read on white.
+{
+  "name": "Kerf Light",
+  "description": "A fast editor, light: One Light grays, one-pixel chrome, a dense project panel, an indigo-blue accent.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // background: the editor (#fafafa). foreground: the One Light text (#242529). selection: the accent
+  // at 24% over the editor. accent: the One Light blue (#5c78e2).
+  "colors": { "background": "#fafafa", "foreground": "#242529", "selection": "#d3daf5", "accent": "#5c78e2" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #fafafa",
+    "foreground = #242529",
+    "cursor-color = #5c78e2",
+    "cursor-text = #fafafa",
+    "selection-background = #d3daf5",
+    "selection-foreground = #242529",
+    "palette = 0=#242529",
+    "palette = 1=#c4473c",
+    "palette = 2=#437a38",
+    "palette = 3=#8f6c00",
+    "palette = 4=#4561cf",
+    "palette = 5=#9a42a8",
+    "palette = 6=#2f74a8",
+    "palette = 7=#58585a",
+    "palette = 8=#747579",
+    "palette = 9=#b8392f",
+    "palette = 10=#3f7a35",
+    "palette = 11=#7f5f00",
+    "palette = 12=#3a55c2",
+    "palette = 13=#8a3797",
+    "palette = 14=#24679a",
+    "palette = 15=#c9c9ca"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's own monospaced face, as a native editor uses.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  "appearance.chromeStyle": "flat",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.titleAreaContrast": 1,
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "compact",
+  // Pending cmux#46780: square-cornered tabs flush on the bar, the active one in the editor's color.
+  // "appearance.tabShape": "block",
+  // Pending cmux#46516: the selected row in the neutral selected-element gray, not the accent.
+  // "appearance.selection": "neutral",
+
+  "appearance.metrics.titlebarHeight": 34,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 24,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.tabMinActiveWidth": 96,
+  "appearance.metrics.tabMinInactiveWidth": 72,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#ebebec",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "quiet",
+
+  "appearance.surfaces.agentPane.color": "#ebebec",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#fafafa",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#fafafa",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#fafafa",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#fafafa",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#dcdcdd",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#dcdcdd",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#ebebec",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#c9c9ca",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  "appearance.surfaces.settings.color": "#fafafa",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#fafafa",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#fafafa",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#fafafa",
+  "appearance.surfaces.home.opacity": 1,
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.thickness": 1.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  "browser.omnibar.glass": "off",
+
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "linear",
+  "appearance.colorTransition.duration": 80,
+  "appearance.colorTransition.colorSpace": "srgb",
+  "appearance.colorTransition.reduceMotion": "instant"
+
+  // Pending cmux#46861 (layout and proportions): a fast editor: 52 pt two-line thread rows with a 4 pt inset and no gaps, 24 pt square icon buttons with 4 pt corners and a faint active fill, one-pixel lines under every header, a short composer. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 52,
+  // "appearance.metrics.sidebarRowInset": 4,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 24,
+  // "appearance.metrics.toolbarButtonGap": 2,
+  // "appearance.metrics.toolbarButtonCornerRadius": 4,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 8,
+  // "appearance.metrics.composerMinHeight": 40,
+  // "appearance.metrics.spacingScale": 0.85,
+}

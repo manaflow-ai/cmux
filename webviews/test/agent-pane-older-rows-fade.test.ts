@@ -356,6 +356,66 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     await page.close();
   });
 
+  test("a page that comes late while the reader is still wheeling up fades in, as one at rest does", async () => {
+    events.length = lastSeq;
+    const page = await open("no-preference");
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    expect(await olderFades(page)).toEqual([]);
+    // How long before each older row took its fade class the reader's last wheel was.
+    await page.evaluate(() => {
+      const scope = window as unknown as { __lastWheel: number; __olderGaps: number[] };
+      scope.__lastWheel = -Infinity;
+      scope.__olderGaps = [];
+      document.addEventListener("wheel", () => void (scope.__lastWheel = performance.now()), {
+        capture: true,
+        passive: true,
+      });
+      const seen = new WeakSet<Element>();
+      const check = (node: Node) => {
+        if (!(node instanceof HTMLElement)) return;
+        for (const row of [node, ...node.querySelectorAll<HTMLElement>(".acpmux-row")])
+          if (row.classList.contains("acpmux-row--older") && !seen.has(row)) {
+            seen.add(row);
+            scope.__olderGaps.push(performance.now() - scope.__lastWheel);
+          }
+      };
+      new MutationObserver((records) => {
+        for (const record of records) {
+          check(record.target);
+          for (const node of record.addedNodes) check(node);
+        }
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    });
+    // The daemon is slow: the reader wheels up to the top of the loaded rows and keeps wheeling there
+    // (every 40ms, well inside the 250ms a scroll takes to settle) while the next page lands.
+    eventsDelay = 1500;
+    let faded = false;
+    try {
+      const until = Date.now() + 20_000;
+      while (!faded && Date.now() < until) {
+        await page.mouse.wheel(0, -600);
+        // fixed-wait: the timing is the behaviour under test: a reader who keeps wheeling, one wheel every
+        // 40ms, inside the 250ms a scroll takes to settle, so the late page lands while the reader moves.
+        await page.waitForTimeout(40);
+        faded = await page.evaluate(() => (window as unknown as { __olderGaps: number[] }).__olderGaps.length > 0);
+      }
+      await settle(page);
+      await animationsDone(page);
+    } finally {
+      eventsDelay = 40;
+    }
+    // The late page's rows took the older fade (acpmux-older-in from 0.35), and the reader was moving.
+    expect(faded).toBe(true);
+    const gaps = await page.evaluate(() => (window as unknown as { __olderGaps: number[] }).__olderGaps);
+    expect(Math.min(...gaps)).toBeLessThan(250);
+    const turns = (await olderFades(page)).map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
+    expect(turns.some((turn) => turn < openedFrom)).toBe(true);
+    expect(turns.filter((turn) => turn >= openedFrom)).toEqual([]);
+    expect(errors).toEqual([]);
+    await page.close();
+  });
+
   test("Reduce Motion draws rows of an older page in full ink at once", async () => {
     events.length = lastSeq;
     const page = await open("reduce");

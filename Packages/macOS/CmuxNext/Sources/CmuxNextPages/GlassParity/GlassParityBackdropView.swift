@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The backdrop under every renderer of the Liquid Glass Parity playground (``GlassParityPlayground``).
 /// Deterministic: no time, no randomness, nothing of the person's.
@@ -13,7 +14,14 @@ import CmuxNextDesign
 /// - `image`: the Mac's own desktop picture when one is installed, else the wallpaper.
 ///
 /// `offset` moves the picture under the glass (down and right), as a backdrop that scrolls or drags.
+/// ``animate(for:done:)`` moves it every frame (a layer transform, so only the window server redraws the
+/// glass over it): the frame-time measure of the glass over a moving backdrop.
+///
+/// The view is ``margin`` larger than the stage on every side (its bounds keep the stage's coordinates), so
+/// the moving picture always covers the stage.
 final class GlassParityBackdropView: NSView {
+    static let margin: CGFloat = 64
+
     /// A fixed test color (0xRRGGBB): the backdrop is test data, the same in every theme.
     private static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha) // colour-allow: the playground's fixed test backdrop, data not UI
@@ -25,9 +33,16 @@ final class GlassParityBackdropView: NSView {
     var color: UInt32 = 0x2D6CDF
     var terminalOpacity: CGFloat = 1
     var offset: CGFloat = 0
+    private var frames: FrameClient?
+    private var animationStart: CFTimeInterval = 0
+    private var animationEnd: CFTimeInterval = 0
+    private var animationDone: (() -> Void)?
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    /// A backdrop over `stage` (the stage's coordinates), ``margin`` larger on every side.
+    init(stage: NSRect) {
+        let margin = Self.margin
+        super.init(frame: stage.insetBy(dx: -margin, dy: -margin))
+        bounds.origin = CGPoint(x: stage.minX - margin, y: stage.minY - margin)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         // The stripes run past the column's edge; unclipped (the default since macOS 14) they painted
@@ -40,6 +55,43 @@ final class GlassParityBackdropView: NSView {
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Moves the picture under the glass every display frame for `seconds` (a circle of ``margin`` / 2 points,
+    /// once a second), then puts it back and calls `done`.
+    func animate(for seconds: Double, done: @escaping () -> Void) {
+        stopAnimation()
+        animationStart = CACurrentMediaTime()
+        animationEnd = animationStart + seconds
+        animationDone = done
+        // The window's frames (its FrameScheduler): one step a display frame until the end.
+        let frames = FrameClient(owner: "glass-parity.backdrop", view: self) { [weak self] tick in
+            self?.step(tick.targetTimestamp) ?? false
+        }
+        self.frames = frames
+        frames.activate()
+    }
+
+    /// Moves the picture for the frame shown at `now`; false once the animation ended.
+    private func step(_ now: CFTimeInterval) -> Bool {
+        let phase = (now - animationStart) * 2 * .pi
+        let radius = Self.margin / 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.setAffineTransform(now >= animationEnd ? .identity
+            : CGAffineTransform(translationX: radius * CGFloat(sin(phase)), y: radius * CGFloat(1 - cos(phase))))
+        CATransaction.commit()
+        guard now >= animationEnd else { return true }
+        stopAnimation()
+        return false
+    }
+
+    private func stopAnimation() {
+        frames?.deactivate()
+        frames = nil
+        let done = animationDone
+        animationDone = nil
+        done?()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

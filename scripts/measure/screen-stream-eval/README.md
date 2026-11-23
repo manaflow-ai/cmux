@@ -87,9 +87,9 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
-| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. A target without the verb runs both stages |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
-| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "pickup_ms", "gate_ms", "encode_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log |
+| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "to_arrived_ms", "pickup_ms", "gate_ms", "arrived_to_release_ms", "encode_ms", "sck_all_frames_ms", "draw_ms", "commit_to_vsync_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log, plus `frame_before_commit` (a count) and `refresh_hz`. `draw_ms` and `commit_to_vsync_ms` come from the marker's `commit COUNTER T_US` lines (it logs them with `--verbose`). `sck_ms`, `sck_all_frames_ms` and `commit_to_vsync_ms` are signed: ScreenCaptureKit's display time is the vsync the frame is shown at, usually after the callback |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
 
 Today's targets:
@@ -99,7 +99,31 @@ Today's targets:
   decode. `bench --input none --duration-s N` is the passive window.
 - `webrtc`: `CmuxVNCWebRTC` `ScreenStreamHost` (the iPhone's path). `cmux-vnc-host --capture`
   runs with the default device hub signaling. The viewers are `RdMarkerClickLatencyTests`
-  (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`.
+  (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`. These are macOS test viewers: they
+  end at decode and are not the phone.
+- `iphone-sim`: the iPhone app's own viewer. The same host as `webrtc`; the viewer is the cmux-next
+  iPhone app (Demo configuration: optimized, with the DEBUG developer surface) in an iOS simulator
+  on the same Mac, launched with `CMUX_MOBILE_SS_LINK` (the host's pairing link, no sign-in or
+  device hub; `ScreenSharingLinkRoot`, DEBUG only) and `CMUX_MOBILE_SS_MARKER`. Inside the app's
+  `ScreenSessionView`, `ScreenPresentProbe` reads the marker from each decoded frame and times
+  presents on whichever renderer `ScreenVideoView` has: each input (`ScreenSession.tap` of "a" or
+  `click` on the click pad) is timed to the first decoded frame and to the first present that
+  shows the next counter. "Presented" is, with an `RTCMTLVideoView`, the `targetTimestamp` of the
+  first display link tick after the draw (the simulator's Metal reports no `presentedTime`; on a
+  device the probe uses it); with an `AVSampleBufferDisplayLayer` (`DisplayImmediately`), the
+  `targetTimestamp` of the first display link tick after the frame was enqueued (the scheduled
+  scan-out, not measured). So one harness gives a before/after across a renderer change.
+  `g2g_ms` is the presented time; `split.present` keeps decoded, presented and decode-to-present
+  (each n, p50, p95), frames decoded but never presented, and `clock` (the renderer, what
+  presented means for it, and its counts). The simulator runs on the Mac's clock.
+  Not in it: the phone's touch or keyboard delivery before the session sends, the display's
+  scan-out itself, a real phone's GPU, decoder and radio. Latency only (`caps`
+  prints `latency-only`). It builds the app (FFI from the worker's cache, xcodegen, `xcodebuild`)
+  and needs an iOS simulator runtime; a Mac with none stops at build, naming the runtimes it has:
+  `--arg=targets=webrtc,iphone-sim`. One Mac only: with `lan=` or `viewer-of=` its build, host
+  and view refuse, since a viewer Mac's simulator would have nothing on the host Mac to stop it.
+  Its `host-stop` (also run by the harness's exit trap, on a signal too) deletes every simulator
+  in its own `/tmp/iphsim.*` set and the set.
 - `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
   `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
   stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
@@ -270,6 +294,28 @@ Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writi
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then
 appear under `targets.petal` in the same schema.
 
+### External contenders (`eval.py external`)
+
+A contender whose host and viewer live outside this repository plugs in through two commands, with
+no target script here:
+
+```
+python3 scripts/measure/screen-stream-eval/eval.py external NAME OUT.json \
+  --host-cmd 'start the host; touch "$EVAL_STATE/host-ready"' \
+  --viewer-cmd 'connect, drive the marker, write "$EVAL_READBACK"' \
+  [--host-stop-cmd CMD] [--takes 3] [--keep DIR]
+```
+
+The host serves the same marker (`cmux-rd testapp`, or `mac-marker`); the viewer decodes the stream,
+reads the marker's counter from each decoded frame (`src/marker.rs`) and writes the readback, one
+JSON line per key sample (`g2g_ms` or `lost`), per motion second (`bytes`, `frames`), the first frame
+(`ms`) and each end's CPU (`eval.py external --help` lists the records). Each take gets a fresh host;
+OUT.json is the usual target with `motion.kbps`, `motion.fps` and `extra.takes`, every number the
+median of the takes that measured it, and a missing record stays null. `eval.py readback FILE OUT`
+folds one readback without running anything, so the `rd` path's own bench output, converted to the
+same records, lands in the same columns. Running `rd` through this hook too keeps one harness and one set
+of definitions for every contender.
+
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
@@ -297,6 +343,17 @@ Each target also leaves its raw files under
 `outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
+
+`gate.json` is the budget gate (`budget_gate.py check results.json`; cmuxterm-hq
+`docs/design/screen-share-under-100ms.md`, "Budget per stage", piece 6). It judges the `rd` target's
+key split, stage by stage, against the page's p50 budgets: Screen (render), Capture (sck + pickup +
+gate), Encode, Send + Network + Reassembly (transport, against the sum of the three budgets), Decode
+and Total (to the decoded frame). Input and Present stay "not measured" until the per-frame stage
+ledger (`cmux.rd-stage-ledger/1`) is in the target; a target that carries a
+`cmux.screen-share-budget/1` record under `budget` (or a `screen-share-vs.py --out` file) is judged
+from that record instead. A stage over budget fails the daily run with an error naming it; a run
+that measured no stage fails too. The workflow's `budget` input (`STAGE=MS ...`) replaces budgets
+for one dispatched run, to prove the gate end to end; the daily run passes none.
 
 ## Linux, kernel netem jitter (no Mac)
 

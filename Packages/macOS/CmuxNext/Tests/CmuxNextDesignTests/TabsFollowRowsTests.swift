@@ -16,7 +16,10 @@ import Testing
         let browserRow = preset.tokens.tokens["browserRowHeight"].map { CGFloat($0) }
         let row = browserRow ?? sidebarRow
         #expect(Metrics.tabHeight == row, "\(preset): the tab is \(Metrics.tabHeight), the row \(row)")
-        #expect(Metrics.tabStripHeight - Metrics.tabHeight == (3 * CGFloat(preset.scaleFactor) * 2).rounded())
+        // The strip padding above and below the tab: the density's own `browserRowGap`, else Default's
+        // 3 pt times the density's factor.
+        let gap = preset.tokens.tokens["browserRowGap"].map { CGFloat($0) * 2 } ?? (3 * CGFloat(preset.scaleFactor) * 2).rounded()
+        #expect(Metrics.tabStripHeight - Metrics.tabHeight == gap, "\(preset): the strip is \(Metrics.tabStripHeight), the tab \(Metrics.tabHeight)")
         #expect(Metrics.tabCornerRadius == (9 * CGFloat(preset.scaleFactor) * 2).rounded() / 2)
     }
 

@@ -57,15 +57,27 @@ struct Daemon {
 
 impl Daemon {
     async fn start(tag: &str) -> Self {
+        Self::with_peer(tag, None).await
+    }
+
+    async fn with_peer(tag: &str, target: Option<&Daemon>) -> Self {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let path = target.map(|target| {
+            config["peers"] = json!({"target": {"url": "ssh://target"}});
+            session_move::fake_ssh(&home, target)
+        });
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let socket = home.join("s.sock");
-        let child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+        let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
+        if let Some(path) = path {
+            command.env("PATH", path);
+        }
+        let child = command
             .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", &socket)
@@ -125,3 +137,6 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_ne!(info["status"], "closed", "{info}");
     assert_eq!(info["moving"], false, "{info}");
 }
+
+#[path = "transfer_cli/session_move.rs"]
+mod session_move;

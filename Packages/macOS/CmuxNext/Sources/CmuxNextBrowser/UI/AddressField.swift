@@ -35,6 +35,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // main thread; with no console session (headless test hosts) that
         // call blocks for seconds to minutes.
         contentType = .URL
+        // The address fades at the field's end; AppKit's hover copy of the whole text drew over the toolbar
+        // (`AddressFieldCell.expansionFrame`).
+        allowsExpansionToolTips = false
     }
 
     @available(*, unavailable)

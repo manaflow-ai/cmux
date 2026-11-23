@@ -103,7 +103,7 @@ struct TerminalSizingMacsPage: View {
     let store: AppStore
 
     private var macs: [MacDevice] {
-        MacRoster(store.teams.flatMap(\.macs)).visible
+        MacRoster.acrossTeams(store.teams, activeTeamID: store.activeTeamID)
     }
 
     var body: some View {

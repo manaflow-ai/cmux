@@ -15,7 +15,7 @@
 // shows and its text, so the two columns place the same surface over the same backdrop pixels.
 import "../shared/desktop";
 import "../shared/transientMaterial";
-import "../../ui/popupSurface.css";
+import "../../ui/ui.css";
 import "../../ui/notice.css";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import {
@@ -28,7 +28,10 @@ import {
 import "./styles.css";
 
 /** The surfaces the playground compares, as the App names them (GlassParityKind.swift). */
-export type ParityKind = "menu" | "popover" | "card" | "tooltip" | "dialog" | "toast";
+export type ParityKind = "menu" | "popover" | "card" | "tooltip" | "dialog" | "toast" | "chrome";
+
+/** The menu's row under the pointer (GlassParityPlayground.RowState): none, hovered or pressed. */
+export type ParityRow = "rest" | "hover" | "pressed";
 
 export type ParityCell = {
   id: string;
@@ -40,9 +43,16 @@ export type ParityCell = {
   radius: number;
   title: string;
   detail: string;
+  /** The menu's highlighted row (absent: none). */
+  row?: ParityRow;
 };
 
-export type ParityLayout = { mode: "host" | "css"; cells: ParityCell[] };
+/** The menu row's box in the menu (CSS px) and its corner: the native row's (GlassParityPlayground.menuRow). */
+export type ParityRowBox = { left: number; top: number; width: number; height: number; radius: number };
+
+/** How the text is rasterized (GlassParityPlayground.TextRendering); `smooth` lets the page smooth its text. */
+export type ParityText = "standard" | "flat" | "smooth";
+export type ParityLayout = { mode: "host" | "css"; text?: ParityText; cells: ParityCell[]; menu_row?: ParityRowBox };
 
 export const GlassParityOps = {
   layout: "cmux.glass_parity.layout",
@@ -58,6 +68,7 @@ export const PARITY_LEVEL: Record<ParityKind, HostGlassLevel> = {
   tooltip: "chip",
   dialog: "popover",
   toast: "popover",
+  chrome: "chrome",
 };
 
 /** The native role a surface's glass is when it is not its level's own (hostGlass.ts
@@ -71,15 +82,17 @@ export const PARITY_CLASS: Record<ParityKind, string> = {
   menu: "ui-popup ui-menu ui-glass",
   popover: "ui-popup ui-glass ui-popover",
   card: "ui-tooltip ui-card ui-glass",
-  tooltip: "ui-tooltip",
+  tooltip: "ui-tooltip ui-glass",
   dialog: "ui-dialog ui-glass ui-glass-floats",
   toast: "ui-notice ui-glass",
+  // Docked glass: the root level of .ui-glass (glass.css: panes, bars, rails).
+  chrome: "ui-glass",
 };
 
 /** The layout outside the app: one of each surface, on the page's own glass. */
 export const PARITY_FIXTURE: ParityLayout = {
   mode: "css",
-  cells: (["menu", "popover", "card", "tooltip", "dialog", "toast"] as const).map((kind, index) => ({
+  cells: (["menu", "popover", "card", "tooltip", "dialog", "toast", "chrome"] as const).map((kind, index) => ({
     id: kind,
     kind,
     left: 24 + (index % 2) * 300,
@@ -92,8 +105,17 @@ export const PARITY_FIXTURE: ParityLayout = {
   })),
 };
 
-/** Builds one surface element for `cell` in `mode` (no layout read). */
-export function paritySurface(doc: Document, cell: ParityCell, mode: ParityLayout["mode"]): HTMLElement {
+/** The default menu row box (the App sends its own). */
+export const PARITY_MENU_ROW: ParityRowBox = { left: 5, top: 47, width: 230, height: 20, radius: 5 };
+
+/** Builds one surface element for `cell` in `mode` (no layout read); a menu with a highlighted `row`
+ * holds a web menu row (.ui-menu-item, highlighted, pressed too) at `rowBox`. */
+export function paritySurface(
+  doc: Document,
+  cell: ParityCell,
+  mode: ParityLayout["mode"],
+  rowBox: ParityRowBox = PARITY_MENU_ROW,
+): HTMLElement {
   const surface = doc.createElement("div");
   surface.className = `glass-parity-surface ${PARITY_CLASS[cell.kind]}`;
   surface.dataset.parityId = cell.id;
@@ -115,13 +137,26 @@ export function paritySurface(doc: Document, cell: ParityCell, mode: ParityLayou
   detail.className = "glass-parity-detail";
   detail.textContent = cell.detail;
   surface.append(title, detail);
+  if (cell.kind === "menu" && cell.row && cell.row !== "rest") {
+    const row = doc.createElement("div");
+    row.className = "ui-menu-item glass-parity-row";
+    row.setAttribute("data-highlighted", "");
+    if (cell.row === "pressed") row.setAttribute("data-pressed", "");
+    row.style.left = `${rowBox.left}px`;
+    row.style.top = `${rowBox.top}px`;
+    row.style.width = `${rowBox.width}px`;
+    row.style.height = `${rowBox.height}px`;
+    row.style.borderRadius = `${rowBox.radius}px`;
+    surface.prepend(row);
+  }
   return surface;
 }
 
 /** Lays `layout` out in `root`, replacing what was there; starts the host glass reporter in host
  * mode. Returns its stop. */
 export function renderParity(doc: Document, root: HTMLElement, layout: ParityLayout, client: PageClient | null) {
-  root.replaceChildren(...layout.cells.map((cell) => paritySurface(doc, cell, layout.mode)));
+  root.replaceChildren(...layout.cells.map((cell) => paritySurface(doc, cell, layout.mode, layout.menu_row)));
+  doc.documentElement.dataset.parityText = layout.text ?? "standard";
   if (layout.mode !== "host" || !client) return () => undefined;
   // This page asks for the App's glass in either engine (the agent pane keeps it to Chromium).
   doc.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");

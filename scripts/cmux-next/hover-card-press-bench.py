@@ -73,7 +73,7 @@ def pct(a, q):
 def summarize(runs):
     out = {}
     for label in LABELS:
-        late, worst, press_ms, work = 0, [], [], []
+        late, worst, press_ms, work, morph_frames = 0, [], [], [], []
         refresh = 0
         for cyc in runs:
             c = cyc.get(label)
@@ -87,9 +87,11 @@ def summarize(runs):
             late += w > 1.5 * refresh
             press_ms.append(c["rpc_ms"])
             work += c["work"].get("hoverCard.detailsPress") or []
+            morph_frames.append(len(c["work"].get("hoverCard.morph") or []))
         out[label] = {"presses": len(worst), "late": late, "worst_gap_ms": round(max(worst, default=0), 1),
                       "refresh_ms": refresh, "press_rpc_ms_p50": round(pct(press_ms, .5), 2),
-                      "frame_start_work_ms_p50": round(pct(work, .5), 2), "frame_start_work_ms_p95": round(pct(work, .95), 2)}
+                      "frame_start_work_ms_p50": round(pct(work, .5), 2), "frame_start_work_ms_p95": round(pct(work, .95), 2),
+                      "morph_frames_p50": pct(morph_frames, .5)}
     return out
 
 
@@ -126,6 +128,7 @@ try:
     for label in ("Show details", "Hide details"):  # warm-up
         rpc("debug.hover_cards", {"press": label})
         time.sleep(0.8)
+    print("CARD", json.dumps(rpc("debug.hover_cards") or {})[:600], flush=True)
     print("PID", app.pid, flush=True)
     for i in range(o.cycles):
         cyc = {}

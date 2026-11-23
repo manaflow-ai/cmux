@@ -11,7 +11,7 @@ import type { AgentState } from "../types";
 
 const STATES: AgentState[] = ["waiting", "failed", "working", "idle"];
 
-export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgent }: ChiefViewProps) {
+export function WhereIsEverybodyView({ data, strings, placement, onOpenAgent }: ChiefViewProps) {
   const [filter, setFilter] = useState("");
   const agents = agentsOf(data);
   const prs = useMemo(() => branchPRs(data.fleet.status === "ready" ? data.fleet.reply.prs : undefined), [data.fleet]);
@@ -58,7 +58,6 @@ export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgen
                   <AgentRow
                     key={`${agent.kind}:${agent.id}`}
                     agent={agent}
-                    now={now}
                     strings={strings}
                     compact={compact}
                     prs={prs}

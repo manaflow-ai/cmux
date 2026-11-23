@@ -57,6 +57,23 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=cef-resize`: late frames and commit time while panes and the window resize beside a Chromium page, as
+# perf-cron rows (scripts/cmux-next/cef-resize-cron.py, cef-resize-sync-bench.py's light bench).
+if "--suite=cef-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
+# `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
+# live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
+# (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
+for _suite in ("relaunch", "wake"):
+    if f"--suite={_suite}" in sys.argv:
+        suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "relaunch-wake-cron.py")
+        os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
+# `--suite=chat-size`: one chat at 1 MB to 4 GB, five axes, each over the 1 MB chat's (scripts/cmux-next/chat-size-ratio.py;
+# the perf cron's chat-size part).
+if "--suite=chat-size" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat-size-ratio.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-size"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
@@ -71,6 +88,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=terminal-throughput" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
+# `--suite=power`: the app's power in mW, idle and scrolling, against standalone Ghostty at idle
+# (scripts/cmux-next/power-cron.py, bench_power.py; the perf cron's power part).
+if "--suite=power" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "power-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
@@ -127,6 +149,12 @@ if "--suite=hover-instant" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=stress`: the app under extreme stress from several angles (CPU and thread starvation, many streaming
+# agent chats, many workspaces with output floods, a CLI/socket flood, memory pressure), a baseline and a stress
+# window each (scripts/cmux-next/stress-bench.py; the `stress` cmux-bench).
+if "--suite=stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stress-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=stress"])
 # `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
 if "--suite=workspace-scaling" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
@@ -314,6 +342,28 @@ if "--suite=gui-tests" in sys.argv:
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=activation`: Cmd-Tab back in a heavy session (scripts/cmux-next/activation-perf.py: become notices'
+# main-thread time, the drain after them, indicator resyncs, hangs; perf-lead row 8). Its activation-perf.json is
+# also --json (the step's report.json); the rest of the arguments after the suite's own go to activation-perf.py.
+if "--suite=activation" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "activation-perf.py")
+    wrapper = argparse.ArgumentParser(add_help=False)
+    wrapper.add_argument("--json")
+    wrapper.add_argument("--out")
+    # activation-perf.py's own options; the measure step's others (--tag, --suite, --vdisplay ...) are not its.
+    for flag in ("--app", "--hang-ms", "--workspaces", "--browser", "--hibernate", "--chats", "--cycles", "--max-resyncs"):
+        wrapper.add_argument(flag)
+    wrapper.add_argument("--sample", action="store_true")
+    wrapper.add_argument("--gate", action="store_true")
+    known, _ = wrapper.parse_known_args()
+    passed = [part for key, value in vars(known).items() if key != "json" and value not in (None, False)
+              for part in (["--" + key.replace("_", "-")] + ([] if value is True else [str(value)]))]
+    status = subprocess.run([sys.executable, suite] + passed).returncode
+    produced = os.path.join(known.out, "activation-perf.json") if known.out else None
+    if known.json and produced and os.path.exists(produced):
+        with open(produced) as source, open(known.json, "w") as target:
+            target.write(source.read())
+    sys.exit(status)
 # `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
 # (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
 if "--suite=typing-frame" in sys.argv:

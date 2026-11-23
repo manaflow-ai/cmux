@@ -240,8 +240,12 @@ impl Hub {
                         work.last_control = Some(Control::from_recorded(
                             e.msg.get("control").and_then(Value::as_str),
                         ));
+                        work.last_device = text("device");
                     }
-                    "turn_control" => work.last_control = Some(Control::Web),
+                    "turn_control" => {
+                        work.last_control = Some(Control::Web);
+                        work.last_device = text("device");
+                    }
                     "remote_floor_cancel" => work.floor_cancelled = text("turnId"),
                     _ => {}
                 }
@@ -298,6 +302,8 @@ impl Hub {
                     ));
                     work.turn_line =
                         e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
+                    work.turn_device =
+                        e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                     work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                     work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.turn_at = e.at;
@@ -317,6 +323,8 @@ impl Hub {
                             t.5 = Control::from_recorded(
                                 e.msg.get("control").and_then(Value::as_str),
                             );
+                            work.turn_device =
+                                e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                         } else {
                             // The turn it carried into, put in place before its end was logged.
                             work.next_raised = true;
@@ -338,6 +346,7 @@ impl Hub {
                         (from.unwrap_or_default(), c.clone())
                     });
                     work.turn = None;
+                    work.turn_device = None;
                     work.turn_line = None;
                     work.turn_carried = false;
                     work.turn_persons = false;

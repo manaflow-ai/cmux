@@ -34,6 +34,18 @@ startup_spec.loader.exec_module(startup)
 sys.argv = argv
 
 
+def use_staged_apps(paths):
+    """Staged apps (a Release or bench build outside DerivedData, as perf-idle-ab.sh makes): bench-stalls' launch
+    and its process matching then use bench-startup's, which read the app's own path and executable."""
+    if not paths:
+        return
+    for path in paths:
+        startup.APPS[startup.app_tag(path)] = os.path.abspath(path)
+    bench.app_binary = startup.app_binary
+    bench.tag_pids = startup.tag_pids
+    bench.app_pids = startup.app_pids
+
+
 def one_run(tag, opts):
     scratch = tempfile.mkdtemp(prefix=f"bench-settings-open-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as config:
@@ -76,12 +88,17 @@ def summary(values):
     values = [v for v in values if isinstance(v, (int, float))]
     if not values:
         return "n/a"
-    return f"median {statistics.median(values):7.1f}  min {min(values):7.1f}  max {max(values):7.1f}  (n={len(values)})"
+    ordered = sorted(values)
+    p90 = ordered[min(len(ordered) - 1, round(0.9 * (len(ordered) - 1)))]
+    return (f"median {statistics.median(values):7.1f}  p90 {p90:7.1f}  min {min(values):7.1f}  max {max(values):7.1f}"
+            f"  (n={len(values)})")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", action="append", required=True)
+    parser.add_argument("--tag", action="append", default=[])
+    parser.add_argument("--app", action="append", default=[],
+                        help="a staged `cmux DEV <tag>.app` (a fleet step's bench build): its tag joins --tag")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--opens", type=int, default=4, help="opens per launch; the first is cold")
     parser.add_argument("--settle", type=float, default=6.0, help="seconds of idle after launch before the first open")
@@ -89,6 +106,10 @@ def main():
     parser.add_argument("--config", default="{}", help="the scratch cmux.json text")
     parser.add_argument("--json")
     opts = parser.parse_args()
+    use_staged_apps(opts.app)
+    opts.tag += [startup.app_tag(path) for path in opts.app]
+    if not opts.tag:
+        parser.error("give --tag or --app")
     print(f"load average {os.getloadavg()}", flush=True)
     results = {tag: [] for tag in opts.tag}
     for index in range(opts.runs):

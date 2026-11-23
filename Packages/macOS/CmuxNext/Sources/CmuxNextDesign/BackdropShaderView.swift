@@ -15,7 +15,8 @@ import QuartzCore
 ///
 /// It moves on the same terms as a video wallpaper (``BackdropVideoView``): only while the window
 /// is on screen, the screens awake, the session active, not in Low Power Mode, below a serious
-/// thermal state and with looping motion allowed; otherwise it holds the frame it shows. Frames
+/// thermal state and with looping motion allowed; otherwise it holds the frame it shows, and on
+/// moving again eases its clock up from still over ``resumeRampSeconds`` (no motion onset). Frames
 /// come from the window's ``FrameScheduler`` (no display link of its own), at most
 /// ``maximumFramesPerSecond``, and one frame is encoded at a time: a slow GPU drops frames, never
 /// queues them. The layer is drawn at one pixel per point: the shaders are soft fields, and a
@@ -36,6 +37,10 @@ public final class BackdropShaderView: NSView {
 
     /// The most frames a second it draws: smooth, at a quarter of a 120 Hz display's work.
     public static let maximumFramesPerSecond = 60.0
+    /// Seconds a start or a resume takes to ease the clock from still to full speed. Attention is
+    /// caught by motion that starts, not motion already under way (Abrams and Christ 2003), so the
+    /// wallpaper never jumps from a held frame to full speed.
+    public static let resumeRampSeconds = 2.5
 
     private let renderer: BackdropShaderRenderer?
     private var frameClient: FrameClient?
@@ -56,6 +61,9 @@ public final class BackdropShaderView: NSView {
     private var sinceDrawn: Double = .infinity
     private var lastPointer: CGPoint?
     private var nextRing = 0
+    /// Whether the frame client was last told to move, and the seconds of clock since it began to.
+    private var moving = false
+    private var sinceResumed: Double = .infinity
     /// Frames presented (tests, `debug.themes`).
     public private(set) var framesDrawn = 0
 
@@ -72,6 +80,9 @@ public final class BackdropShaderView: NSView {
         metalLayer.allowsNextDrawableTimeout = true
         metalLayer.contentsGravity = .resize
         metalLayer.opacity = 0
+        // Follows the view's size with no layout pass; layout() still sizes the drawable.
+        metalLayer.frame = bounds
+        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(metalLayer)
         isHidden = true
         setAccessibilityElement(false)
@@ -137,6 +148,8 @@ public final class BackdropShaderView: NSView {
 
     private func update(redraw: Bool = false) {
         if moves {
+            if !moving { resumed() }
+            moving = true
             if frameClient == nil {
                 frameClient = FrameClient(owner: "backdrop-shader", view: self) { [weak self] tick in
                     self?.tick(tick) ?? false
@@ -146,6 +159,7 @@ public final class BackdropShaderView: NSView {
             frameClient?.activate()
             clicks.start(in: self)
         } else {
+            moving = false
             frameClient?.deactivate()
             clicks.stop()
             if redraw || framesDrawn == 0 { drawStill() }
@@ -168,7 +182,7 @@ public final class BackdropShaderView: NSView {
 
     /// Steps the clock, eases the shown pointer toward the real one, and lets the energy decay.
     func advance(by elapsed: Double) {
-        uniforms.time += Float(elapsed)
+        uniforms.time += Float(elapsed * resumePace(over: elapsed))
         guard let pointer = pointerOverride ?? windowPointer() else { return }
         let target = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
         let previous = lastPointer.map { SIMD2(Float($0.x * drawableScale.width), Float($0.y * drawableScale.height)) } ?? target
@@ -181,6 +195,22 @@ public final class BackdropShaderView: NSView {
         let short = Float(max(min(pixelSize.width, pixelSize.height), 1))
         // About a screen's short side a second fills the energy; it falls by half in ~0.35 s.
         uniforms.energy = min(1, uniforms.energy * Float(exp(-elapsed * 2)) + speed / short * Float(elapsed) * 3)
+    }
+
+    /// The motion starts again from the frame it held: the clock eases up from still.
+    func resumed() { sinceResumed = 0 }
+
+    /// The clock's mean speed (0 to 1) over the next `elapsed` seconds of a resume: a smoothstep
+    /// over ``resumeRampSeconds``, averaged at both ends of the step.
+    private func resumePace(over elapsed: Double) -> Double {
+        guard sinceResumed < Self.resumeRampSeconds else { return 1 }
+        func pace(_ t: Double) -> Double {
+            let x = min(max(t / Self.resumeRampSeconds, 0), 1)
+            return x * x * (3 - 2 * x)
+        }
+        let start = pace(sinceResumed)
+        sinceResumed += elapsed
+        return (start + pace(sinceResumed)) / 2
     }
 
     /// The window's pointer in this view's coordinates (outside the view too: the field falls off).

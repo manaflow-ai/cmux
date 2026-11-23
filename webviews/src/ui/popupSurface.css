@@ -2,6 +2,14 @@
    one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+/* A scrolling list's designed height (popupHost.ts naturalHeight) as a length the browser computes:
+   a cap written in rows (`calc(8 * var(--ui-row-height) + ...)`, the `/` menu's) reads back as px,
+   not as its unresolved text, which parsed as no cap and stood the `/` list below New Tab's box. */
+@property --popup-scroll-cap {
+  syntax: "<length> | none";
+  inherits: true;
+  initial-value: none;
+}
 :root {
   /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
      popover's or card's width, a chip's height, a gap a clamp reckons with) is
@@ -136,6 +144,12 @@
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
 }
+/* A floating glass surface that is not a .ui-popup (a toolbar, a preview, a suggestion list) falls
+   back to the same opaque popup surface under Reduce Transparency. */
+.ui-glass.ui-glass-transient {
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup);
+}
 
 /* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
    too, so a dialog portals above the pane instead of becoming a flow child that pushes its
@@ -178,6 +192,11 @@
   --glass-opaque: var(--surface-popup);
   border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
+}
+/* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
+   the sheet veil, so the page's text never ghosts through its search row. */
+.ui-dialog.ui-glass.ui-glass-transient {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
 }
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
@@ -291,7 +310,8 @@
    submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
    so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
    its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash;
-   a host that maps none gets the app's highlighted-row token (desktop.css --cmux-row-focus), ui.css's. */
+   a host that maps none gets the native menu's highlighted row (the theme's hover fill, GlassMenu's
+   PopupRowView), ui.css's. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
   font-family: var(--font-ui);
@@ -313,7 +333,11 @@
   outline: none;
 }
 :where(.ui-menu-item[data-highlighted]) {
-  background: var(--ui-row, var(--cmux-row-focus, color-mix(in srgb, currentColor 10%, transparent)));
+  background: var(--ui-row, var(--cmux-hover, color-mix(in srgb, currentColor 5%, transparent)));
+}
+/* Pressed (the pointer down on it, or a host's data-pressed): the pressed fill, as a native row's. */
+:where(.ui-menu-item[data-highlighted]:is(:active, [data-pressed])) {
+  background: var(--ui-row-pressed, var(--cmux-pressed, color-mix(in srgb, currentColor 12%, transparent)));
 }
 :where(.ui-menu-check) {
   display: inline-flex;

@@ -19,6 +19,7 @@
 
 mod colors;
 pub mod render;
+pub mod two_tone;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -45,12 +46,14 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
+pub const RESERVED_KEYS: [&str; 7] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), the saved
-/// custom densities, and the keys the person changed over the file.
-const EXCLUDED_KEYS: [&str; 9] = [
+/// (where this Mac is), what each background mode last showed and the
+/// backgrounds shown before, the saved custom densities, where each picture
+/// is placed, and the keys the person changed over the file.
+const EXCLUDED_KEYS: [&str; 12] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -59,6 +62,9 @@ const EXCLUDED_KEYS: [&str; 9] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    "appearance.backgroundMemory",
+    "appearance.backgroundPlacement",
+    "appearance.backgroundRecents",
     EXCEPTIONS_KEY,
 ];
 /// The look keys the person changed in Settings while the active theme
@@ -74,8 +80,10 @@ pub fn exceptions_in(root: &Value) -> BTreeSet<String> {
         .map(|keys| keys.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default()
 }
-const LOOK_PREFIXES: [&str; 7] = [
+const LOOK_PREFIXES: [&str; 8] = [
     "appearance.",
+    // The agent chat's typography: a font pack's families and face files.
+    "agentPane.display.font.",
     "ui.animation",
     "ui.calm",
     "ui.paneAnimations",
@@ -83,15 +91,53 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// Look keys outside those prefixes: the terminal font and the chat code font;
+/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
+/// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
+/// tabs; pane corners; the agent chat's text sizes, sender marks and Session
+/// Info; and the transcript look and its tokens
+/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
+/// `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
+    "agentPane.display.code.family",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "agentPane.display.transcriptLook",
+    "agentPane.display.transcriptTokens",
+    "sidebar.look",
+    "sidebar.density",
+    "sidebar.textSize",
+    "sidebar.groupHeader.background",
+    "sidebar.groupPalette",
+    "sidebar.groupGradient",
+    "sidebar.showSearchButton",
+    "sidebar.showProfileControl",
+    "sidebar.showNewWorkspaceChooser",
+    "sidebar.controlsOnHover",
+    "sidebar.detailedStatusIcons",
+    "sidebar.showColors",
+    "sidebar.spacesVisibility",
+    "tabs.toolbarButtons",
+    "tabs.plusButton",
+    "window.titlebarButtons",
+    "focus.inactiveTabStyle",
+    "layout.paneCornerRadius",
+    "layout.cornerPadding",
+    "layout.paneBorderWidth",
+    "agentPane.display.sessionInfo.placement",
+    "agentPane.display.font.preset",
+    "agentPane.display.font.ui",
+    "agentPane.display.font.size",
+    "agentPane.display.font.lineHeight",
+    "agentPane.display.code.scale",
+    "agentPane.display.senderIcon.lead",
+    "agentPane.display.senderIcon.badge",
+    "agentPane.display.senderIcon.corner",
+    "agentPane.display.trayHandle",
 ];
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.
@@ -143,12 +189,16 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 5] = [
+const SHIPPED: [(&str, &str); 9] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    ("lily-pond", include_str!("../../../../../Resources/theme-files/lily-pond.json")),
+    ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
+    ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
 /// The text of the shipped theme file `name`.
@@ -339,6 +389,31 @@ impl ThemeFile {
     pub fn keys(&self) -> Vec<String> {
         self.values.iter().map(|(path, _)| dotted(path)).collect()
     }
+
+    /// Each `agentPane.display.font.faces` entry the app would skip (a bad
+    /// key, a missing, oversized or mistyped file), as a diagnostic of this
+    /// file: `cmux theme check` reports them; the read itself never stats
+    /// the files.
+    pub fn face_diagnostics(&self) -> Vec<ThemeDiagnostic> {
+        let path = key_path(crate::font_faces::SETTING_KEY);
+        let Some(Value::Object(faces)) =
+            self.values.iter().find(|(at, _)| *at == path).map(|(_, value)| value)
+        else {
+            return Vec::new();
+        };
+        let (_, problems) = crate::font_faces::check_all(faces);
+        problems
+            .into_iter()
+            .map(|problem| ThemeDiagnostic {
+                kind: ThemeDiagnosticKind::InvalidValue,
+                path: format!("{}.{}", crate::font_faces::SETTING_KEY, problem.key),
+                message: problem.message,
+                file: Some(format!("{FOLDER_NAME}/{}.{FILE_EXTENSION}", self.name)),
+                line: None,
+                value: faces.get(&problem.key).map(compact),
+            })
+            .collect()
+    }
 }
 
 struct Reader<'a> {
@@ -422,6 +497,14 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if row.key == crate::font_faces::SETTING_KEY {
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            match written {
+                Value::Object(faces) => Value::Object(
+                    faces.iter().map(|(key, value)| (key.clone(), self.picture(value))).collect(),
+                ),
+                other => other.clone(),
+            }
         } else {
             written.clone()
         };

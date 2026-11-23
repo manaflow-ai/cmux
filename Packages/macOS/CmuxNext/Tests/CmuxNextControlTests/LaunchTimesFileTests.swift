@@ -226,6 +226,18 @@ import Testing
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
+            "main.warmup_started": 42, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
+            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5,
+            "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
+            "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
+            "connecting_view_shown": 366, "connecting_view_left": 367, "workspace_content_shown": 368,
+            "sidebar_rows_shown": 369, "first_window_flushed": 370, "agent_pane.launch_image_shown": 371,
+            "first_terminal_surface_created": 380, "first_terminal_content": 450, "first_terminal_content_applied": 451,
+            "first_terminal_frame": 452, "chromium_page.make_start": 410, "chromium_page.browser_created": 420,
+            "home.page_host_made": 430, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
+            "terminal_input_accepted": 640, "terminal_echo": 645,
+            "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
+            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "first_key_down": 630,
         ]
         let record = Self.record(marks: Self.merged(phases))
         var expected = phases.mapValues { ($0 * 10).rounded() / 10 }

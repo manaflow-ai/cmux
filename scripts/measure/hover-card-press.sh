@@ -6,7 +6,7 @@
 # late frames, the press's main-thread work at the start of the next frame.
 #
 #   cmux-ci run --class exclusive --measurement --label measure --urgent --pool perf-lead --target-worker aws-m4pro-7 \
-#     --pin-strict --script scripts/measure/hover-card-press.sh --ref <a feat-cmux-next sha with this script> \
+#     --pin-strict --script scripts/measure/hover-card-press.sh --arg=--vdisplay=120 --ref <a feat-cmux-next sha with this script> \
 #     --arg=--arm=base@<sha> --arg=--arm=room@<sha> [--arg=--rounds=2] [--arg=--cycles=20] [--arg=--trace=room]
 #
 # --trace=ARM: after the rounds, one more launch of that arm presses for 20 s while Instruments' Animation Hitches
@@ -17,29 +17,60 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/app-at-commit.sh
 out="$(mktemp -d)"
-trap 'measure_remove_scratch "$out"' EXIT
+vdisplay_pid=""
+# shellcheck disable=SC2329 # run by the trap below
+cleanup() {
+  if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
+  measure_remove_scratch "$out"
+}
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-arms=() rounds=2 cycles=20 trace=""
+arms=() rounds=2 cycles=20 trace="" vdisplay_hz=""
 for arg in "$@"; do
   case "$arg" in
     --arm=*) arms+=("${arg#--arm=}") ;;
     --rounds=*) rounds="${arg#--rounds=}" ;;
     --cycles=*) cycles="${arg#--cycles=}" ;;
     --trace=*) trace="${arg#--trace=}" ;;
+    --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     *) echo "hover-card-press: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ ${#arms[@]} -gt 0 ]] || { echo "hover-card-press: pass --arm=NAME@SHA at least once" >&2; exit 2; }
 
 names=() apps=()
-for arm in "${arms[@]}"; do
+for arm in ${arms[@]+"${arms[@]}"}; do
   name="${arm%%@*}" sha="${arm#*@}"
   app="$(measure_app_at_commit "$sha" "hcp-$name" "$out/at-$name")" || { echo "HCP-FAIL $name build at $sha"; exit 1; }
   names+=("$name") apps+=("$app")
   echo "HCP-BUILT $name $sha $app"
 done
+
+# --vdisplay=HZ: the app opens on a virtual main display at HZ (scripts/ci/frame-pacing/vdisplay.m), as held-new-tab.sh.
+if [[ -n "$vdisplay_hz" ]]; then
+  vd="$out/vdisplay"
+  mkdir -p "$vd/VDisplay.app/Contents/MacOS"
+  if xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo \
+      scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
+    cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
+    codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" 3600 main 1920x1200 > "$vd/out" 2> "$vd/err" &
+    vdisplay_pid=$!
+    for _ in $(seq 20); do
+      grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
+      kill -0 "$vdisplay_pid" 2>/dev/null || break
+      sleep 1  # bounded wait for the helper's own ready line
+    done
+    echo "HCP-DISPLAY $(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
+    sleep 2  # WindowServer settles the new main display before the app opens on it
+  else
+    echo "HCP-DISPLAY the virtual display helper did not compile: $(head -c 300 "$vd/clang.err")"
+  fi
+fi
+
+echo "HCP-MOTION reduceMotion=$(defaults read com.apple.universalaccess reduceMotion 2>/dev/null || echo unset)"
 
 bench() { # NAME APP DIR [bench args...]
   local name="$1" app="$2" dir="$3"
@@ -54,14 +85,15 @@ for ((round = 1; round <= rounds; round++)); do
   for i in "${order[@]}"; do
     dir="$out/${names[$i]}-r$round"
     if bench "${names[$i]}" "${apps[$i]}" "$dir" --cycles "$cycles"; then
-      echo "HCP-SUMMARY ${names[$i]} r$round $(cat "$dir/summary.json" | tr -d '\n ')"
+      echo "HCP-SUMMARY ${names[$i]} r$round $(tr -d '\n ' < "$dir/summary.json")"
+      [[ "$round" == 1 ]] && grep -m1 '^CARD' "$dir.log" | cut -c1-400 | sed 's/^/HCP-/' 
     else
       echo "HCP-FAIL ${names[$i]} r$round"; tail -n 20 "$dir.log"
     fi
   done
   reversed=()
   for ((k = ${#order[@]} - 1; k >= 0; k--)); do reversed+=("${order[$k]}"); done
-  order=("${reversed[@]}")
+  order=(${reversed[@]+"${reversed[@]}"})
 done
 
 [[ -n "$trace" ]] || exit 0

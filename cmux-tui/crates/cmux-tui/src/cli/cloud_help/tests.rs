@@ -188,12 +188,14 @@ fn quick_start_commands_parse() {
                     && !line.contains('<')
                     && !line.contains(" | ")
             })
-            // These (secrets, client sessions, team keys) run in this CLI, not through the app's catalog; `cloud env` lines parse in
-            // `cloud_environment.rs` (`the_help_env_lines_parse`).
+            // These (secrets, client sessions, team keys, model connections) run in this CLI, not through the app's catalog;
+            // `cloud env` lines parse in `cloud_environment.rs` (`the_help_env_lines_parse`), `cloud connect` and
+            // `cloud connections` lines in `cloud_connect.rs` (`the_help_connect_lines_parse`).
             .filter(|line| {
                 !line.contains("secret")
                     && !line.contains("client-session")
                     && !line.contains("team-keys")
+                    && !line.starts_with("cmux vm connect")
             })
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
@@ -361,7 +363,9 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                 let flag = word.strip_prefix("--")?;
                 // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
                 let flag = if flag == "yes" { "confirm" } else { flag };
-                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
+                // argument the app takes.
+                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);

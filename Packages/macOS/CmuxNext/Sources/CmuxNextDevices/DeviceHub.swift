@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import Foundation
 public import Observation
+import os
 
 /// The signed-in user's devices as this app sees them: who is online, who
 /// shares Mac Screen, permissions, relays, requests waiting for an answer,
@@ -23,6 +24,13 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
+    /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
+    public private(set) var devicesListed = false
+    /// Why the last device-list read failed; nil once a read succeeds.
+    public private(set) var devicesListError: DeviceHubError?
+    /// Socket states and device-list reads, so a quiet Your Devices can be read from the log (ask-6a79af928f).
+    @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// Verified Mac destinations for native screen actions, observed with the device list.
     public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
@@ -138,6 +146,7 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
         do {
             do {
                 if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
@@ -200,6 +209,8 @@ public final class DeviceHub {
         connection = .disconnected
         me = nil
         devices = []
+        devicesListed = false
+        devicesListError = nil
         permissions = [:]
         relays = []
         openedSecrets = [:]
@@ -225,6 +236,7 @@ public final class DeviceHub {
         switch event {
         case let .state(state):
             connection = state
+            logger.info("device hub socket: \(String(describing: state), privacy: .public)")
             if state == .connected {
                 // Back on the hub: whatever changed while away (a relaunched host's history) is read again.
                 pushCount += 1
@@ -252,7 +264,7 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == ticket.sessionId }
             tickets[ticket.sessionId] = ticket
             onSessionPush?(push)
-        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _, _):
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)
@@ -284,9 +296,20 @@ public final class DeviceHub {
     }
 
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in
-            hub.devices = value
-            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        let run = generation
+        do {
+            let value = try await client.devices()
+            guard run == generation else { return }
+            devices = value
+            devicesListed = true
+            devicesListError = nil
+            logger.info("device hub list read: \(value.count, privacy: .public) devices")
+            forgetPermissions(notListedIn: Set(value.map(\.id)))
+        } catch {
+            guard run == generation else { return }
+            fail(error)
+            devicesListError = lastError
+            logger.error("device hub list read failed: \(self.lastError?.description ?? "\(error)", privacy: .public)")
         }
     }
 
@@ -438,6 +461,8 @@ public final class DeviceHub {
         let current = try await perform { try await $0.devices() }
         guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
+        devicesListed = true
+        devicesListError = nil
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
             throw DeviceHubError.identity("sealing the relay secret: \(error)")
