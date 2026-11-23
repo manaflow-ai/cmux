@@ -235,6 +235,15 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     owner.call("session/prompt", with("p-chain", found)).await;
     // A relay's label: it passes on another client's prompt (`remote_guard::mark_forwarded`).
     owner.call("session/prompt", with("p-via", json!({"via": "device"}))).await;
+    // An unnamed send under an ssh login no carry started (`cli/sender.rs` `over_ssh`): another
+    // agent's `reach huge-blue 'acpmux send ...'` that lost its identity on the hop, drawn as
+    // Leo's bubble (2026-11-22: "not sure why this happened displaying this way").
+    let ssh = json!({"cliHost": "huge-blue", "cliOverSsh": true});
+    owner.call("session/prompt", with("p-ssh", ssh)).await;
+    // The same hop with the session `reach` carried: named for that agent (`cli/sender.rs`).
+    let carried =
+        json!({"fromAgent": "Claude Code on cosmic-gray · 6e0bad7d", "fromHarness": "claude"});
+    owner.call("session/prompt", with("p-carried", carried)).await;
     // A caller token the daemon could not prove: an agent's shell that kept a stale token.
     let mut stale = Client::open(&hub);
     let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
@@ -258,9 +267,13 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     let named = owner.user_message(&receiver, "p-named").await;
     assert_eq!(named.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{named}");
     assert_eq!(named.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{named}");
-    for (id, transport) in
-        [("p-harness", "unix"), ("p-chain", "unix"), ("p-via", "unix"), ("p-stale", "unix")]
-    {
+    for (id, transport) in [
+        ("p-harness", "unix"),
+        ("p-chain", "unix"),
+        ("p-via", "unix"),
+        ("p-stale", "unix"),
+        ("p-ssh", "unix"),
+    ] {
         let message = owner.user_message(&receiver, id).await;
         assert_eq!(
             message.pointer("/_meta/provenance/kind"),
@@ -280,6 +293,24 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
         Some(&json!("codex")),
         "{harness}"
     );
+    let ssh = owner.user_message(&receiver, "p-ssh").await;
+    assert_eq!(
+        ssh.pointer("/_meta/provenance/claimed/cliHost"),
+        Some(&json!("huge-blue")),
+        "{ssh}"
+    );
+    let carried = owner.user_message(&receiver, "p-carried").await;
+    assert_eq!(
+        carried.pointer("/_meta/provenance/kind"),
+        Some(&json!("agent_message")),
+        "{carried}"
+    );
+    assert_eq!(
+        carried.pointer("/_meta/provenance/fromName"),
+        Some(&json!("Claude Code on cosmic-gray · 6e0bad7d")),
+        "{carried}"
+    );
+    assert_eq!(carried.pointer("/_meta/origin"), None, "{carried}");
     let from_lane = owner.user_message(&receiver, "p-lane").await;
     assert_eq!(
         from_lane.pointer("/_meta/provenance/kind"),
