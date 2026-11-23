@@ -7327,7 +7327,7 @@ jobs:
           [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
           echo "state=${state:-none}" >> "$GITHUB_OUTPUT"
           if [[ -n "$controller" ]]; then
-            echo "::notice title=Compile check::the controller posts cmux-next/compile for $SHA itself"
+            echo "::notice title=Compile check::$SHA: the controller posts cmux-next/compile itself"
             exit 0
           fi
           if [[ -n "$down" ]]; then
