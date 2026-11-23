@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 672,
+  "count": 673,
   "sections": [
     {
       "id": "general",
@@ -2714,6 +2714,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundPlacement",
