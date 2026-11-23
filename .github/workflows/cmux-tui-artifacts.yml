@@ -207,7 +207,8 @@ jobs:
     name: cmux-tui superseded push gate
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (about a minute).
+    # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (seconds; it ran
+    # into its 60 s git timeout until its fetches passed --no-recurse-submodules, 2026-11-23).
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -345,19 +346,36 @@ jobs:
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
     steps:
+      # Only the files these steps read: the full working tree took 54 s of this job's 56 s (n=4,
+      # 2026-11-23). Tree keys come from tree objects, which blob:none keeps; cmux_tui_tree_key.py
+      # reads cmux-tui-tree-inputs.txt with lazy fetch off, so its blob must be in the sparse set.
+      # Any file a step here starts reading is added to this list.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
+          filter: blob:none
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/api_call_log/
+            scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/cmux-tui-darwin-builder
+            scripts/cmux-next/cmux-tui-build-profiles.json
+            scripts/ci/cmux_tui_tree_key.py
+            scripts/cmux-next/cmux-tui-tree-inputs.txt
+            scripts/ci/cmux-tui-tree-claim.sh
+            scripts/ci/cmux_tui_publisher_testing.py
+            scripts/ci/nightly_tree_source.py
+          sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      # This checkout is sparse, so it keeps its sparse set (the sparse jobs' form of the repair).
       - name: Repair a reused self-hosted checkout
         if: runner.os == 'Linux'
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
 
@@ -494,10 +512,19 @@ jobs:
           [[ "$legacy_key" =~ ^[0-9a-f]{40}$ ]]
           echo "legacy_key=$legacy_key" >> "$GITHUB_OUTPUT"
 
+          # The checkout is a blob:none partial clone: a fetch here takes trees only (an unfiltered one
+          # brought the whole tree's blobs, past its timeout), then the one blob the key reads. One
+          # timeout ($1 seconds) bounds both calls, so the election below keeps its deadline.
+          tree_fetch() {
+            timeout --kill-after=2 "$1" bash -c '
+              git -c "http.extraHeader=Authorization: Basic $1" \
+                fetch --no-tags --no-recurse-submodules --filter=blob:none --depth=1 "$2" "$3" \
+                && git -c "http.extraHeader=Authorization: Basic $1" cat-file blob "$3:scripts/cmux-next/cmux-tui-tree-inputs.txt"
+            ' tree_fetch "$authorization" "${SERVER_URL}/${REPOSITORY}.git" "$2" >/dev/null 2>&1
+          }
           if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
             current_key=""
-            if timeout --kill-after=2 30 git -c "http.extraHeader=Authorization: Basic $authorization" \
-                fetch --no-tags --depth=1 "${SERVER_URL}/${REPOSITORY}.git" "$remote_sha" >/dev/null 2>&1 \
+            if tree_fetch 30 "$remote_sha" \
               && git diff --quiet "$SOURCE_COMMIT" "$remote_sha" -- \
                 scripts/ci/cmux_tui_tree_key.py scripts/cmux-next/cmux-tui-tree-inputs.txt \
               && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$remote_sha" 2>/dev/null)" \
@@ -650,8 +677,7 @@ jobs:
                 left="$(election_left)"
                 (( left >= 1 )) || break
                 examined=$(( examined + 1 ))
-                if timeout --kill-after=2 "$left" git -c "http.extraHeader=Authorization: Basic $authorization" \
-                    fetch --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate_sha" >/dev/null 2>&1 \
+                if tree_fetch "$left" "$candidate_sha" \
                   && left="$(election_left)" && (( left >= 1 )) \
                   && candidate_key="$(timeout --kill-after=2 "$left" python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
                   && [[ "$candidate_key" == "$key" ]] \

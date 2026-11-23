@@ -175,7 +175,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(checkout["with"]["ref"], "${{ github.workflow_sha }}")
         paths = set(checkout["with"]["sparse-checkout"].split())
         self.assertEqual(paths, {"scripts/ci/risk_tier.py", "scripts/ci/ci_pool_tokens.py",
-                                 "scripts/ci/gh_budget_wait.sh"})
+                                 "scripts/ci/gh_budget_wait.sh", "scripts/ci/ui_review_advisory.py"})
         self.assertFalse(re.search(r"head\.(sha|ref)", json.dumps(checkout)))
 
 
