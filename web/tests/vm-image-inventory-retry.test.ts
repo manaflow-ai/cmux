@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { inventoryFailure } from "../scripts/cmux-vm-image/bake";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { INVENTORY_STEP_TIMEOUT_MS, inventoryFailure } from "../scripts/cmux-vm-image/bake";
 import { INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
@@ -39,5 +41,17 @@ describe("image inventory reads the provider status and lets a failed step win",
     expect(retriesInventory(failure, 1)).toBe(false);
     expect(inventoryFailure([{ status: "rejected", reason: reset }, { status: "fulfilled", value: "ok" }])).toBe(reset);
     expect(inventoryFailure([{ status: "fulfilled", value: "a" }, { status: "fulfilled", value: "b" }])).toBeUndefined();
+  });
+});
+
+describe("inventory step budget", () => {
+  test("the file manifest and the SBOM get 15 minutes, and syft's own bound sits inside it", () => {
+    const bake = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
+    expect(INVENTORY_STEP_TIMEOUT_MS).toBe(900_000);
+    const inventory = bake.slice(bake.indexOf("export async function collectInventory("));
+    expect(inventory.match(/INVENTORY_STEP_TIMEOUT_MS\)/g)?.length).toBe(2);
+    const syftBound = Number(/timeout (\d+) \$\{out\}-syft\/syft scan/.exec(inventory)?.[1]) * 1000;
+    expect(syftBound).toBeGreaterThan(300_000);
+    expect(syftBound).toBeLessThan(INVENTORY_STEP_TIMEOUT_MS);
   });
 });

@@ -1154,6 +1154,13 @@ export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unk
   return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
 }
 
+/**
+ * The inventory's steps (the file manifest, syft's download and scan) get 15 minutes each, not the flat 5: on a slow
+ * inventory VM the manifest took 97 s and the SBOM over 470 s (roll 45126299464) where the last green roll took 13 s
+ * and 108 s, and a cut-off SBOM failed a roll whose smoke had passed.
+ */
+export const INVENTORY_STEP_TIMEOUT_MS = 900_000;
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1163,16 +1170,16 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
   // passes its own OUT, so a cut-off try still running on the guest never shares its files.
   // allSettled: neither step is left running here when this throws.
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, INVENTORY_STEP_TIMEOUT_MS), L.step(vm, "sbom", [
     `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
     `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
     `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
     `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 840 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "))]);
+  ].join(" && "), INVENTORY_STEP_TIMEOUT_MS)]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
