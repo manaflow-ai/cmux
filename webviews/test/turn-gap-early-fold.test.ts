@@ -91,7 +91,8 @@ test("user_message(turnId) > turn_started > tool_call: the Working for line stan
   // are still bad here"): the row over the line is the turn before's footer, the message is right under it.
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
-    const line = view.find((row) => row.kind === "working" && !row.below)!;
+    // Since #50242 the line is the turn's header, a "worked" row in its running phase (turns.ts `turnHeaderId`).
+    const line = view.find((row) => row.kind === "worked" && row.turnPhase === "running")!;
     const at = view.indexOf(line);
     expect(view[at - 1]!.kind).toBe("turnSummary");
     const message = view[at + 1]!;
@@ -227,8 +228,12 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
-    // The row over the notice is that turn's footer row (G04, #49465), not its "Worked for".
-    expect(view[at - 1]!.kind).toBe("turnSummary");
-    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    // The turn before ends on its footer row (G04, #49465), not its "Worked for". Once the notice's
+    // turn starts, its "Working for" stands over the notice (#49052, 66beef47be66), under that footer
+    // with the block gap; before, the notice stands under the footer with it.
+    const top = count === 7 ? view[at - 1]! : notice;
+    if (count === 7) expect(top).toMatchObject({ kind: "worked", turnPhase: "running" });
+    expect(view[view.indexOf(top) - 1]!.kind).toBe("turnSummary");
+    expect(gap(top.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
 });

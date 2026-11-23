@@ -184,11 +184,15 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
       await scrolled();
     });
     const prompts = turns.filter((entry) => entry.kind === "user");
-    /// The prompt being read: the last whose bubble is at or above 35 px under the view's top.
+    /// The prompt being read: the last whose turn head is at or above 35 px under the view's top. A
+    /// received message's turn starts at the "Worked for" that folds it (threadMinimap/model.ts
+    /// `foldedPrompt`, conversation/turns.ts `shapedTurn`), else at the prompt's bubble.
     const reading = () => {
       let read = 0;
       prompts.forEach((entry, index) => {
-        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const node =
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="worked-${entry.id}"]`) ??
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
         const top =
           Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;

@@ -149,9 +149,11 @@ extension UpdaterService {
     /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
     /// allows it: swaps the bundles (on the files lane: the clone of the running build and the
     /// renames are disk work), stops offering the build left behind, then quits keeping every
-    /// session and lets `relaunch` reopen the app.
+    /// session and lets `relaunch` reopen the app. A person's rollback (`picksBuild`, the default)
+    /// makes the next newer build wait for their click; the install check's automatic one does not,
+    /// so the next NIGHTLY newer than the build it left behind installs as set.
     @discardableResult
-    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) async throws -> KeptVersion {
+    public func rollback(to build: String?, inputs: RollbackInputs, picksBuild: Bool = true, relaunch: (URL) -> Void) async throws -> KeptVersion {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
         let bundle = Bundle.main.bundleURL, current = identity.build, store = keptVersions, limit = preferences.keepPreviousVersions
         let started = ContinuousClock.now
@@ -159,12 +161,20 @@ extension UpdaterService {
             try RollbackSwap.perform(current: bundle, currentBuild: current, target: target, store: store, limit: limit)
         }
         defaults.set(current, forKey: Self.skipsBuildsThroughKey)
-        defaults.set(target.build, forKey: Self.pickedBuildKey)
+        recordPick(target.build, picksBuild: picksBuild)
         controller?.skipsBuildsThrough = current
         log.append("rolled back \(current) -> \(target.build) (swap \(started.duration(to: .now)))")
+        // A staged newer build would install on this quit (`updates.installOnQuit`) and undo the go-back.
+        if cancelStaged() { log.append("rollback: cancelled the staged update so the quit does not install it") }
         willRelaunch?()
         relaunch(bundle)
         return target
+    }
+
+    /// The pick a rollback to `build` leaves: the person's own (`picksBuild`) makes the next newer
+    /// build wait for their click; the install check's automatic one leaves none, so it installs as set.
+    func recordPick(_ build: String, picksBuild: Bool) {
+        if picksBuild { defaults.set(build, forKey: Self.pickedBuildKey) } else { defaults.removeObject(forKey: Self.pickedBuildKey) }
     }
 
     /// Restores the skip after a rollback at launch, and asks before installing while the build the

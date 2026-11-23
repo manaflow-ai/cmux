@@ -63,6 +63,10 @@
 /* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
 .ui-notice[data-placement="stack"] {
   --glass-elevation: var(--elevation-2);
+  /* A toast is a floating surface: its corner is the role's (schemas/design-roles), the button corner
+     plus the inset capped at a third of a one-line toast's height, so a thin toast is never a capsule
+     (the corner rule, design-debate 2026-11-22). */
+  border-radius: var(--role-toast-radius); /* concentric-allow: the toast role caps the concentric corner */
   width: max-content;
   max-width: min(420px, calc(100vw - var(--ds-space-5)));
 }
@@ -384,7 +388,7 @@
   width: min(96px, 30%);
   height: var(--ds-space-6, 32px);
   border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
-  border-radius: var(--transient-surface-radius);
+  border-radius: var(--role-toast-radius);
   pointer-events: none;
   transition:
     background-color var(--cmux-motion-quick, 80ms),
@@ -426,18 +430,11 @@
 }
 
 /* A promise toast (NoticeQueue.promise): the lead is a spinner while it works, then its result's
-   mark, in the same slot, so the text never moves sideways. The spinner runs the shared keyframes
-   and clock (spinnerClock.ts); motion off or Reduce Motion holds it still. */
-.ui-notice-spinner {
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
+   mark, in the same slot, so the text never moves sideways. The spinner is the shared `Spinner`
+   (its sheet turns it on the shared keyframes and clock, and Reduce Motion holds it still); motion
+   off holds it still here too. */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .ui-notice-spinner {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .ui-notice-spinner {
-    animation: none;
-  }
+  animation: none !important;
 }
 
 /* Toasts v2 (toastsV2.experiment.ts), only on a card with `data-look`: the default arm draws none of

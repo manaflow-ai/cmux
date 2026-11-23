@@ -110,6 +110,7 @@ const PlanStep = memo(function PlanStep({ content }: { content: string }) {
   const title = (cut < 0 ? content : content.slice(0, cut)).trim();
   const detail = cut < 0 ? "" : content.slice(cut + 1).trim();
   return (
+    // tooltip-allow: the detail is clamped to two lines; the tooltip holds the whole step
     <span className="cv-plan__text" title={content}>
       <span className="cv-plan__title">{renderInline(title)}</span>
       {detail && <span className="cv-plan__detail">{renderInline(detail)}</span>}
