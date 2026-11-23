@@ -168,8 +168,8 @@ compiling). CI's full guard (cmux-next-guards.yml) still judges hand edits, rule
 
 Committed generated files are fresh (GENERATED_FRESH_CHECK, local runs only like the highlights): when the push
 changes a "committed" generator's generator, inputs or outputs (generated-files.json, a pure-Python gen-*.py with
---check), the generator runs over the head's files in a temp tree; a stale output is regenerated into the checkout
-(when the pushed head is HEAD and the file has no uncommitted edits) and the push is refused until it is committed.
+--check) and the checkout is the pushed head with no uncommitted edits, the generator's --check runs there; a stale
+one is run for real (the fix lands in the checkout) and the push is refused until the rewritten files are committed.
 
 Not here (they stay on CI and the fleet): the other generators (cargo, node and gofmt ones), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -2503,79 +2503,51 @@ def fresh_generators(repo: Path, base: str, head: str, changed: list[str]) -> li
 def generated_freshness(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """`<output>: stale ...` per committed generated file the pushed head does not match its generator on, for each
     "committed" generator (generated-files.json) with a `--check` whose generator, inputs or outputs the push
-    changes. The generator runs in a temp tree of the head's inputs and outputs (pure-Python gen-*.py scripts that
-    find the repository from their own path), so it reads nothing the push controls but data.
+    changes. These generators read and write far more than the json lists (motion-scale walks the webviews trees),
+    so the check runs in the checkout itself, and only when the checkout is the pushed head: HEAD is HEAD and no
+    tracked file differs from it. The script it runs is the checkout's, and on a hook run only when its bytes are the
+    installed reviewed copy's (the hook never runs code a push controls); a push that changes a generator leaves it
+    to CI's generated drift job.
 
     Mistakes this mechanical are fixed, not only refused (Leo, 2026-11-23: "Mistakes should also be auto fixed and
-    ran properly a lot of these are pretty mechanical"): when the pushed head is the checkout's HEAD and the stale
-    outputs have no uncommitted edits there, the regenerated files are written into the checkout, and the refusal
-    says to commit them and push again. A generator that is stale at the base too is not the push's: it warns.
-    A push that changes the generator itself is left to CI on a hook run (the installed copy is the base's, so it
-    would judge the head's new generator by the old one's output)."""
-    changed_all = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if n]
-    picked = fresh_generators(repo, base, head, changed_all)
+    ran properly a lot of these are pretty mechanical"): a stale generator is run for real in the checkout, and the
+    refusal names the files it rewrote, to commit and push again."""
+    changed = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if n]
+    picked = fresh_generators(repo, base, head, changed)
     if not picked:
         return []
     head_now = git(repo, "rev-parse", "--verify", "--quiet", "HEAD", check=False).decode().strip()
+    dirty = git(repo, "status", "--porcelain", "-z", "--untracked-files=no", check=False).strip(b"\0")
+    names = ", ".join(entry.get("id", "?") for entry in picked)
+    if head_now != head or dirty:
+        why = "the checkout is not at the pushed head" if head_now != head else "the checkout has uncommitted edits"
+        log(f"prepush-gate: generated freshness ({names}) not checked: {why}; CI's generated drift job judges it.")
+        return []
     found: list[str] = []
     for entry in picked:
         script = entry["generator"]
         code_bytes = check_script(repo, head, script, trusted_scripts, base)
-        if code_bytes is None:
-            continue
-        if trusted_scripts is not None and script in changed_all and code_bytes != blob_at(repo, head, script):
+        if code_bytes is None or not (repo / script).is_file():
+            continue  # a commit older than this generator, or one that deletes it
+        if code_bytes != (repo / script).read_bytes():
             log(f"prepush-gate: {entry.get('id')}: the push changes {script}, so its freshness is left to CI's "
                 "generated drift job (the hook runs only the installed copy).")
             continue
-        files_at: dict[str, set[str]] = {}
-        for rev in (base, head):
-            listed = []
-            for pattern in [*entry.get("inputs", []), *entry.get("outputs", [])]:
-                fixed = pattern.split("*", 1)[0].rsplit("/", 1)[0] if "*" in pattern else pattern
-                listed += [p for p in ls_tree(repo, rev, fixed) if generated_glob(pattern).match(p)]
-            files_at[rev] = set(listed)
-        verdicts: dict[str, tuple[int, str]] = {}
-        regenerated: dict[str, bytes] = {}
-        with tempfile.TemporaryDirectory(prefix="cmux-generated-fresh-") as tmp:
-            for rev in (base, head):
-                tree = absolute(Path(tmp)) / rev[:12]
-                write_tree(repo, tree, {p: rev for p in files_at[rev]}, index=False)
-                gen = tree / script
-                gen.parent.mkdir(parents=True, exist_ok=True)
-                gen.write_bytes(code_bytes)
-                verdicts[rev] = run(["python3", "-I", str(gen), "--check"], tree, timeout=60)
-                if rev == head and verdicts[rev][0] == 1:
-                    code, out = run(["python3", "-I", str(gen)], tree, timeout=60)
-                    if code == 0:
-                        for output in entry.get("outputs", []):
-                            target = tree / output
-                            if "*" not in output and target.is_file():
-                                regenerated[output] = target.read_bytes()
-        head_code, head_out = verdicts[head]
-        if head_code == 0:
+        code, out = run(["python3", "-I", str(repo / script), "--check"], repo, timeout=60)
+        if code == 0:
             continue
-        stopped = no_verdict(head_code, head_out, (0, 1))
-        base_stopped = no_verdict(*verdicts[base], (0, 1))
+        stopped = no_verdict(code, out, (0, 1))
         if stopped:
-            found.append(NoVerdict(f"{script} --check {stopped} at the pushed head: {out_tail(head_out.splitlines())}",
-                                   outside_cause(stopped, base_stopped)))
+            found.append(NoVerdict(f"{script} --check {stopped} at the pushed head: {out_tail(out.splitlines())}"))
             continue
-        if verdicts[base][0] != 0 and not base_stopped:
-            log(f"prepush-gate: WARNING: {entry.get('id')}: {script} --check fails at the base too, so its stale "
-                f"outputs are not this push's; run `python3 {script}` in a separate fix if you own it.")
-            continue
-        stale = sorted(o for o, data in regenerated.items() if data != blob_at(repo, head, o))
-        if not stale:
-            found.append(f"{script} --check fails at the pushed head: {out_tail(head_out.splitlines())}")
-            continue
-        dirty = git(repo, "status", "--porcelain", "-z", "--", *stale, check=False).strip(b"\0")
-        if head_now == head and not dirty:
-            for output in stale:
-                (repo / output).write_bytes(regenerated[output])
-            found += [f"{o}: stale (regenerated by {script}; the fixed file is now in your checkout: commit it and push "
-                      "again)" for o in stale]
+        fix_code, fix_out = run(["python3", "-I", str(repo / script)], repo, timeout=60)
+        rewrote = [n for n in git(repo, "diff", "--name-only", "-z").decode().split("\0") if n]
+        if fix_code == 0 and rewrote:
+            found += [f"{name}: stale; {script} rewrote it in your checkout: commit it and push again"
+                      for name in rewrote]
         else:
-            found += [f"{o}: stale: run `python3 {script}`, commit the result and push again" for o in stale]
+            found.append(f"{script} --check fails at the pushed head and running it fixed nothing (exit {fix_code}); "
+                         f"fix what it says: {out_tail((out + fix_out).splitlines())}")
     return found
 
 
