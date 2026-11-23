@@ -73,6 +73,15 @@
 .onb-header .onb-sentence {
   margin-top: var(--ds-space-2);
 }
+/* Offline: one quiet line under the title; it takes no room while online. */
+.onb-offline {
+  display: block;
+  margin-top: var(--ds-space-2);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
 .onb-body {
   display: flex;
   flex: 1;

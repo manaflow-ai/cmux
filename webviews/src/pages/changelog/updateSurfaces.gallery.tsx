@@ -6,6 +6,9 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
+import photoBrightClouds from "./fixtures/photos/bright-clouds.jpg";
+import photoClouds from "./fixtures/photos/clouds.jpg";
+import photoDusk from "./fixtures/photos/dusk.jpg";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
@@ -61,6 +64,8 @@ type Props = {
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
   wallpaper?: boolean;
+  /** A real photograph behind the card (repo frame_assets backgrounds), instead of the stand-in gradient. */
+  photo?: "dusk" | "clouds" | "bright-clouds";
   maxHeight?: number;
   /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
    *  thing unthemed"): a light, a dark and a custom (purple) theme. */
@@ -353,6 +358,8 @@ function doodleFontLoaded(doc: Document): boolean {
   return loaded;
 }
 
+const photoSrc = { dusk: photoDusk, clouds: photoClouds, "bright-clouds": photoBrightClouds } as const;
+
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
@@ -458,6 +465,7 @@ function UpdateSurfacesGallery({
   data,
   span: notes,
   wallpaper: onWallpaper = false,
+  photo,
   maxHeight,
   theme,
   briefLayout,
@@ -486,8 +494,12 @@ function UpdateSurfacesGallery({
       style={{
         width: width ?? (surface === "card" ? 260 : surface === "notes" ? 360 : 360),
         padding: 10,
-        ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
+        ...(photo
+          ? { backgroundImage: `url(${photoSrc[photo]})`, backgroundSize: "cover", backgroundPosition: "center" }
+          : onWallpaper
+            ? { backgroundImage: wallpaper }
+            : {}),
         ...(composerCorner ? { "--grid-card-radius": "var(--grid-composer-radius)" } : {}),
         ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
       }}
@@ -773,6 +785,22 @@ export default componentEntry<Props>({
     "card-shape-row-picture": {
       note: 'The same over a background picture (Leo: "what of when we have transparency for background pictures"): the composer\'s material at the art share, so the picture shows through the card as through the composer, and the one line stays in full ink.',
       props: { surface: "card", data: base, wallpaper: true, shape: "row" },
+    },
+    "card-shape-row-photo-dusk": {
+      note: "The one-line card over a real photograph (repo frame_assets, dusk, dark top): dark theme. Text contrast over the photo is measured in the PR body.",
+      props: { surface: "card", data: base, theme: "dark", shape: "row", photo: "dusk" },
+    },
+    "card-shape-row-photo-clouds": {
+      note: "The one-line card over a real photograph (clouds, mid-tone blue): light theme.",
+      props: { surface: "card", data: base, theme: "light", shape: "row", photo: "clouds" },
+    },
+    "card-shape-row-photo-bright-clouds": {
+      note: "The one-line card over a bright, light photograph (pale sky, white clouds): light theme. The worst case for light ink.",
+      props: { surface: "card", data: base, theme: "light", shape: "row", photo: "bright-clouds" },
+    },
+    "card-shape-row-photo-bright-clouds-dark": {
+      note: "The same bright photograph in the dark theme: the worst case for dark ink under a light wash.",
+      props: { surface: "card", data: base, theme: "dark", shape: "row", photo: "bright-clouds" },
     },
     "card-shape-row-change": {
       note: "Variant: the top change on the same line after the title, in the quiet ink, cut at the edge. One line still, but one change out of many is cut to a few words at a sidebar's width: it hints, it does not inform.",
