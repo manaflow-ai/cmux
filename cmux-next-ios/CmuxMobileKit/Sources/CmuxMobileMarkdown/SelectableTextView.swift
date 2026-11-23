@@ -78,8 +78,7 @@ public extension SelectableTextView {
         var top = window?.rootViewController
         while let presented = top?.presentedViewController { top = presented }
         guard let top else { return }
-        let controller = UIViewController()
-        controller.view = makeTextView()
+        let controller = SelectTextController(textView: makeTextView())
         controller.title = String(localized: "Select text")
         let navigation = UINavigationController(rootViewController: controller)
         controller.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
@@ -87,6 +86,32 @@ public extension SelectableTextView {
         })
         navigation.sheetPresentationController?.detents = [.medium(), .large()]
         top.present(navigation, animated: true)
+    }
+}
+
+/// The sheet's text view, opened on its first line: a text view that is its controller's root
+/// view takes the navigation bar's inset only after it was placed at offset 0, so its first
+/// lines started under the bar (a text shorter than the large detent never scrolled back).
+private final class SelectTextController: UIViewController {
+    private let textView: UITextView
+    private var placed = false
+
+    init(textView: UITextView) {
+        self.textView = textView
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func loadView() { view = textView }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let top = textView.adjustedContentInset.top
+        guard !placed, top > 0 else { return }
+        placed = true
+        textView.contentOffset = CGPoint(x: 0, y: -top)
     }
 }
 #endif
