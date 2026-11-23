@@ -11,6 +11,11 @@ const DIFF_COMMENT_LABEL_FALLBACKS = {
   sendComments: "Send to agent",
   sendingComments: "Sending…",
   sendCommentsFailed: "Not sent. Your comments are kept.",
+  threadSent: "Sent to agent…",
+  threadFailed: "The agent's turn failed",
+  threadResolve: "Resolve",
+  threadReply: "Reply",
+  threadReplyPlaceholder: "Reply to the agent",
 } as const;
 
 export type DiffCommentLabelKey = keyof typeof DIFF_COMMENT_LABEL_FALLBACKS;
