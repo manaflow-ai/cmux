@@ -13,6 +13,8 @@ import XCTest
 ///
 /// Counted from `TabCardFaceProbe` (`tabgrid.cardfaces.probe`), over the cards the grid built while
 /// scrolled through once (a card the grid never builds counts as blank: `unbuilt`):
+/// The open tab (t-g0) has no grid card of its own on the settled grid (its live page is drawn
+/// there), so it is not counted unbuilt.
 /// - blank card: agent `live` (not the open tab) or no face; terminal `placeholder` or `connecting`;
 ///   browser `placeholder` (the globe).
 /// - blank favicon: a browser tab whose favicon slot drew no image. Agent and terminal tabs show their
@@ -60,6 +62,9 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
         var unsavedAgents: [String] = []
         for tab in tabs {
             let kind = Self.kind(tab)
+            // The open tab's grid card is never built on the settled grid: the kit draws its live
+            // page there instead (`TabsView.overview`, `hiddenTabId`), which is not blank.
+            if tab == Self.activeTab, cold.faces[tab] == nil { continue }
             guard let face = cold.faces[tab]?.now else {
                 unbuilt.append(tab)
                 blankCards.append(tab)

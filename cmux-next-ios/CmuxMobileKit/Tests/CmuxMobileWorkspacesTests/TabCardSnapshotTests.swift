@@ -243,6 +243,34 @@ import UIKit
         #expect(other.heldBlobs(macID: "mac-1").isEmpty)
     }
 
+    /// What a card was handed (`whenScreen`).
+    @MainActor final class Shown { var values: [String] = [] }
+
+    /// A cold launch builds a terminal's card (which copies the screen into its model) before
+    /// the disk read is done: the card is still handed the screen when the read brings it. Before,
+    /// it read an empty entry once and stayed the labeled placeholder (fleet run 397091ff:
+    /// every terminal card `placeholder` on the cold launch, browsers and agents filled).
+    @Test func aTerminalCardBuiltBeforeTheDiskReadGetsItsScreen() async throws {
+        let directory = Self.directory()
+        let store = TabSnapshotStore(directory: directory)
+        let screen = Data("$ git status\nnothing to commit".utf8)
+        store.putMacBlob(screen, hash: Self.hash(screen), accountID: "user-1", macID: "mac-1")
+        store.putMacCards(["shell": MacCardInfo(title: "zsh", kind: "terminal", screenHash: Self.hash(screen),
+                                                screenColumns: 60, screenRows: 2, capturedAtMs: 50)],
+                          accountID: "user-1", macID: "mac-1")
+
+        let (cards, _) = Self.cards(directory)
+        let shown = Shown()
+        // The card is built first: nothing read yet.
+        cards.whenScreen(Self.key("shell")) { shown.values.append($0) }
+        #expect(shown.values.isEmpty)
+        await cards.warm(macID: "mac-1")?.value
+        #expect(shown.values == ["$ git status\nnothing to commit"], "the card gets the screen the disk held")
+        // Once read, a card built later gets it at once.
+        cards.whenScreen(Self.key("shell")) { shown.values.append($0) }
+        #expect(shown.values.count == 2)
+    }
+
     @Test func aFaviconStaysUntilItsReplacementIsHere() async throws {
         let (cards, _) = Self.cards(Self.directory())
         let old = try Self.png(.systemRed), new = try Self.png(.systemTeal)

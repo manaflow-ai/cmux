@@ -171,6 +171,8 @@ public final class MacTabCards {
     public var near: ((_ tabIDs: [String], _ macID: String) -> Void)?
     /// Disk reads finished (tests).
     public private(set) var loads = 0
+    /// Per card, who waits for its first screen (`whenScreen`): one each, the newest asker.
+    private var screenWaiters: [TabSnapshotKey: @MainActor (String) -> Void] = [:]
 
     public init(store: TabSnapshotStore = .standard, snapshots: TabCardSnapshots = .shared) {
         self.store = store
@@ -187,6 +189,7 @@ public final class MacTabCards {
             epochs = [:]
             arriving = [:]
             entries = [:]
+            screenWaiters = [:]
         }
         return account
     }
@@ -196,6 +199,20 @@ public final class MacTabCards {
         let entry = MacCardEntry()
         entries[key] = entry
         return entry
+    }
+
+    /// Hands `use` the card's screen: now when it is read, else once, when the disk or the Mac
+    /// brings it. A terminal card copies the screen into its own model when it is built, which on
+    /// a cold launch is before the disk read (`warm`) is done: without this it never saw the screen
+    /// and stayed the labeled placeholder (Leo, 2026-11-22: "so many blank previews").
+    public func whenScreen(_ key: TabSnapshotKey, _ use: @escaping @MainActor (String) -> Void) {
+        guard account() == key.accountID else { return }
+        if let screen = entries[key]?.screen, !screen.isEmpty {
+            screenWaiters[key] = nil
+            use(screen)
+        } else {
+            screenWaiters[key] = use
+        }
     }
 
     /// The blobs of `macID` on disk. From memory: empty until `warm(macID:)` has read the
@@ -402,6 +419,7 @@ public final class MacTabCards {
                 guard info.screenHash == part.hash, let text = item.text else { continue }
                 entry.screen = text
                 entry.shownScreen = part.hash
+                if !text.isEmpty { screenWaiters.removeValue(forKey: part.key)?(text) }
             case .thumb:
                 guard info.thumbHash == part.hash, let image = item.image else { continue }
                 entry.shownThumb = part.hash

@@ -495,13 +495,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// The screen the Mac pushed of a tab not opened in this launch (its `tabs` service, kept
-    /// on disk across launches): the card draws it at once, with no round trip. The read below
-    /// replaces it with the Mac's screen now.
+    /// on disk across launches): the card draws it at once, with no round trip, or as soon as the
+    /// disk read brings it (a cold launch builds the cards before that read is done). The read
+    /// below replaces it with the Mac's screen now.
     private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
         guard model.cardScreenText == nil, !model.pageStarted,
-              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id),
-              let screen = MacTabCards.shared.entry(key).screen, !screen.isEmpty else { return }
-        model.cardScreenText = screen
+              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id) else { return }
+        MacTabCards.shared.whenScreen(key) { [weak model] screen in
+            guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
+            model.cardScreenText = screen
+        }
     }
 
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
