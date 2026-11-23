@@ -114,6 +114,29 @@ export function parseSummary(text: string): SummaryRow[] {
   return v.names.filter((r): r is SummaryRow => !!r && typeof r.name === "string" && typeof r.people === "number");
 }
 
+/** The backends and Stack projects cloud-journey.ts signs in to (its STACK and resolveBackend; kept in step by hand). */
+const BACKENDS: Record<string, { api: string; stack: { project: string; clientKey: string } }> = {
+  dev: { api: "https://cmux-api-development.debussy.workers.dev", stack: { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", clientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" } },
+  prod: { api: "https://cloud-api.cmux.dev", stack: { project: "9790718f-14cd-4f7e-824d-eaf527a82b82", clientKey: "" } },
+};
+
+/** The test account's person token: Stack's password sign-in, as cloud-journey.ts passwordSignIn. */
+async function passwordSignIn(stack: { project: string; clientKey: string }, email: string, password: string): Promise<string> {
+  const r = await fetch("https://api.stack-auth.com/api/v1/auth/password/sign-in", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-stack-access-type": "client",
+      "x-stack-project-id": stack.project,
+      ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = (await r.json().catch(() => ({}))) as { access_token?: unknown; code?: unknown };
+  if (r.status !== 200 || typeof body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(body.code ?? "")}`);
+  return body.access_token;
+}
+
 function argValue(flag: string, argv: readonly string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -127,15 +150,14 @@ async function main(argv: string[]): Promise<number> {
   let api = argValue("--api", argv);
   let token = process.env.CMUX_INSTALL_COUNTS_TOKEN ?? "";
   if (backendName && !file) {
-    // The test account's person token (cloud-journey.ts's sign-in), loaded only here so the bake never imports it.
-    const journey = await import("../../../scripts/cmux-next/cloud-journey");
-    const backend = journey.resolveBackend(backendName, api);
-    api = backend.api;
+    const backend = BACKENDS[backendName];
+    if (!backend) throw new Error(`--backend: one of ${Object.keys(BACKENDS).join(", ")}`);
+    api ??= backend.api;
     if (!token) {
       const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? "";
       const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? "";
       if (!email || !password) throw new Error("--backend needs CMUX_INSTALL_COUNTS_TOKEN, or CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD");
-      token = (await journey.passwordSignIn(journey.STACK[backend.stack], email, password)).access;
+      token = await passwordSignIn(backend.stack, email, password);
     }
   }
   let text: string;
@@ -157,7 +179,7 @@ async function main(argv: string[]): Promise<number> {
   return 0;
 }
 
-if (import.meta.main) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e: Error) => {
