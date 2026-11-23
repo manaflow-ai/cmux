@@ -622,6 +622,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     Ok(flags)
 }
 
+/// The hub route a connect takes on its own: the one an invitation or a known daemon carries
+/// (`carried`), unless it is this very machine's (`local`), whose loopback daemon answers here.
+pub(crate) fn implied_hub_route(carried: Option<String>, local: Option<&str>) -> Option<String> {
+    carried.filter(|via| Some(via.as_str()) != local)
+}
+
 fn set_invitation_arg(
     destination: &mut Option<InvitationArg>,
     invitation: InvitationArg,
@@ -782,6 +788,30 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    // The daemon's hub route when the person named no way to reach it: the invitation's
+    // (`via_machine`), else the known daemon's, kept from the invitation that enrolled it.
+    let hub_route = if flags.via_machine.is_none()
+        && flags.wireguard_config.is_none()
+        && flags.wireguard_hub.is_none()
+        && flags.route.is_none()
+    {
+        let carried = match &invitation {
+            Some(invitation) => invitation.via_machine.clone(),
+            None => async_runtime
+                .block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))
+                .ok()
+                .and_then(|known| known.via_machine),
+        };
+        implied_hub_route(carried, local_hub_route().as_deref())
+    } else {
+        None
+    };
+    if hub_route.is_some() {
+        flags.via_machine = hub_route;
+    }
+    // A node key the dial goes through (given or implied), kept with the daemon it enrolls.
+    let dial_via =
+        flags.via_machine.clone().filter(|via| cmux_remote::identity::is_hub_machine_key(via));
     let direct_dialer: Option<Arc<dyn Dialer>> =
         match (flags.wireguard_config.take(), flags.wireguard_hub.take()) {
             (Some(path), _) => {
@@ -958,11 +988,15 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
     };
 
     if let Some(invitation) = &invitation {
-        async_runtime.block_on(store.pin_daemon(
+        let pinned = async_runtime.block_on(store.pin_daemon(
             invitation.daemon_name.clone(),
             invitation_daemon_key(invitation)?,
             route_strings,
         ))?;
+        // Its hub route, so a later connect with no invitation dials it the same way.
+        if let Some(via) = &dial_via {
+            async_runtime.block_on(store.remember_via_machine(&pinned.fingerprint, via))?;
+        }
     } else if carrier_auth {
         let name = credential_free_route_hint(&route_strings[0])?;
         async_runtime.block_on(store.pin_carrier_daemon(
