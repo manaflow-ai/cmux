@@ -747,6 +747,9 @@ struct Tap {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     /// The terminal bytes `output` and `vt-state` events carried, decoded (their payload).
     terminal_bytes: u64,
+    /// The last `vt-state`'s `history_rows_omitted` and `history_rows_skipped` (the scroll-step
+    /// bench walks the phone's history fetches from them).
+    vt_history: Option<(u64, u64)>,
 }
 
 impl Tap {
@@ -768,6 +771,14 @@ impl Tap {
                 match (v.get("event").and_then(Value::as_str), v.get("id").and_then(Value::as_u64))
                 {
                     (Some(event), _) => {
+                        if event == "vt-state" {
+                            let field =
+                                |name: &str| v.get(name).and_then(Value::as_u64).unwrap_or(0);
+                            self.vt_history = Some((
+                                field("history_rows_omitted"),
+                                field("history_rows_skipped"),
+                            ));
+                        }
                         if matches!(event, "output" | "vt-state")
                             && let Some(data) = v.get("data").and_then(Value::as_str)
                         {
@@ -1009,4 +1020,186 @@ fn terminal_bytes_per_minute() {
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per scroll step: the phone's history fetches over a long, streaming terminal
+
+/// `DaemonTerminalSession.swift`: rows each `loadOlderHistory()` adds to the tail allowance.
+const HISTORY_CHUNK_ROWS: u64 = 2_000;
+/// The newest rows the phone holds before it switches to a window (`maxTailHistoryRows`).
+const MAX_TAIL_HISTORY_ROWS: u64 = 5 * HISTORY_CHUNK_ROWS;
+/// The window far above the screen (`historyWindowRows`) and its step (`historyWindowStep`).
+const HISTORY_WINDOW_ROWS: u64 = 2 * HISTORY_CHUNK_ROWS;
+const HISTORY_WINDOW_STEP: u64 = 1_500;
+
+/// One scroll step's request, as `DaemonTerminalSession.loadOlderHistory()` makes it from the
+/// last `vt-state`'s `history_rows_omitted`: against a daemon with
+/// `attach-replay-history-window-v1`, the tail grows to `MAX_TAIL_HISTORY_ROWS` and past it a
+/// window moves up `HISTORY_WINDOW_STEP`; against one without, the tail allowance grows a chunk per
+/// step (the whole history once a chunk or less is left). `None`: the phone sends nothing.
+struct ScrollPolicy {
+    tail: bool,
+    window: bool,
+    allowance: Option<u64>,
+    start: Option<u64>,
+}
+
+impl ScrollPolicy {
+    fn next(&mut self, surface: u64, omitted: u64) -> Option<Value> {
+        if !self.tail || omitted == 0 {
+            return None;
+        }
+        if self.window
+            && (self.start.is_some()
+                || self.allowance.unwrap_or(0) + HISTORY_CHUNK_ROWS > MAX_TAIL_HISTORY_ROWS)
+        {
+            let start = omitted.saturating_sub(HISTORY_WINDOW_STEP);
+            self.start = Some(start);
+            return Some(json!({"surface": surface, "cols": COLS, "rows": ROWS,
+                "replay_history_rows": HISTORY_WINDOW_ROWS, "replay_history_start": start}));
+        }
+        let allowance = self.allowance?;
+        self.allowance =
+            if omitted <= HISTORY_CHUNK_ROWS { None } else { Some(allowance + HISTORY_CHUNK_ROWS) };
+        let mut params = json!({"surface": surface, "cols": COLS, "rows": ROWS});
+        if let Some(rows) = self.allowance {
+            params["replay_history_rows"] = json!(rows);
+        }
+        Some(params)
+    }
+}
+
+/// Bytes per scroll step: a terminal with `NETCOND_SCROLL_LINES` (20000) lines of history that
+/// keeps streaming a line every 50 ms, attached the phone's way (`replay_history_rows: 0`), then
+/// `NETCOND_SCROLL_STEPS` (10) history fetches up toward line 1, each the request the phone's
+/// `loadOlderHistory()` sends to this daemon (`ScrollPolicy`), through the shaper. Per step
+/// (`phase` `scroll_step`, `scale` `step<N>`): `bytes_down` (everything down from the request to
+/// its replay: the `vt-state`, its reply and the streamed output meanwhile), `replay_bytes`
+/// (the `vt-state` and the reply), `rows_asked`, `history_rows_omitted`, `step_ms`. Env:
+/// `NETCOND_PROFILES` (lte,good-wifi), `NETCOND_RUNS` (1), `NETCOND_SEED_BASE` (0).
+#[test]
+#[ignore = "the scroll-step bench: run with --ignored --nocapture"]
+fn terminal_scroll_steps() {
+    let file = ProfileFile::builtin();
+    let profiles = env_list("NETCOND_PROFILES", "lte,good-wifi");
+    let lines = env_u64("NETCOND_SCROLL_LINES", 20_000);
+    let steps = env_u64("NETCOND_SCROLL_STEPS", 10);
+    let runs = env_u64("NETCOND_RUNS", 1);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let daemon = Daemon::start(&[]);
+    let surface = daemon.tab(&format!(
+        "awk 'BEGIN{{for(i=0;i<{lines};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; i=0; while :; do i=$((i+1)); printf 'stream %07d an agent streaming its answer while the reader scrolls\\n' $i; sleep 0.05; done"
+    ));
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while !client
+            .call(json!({"cmd": "read-screen", "surface": surface}))
+            .to_string()
+            .contains("stream ")
+        {
+            assert!(std::time::Instant::now() < deadline, "history did not finish printing");
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    println!(
+        "NETCOND-SCROLL lines={lines} steps={steps} streaming=20 lines/s (about 1.5 KB/s) cols={COLS} rows={ROWS}"
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let failed = runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        let mut failed = 0;
+        for name in &profiles {
+            let profile =
+                file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+            for run in 0..runs {
+                let seed = seed_base + run;
+                if let Err(why) = scroll_steps(upstream, &profile, surface, steps, run, seed).await
+                {
+                    error(&profile, "scroll_step", "all", run, &why);
+                    failed += 1;
+                }
+            }
+        }
+        failed
+    });
+    drop(runtime);
+    daemon.stop();
+    assert_eq!(failed, 0, "scroll-step runs failed (NETCOND-ERROR lines above)");
+}
+
+async fn scroll_steps(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    surface: u64,
+    steps: u64,
+    run: u64,
+    seed: u64,
+) -> Result<(), String> {
+    let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+        .await
+        .map_err(|e| format!("shaper: {e}"))?;
+    let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    let mut info = client_info();
+    info["capabilities"].as_array_mut().unwrap().push(json!("attach-replay-history-window-v1"));
+    let ids = conn
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
+    let caps = identify.to_string();
+    let tail = caps.contains("attach-replay-history-rows-v1");
+    let window = tail && caps.contains("attach-replay-history-window-v1");
+    println!(
+        "NETCOND-SCROLL {}@{} run {run}: daemon tail={tail} window={window}",
+        profile.name, profile.version
+    );
+    attach(&mut conn, surface, false).await.ok_or("no first attach")?;
+    let mut policy = ScrollPolicy { tail, window, allowance: Some(0), start: None };
+    for step in 1..=steps {
+        let (omitted, _) = conn.tap.lock().unwrap().vt_history.unwrap_or((0, 0));
+        let Some(params) = policy.next(surface, omitted) else { break };
+        let rows_asked = params["replay_history_rows"].as_u64();
+        conn.tap.lock().unwrap().take();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let ids = conn.send(vec![("attach-surface", params)]).await.map_err(|e| e.to_string())?;
+        let mut replayed = false;
+        let reply = conn
+            .reply(ids[0], |_, got, _, is_state| replayed |= got == surface && is_state)
+            .await
+            .ok_or(format!("step {step}: no reply"))?;
+        if reply["ok"] != json!(true) {
+            return Err(format!("step {step}: {reply}"));
+        }
+        if !replayed {
+            conn.output(surface, None, true, Instant::now() + WAIT)
+                .await
+                .ok_or(format!("step {step}: no replay"))?;
+        }
+        let took = started.elapsed();
+        let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+        let tap = conn.tap.lock().unwrap().take();
+        let of = |key: &str| tap.down.get(key).map(|slot| slot.1).unwrap_or(0);
+        let replay = of("event:vt-state") + of("reply:attach-surface");
+        let scale = format!("step{step:02}");
+        let put = |metric: &str, value: f64| {
+            emit(profile, "scroll_step", &scale, metric, Some(value), run, seed);
+        };
+        put("bytes_down", down as f64);
+        put("replay_bytes", replay as f64);
+        put("streamed_bytes", of("event:output") as f64);
+        put("rows_asked", rows_asked.map(|r| r as f64).unwrap_or(-1.0));
+        put("history_rows_omitted", omitted as f64);
+        put("step_ms", ms(took));
+    }
+    Ok(())
 }

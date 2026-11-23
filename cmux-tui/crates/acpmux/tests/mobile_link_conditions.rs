@@ -944,6 +944,14 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
     }
+    // Bytes per `_acpmux/session_changed` (the JSON text; the phone's link adds a 9-byte frame
+    // header to each, under the 16 KiB deflate threshold) and how many came in the window.
+    if let Some(&(n, bytes)) = t.down.get("_acpmux/session_changed")
+        && n > 0
+    {
+        emit(k, "session_changed_msgs", Some(n as f64));
+        emit(k, "bytes_per_session_changed", Some((bytes as f64 / n as f64).round()));
+    }
     for (way, map) in [("down", &t.down), ("up", &t.up)] {
         let mut rows: Vec<_> = map.iter().collect();
         rows.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
