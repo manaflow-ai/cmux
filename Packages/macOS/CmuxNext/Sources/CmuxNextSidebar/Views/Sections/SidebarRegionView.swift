@@ -501,7 +501,7 @@ final class SidebarRegionView: NSView {
         view.onRename = { [weak self] in self?.onRenameItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
-            NSMenu.popUpContextMenu(menu, with: event, for: view)
+            NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: view)
         }
         // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
         view.onMore = { [weak self, weak view] in
@@ -534,7 +534,7 @@ final class SidebarRegionView: NSView {
         view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
-            NSMenu.popUpContextMenu(menu, with: event, for: view)
+            NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: view)
         }
         addSubview(view)
         headerViews[id] = view
@@ -563,7 +563,7 @@ final class SidebarRegionView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?(emptySpaceTarget)
+        NSMenu.withoutSystemItems(contextMenuProvider?(emptySpaceTarget))
     }
 
     /// `info` drawn active when `id` is the selected item, and as part of the multi-selection when its workspace is.
