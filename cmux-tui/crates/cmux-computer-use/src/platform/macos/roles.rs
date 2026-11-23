@@ -1731,6 +1731,100 @@ pub fn keys_reach_target(
     is_key || (standard_windows <= 1 && target_is_standard && !other_key_window)
 }
 
+/// The app's focused text element when it sits in no window of its own: an
+/// inline editor (Finder's rename field, a table cell being edited) that
+/// AppKit draws as a small window of its own over its window. Measured with
+/// Finder on macOS 27.0: while the rename field is open the app reports no
+/// focused window, its main window is the Finder window, its windows list
+/// the text field itself (role AXTextField, parent the app, a CG window of
+/// its own), and keys posted to the app go into the field.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OverlayEditor {
+    /// The focused element's role.
+    pub role: String,
+    /// Whether its AXWindow names a window other than the target.
+    pub in_other_window: bool,
+    /// Its frame (global points), if it could be read.
+    pub frame: Option<Rect>,
+}
+
+/// Whether background keys meant for `target` go to an inline editor lying
+/// over it, which is where the person's keys would go: the app has no
+/// focused window (the editor took it), its main window is the target, and
+/// the focused element is a text input in no other window whose frame lies
+/// inside the target's. A sheet, an alert or another document's window as
+/// focused window never passes (those are the cases the key-window rule
+/// guards).
+pub fn keys_reach_overlay_editor(
+    focused_window_present: bool,
+    main_is_target: bool,
+    editor: Option<&OverlayEditor>,
+    target: &Rect,
+) -> bool {
+    let Some(editor) = editor else { return false };
+    !focused_window_present
+        && main_is_target
+        && is_text_input(&editor.role)
+        && !editor.in_other_window
+        && editor.frame.as_ref().is_some_and(|f| rect_within(f, target))
+}
+
+/// Whether `inner` lies inside `outer` (one point of slack for rounding),
+/// and is smaller than it (an editor, not a second window over it).
+pub fn rect_within(inner: &Rect, outer: &Rect) -> bool {
+    const SLACK: f64 = 1.0;
+    inner.width > 0.0
+        && inner.height > 0.0
+        && inner.x >= outer.x - SLACK
+        && inner.y >= outer.y - SLACK
+        && inner.x + inner.width <= outer.x + outer.width + SLACK
+        && inner.y + inner.height <= outer.y + outer.height + SLACK
+        && inner.width * inner.height < outer.width * outer.height
+}
+
+/// The answer for a window id that names an inline editor (see
+/// [`OverlayEditor`]) instead of a window: where keys for it go.
+pub fn overlay_editor_window_hint(id: u32, role: &str, over: Option<u32>) -> String {
+    // "AXTextField" -> "text field".
+    let mut what = String::new();
+    for c in role.strip_prefix("AX").unwrap_or(role).chars() {
+        if c.is_uppercase() && !what.is_empty() {
+            what.push(' ');
+        }
+        what.extend(c.to_lowercase());
+    }
+    match over {
+        Some(over) => format!(
+            "window {id} is an inline editor (a {what} the app draws over window {over}), not a window of its own; it has the app's keyboard focus, so type_text or press_key with window_id {over} type into it (Return applies it, Escape cancels it)"
+        ),
+        None => format!(
+            "window {id} is an inline editor (a {what} the app draws over one of its windows), not a window of its own; type_text or press_key on the window it lies over type into it"
+        ),
+    }
+}
+
+/// Whether set_value gives a native text field the focus before writing
+/// it. An AppKit field that is not being edited takes an AXValue write as
+/// its text, but the app's end-of-editing handler never runs, so a value
+/// the app applies when editing ends (Finder's Get Info name) is never
+/// applied, and even AXConfirm afterwards does nothing; measured on macOS
+/// 27.0. Focused first, the write lands in the field's editor, and
+/// AXConfirm, Return or Tab then applies it. Never in web content (its own
+/// focus rule), never in the person's app (it would move their caret), only
+/// for a field that is not focused and offers AXConfirm.
+pub fn focus_before_value_write(
+    role: &str,
+    web: bool,
+    persons_app: bool,
+    focused: Option<bool>,
+    has_confirm: bool,
+) -> bool {
+    !web && !persons_app && role == "AXTextField" && focused == Some(false) && has_confirm
+}
+
+/// The note when set_value focused the field first.
+pub const FOCUSED_FOR_EDIT: &str = "the field was given focus first, so it is being edited with the value; an app that applies a field only when editing ends (a name in a Get Info window, a setting) applies it on perform_action confirm on the field, or press_key Tab";
+
 /// One step of stepping a value toward `target`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {

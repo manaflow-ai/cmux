@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
@@ -48,7 +49,12 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import {
+  MINIMAL_SCROLLER_ATTRIBUTE,
+  SETTLING_SCROLLER_ATTRIBUTE,
+  SHOWN_SCROLLER_ATTRIBUTE,
+  followShownScrollerFade,
+} from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -446,10 +452,18 @@ type PasteStep = { event: Event | undefined; timer: ReturnType<typeof setTimeout
  * and joins that removal's step, so one undo brings the chip back. */
 function beginPasteStep(view: EditorView, step: PasteStep, event: Event, joins: { current: boolean }) {
   if (step.event === event) return;
-  if (step.event) endPasteStep(view, step);
+  if (joins.current) {
+    // The chip just taken out for this paste stays in its step, even when this paste starts inside
+    // another's (the same block pasted again opens its chip: `pasteText`'s own event inside the
+    // person's). Ending the outer step here split them, so ⌘Z took the text out and left the chip
+    // gone (composer-paste-again.test.tsx).
+    joins.current = false;
+    clearTimeout(step.timer);
+  } else {
+    if (step.event) endPasteStep(view, step);
+    endUndoStep(view);
+  }
   step.event = event;
-  if (joins.current) joins.current = false;
-  else endUndoStep(view);
   step.timer = setTimeout(() => endPasteStep(view, step), 0);
 }
 
@@ -963,6 +977,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
+  // The field's text as plain lines until the editor is made (markdownField.css `.acpmux-md-standin`):
+  // the field has the editor's height from its first frame, so the composer around it does not grow
+  // when the editor comes (https://github.com/manaflow-ai/cmux/issues/48498). An empty field's
+  // stand-in is the editor's one line exactly; a draft's is its text unformatted, near enough that
+  // an opening chat waits for the editor (unsettledHeights.ts) only while the field holds one.
+  const standIn = useRef<HTMLDivElement>(null);
+  const [made, setMade] = useState(false);
+  const everMade = useRef(false);
+  useUnsettledHeight(!made && value !== "");
   const attrs = useRef(attributes);
   attrs.current = attributes;
   const applyAttributes = () => {
@@ -973,8 +996,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       else dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
+  // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
+  // the first line while the caret went down the lines under it (Leo 2026-11-22: "the caret gets
+  // shot down past the composer as it goes"). More than one block hides it too.
   const showPlaceholder = (markdown: string) => {
-    const hide = markdown !== "";
+    const doc = view.current?.state.doc;
+    const hide =
+      markdown !== "" || (doc !== undefined && (doc.childCount > 1 || (doc.firstChild?.content.size ?? 0) > 0));
     if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
@@ -1037,6 +1065,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     (root: HTMLDivElement | null) => {
       if (!root) return;
       let disposed = false;
+      // A field remade (its literal mode changed) keeps the editor it had until the new one comes: the
+      // old one's lines are still in the root, so the stand-in shows only before the first editor.
+      if (standIn.current && !everMade.current) {
+        standIn.current.textContent = known.current;
+        standIn.current.hidden = false;
+      }
+      showPlaceholder(known.current);
       // Placed attachments only in a field made with a place to draw them (`onInlineViews`): the
       // composer's, in either attachment view, so the view's switch never remakes the editor.
       const placesInline = latest.current.onInlineViews !== undefined;
@@ -1577,6 +1612,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           remark.current = made.ctx.get(remarkCtx);
           if (known.current || known.current !== madeFrom) setDocument(known.current, false);
           showPlaceholder(known.current);
+          // In the task the editor's lines went in, so no frame draws both or neither.
+          if (standIn.current) standIn.current.hidden = true;
+          everMade.current = true;
+          setMade(true);
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
@@ -1646,8 +1685,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (value === known.current) return;
     // Before the editor exists the new value becomes its default content.
     known.current = value;
-    if (!editor.current) return;
-    setDocument(value);
+    if (editor.current) return setDocument(value);
+    // Its stand-in and placeholder show it until then, at its height.
+    if (standIn.current && !everMade.current) standIn.current.textContent = value;
+    showPlaceholder(value);
   }, [value]);
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);
@@ -1669,6 +1710,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         : undefined,
     [],
   );
+  // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
+  // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
@@ -1906,6 +1950,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           known.current = markdown;
           showPlaceholder(markdown);
           if (editor.current) setDocument(markdown);
+          else if (standIn.current) standIn.current.textContent = markdown;
         },
         // Before the editor exists nothing was typed: the value is what came in.
         agentText: (markdown) => (remark.current ? typedText(remark.current, markdown) : markdown),
@@ -1920,9 +1965,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
-      // shown while it scrolls and while the pointer is near its edge.
-      {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // A long draft's thin scrollbar (scrollers.ts): the transcript's shown scroller, its lane always
+      // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
+      // minimal scroller's inset track and no thumb while the field settles.
+      {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
@@ -1939,6 +1985,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
         {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
+      <div ref={standIn} className="acpmux-md-standin" aria-hidden="true" />
       <div ref={mount} className="acpmux-md-root" />
     </div>
   );

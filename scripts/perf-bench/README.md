@@ -452,3 +452,23 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.
+
+## rivals: agent apps and browsers, first install to idle ceiling
+
+Leo, 2026-11-22 (ask-7c96907088): "did you guys do it against the fresh starts first install type timings? [...]
+and after shutdown or whatever. restarting a computer. or close enough to it. and gauging our ram/cpu ceiling and
+growth too probably. compare more exhaustively. much more. compare to claude and codex and t3 code too."
+
+`rivals.py` runs one session per app, one app at a time, each in an empty home: a new copy of the vendor's
+bundle opened for the first time (first install), quit, `sudo -n purge` and opened again (close to a restart),
+`--warm` warm relaunches, then an idle soak. Rows and method: the `rivals.py` docstring. Apps: cmux NEXT (the
+newest nightly-next DMG), Claude, Codex, T3 Code, Slack, Chrome, Edge and Helium (fetch_browsers.py, the vendors'
+own downloads), Safari, and Rex when the host has `/Applications/Rex.app` (a beta with no public download). Every
+app is signed out, so an agent app's window is its first screen.
+
+    cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/rivals.sh --ref SHA \
+      --artifact artifacts/rivals/results.json [--arg=apps=cmux,claude,codex] [--arg=soak=300]
+
+Local, against bundles you have: `python3 scripts/perf-bench/rivals.py run --out /tmp/rv --app cmux=/path/cmux.app
+--app claude=/Applications/Claude.app --apps cmux,claude`, then `rivals.py report --out /tmp/rv --md RIVALS.md`.
+The registered bench is `cmux-bench rivals` (scripts/bench/benches/rivals.py).

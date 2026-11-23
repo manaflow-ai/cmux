@@ -236,7 +236,8 @@ struct ChatComposer: View {
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
-                                  onPasteAttachments: pasteAttachments)
+                                  onPasteAttachments: pasteAttachments,
+                                  onLineChange: { store.lineMotionPending = true })
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
@@ -607,7 +608,8 @@ struct ChatComposer: View {
             return
         }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        text = ""
+        // A multi-line draft shrinks to one line on the line motion, with the transcript.
+        withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
         attachments = []
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
@@ -885,15 +887,27 @@ struct AttachmentThumb: View {
     var open: (() -> Void)?
     /// nil: a sent attachment (no remove badge).
     var remove: (() -> Void)?
+    /// The thumbnail decoded off the main thread (`SentAttachmentThumbnails`).
+    @State private var decoded: UIImage?
+
+    /// Pixels on the short side the 56 pt square is decoded at (3x).
+    static let side = SentAttachmentThumbnails.side(CGSize(width: 56, height: 56))
+
+    /// The decoded thumbnail, if one is in memory. Not a decode: `body` runs on every keystroke in
+    /// the composer, and a full-size `UIImage(data:)` here decoded the whole photo each time.
+    private var image: UIImage? {
+        decoded ?? attachment.data.flatMap { SentAttachmentThumbnails.shared.image(attachment, data: $0, side: Self.side) }
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if attachment.kind == .image, let data = attachment.data, let image = UIImage(data: data) {
+                if attachment.kind == .image, let image {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: 56, height: 56)
                 } else if attachment.kind == .image {
-                    LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .overlay { Image(systemName: "photo").foregroundStyle(.white) }
+                    // Neutral, as a sent image's placeholder (`SentAttachments`): decoding, or no bytes.
+                    Color.cmuxMobileFill
+                        .overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
                         .frame(width: 56, height: 56)
                 } else {
                     HStack(spacing: 8) {
@@ -914,6 +928,11 @@ struct AttachmentThumb: View {
             .accessibilityAddTraits(open == nil ? [] : .isButton)
             .accessibilityHint(open == nil ? "" : "Opens a preview")
             .accessibilityIdentifier("attachment.thumb")
+            .task(id: "\(attachment.id)|\(attachment.data?.count ?? 0)") {
+                decoded = nil
+                guard attachment.kind == .image, let data = attachment.data else { return }
+                decoded = await SentAttachmentThumbnails.shared.decode(attachment, data: data, side: Self.side)
+            }
             if let remove {
                 Button(action: remove) {
                     // Opaque, ringed badge (as in Messages): readable over any thumbnail.
