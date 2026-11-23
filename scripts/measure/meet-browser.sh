@@ -5,14 +5,14 @@
 # bundle id, data and daemon; the Mac's own apps are untouched) and launched; scripts/measure/meet-browser.py
 # serves a local test page (127.0.0.1 is a secure context) and drives each browser through it:
 # getUserMedia, getDisplayMedia, Picture-in-Picture, notifications, a 60 s loopback WebRTC call (CPU and
-# getStats), meet.google.com load cold and warm, and timer drift in a hidden tab.
+# getStats), signed-out Meet navigation (including its final destination), and timer drift in a hidden tab.
 #   cmux-ci run --class exclusive --label measure --display \
 #     --script scripts/measure/meet-browser.sh --ref <sha> [--arg=dmg=URL] [--arg=call=60] \
 #     --artifact .build/meet-browser/report.tgz --timeout 2700
-#   dmg=URL   the nightly DMG (default: the newest in the NEXT feed)
+#   dmg=URL   the NEXT DMG (default: newest NIGHTLY). The fake cmux row needs the measurement switch in the app.
 #   call=S    seconds of the loopback call (default 60)
 #   only=a,b  some runs only (cmux-chromium,cmux-chromium-fake,cmux-webkit,chrome-fake,chrome-plain)
-# Prints MEET_BROWSER {json} and the table; keeps results.json, table.md and the log in report.tgz.
+# Prints MEET_BROWSER {json} and the table. report.tgz also includes Chrome startup logs.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
@@ -67,6 +67,6 @@ python3 scripts/measure/meet-browser.py --side "$side" --name "$name" --work "$w
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 [[ -f "$out/table.md" ]] && cat "$out/table.md"
-tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true
+tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . || exit 3
 echo "MEET exit=$status"
 exit "$status"
