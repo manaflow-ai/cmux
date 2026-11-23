@@ -782,6 +782,25 @@ jobs:
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
+      # Whether Test webviews runs no test file here: the rule it applies (a fast push, or shard 1's --direct-out entry
+      # an empty list) read up front, so this job skips the Playwright browsers, their apt packages and the engines,
+      # which only the test files use (about 30 s of shard 1's job 137332637156). Over 11-22 20Z to 11-23 02Z the
+      # median shard 1 job ran no test file. Any doubt (no file, no entry, an unreadable map) installs them as before.
+      - name: Does this shard run a test file
+        id: shard-tests
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        env:
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
+        run: |
+          none=false
+          if [ "$REACT_APPS_CLASS" = fast ] ||
+            python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("1", "-") == [] else 1)' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" 2> /dev/null; then
+            none=true
+          fi
+          echo "shard ${{ matrix.shard }} runs no test file: $none"
+          echo "none=$none" >> "$GITHUB_OUTPUT"
+
       # Same-input receipt (scripts/ci/react_shard_receipt.py): this shard already went green on exactly these inputs
       # (the merge commit's tree, the merge parent's tree, this run's shard handoff, the shard and the run's
       # configuration), so it restores that run's head results and skips every step that would compute them again.
@@ -845,7 +864,7 @@ jobs:
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers (restore only off feat-cmux-next)
-        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' && steps.shard-tests.outputs.none != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -871,11 +890,46 @@ jobs:
         continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
+      # The bundles cmux-next.yml's web-bundles job built for this exact source key (web-bundle-key.py --source:
+      # every input file and the Bun and Node pins, the same as here), cached as cmux-next-web-bundles-v1-KEY. A pull
+      # request that changes no bundle input has its merge parent's key, which the base push's job cached: 21 of 61
+      # React-routed merges over 11-22 18Z to 11-23 02Z changed nothing under webviews/. A hit installs that build
+      # (build-web-bundles.sh --from: completeness, the committed inspector page, the stamp) after the strings
+      # tables, in place of the 108 s rebuild (job 137332637156); a miss, or any failure on the way, rebuilds as before.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the web bundles built for this source key
+        id: web-bundle-cache
+        if: ${{ steps.web-bundle-key.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
       - name: Build the web bundles
         id: bundles
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        env:
+          RESTORED: ${{ steps.web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
+        run: |
+          if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
+            if (cd webviews && bun scripts/pages/gen-strings.mjs) && ./scripts/cmux-next/build-web-bundles.sh --from "$RESTORED"; then
+              rm -rf "$RESTORED"
+              echo "web bundles installed from the build cached for this source key"
+              exit 0
+            fi
+            echo "::warning title=web bundles::the cached build for this source key did not install; building them"
+            rm -rf "$RESTORED"
+          fi
+          exec ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -953,7 +1007,7 @@ jobs:
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
         id: playwright-apt
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -961,7 +1015,7 @@ jobs:
 
       - name: Install headless engines
         id: engines
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' }}
         continue-on-error: true
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
@@ -1232,6 +1286,8 @@ jobs:
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
+          WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
+          WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -1257,6 +1313,9 @@ jobs:
           fi
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
+          fi
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+            echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
