@@ -329,7 +329,7 @@ test("without a hover store a chip draws no card", async () => {
 // A sender's name opens its chat as a sender (App.tsx `openSenderChat`); its card opens it the same
 // way, not as the page's started chats do (review of #36360 at b9c69d0c). A chat the list does not
 // have draws no card, so its name keeps its tooltip.
-test("a sender's card opens its chat as the name does; an unlisted chat's name keeps its tooltip", async () => {
+test("a sender's card opens its chat as the name does; neither name has a tooltip", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
@@ -363,7 +363,8 @@ test("a sender's card opens its chat as the name does; an unlisted chat's name k
   });
   const [listed, unlisted] = [...rootElement.querySelectorAll<HTMLButtonElement>("button.cv-agent-tag")];
   expect(listed!.getAttribute("title")).toBeNull();
-  expect(unlisted!.getAttribute("title")).toBe("Open unlisted");
+  // Its name shows, so it has no tooltip either (a1315's cut 2).
+  expect(unlisted!.getAttribute("title")).toBeNull();
   await act(async () => unlisted!.focus());
   expect(unlisted!.hasAttribute("aria-describedby")).toBe(false);
   await act(async () => listed!.focus());

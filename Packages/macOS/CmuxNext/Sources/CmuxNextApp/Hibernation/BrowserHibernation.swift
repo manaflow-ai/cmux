@@ -792,9 +792,8 @@ final class BrowserHibernation {
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history, and closes the engine page. Its snapshot lives in a bounded store
-    /// only (`keep`): each placeholder used to keep its own full-size picture (about 7 MB of
-    /// app memory per hibernated tab in the 2026-10-14 audit).
+    /// holding its history, and closes the engine page. Its snapshot lives in `snapshots` only (a
+    /// file on disk); the placeholder asks the store for it when a pane shows it.
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -803,15 +802,15 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
+        placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
-        // A probe that kept the page before no longer applies (`debug.surfaces`).
-        exemptions[key] = nil
+        exemptions[key] = nil // a probe that kept the page before no longer applies (`debug.surfaces`)
         hoverRestores.drop(key)
         hibernatedCount += 1
         // Notice, not info: the field log keeps it, so a page that reloads on its next show can be traced.

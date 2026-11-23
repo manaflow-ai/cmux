@@ -297,6 +297,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${theme}: suggestions resolve the composer's surface in every background mode`, async () => {
       const page = await open(2, theme);
       try {
+        // The page's tree: New Tab's composer sits in `.nt-screen`, whose rule gives the box and the
+        // suggestions one rim hairline (`--cmux-hairline` over the composer zoom, newtab/screen.css;
+        // CMUX-652). The harness draws the composer bare, so it moves under a screen as the page has it.
+        await page.evaluate(() => {
+          const composer = document.getElementById("newtab")!.closest(".nt-composer")!;
+          const screen = document.createElement("div");
+          screen.className = "nt-screen";
+          composer.replaceWith(screen);
+          screen.append(composer);
+        });
         for (const seeThrough of [false, true])
           for (const [glass, lens] of [
             ["plain", false],

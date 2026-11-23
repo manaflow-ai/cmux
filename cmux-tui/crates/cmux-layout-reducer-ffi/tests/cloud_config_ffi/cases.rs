@@ -294,6 +294,26 @@ fn the_device_list_answers_here() {
 }
 
 #[test]
+fn the_device_discovery_answers_here() {
+    let (code, finding) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connecting", "listed": false, "shown": 0}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(finding, json!({"state": "finding"}));
+    let (_, failed) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listError": "HTTP 500", "shown": 0}),
+    );
+    assert_eq!(failed, json!({"state": "failed", "reason": "list", "detail": "HTTP 500"}));
+    let (_, none) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listed": true, "shown": 0}),
+    );
+    assert_eq!(none, json!({"state": "none"}));
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);

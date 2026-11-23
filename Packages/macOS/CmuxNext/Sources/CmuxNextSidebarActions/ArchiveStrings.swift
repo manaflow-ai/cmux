@@ -28,6 +28,6 @@ nonisolated enum ArchiveStrings {
     static var noWorkspacesAbove: String { text("archive.refusal.noWorkspacesAbove", "There are no workspaces above to archive. Pinned workspaces stay.") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .module)
+        String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .localizedModule)
     }
 }

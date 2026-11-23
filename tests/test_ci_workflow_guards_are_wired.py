@@ -45,6 +45,15 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Manual capture harness regression; the workflow path is an admission identity fixture,
+    # not a workflow file read. Run after changing the harness or its HQ workflow identity.
+    # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
+    "tests/test_ios_screen_sharing_proof.py",
+    # lane = "manual" in tests/test-execution.d/other.toml. Checks that every job of
+    # each workflow in its GATED set carries the draft-head condition and that its trigger lists ready_for_review (the
+    # draft tier, scripts/ci/head_tier.py); it reads the workflows as data. Run it by hand when a workflow is added to
+    # or removed from GATED. Exit: as below.
+    "tests/test_head_tier.py",
     # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). Proves cmux Files (dev) never reaches a shipped build; it needs macOS ditto and codesign, and reads
     # the workflows only as data. Run it by hand on a fleet Mac when the embed phase, FilesHost or the pin changes.
@@ -99,6 +108,11 @@ UNWIRED: set[str] = {
     # 2026-11-18). It pins scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and
     # CI runs with --advisory; it reads the workflows only as that script's data. Exit: as below.
     "tests/test_ci_single_host_fallbacks.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
+    # 2026-11-18). It checks that every runs-on label, runners.json member and runner-label constant maps to one
+    # provider in tests/ci_label_providers.json; it reads the workflows only as data. Run it by hand after adding a
+    # runner label or moving a provider. Exit: as below.
+    "tests/test_ci_label_has_provider.py",
     # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It pins scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that
     # script, not the Homebrew tap. Run it by hand when either changes. Exit: as below.
@@ -141,6 +155,10 @@ UNWIRED: set[str] = {
     # scripts/ci/fast-check-inputs.json); run it by hand when fast_check_route.py, that map or a routed workflow
     # changes. Exit: as below.
     "tests/test_ci_fast_check_route.py",
+    # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). It reads every
+    # workflow only as data (each pull-request job's declared inputs via scripts/ci/job_inputs.py); run it by hand
+    # when job_inputs.py, job-inputs-always.json or a router's map changes. Exit: as below.
+    "tests/test_ci_job_inputs.py",
     # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). Both read the
     # workflows only as data (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or
     # denial in scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py,

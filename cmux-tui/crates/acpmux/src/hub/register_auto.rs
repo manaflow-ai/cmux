@@ -303,6 +303,7 @@ mod tests {
             token: Some("tok-early".into()),
             code: None,
             auto,
+            renew: false,
         };
         let v = hub.register_caller(1, req(true)).await.unwrap();
         assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));

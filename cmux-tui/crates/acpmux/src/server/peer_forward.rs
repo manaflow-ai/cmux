@@ -37,7 +37,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_NEW,
     method::SESSION_LIST,
     method::MUX_STATUS,
+    method::MUX_PERF,
     method::MUX_SESSIONS,
+    method::MUX_USAGE,
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
@@ -661,6 +663,8 @@ async fn forward_inner(
             &mut p,
             super::requests::person_admitted(conn, params),
         );
+        // The owner's own phone controls a Claude chat the peer started, as it does one here (D13).
+        super::remote_guard::attest_owner_phone(hub, conn, params, &mut p);
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
