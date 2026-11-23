@@ -31,7 +31,9 @@ impl CfManagedReader {
     pub fn new(schema: &Schema) -> CfManagedReader {
         // And the retired keys a row replaced, so an older profile keeps its value and its lock.
         let mut keys = published_keys(schema);
-        keys.extend(crate::schema::replaced_old_keys().filter(|old| !keys.contains(old)));
+        let old_keys: Vec<String> =
+            crate::schema::replaced_old_keys().filter(|old| !keys.contains(old)).collect();
+        keys.extend(old_keys);
         CfManagedReader { domain: DOMAIN.to_string(), keys }
     }
 }
