@@ -30,6 +30,7 @@ export const CATEGORY_CARDS = [
   "chiefPet",
   "density",
   "textSize",
+  "replayIntro",
   "importSuggestions",
   "channels",
   "appUpdate",
