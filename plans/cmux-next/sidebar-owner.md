@@ -2569,6 +2569,15 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
 - Test: `WorkspaceHoverCardEvenInsetTests.aFillAtTheTopOrBottomIsAsFarFromThatEdgeAsFromTheSides`, every density, red
   commit first.
 
+## The Priority view folds archived chats under Archived, with Restore (2026-11-20, #46896)
+
+- Leo, verbatim (ask-2844c2f890): "there's the archived/settled chats for it, etc" (the Claude app's archived chats).
+- `ba4bd76b218` adds the Archived fold below the ranked rows: one sidebar row per archived chat, newest first, in
+  the quieter ink an archived workspace row uses, its folder and archive age at the right; the pointer swaps that
+  label for Restore, a click opens the chat, Show More pages the rest. A row's Archive shows the sidebar's Undo
+  toast, as auto-archive does. It reached the branch before this check's trailer; logged here as the look commit.
+- Test: `SidebarPriorityArchivedTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -2741,3 +2750,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+  2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
+  pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
+  its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
+  Sidebar-Look: no visual change
