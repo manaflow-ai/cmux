@@ -24,6 +24,9 @@ const RULE_ACTIONS = [
   { value: "*", label: "settingsWindow.hub.rule.action.any" },
 ] as const;
 
+/** An audit row's tone as the status dot Settings > Devices draws. */
+const AUDIT_TONE = { good: "success", warn: "attention", plain: "neutral" } as const;
+
 type Run = (run: Exclude<HubRun, { action: "refresh" }>) => Promise<void>;
 
 function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean; onRun: Run }) {
@@ -104,10 +107,12 @@ function LinkStripe({ busy, onRun }: { busy: boolean; onRun: Run }) {
     if (pasted) void onRun({ action: "link", provider: "stripe", key: pasted, sharing });
   };
   return (
-    <form className="accounts-form" data-hub-link="stripe" onSubmit={submit}>
-      <div className="row-title">{t("settingsWindow.hub.linkStripe")}</div>
-      <div className="row-help">{t("settingsWindow.hub.stripeHelp")}</div>
-      <div className="keys-answer">
+    <form className="row accounts-row hub-wide" data-hub-link="stripe" onSubmit={submit}>
+      <div className="row-label">
+        <div className="row-title">{t("settingsWindow.hub.linkStripe")}</div>
+        <div className="row-help">{t("settingsWindow.hub.stripeHelp")}</div>
+      </div>
+      <div className="keys-answer hub-actions">
         <Input
           className="field keys-field"
           type="password"
@@ -144,7 +149,7 @@ function ApprovalRow({ call, busy, onRun }: { call: HubCall; busy: boolean; onRu
     (part): part is string => !!part,
   );
   return (
-    <div className="row accounts-row" data-hub-approval={id ?? call.id}>
+    <div className="row accounts-row hub-wide" data-hub-approval={id ?? call.id}>
       <div className="row-main">
         <div className="row-label">
           {/* The pinned summary the hub wrote: what the person is approving, word for word. */}
@@ -156,7 +161,7 @@ function ApprovalRow({ call, busy, onRun }: { call: HubCall; busy: boolean; onRu
         </div>
       </div>
       {id && (
-        <div className="accounts-buttons">
+        <div className="accounts-buttons hub-actions">
           <Button
             variant="solid"
             className="button"
@@ -240,7 +245,7 @@ function AddRule({ busy, onRun, onDone }: { busy: boolean; onRun: Run; onDone: (
     void onRun({ action: "addRule", ...rule }).then(onDone);
   };
   return (
-    <form className="accounts-form" data-hub-add-rule="" onSubmit={submit}>
+    <form className="row accounts-row hub-form" data-hub-add-rule="" onSubmit={submit}>
       <div className="row-title">{t("settingsWindow.hub.addRule")}</div>
       <div className="accounts-buttons">
         <select
@@ -271,7 +276,7 @@ function AddRule({ busy, onRun, onDone }: { busy: boolean; onRun: Run; onDone: (
       {money && (
         <div className="accounts-buttons">
           <Input
-            className="field"
+            className="field hub-field"
             inputMode="numeric"
             aria-label={t("settingsWindow.hub.rule.amountLte")}
             placeholder={t("settingsWindow.hub.rule.amountLte")}
@@ -280,7 +285,7 @@ function AddRule({ busy, onRun, onDone }: { busy: boolean; onRun: Run; onDone: (
             onChange={(event) => set({ amountLte: event.target.value })}
           />
           <Input
-            className="field"
+            className="field hub-field"
             aria-label={t("settingsWindow.hub.rule.currency")}
             placeholder={t("settingsWindow.hub.rule.currency")}
             value={fields.currency ?? ""}
@@ -338,171 +343,198 @@ export function IntegrationsHubCard() {
   const overview = state?.overview ?? null;
   const ready = overview?.ok === true && overview.available ? overview : null;
   return (
-    <section className="group" data-card="integrationsHub">
-      <div className="group-title">{t("settingsWindow.hub.title")}</div>
-      <div className="row-help">{t("settingsWindow.hub.help")}</div>
-      <div className="accounts-header">
-        <Button
-          type="button"
-          className="button"
-          data-hub-action="refresh"
-          disabled={state?.loading ?? false}
-          onClick={() => void refresh()}
-        >
-          {t("settingsWindow.hub.refresh")}
-        </Button>
-      </div>
-      {!state && (
-        <div className="row-help" data-hub-checking="">
-          {t("settingsWindow.hub.checking")}
+    // One card made of sections, as Settings > Devices: each heading starts its own group, so it
+    // keeps the group's spacing from the card above it.
+    <div className="hub-card" data-card="integrationsHub">
+      <section className="group" data-hub-group="header">
+        <div className="group-title">{t("settingsWindow.hub.title")}</div>
+        <div className="row-help">{t("settingsWindow.hub.help")}</div>
+        <div className="accounts-header">
+          <Button
+            type="button"
+            className="button"
+            data-hub-action="refresh"
+            disabled={state?.loading ?? false}
+            onClick={() => void refresh()}
+          >
+            {t("settingsWindow.hub.refresh")}
+          </Button>
         </div>
-      )}
-      {state?.problem === "unavailable" && (
-        <div className="row-error" data-hub-problem="unavailable">
-          {t("settingsWindow.hub.problem.unavailable")}
-        </div>
-      )}
-      {overview?.ok === false && (
-        <div className="row-error selectable" role="alert" data-hub-problem={overview.error.code}>
-          {overview.error.message || t("settingsWindow.hub.problem.failed")}
-        </div>
-      )}
-      {state?.problem === "failed" && !overview && (
-        <div className="row-error" data-hub-problem="failed">
-          {t("settingsWindow.hub.problem.failed")}
-        </div>
-      )}
-      {overview?.ok === true && !overview.available && (
-        <div className="row-help" data-hub-not-here="">
-          {overview.message}
-        </div>
-      )}
-      {state?.error && (
-        <div className="row-error selectable" role="alert" data-hub-error={state.error.code}>
-          {state.error.message || t("settingsWindow.hub.error.notFinished")}
-        </div>
-      )}
-      {state?.lastCall && (
-        <div className="row-help selectable" data-hub-last-call={state.lastCall.status}>
-          {`${state.lastCall.line} · ${state.lastCall.statusLabel}`}
-          {state.lastCall.errorText ? ` · ${state.lastCall.errorText}` : ""}
-        </div>
-      )}
+        {!state && (
+          <div className="row-help" data-hub-checking="">
+            {t("settingsWindow.hub.checking")}
+          </div>
+        )}
+        {state?.problem === "unavailable" && (
+          <div className="row-error" data-hub-problem="unavailable">
+            {t("settingsWindow.hub.problem.unavailable")}
+          </div>
+        )}
+        {overview?.ok === false && (
+          <div className="row-error selectable" role="alert" data-hub-problem={overview.error.code}>
+            {overview.error.message || t("settingsWindow.hub.problem.failed")}
+          </div>
+        )}
+        {state?.problem === "failed" && !overview && (
+          <div className="row-error" data-hub-problem="failed">
+            {t("settingsWindow.hub.problem.failed")}
+          </div>
+        )}
+        {overview?.ok === true && !overview.available && (
+          <div className="row-help" data-hub-not-here="">
+            {overview.message}
+          </div>
+        )}
+        {state?.error && (
+          <div className="row-error hub-note selectable" role="alert" data-hub-error={state.error.code}>
+            {state.error.message || t("settingsWindow.hub.error.notFinished")}
+          </div>
+        )}
+        {state?.lastCall && (
+          <div className="row-help hub-note selectable" data-hub-last-call={state.lastCall.status}>
+            {`${state.lastCall.line} · ${state.lastCall.statusLabel}`}
+            {state.lastCall.errorText ? ` · ${state.lastCall.errorText}` : ""}
+          </div>
+        )}
+        {ready && (
+          <div className="rows hub-note">
+            <div className="row accounts-row" data-hub-pause="">
+              <div className="row-main">
+                <div className="row-label">
+                  <div className="row-title" id={pauseId}>
+                    {t("settingsWindow.hub.pause")}
+                  </div>
+                  <div className="row-help">{ready.pausedText}</div>
+                </div>
+                <span className="row-control">
+                  <Switch
+                    checked={ready.paused}
+                    disabled={busy}
+                    labelId={pauseId}
+                    onToggle={(paused) => void run({ action: "pause", paused })}
+                  />
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
       {ready && (
         <>
-          <div className="row accounts-row" data-hub-pause="">
-            <div className="row-main">
-              <div className="row-label">
-                <div className="row-title" id={pauseId}>
-                  {t("settingsWindow.hub.pause")}
-                </div>
-                <div className="row-help">{ready.pausedText}</div>
+          <section className="group" data-hub-group="approvals">
+            <div className="group-title" data-hub-heading="approvals">
+              {t("settingsWindow.hub.approvals")}
+            </div>
+            {ready.approvals.length === 0 ? (
+              <div className="row-help" data-hub-empty="approvals">
+                {t("settingsWindow.hub.noApprovals")}
               </div>
-              <span className="row-control">
-                <Switch
-                  checked={ready.paused}
-                  disabled={busy}
-                  labelId={pauseId}
-                  onToggle={(paused) => void run({ action: "pause", paused })}
-                />
-              </span>
-            </div>
-          </div>
-
-          <div className="group-title" data-hub-heading="approvals">
-            {t("settingsWindow.hub.approvals")}
-          </div>
-          {ready.approvals.length === 0 ? (
-            <div className="row-help" data-hub-empty="approvals">
-              {t("settingsWindow.hub.noApprovals")}
-            </div>
-          ) : (
-            <div className="rows">
-              {ready.approvals.map((call) => (
-                <ApprovalRow key={call.id} call={call} busy={busy} onRun={run} />
-              ))}
-            </div>
-          )}
-
-          <div className="group-title" data-hub-heading="accounts">
-            {t("settingsWindow.hub.accounts")}
-          </div>
-          {ready.connections.length === 0 ? (
-            <div className="row-help" data-hub-empty="accounts">
-              {t("settingsWindow.hub.noAccounts")}
-            </div>
-          ) : (
-            <div className="rows">
-              {ready.connections.map((row) => (
-                <ConnectionRow key={row.id} row={row} busy={busy} onRun={run} />
-              ))}
-            </div>
-          )}
-          {!ready.hasStripe && <LinkStripe busy={busy} onRun={run} />}
-          {!ready.hasGithub && (
-            <div className="accounts-form" data-hub-link="github">
-              <div className="row-title">{t("settingsWindow.hub.linkGithub")}</div>
-              <div className="row-help">{t("settingsWindow.hub.githubHelp")}</div>
-              <div className="accounts-buttons">
-                <Button
-                  className="button"
-                  data-hub-action="linkGithub"
-                  disabled={busy}
-                  onClick={() => void run({ action: "link", provider: "github" })}
-                >
-                  {t("settingsWindow.hub.linkGithub")}
-                </Button>
+            ) : (
+              <div className="rows">
+                {ready.approvals.map((call) => (
+                  <ApprovalRow key={call.id} call={call} busy={busy} onRun={run} />
+                ))}
               </div>
-            </div>
-          )}
+            )}
+          </section>
 
-          <div className="group-title" data-hub-heading="rules">
-            {t("settingsWindow.hub.rules")}
-          </div>
-          {ready.rules.length === 0 ? (
-            <div className="row-help" data-hub-empty="rules">
-              {t("settingsWindow.hub.noRules")}
+          <section className="group" data-hub-group="accounts">
+            <div className="group-title" data-hub-heading="accounts">
+              {t("settingsWindow.hub.accounts")}
             </div>
-          ) : (
-            <div className="rows">
-              {ready.rules.map((rule) => (
-                <RuleRow key={rule.id} rule={rule} busy={busy} onRun={run} />
-              ))}
-            </div>
-          )}
-          {addingRule ? (
-            <AddRule busy={busy} onRun={run} onDone={() => setAddingRule(false)} />
-          ) : (
-            <div className="accounts-header">
-              <Button className="button" data-hub-action="addRule" onClick={() => setAddingRule(true)}>
-                {t("settingsWindow.hub.addRule")}
-              </Button>
-            </div>
-          )}
-
-          <div className="group-title" data-hub-heading="audit">
-            {t("settingsWindow.hub.audit")}
-          </div>
-          {ready.audit.length === 0 ? (
-            <div className="row-help" data-hub-empty="audit">
-              {t("settingsWindow.hub.noAudit")}
-            </div>
-          ) : (
-            <div className="rows">
-              {ready.audit.map((row) => (
-                <div className="row accounts-row" key={row.seq} data-hub-audit={row.seq} data-tone={row.tone}>
-                  <div className="row-main">
-                    <div className="row-label">
-                      <div className="row-title selectable">{row.line}</div>
-                      <div className="row-help">{row.whenText}</div>
+            {ready.connections.length === 0 && (
+              <div className="row-help hub-lead" data-hub-empty="accounts">
+                {t("settingsWindow.hub.noAccounts")}
+              </div>
+            )}
+            {(ready.connections.length > 0 || !ready.hasStripe || !ready.hasGithub) && (
+              <div className="rows">
+                {ready.connections.map((row) => (
+                  <ConnectionRow key={row.id} row={row} busy={busy} onRun={run} />
+                ))}
+                {!ready.hasStripe && <LinkStripe busy={busy} onRun={run} />}
+                {!ready.hasGithub && (
+                  <div className="row accounts-row" data-hub-link="github">
+                    <div className="row-main">
+                      <div className="row-label">
+                        <div className="row-title">{t("settingsWindow.hub.linkGithub")}</div>
+                        <div className="row-help">{t("settingsWindow.hub.githubHelp")}</div>
+                      </div>
+                      <span className="row-control">
+                        <Button
+                          className="button"
+                          data-hub-action="linkGithub"
+                          disabled={busy}
+                          onClick={() => void run({ action: "link", provider: "github" })}
+                        >
+                          {t("settingsWindow.hub.link")}
+                        </Button>
+                      </span>
                     </div>
                   </div>
-                </div>
-              ))}
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="group" data-hub-group="rules">
+            <div className="group-title" data-hub-heading="rules">
+              {t("settingsWindow.hub.rules")}
             </div>
-          )}
+            {ready.rules.length === 0 && (
+              <div className="row-help hub-lead" data-hub-empty="rules">
+                {t("settingsWindow.hub.noRules")}
+              </div>
+            )}
+            {(ready.rules.length > 0 || addingRule) && (
+              <div className="rows">
+                {ready.rules.map((rule) => (
+                  <RuleRow key={rule.id} rule={rule} busy={busy} onRun={run} />
+                ))}
+                {addingRule && <AddRule busy={busy} onRun={run} onDone={() => setAddingRule(false)} />}
+              </div>
+            )}
+            {!addingRule && (
+              <div className="accounts-header hub-below">
+                <Button className="button" data-hub-action="addRule" onClick={() => setAddingRule(true)}>
+                  {t("settingsWindow.hub.addRule")}
+                </Button>
+              </div>
+            )}
+          </section>
+
+          <section className="group" data-hub-group="audit">
+            <div className="group-title" data-hub-heading="audit">
+              {t("settingsWindow.hub.audit")}
+            </div>
+            {ready.audit.length === 0 ? (
+              <div className="row-help" data-hub-empty="audit">
+                {t("settingsWindow.hub.noAudit")}
+              </div>
+            ) : (
+              <div className="rows">
+                {ready.audit.map((row) => (
+                  <div className="row accounts-row" key={row.seq} data-hub-audit={row.seq} data-tone={row.tone}>
+                    <div className="row-main">
+                      <div className="row-label">
+                        <div className="row-title selectable">{row.line}</div>
+                        <div className="row-help">{row.whenText}</div>
+                      </div>
+                      <span className="row-control">
+                        <span className="accounts-status devices-status" data-tone={AUDIT_TONE[row.tone]}>
+                          <span className="accounts-dot" aria-hidden="true" />
+                          {row.eventLabel}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </>
       )}
-    </section>
+    </div>
   );
 }

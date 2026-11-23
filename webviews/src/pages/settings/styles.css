@@ -1301,6 +1301,35 @@ mark {
   margin-left: auto;
 }
 
+/* Settings > Integrations (IntegrationsHubCard): one card of sections. A row with no control on its
+   right (an approval, Link Stripe) lets its text run the card's width; its buttons sit one step under
+   the text, not on it. Notes and the pause card keep a step from the Refresh line above them. */
+.hub-actions {
+  padding-top: var(--ds-space-2);
+}
+
+.hub-note {
+  margin-top: var(--ds-space-2);
+}
+
+.hub-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.hub-below {
+  margin-top: var(--ds-space-2);
+  margin-bottom: 0;
+}
+
+.hub-form {
+  gap: var(--ds-space-2);
+  align-items: flex-start;
+}
+
+.accounts-buttons > .hub-field {
+  width: var(--page-size-160);
+}
+
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
 .devices-header {
   justify-content: flex-start;
