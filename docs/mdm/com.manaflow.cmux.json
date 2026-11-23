@@ -6484,7 +6484,7 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : false,
+      "default" : true,
       "description" : "Off: cmux asks before downloading. It always asks before restarting.",
       "title" : "Download Updates Automatically",
       "type" : "boolean"

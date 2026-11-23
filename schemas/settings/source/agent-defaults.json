@@ -172,7 +172,7 @@
           "note": "Whether agents cmux starts get its cmux MCP server (cmux mcp serve, which carries cmux Computer Use): a Claude Code or Codex typed into a cmux terminal (the claude and codex shims, cmux-tui agent_mcp_choice.rs) and the app's agent chats (acpmux agent_tools.rs agents_get_cmux), all with one server definition named cmux (acpmux agent_tools::cmux_server) and the app's settings file. Only through the launch: cmux never writes an agent's own config; cmux setup mcp reports which agents get it and the manual lines a person runs to use it elsewhere. on (the default, also unset or any value but off: cmux's tools come with the app) gives the server (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off gives none. A Chief turn keeps its own cmux tool list either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.",
           "title": {
             "key": "settings.agents.cmuxMcp",
-            "text": "cmux Tools for Agents in cmux"
+            "text": "Give Agents cmux’s Tools"
           },
           "help": {
             "key": "settings.agents.cmuxMcp.help",
@@ -208,6 +208,50 @@
             "claude",
             "codex",
             "coding agents",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpClaude",
+          "name": "cmuxMcpClaude",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Claude Code started in cmux (the claude shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpClaude",
+            "text": "Use in Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpClaude.help",
+            "text": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "claude",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpCodex",
+          "name": "cmuxMcpCodex",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Codex started in cmux (the codex shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpCodex",
+            "text": "Use in Codex"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpCodex.help",
+            "text": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "codex",
             "agents"
           ]
         }

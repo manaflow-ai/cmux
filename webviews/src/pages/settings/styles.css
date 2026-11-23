@@ -1193,6 +1193,13 @@ mark {
   padding: var(--ds-space-1) 0 0;
 }
 
+/* New Command's form is a fieldset (one named group), without the fieldset's own frame. */
+.agent-command-form {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+}
+
 .accounts-row {
   --accounts-mark-width: var(--page-size-20);
 }

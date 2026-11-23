@@ -285,6 +285,11 @@ pub struct Sources {
     /// `local/setup-OWNER-NAME`; a setup never writes the person's own
     /// customize folder (cmux-customize `setup::layers`).
     pub setups: Option<PathBuf>,
+    /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
+    /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
+    /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
+    /// menu lists them in every chat (`composer.rs`).
+    pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
     pub defaults: Option<Vec<String>>,
@@ -314,6 +319,11 @@ impl Sources {
             local: state_dir.map(|d| d.join("apps").join("local")),
             customize: customize_dir(),
             setups: setups_dir(),
+            saved_prompts: std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|home| {
+                cmux_agent_customize::paths::cmux_commands_dir(Path::new(&home), |name| {
+                    std::env::var_os(name)
+                })
+            }),
             defaults,
         }
     }

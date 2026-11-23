@@ -1668,15 +1668,21 @@ export type AgentSkillsState =
       /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
       sources: { claude: string; codex: string } | null;
       elapsedMs: number | null;
-      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      /** The CLI's refusal of the last switch ("" with no words of its own); `path` is `new-command` for
+       * a New Command the CLI refused. */
       refusal: { path: string; message: string } | null;
+      /** The command New Command last saved: what to type and its file. */
+      added?: { agent: "claude" | "codex" | "cmux"; invocation: string; path: string } | null;
     };
 
 /** One Skills gesture; on and off run only on a click. */
 export type AgentSkillsRun =
   | { action: "refresh" }
   | { action: "open" | "reveal"; path: string }
-  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" }
+  /** New Command (`cmux agent-config commands add NAME --prompt TEXT --agent A`): a saved prompt in the
+   * agent's own folder, or cmux's (`cmux`, in every chat's `/` menu); only on a click. */
+  | { action: "add"; agent: "claude" | "codex" | "cmux"; name: string; prompt: string; description?: string };
 
 /** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
  * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */

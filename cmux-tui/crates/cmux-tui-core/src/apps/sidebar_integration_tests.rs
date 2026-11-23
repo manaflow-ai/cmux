@@ -53,6 +53,7 @@ impl Session {
             local: Some(self.0.join("local")),
             customize: Some(self.0.join("customize")),
             setups: None,
+            saved_prompts: None,
             defaults: Some(Vec::new()),
         }
     }

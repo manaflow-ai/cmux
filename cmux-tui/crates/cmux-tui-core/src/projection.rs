@@ -87,6 +87,44 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// With no manifest bytes and no mount of this name: the stored revision to mount instead
+    /// (RFD 0007, open question 3). The Mac sends this on a resume, so the listing comes from the
+    /// store and not over its uplink.
+    #[serde(default)]
+    revision: Option<RevisionRef>,
+}
+
+/// A revision in the person's store, and the read grant to fetch it with.
+#[derive(Deserialize)]
+struct RevisionRef {
+    root: String,
+    origin: String,
+    grant: String,
+}
+
+/// The manifest of `revision`, read from the store.
+fn fetch_revision(revision: &RevisionRef) -> Result<cmux_projection::manifest::Manifest, Refusal> {
+    let unavailable = |why: String| ("projection.revision_unavailable", why);
+    let local = revision.origin.starts_with("http://127.0.0.1")
+        || revision.origin.starts_with("http://localhost");
+    if !revision.origin.starts_with("https://") && !local {
+        return Err(unavailable("the store's origin is not https".into()));
+    }
+    let origin = revision.origin.clone();
+    let grant = revision.grant.clone();
+    let root = revision.root.clone();
+    // Its own thread: the blocking HTTP client cannot run inside an async runtime.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let http = cmux_projection::peers::Http::new()?;
+                let store = cmux_projection::revision::Store { origin, grant, http: &http };
+                cmux_projection::revision::assemble(&root, &store)
+            })
+            .join()
+    })
+    .map_err(|_| unavailable("reading the revision panicked".into()))?
+    .map_err(|error| unavailable(format!("{error:#}")))
 }
 
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
@@ -642,23 +680,33 @@ fn attach(
     }
     let existing =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
-    if encoded.is_empty() {
-        let Some(projected) = existing.filter(|projected| projected.at == at) else {
+    let started = std::time::Instant::now();
+    let mut from_store = None;
+    let (manifest, digest) = if encoded.is_empty() {
+        let existing = existing.filter(|projected| projected.at == at);
+        if let Some(projected) = existing {
+            attached(&line.name, &at);
+            return Ok((projected, json!({"at": at, "attached": true})));
+        }
+        // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
+        let Some(revision) = &line.revision else {
             return Err(("projection.unknown", format!("no projection {} here", line.name)));
         };
-        attached(&line.name, &at);
-        return Ok((projected, json!({"at": at, "attached": true})));
-    }
-    let digest = fnv(&encoded);
-    if let Some(projected) =
-        existing.filter(|projected| projected.digest == digest && projected.at == at)
-    {
-        attached(&line.name, &at);
-        return Ok((projected, json!({"at": at, "attached": true})));
-    }
-    let started = std::time::Instant::now();
-    let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
-        .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+        let manifest = fetch_revision(revision)?;
+        from_store = Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        (manifest, fnv(revision.root.as_bytes()))
+    } else {
+        let digest = fnv(&encoded);
+        if let Some(projected) =
+            existing.filter(|projected| projected.digest == digest && projected.at == at)
+        {
+            attached(&line.name, &at);
+            return Ok((projected, json!({"at": at, "attached": true})));
+        }
+        let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
+            .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+        (manifest, digest)
+    };
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
@@ -675,6 +723,7 @@ fn attach(
         "files": files,
         "bytes": bytes,
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "revision_ms": from_store,
     });
     Ok((projected, data))
 }
