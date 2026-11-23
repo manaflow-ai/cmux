@@ -218,10 +218,16 @@ extension ConversationViewController {
             guard let selection else { return }
             if self?.textSelection === selection { self?.textSelection = nil }
             if cell?.activeTextSelection === selection { cell?.activeTextSelection = nil }
+            if let row = cell?.contentView, let elements = row.accessibilityElements {
+                row.accessibilityElements = elements.filter { ($0 as AnyObject) !== selection }
+            }
             selection.removeFromSuperview()
         }
         label.superview?.insertSubview(selection, aboveSubview: label)
         cell.activeTextSelection = selection
+        // The row's accessibility list is explicit (MessageCellAccessibility): the live selection
+        // joins it, or VoiceOver and UI tests never see it (fleet simulator step 56d846f0a93209464c930cb8).
+        cell.contentView.accessibilityElements = (cell.contentView.accessibilityElements ?? []) + [selection]
         textSelection = selection
         if let point {
             selection.beginHold(at: selection.convert(point, from: collectionView))

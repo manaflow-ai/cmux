@@ -39,6 +39,17 @@ public final class InPlaceTextSelection: NSObject {
     private var loupe: UITextLoupeSession?
     private var pressing = false
     private lazy var menu = UIEditMenuInteraction(delegate: self)
+    /// A tap anywhere else in the window ends the selection, as in Messages and Notes. A read-only
+    /// text view stays first responder through taps outside it, so without this the selection
+    /// lived on (fleet simulator step 56d846f0a93209464c930cb8). It never takes the tap from what
+    /// it lands on.
+    private lazy var outsideTap: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tappedOutside(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
+        return tap
+    }()
 
     public init(host: UIView, labels: @escaping () -> [UILabel]) {
         self.host = host
@@ -75,6 +86,7 @@ public final class InPlaceTextSelection: NSObject {
         overlay.delegate = nil
         if overlay.isFirstResponder { _ = overlay.resignFirstResponder() }
         overlay.removeFromSuperview()
+        outsideTap.view?.removeGestureRecognizer(outsideTap)
         heldLabel?.alpha = 1
         heldLabel = nil
         if Self.current === self { Self.current = nil }
@@ -108,6 +120,7 @@ public final class InPlaceTextSelection: NSObject {
         Self.current = self
         pressing = true
         view.onResign = { [weak self] in self?.end() }
+        host.window?.addGestureRecognizer(outsideTap)
         _ = view.becomeFirstResponder()
         let point = press.location(in: view)
         guard let word = Self.word(in: view, at: point) else { end(); return }
@@ -142,6 +155,17 @@ public final class InPlaceTextSelection: NSObject {
         menu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: CGPoint(x: rect.midX, y: rect.minY)))
     }
 
+    @objc private func tappedOutside(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let overlay else { return }
+        // Handles hang about 20 pt past the text's ends: a tap there is the selection's own.
+        guard !overlay.bounds.insetBy(dx: -24, dy: -24).contains(tap.location(in: overlay)) else { return }
+        // After the tap's own target has run (an edit-menu row acts on the live selection first).
+        DispatchQueue.main.async { [weak self, weak overlay] in
+            guard let self, let overlay, self.overlay === overlay else { return }
+            self.end()
+        }
+    }
+
     /// The word at `point` in `view`, else the nearest one before it, else one character.
     static func word(in view: UITextView, at point: CGPoint) -> UITextRange? {
         guard let position = view.closestPosition(to: point) else { return nil }
@@ -164,6 +188,18 @@ extension InPlaceTextSelection: UIGestureRecognizerDelegate {
         // A hold inside the live selection is the text view's own (it moves a handle or the range).
         if let overlay, overlay.bounds.contains(recognizer.location(in: overlay)) { return false }
         return label(at: recognizer.location(in: host)) != nil
+    }
+
+    public func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                                  shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        recognizer === outsideTap
+    }
+
+    public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard recognizer === outsideTap else { return true }
+        // Only the app's content: the edit menu's rows sit outside the root view and act on the selection.
+        guard let root = host?.window?.rootViewController?.view, let view = touch.view else { return false }
+        return view.isDescendant(of: root)
     }
 }
 

@@ -73,6 +73,12 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false
         contentView.addGestureRecognizer(tap)
+        // A live selection is one of the row's accessibility elements (the list is explicit).
+        inlineSelection.onChange = { [weak self] selection in
+            guard let self else { return }
+            let row = self.accessibilityElements ?? []
+            self.contentView.accessibilityElements = selection.map { row + [$0] } ?? row
+        }
     }
 
     @available(*, unavailable)

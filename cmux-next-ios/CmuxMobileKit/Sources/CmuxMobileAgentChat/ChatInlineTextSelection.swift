@@ -20,6 +20,7 @@ final class ChatInlineTextSelection: UITextView, UITextViewDelegate, @MainActor 
     /// The press's starting word: dragging during the hold extends from it.
     private var anchor: NSRange?
     private lazy var menuInteraction = UIEditMenuInteraction(delegate: self)
+    private lazy var outsideTap = SelectionOutsideTap(selection: self) { [weak self] in self?.end() }
 
     init(over label: UILabel, rowActions: @escaping () -> [UIMenuElement]) {
         let text = label.attributedText ?? NSAttributedString(string: label.text ?? "")
@@ -125,6 +126,13 @@ final class ChatInlineTextSelection: UITextView, UITextViewDelegate, @MainActor 
         return resigned
     }
 
+    /// A tap anywhere else in the window ends it (a read-only text view keeps first responder
+    /// through taps outside it, and a tap in another row never reached this row's tap).
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        outsideTap.attach(to: window)
+    }
+
     func end() {
         guard !ended else { return }
         ended = true
@@ -138,13 +146,20 @@ final class ChatInlineTextSelection: UITextView, UITextViewDelegate, @MainActor 
 /// changed extends the selection, ended shows the edit menu.
 @MainActor
 final class ChatInlineSelectionDriver {
+    /// The one live selection in the transcript: a hold in another row ends it.
+    private static weak var live: ChatInlineTextSelection?
     private(set) var selection: ChatInlineTextSelection?
+    /// Called with the live selection when one starts and nil when it ends: the row lists it
+    /// among its accessibility elements meanwhile (its explicit list would hide it from
+    /// VoiceOver and UI tests, fleet simulator step 56d846f0a93209464c930cb8).
+    var onChange: ((ChatInlineTextSelection?) -> Void)?
 
     /// The hold's began: a selection over `label`'s word at `point` (in `container`), placed in
     /// `container` over the label. False when the label has no text there.
     @discardableResult
     func begin(on label: UILabel, at point: CGPoint, in container: UIView, rowActions: @escaping () -> [UIMenuElement]) -> Bool {
         end()
+        Self.live?.end()
         let view = ChatInlineTextSelection(over: label, rowActions: rowActions)
         view.frame = label.convert(label.bounds, to: container)
         container.addSubview(view)
@@ -154,9 +169,13 @@ final class ChatInlineSelectionDriver {
             return false
         }
         view.onEnd = { [weak self, weak view] in
-            if let self, self.selection === view { self.selection = nil }
+            guard let self, self.selection === view else { return }
+            self.selection = nil
+            self.onChange?(nil)
         }
         selection = view
+        Self.live = view
+        onChange?(view)
         UISelectionFeedbackGenerator().selectionChanged()
         return true
     }
@@ -173,6 +192,48 @@ final class ChatInlineSelectionDriver {
     func end() {
         selection?.end()
         selection = nil
+    }
+}
+/// Ends a selection on a tap anywhere else in its window, as in Messages and Notes, without taking
+/// the tap from what it lands on. Taps on the selection (and its handles, about 20 pt past the
+/// text) and on the edit menu (outside the root view) are the selection's own.
+@MainActor
+final class SelectionOutsideTap: NSObject, UIGestureRecognizerDelegate {
+    private weak var selection: UIView?
+    private let onOutside: @MainActor () -> Void
+    private lazy var tap: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
+        return tap
+    }()
+
+    init(selection: UIView, onOutside: @escaping @MainActor () -> Void) {
+        self.selection = selection
+        self.onOutside = onOutside
+    }
+
+    /// Watches `window` (nil stops watching).
+    func attach(to window: UIWindow?) {
+        tap.view?.removeGestureRecognizer(tap)
+        window?.addGestureRecognizer(tap)
+    }
+
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let selection else { return }
+        guard !selection.bounds.insetBy(dx: -24, dy: -24).contains(tap.location(in: selection)) else { return }
+        // After the tap's own target has run.
+        DispatchQueue.main.async { [weak self] in self?.onOutside() }
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let root = selection?.window?.rootViewController?.view, let view = touch.view else { return false }
+        return view.isDescendant(of: root)
     }
 }
 #endif
