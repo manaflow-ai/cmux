@@ -2085,6 +2085,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "extensions",
+        "lead" : [
+          "extensions"
+        ],
+        "symbol" : "puzzlepiece.extension",
+        "title" : {
+          "key" : "settings.group.extensions",
+          "text" : "Extensions"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.cloudWorkspaces",
             "rows" : [
@@ -2463,6 +2486,7 @@
           "menus",
           "computerUse",
           "mcpServers",
+          "extensions",
           "cloud",
           "keys",
           "import",
@@ -13043,7 +13067,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "adaptive",
+      "default" : "openai",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",

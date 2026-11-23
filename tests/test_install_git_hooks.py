@@ -107,7 +107,16 @@ class InstallGitHooksTests(unittest.TestCase):
         "cannot stat" until this list named it; reading the installer keeps the two in step.
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
-        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+        installed = set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE))
+        # The checks copy's file inputs too: a37b619481 added scripts/ci/generated_files_guard.py and ci_process_tree.py to
+        # checks-copy-inputs and every fixture install lacked them, so the stamp test read a file the fixture never had.
+        manifest = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if manifest.exists():
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                source = line.strip().split(" -> ")[0].strip()
+                if source and not source.startswith("#") and not source.endswith("/"):
+                    installed.add(source)
+        return sorted(installed)
 
     @staticmethod
     def copy_input_files():

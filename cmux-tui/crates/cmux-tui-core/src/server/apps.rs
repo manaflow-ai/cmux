@@ -580,6 +580,7 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                settings: None,
                 grant_optional: false,
             },
         ),

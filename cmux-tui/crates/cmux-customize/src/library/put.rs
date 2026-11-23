@@ -108,6 +108,68 @@ impl Customize {
         })
     }
 
+    /// `library_set_on` for a caller that holds the store lock. An entry
+    /// that is gone already is no change.
+    pub(crate) fn library_set_on_locked(
+        &self,
+        name: &str,
+        on: bool,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            if let Some(entry) = library.entries.iter_mut().find(|e| e.name() == name) {
+                entry.on = on;
+            }
+            Ok(())
+        })
+    }
+
+    /// Puts the entries `order` names (top first) in that order among the
+    /// places they hold now; every other entry keeps its place. For a
+    /// caller that holds the store lock.
+    pub(crate) fn library_reorder_locked(
+        &self,
+        order: &[String],
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            let rank = |name: &str| order.iter().position(|named| named == name);
+            let slots: Vec<usize> = (0..library.entries.len())
+                .filter(|at| rank(library.entries[*at].name()).is_some())
+                .collect();
+            let mut held: Vec<_> = slots.iter().map(|at| library.entries[*at].clone()).collect();
+            held.sort_by_key(|entry| rank(entry.name()));
+            for (at, entry) in slots.into_iter().zip(held) {
+                library.entries[at] = entry;
+            }
+            Ok(())
+        })
+    }
+
+    /// Moves entry `name` to index `at` (0 is the top), for a caller that
+    /// holds the store lock: an update keeps its setup's place.
+    pub(crate) fn library_move_locked(
+        &self,
+        name: &str,
+        at: usize,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            if let Some(from) = library.entries.iter().position(|e| e.name() == name) {
+                let entry = library.entries.remove(from);
+                let to = at.min(library.entries.len());
+                library.entries.insert(to, entry);
+            }
+            Ok(())
+        })
+    }
+
     /// The library file as it is now (`None`: there is none), to write back
     /// with [`Customize::library_write_back`] when a change made of several
     /// steps fails after one of them. Its entries and the base under them
