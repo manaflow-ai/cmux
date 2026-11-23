@@ -441,6 +441,9 @@ impl MediaSession {
             },
             now_us(),
         );
+        engine.set_fec_blocks(
+            negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::FEC_BLOCKS),
+        );
         engine.set_profile(cfg.encode_profile);
         let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.pacing_bps()));
         Ok(Self {
