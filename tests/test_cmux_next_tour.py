@@ -1028,6 +1028,52 @@ class WindowVideoTests(unittest.TestCase):
             self.assertEqual(events, ["video-stop", "app-stop"])
             stills.assert_not_called()
 
+    def test_menus_asks_the_recorder_for_the_apps_menus_and_only_then(self):
+        # A native menu is its own window, which a recording of the main window alone leaves out
+        # (What's New customizations-menu); a tour's `menus` asks record-window for every app window.
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for menus, flagged in ((False, False), (True, True)):
+            with tempfile.TemporaryDirectory() as root:
+                session = mock.Mock(capture_routes=[("console", [])])
+                recording = tour.WindowVideo(session, 123, Path(root), Path(root), menus=menus)
+                with mock.patch.object(tour.sys, "platform", "darwin"), \
+                        mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=0)), \
+                        mock.patch.object(tour.subprocess, "Popen", side_effect=OSError("stop here")) as popen:
+                    self.assertFalse(recording.start())
+                argv = popen.call_args.args[0]
+                self.assertEqual(argv[1:3], ["123", str(Path(root) / "capture.mov")])
+                self.assertEqual("--menus" in argv, flagged)
+
+    def test_a_tours_menus_reaches_its_window_video(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, "t.json")
+            path.write_text(json.dumps({"title": "T", "menus": True, "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], True)
+            path.write_text(json.dumps({"title": "T", "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], False)
+            path.write_text(json.dumps({"title": "T", "menus": "yes", "steps": [{"title": "Open"}]}))
+            with self.assertRaises(tour.TourError):
+                tour.load_tour(path)
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="", menus=True)
+            native.start.return_value = True
+            native.stop.return_value = True
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native) as video, \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "menus": True,
+                                                      "steps": [{"title": "Open"}]}, Path(root), session)
+            self.assertIs(video.call_args.kwargs["menus"], True)
+            self.assertIn("menus", manifest["video_mode"])
+
     def test_stop_times_out_and_kills_only_the_owned_recorder(self):
         sys.path.insert(0, str(SCRIPT.parent))
         import tour as video
