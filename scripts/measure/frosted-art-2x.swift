@@ -1,5 +1,5 @@
 // Frosted art at 2x: does a layer-filter blur (CIAffineClamp + CIGaussianBlur, WindowMaterialView.applyArtBlur)
-// cover the whole art view on a backing-scale-2 screen? usage: repro MODE OUTDIR  (MODE: filters | preblur | none)
+// cover the whole art view on a backing-scale-2 screen? usage: repro MODE OUTDIR  (MODE: none | filters | filters-sublayer | blur | blur-sublayer | blur-outset | blur-outset-view | preblur)
 // The art is a 4 px black/white checkerboard over a red window: sharp = unblurred, gray = blurred, red = not covered.
 import AppKit
 import CoreImage
@@ -53,6 +53,14 @@ func analyze(_ image: CGImage, label: String) {
         report.append(String(format: "%@ blurred=%.0f%% sharp=%.0f%% uncovered=%.0f%%", name,
                              100 * Double(gray) / Double(n), 100 * Double(sharp) / Double(n), 100 * Double(red) / Double(n)))
     }
+    // The rim: samples along the four edges (inside the title bar band) that the red window
+    // shows through, as a blur that fades to transparent at the edges leaves.
+    var rim = 0, edge = 0
+    for y in stride(from: top + 4, to: h - 4, by: 7) { for x in [3, 8, w - 9, w - 4] {
+        let i = (y * w + x) * 4; edge += 1; if Int(p[i]) - Int(p[i + 1]) > 40 { rim += 1 } } }
+    for x in stride(from: 4, to: w - 4, by: 7) { for y in [top + 3, top + 8, h - 9, h - 4] {
+        let i = (y * w + x) * 4; edge += 1; if Int(p[i]) - Int(p[i + 1]) > 40 { rim += 1 } } }
+    report.append(String(format: "rim=%.0f%%", 100 * Double(rim) / Double(edge)))
     print("RESULT mode=\(mode) \(label) \(w)x\(h)px: " + report.joined(separator: " | "))
     fflush(stdout)
 }
@@ -80,14 +88,54 @@ final class Runner: NSObject, NSApplicationDelegate {
         art.layerContentsPlacement = .scaleProportionallyToFill
         art.layer?.contentsGravity = .resizeAspectFill
         art.layer?.masksToBounds = true
-        content.addSubview(art)
+        if mode == "blur-outset-view" {
+            // The fix's video and living wallpaper views: the view itself runs the blur's reach past
+            // a clip view, its own layer blurred alone (no clamp).
+            let clip = NSView(frame: content.bounds)
+            clip.wantsLayer = true
+            clip.autoresizingMask = [.width, .height]
+            clip.layer?.masksToBounds = true
+            content.addSubview(clip)
+            art.frame = clip.bounds.insetBy(dx: -CGFloat(radius * 3), dy: -CGFloat(radius * 3))
+            clip.addSubview(art)
+        } else {
+            content.addSubview(art)
+        }
         let board = checkerboard(width: 3024, height: 1964)
         let shown = mode == "preblur" ? preblurred(board, radius: Double(radius) * 1964 / 560 / 2) : board
-        art.layer?.contents = NSImage(cgImage: shown, size: NSSize(width: shown.width / 2, height: shown.height / 2))
-        if mode == "filters" {
+        let picture = NSImage(cgImage: shown, size: NSSize(width: shown.width / 2, height: shown.height / 2))
+        if mode == "blur-outset" {
+            // The fix's video and living wallpaper: the picture in a sublayer that runs the blur's
+            // reach past every edge, blurred alone (no clamp), clipped by the view.
+            let reach = CGFloat(radius * 3)
+            let sub = CALayer()
+            sub.frame = art.bounds.insetBy(dx: -reach, dy: -reach)
+            sub.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            sub.contentsGravity = .resizeAspectFill
+            sub.contents = picture
+            sub.filters = [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 }
+            art.layerUsesCoreImageFilters = true
+            art.layer?.addSublayer(sub)
+        } else if mode.hasSuffix("sublayer") {
+            // The video and living wallpaper views: the picture in a sublayer that autoresizes, the
+            // filters on the view's own layer.
+            let sub = CALayer()
+            sub.frame = art.bounds
+            sub.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            sub.contentsGravity = .resizeAspectFill
+            sub.contents = picture
+            art.layer?.addSublayer(sub)
+        } else {
+            art.layer?.contents = picture
+        }
+        if mode.hasPrefix("filters") {
             art.layerUsesCoreImageFilters = true
             art.layer?.filters = [CIFilter(name: "CIAffineClamp"), CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])]
                 .compactMap { $0 }
+        } else if mode.hasPrefix("blur"), mode != "blur-outset" {
+            // The blur alone, no clamp (its output has a finite extent).
+            art.layerUsesCoreImageFilters = true
+            art.layer?.filters = [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 }
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

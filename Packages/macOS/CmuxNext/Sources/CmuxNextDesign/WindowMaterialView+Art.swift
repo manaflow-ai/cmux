@@ -11,7 +11,9 @@ extension WindowMaterialView {
               window?.isVisible == true || crossfadesOffScreen, !Motion.reduceMotion else { return showArt(image) }
         let from = layer.presentation()?.contents ?? layer.contents ?? previous
         showArt(image)
-        Motion.panes.set(layer, "contents", to: image, fade: .wallpaper, from: from)
+        // Under Frosted the new still's blur crossfades in once it is made (refreshArtBlur).
+        guard let shown = layer.contents, (shown as AnyObject) !== (from as AnyObject) else { return }
+        Motion.panes.set(layer, "contents", to: shown, fade: .wallpaper, from: from)
     }
 
     /// The id of the picture the art shows (`debug.themes` `backdrop.picture`): a Light and Dark

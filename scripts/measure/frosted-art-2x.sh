@@ -24,7 +24,7 @@ GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/bash -c 
   vd=$!
   for _ in $(seq 90); do grep -q "^ready" "$out/vdisplay.log" && break; sleep 1; done
   echo "vdisplay: $(cat "$out/vdisplay.log" | tail -3)"
-  for mode in none filters preblur; do
+  for mode in none filters filters-sublayer blur blur-sublayer blur-outset blur-outset-view preblur; do
     perl -e "alarm 60; exec @ARGV" "$out/repro" "$mode" "$out" || echo "RESULT mode=$mode exited $?"
   done
   kill "$vd" 2>/dev/null || true

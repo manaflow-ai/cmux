@@ -45,11 +45,15 @@ import CmuxNextDesignTokens
                                       images: BackdropImageStore(maxPixelSize: 64), videos: BackdropVideoPlayers())
         let work = BackdropSelection.art(.vanGoghStarryNight)
         view.apply(WindowBackdrop(Self.tokens(blur: 20), selection: work), tint: .black)
-        let blur = (view.artView.layer?.filters as? [CIFilter])?.first { $0.name == "CIGaussianBlur" }
-        #expect((blur?.value(forKey: kCIInputRadiusKey) as? NSNumber)?.doubleValue == 20)
-        // The video over the art blurs the same way.
-        #expect((view.videoView.layer?.filters as? [CIFilter])?.contains { $0.name == "CIGaussianBlur" } == true)
-        view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
+        #expect(view.artBlurRadius == 20)
+        // A still blurs into a picture of its own (a layer filter filled only the bottom left at 2x,
+        // cmux#51381; FrostedArtCoverageTests).
         #expect((view.artView.layer?.filters ?? []).isEmpty)
+        // The video over the art blurs by the same radius.
+        let blur = (view.videoView.layer?.filters as? [CIFilter])?.first { $0.name == "CIGaussianBlur" }
+        #expect((blur?.value(forKey: kCIInputRadiusKey) as? NSNumber)?.doubleValue == 20)
+        view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
+        #expect(view.artBlurRadius == 0)
+        #expect((view.videoView.layer?.filters ?? []).isEmpty)
     }
 }
