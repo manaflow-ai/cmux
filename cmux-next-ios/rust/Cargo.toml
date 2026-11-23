@@ -25,6 +25,7 @@ cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
+cmux-tab-snapshots = { path = "../../cmux-tui/crates/cmux-tab-snapshots" }
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
