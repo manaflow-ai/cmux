@@ -7,6 +7,7 @@ public import Foundation
 /// pass the home on with `open --env`; a launch in the account's own home passes nothing, so its
 /// `open` argv is what it always was.
 nonisolated public struct RelaunchHome: Sendable {
+    public nonisolated init() {}
     /// The variables that pick the app's home.
     public static let variables = ["HOME", "CFFIXED_USER_HOME"]
 

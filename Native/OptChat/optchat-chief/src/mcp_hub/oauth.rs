@@ -38,7 +38,7 @@ pub struct Pending {
     pub resource: String,
 }
 
-fn agent() -> ureq::Agent {
+pub(super) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .redirects(0)
         .timeout(Duration::from_secs(20))
@@ -65,11 +65,19 @@ fn random() -> [u8; 32] {
 }
 
 /// The resource and its authorization server, from the 401's header.
-fn discover(
+pub(super) struct Discovered {
+    pub resource: String,
+    pub auth: AuthServer,
+    pub scopes: Vec<String>,
+    /// The server's `device_authorization_endpoint` (RFC 8628), if any.
+    pub device_endpoint: Option<String>,
+}
+
+pub(super) fn discover(
     server_url: &str,
     www_authenticate: &str,
     registry_scopes: &[String],
-) -> Result<(String, AuthServer, Vec<String>), String> {
+) -> Result<Discovered, String> {
     let prm_url = discovery::resource_metadata_url(www_authenticate)
         .map(Ok)
         .unwrap_or_else(|| {
@@ -117,7 +125,15 @@ fn discover(
     let auth = AuthServer::parse(&meta.to_string()).map_err(|e| e.to_string())?;
     auth.check(&issuer).map_err(|e| e.to_string())?;
     let scopes = discovery::choose_scopes(registry_scopes, &challenge, &supported);
-    Ok((resource, auth, scopes))
+    let device_endpoint = meta["device_authorization_endpoint"]
+        .as_str()
+        .map(str::to_owned);
+    Ok(Discovered {
+        resource,
+        auth,
+        scopes,
+        device_endpoint,
+    })
 }
 
 /// What the registry knows about signing in to a server: a public client
@@ -129,28 +145,53 @@ pub struct Known {
     pub redirect_port: Option<u16>,
     pub scopes: Vec<String>,
     pub scope_delimiter: Option<String>,
+    /// The server signs in with a device code (RFC 8628) and `client_id`.
+    pub device: bool,
 }
+
+/// An extra registry file (the builtin's shape) whose entries sign in like
+/// the builtin's: a person's own device-code server, or a test's fake.
+pub const EXTRA_REGISTRY_ENV: &str = "CMUX_MCP_REGISTRY_EXTRA";
 
 impl Known {
     /// The registry's entry for exactly this server URL.
     pub fn for_url(url: &str) -> Self {
-        let registry = cmux_mcp_connect::registry::Registry::builtin();
-        registry
-            .by_url(url)
-            .map(|e| Self {
-                client_id: e.client_id.clone().filter(|c| !c.is_empty()),
-                redirect_port: e.redirect_port,
-                scopes: e.scopes.clone(),
-                scope_delimiter: e.scope_delimiter.clone(),
+        Self::in_registry(url, &cmux_mcp_connect::registry::Registry::builtin()).unwrap_or_default()
+    }
+
+    /// [`Known::for_url`], then the extra registry file `env` names
+    /// ([`EXTRA_REGISTRY_ENV`]).
+    pub fn for_url_with(url: &str, env: &dyn Fn(&str) -> Option<String>) -> Self {
+        let builtin = cmux_mcp_connect::registry::Registry::builtin();
+        Self::in_registry(url, &builtin)
+            .or_else(|| {
+                let text = std::fs::read_to_string(env(EXTRA_REGISTRY_ENV)?).ok()?;
+                let extra = cmux_mcp_connect::registry::Registry::parse(&text).ok()?;
+                Self::in_registry(url, &extra)
             })
             .unwrap_or_default()
+    }
+
+    fn in_registry(url: &str, registry: &cmux_mcp_connect::registry::Registry) -> Option<Self> {
+        registry.by_url(url).map(|e| Self {
+            client_id: e.client_id.clone().filter(|c| !c.is_empty()),
+            redirect_port: e.redirect_port,
+            scopes: e.scopes.clone(),
+            scope_delimiter: e.scope_delimiter.clone(),
+            device: e.auth == cmux_mcp_connect::registry::AuthKind::Device,
+        })
     }
 }
 
 /// Starts a sign-in for the server at `server_url` that answered 401 with
 /// `www_authenticate`.
 pub fn start(server_url: &str, www_authenticate: &str, known: &Known) -> Result<Started, String> {
-    let (resource, auth, scopes) = discover(server_url, www_authenticate, &known.scopes)?;
+    let Discovered {
+        resource,
+        auth,
+        scopes,
+        ..
+    } = discover(server_url, www_authenticate, &known.scopes)?;
     let (client_id, listener, redirect_uri) = match (&known.client_id, known.redirect_port) {
         // A client registered ahead: its redirect is fixed, so is the port.
         (Some(client_id), Some(port)) => {
@@ -336,6 +377,18 @@ fn token(
         })?
         .into_json()
         .map_err(|e| e.to_string())?;
+    tokens_from(&v, endpoint, client_id, issuer, resource, old_refresh)
+}
+
+/// The tokens in a token endpoint's answer.
+pub(super) fn tokens_from(
+    v: &Value,
+    endpoint: &str,
+    client_id: &str,
+    issuer: &str,
+    resource: &str,
+    old_refresh: Option<&str>,
+) -> Result<OAuthTokens, String> {
     // Slack answers HTTP 200 with `{"ok": false, "error": ...}`.
     if v["ok"] == Value::Bool(false) {
         return Err(format!(
@@ -402,6 +455,13 @@ mod tests {
             out.contains("client_id=c") && out.contains("state=s"),
             "{out}"
         );
+    }
+
+    #[test]
+    fn github_signs_in_with_a_device_code() {
+        let k = Known::for_url("https://api.githubcopilot.com/mcp/");
+        assert!(k.device && k.client_id.is_some(), "{k:?}");
+        assert!(!Known::for_url("https://mcp.linear.app/mcp").device);
     }
 
     #[test]
