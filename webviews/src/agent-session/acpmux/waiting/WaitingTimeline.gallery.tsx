@@ -170,7 +170,7 @@ function withReceipt(Component: typeof WaitingTimeline) {
       <section className="acpmux-shell waiting-gallery" aria-label={newChat.summary?.title} data-jump={jumped ?? ""}>
         <div className="acpmux-main" data-new-chat="">
           <div className="acpmux-stage">
-            <EmptyState project="atlas-web" />
+            <EmptyState />
           </div>
           <div className="acpmux-dock">
             <div className="acpmux-home-area">
