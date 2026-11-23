@@ -184,14 +184,26 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
-          # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's
-          # real ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout).
-          fetch-depth: 0
-          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's real
+      # ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout). Only feat-cmux-next's,
+      # as promote does: checkout's fetch-depth 0 took every branch and tag, which stalled under 1000 B/s three
+      # times and failed plan (runs 45180251986 and 45200355313, 2026-11-23).
+      - name: Fetch feat-cmux-next's history without blobs
+        run: |
+          set -euo pipefail
+          # A reused pool workspace can hold full history already, and --unshallow refuses a complete repository.
+          unshallow=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+          for try in 1 2 3; do
+            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --filter=blob:none "${unshallow[@]}" origin \
+              +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next && exit 0
+            echo "history fetch try $try failed; retrying"; sleep $((try * 15))
+          done
+          exit 1
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
       - name: Repair a reused self-hosted checkout
         if: runner.os == 'Linux'
