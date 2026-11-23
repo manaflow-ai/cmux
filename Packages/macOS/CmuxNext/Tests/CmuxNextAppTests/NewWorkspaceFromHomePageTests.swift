@@ -85,12 +85,15 @@ struct NewWorkspaceFromHomePageTests {
         // `grouped` in group "last", in this order; the rest loose after them.
         func tree(_ personal: [String], grouped: Set<String>) -> DaemonTree {
             var value = PlacementStaleRowsTests.tree(personal, personal: personal)
-            value.personal?.groups = [WorkspaceGroupSnapshot(id: group, name: "last", profile: .defaultProfile)]
-            value.personal?.workspaces = (value.personal?.workspaces ?? []).map { row in
+            // A local copy: reading and writing `value.personal` in one statement is an exclusivity violation.
+            guard var state = value.personal else { return value }
+            state.groups = [WorkspaceGroupSnapshot(id: group, name: "last", profile: .defaultProfile)]
+            state.workspaces = state.workspaces.map { row in
                 var row = row
                 if grouped.contains(row.workspaceKey.rawValue) { row.group = group }
                 return row
             }
+            value.personal = state
             return value
         }
         let keys = ["a-last", "b-loose"]
