@@ -22,6 +22,10 @@ export type LoadRunOptions = {
   scroll_speed?: number;
   /// How far up the scroll goes before it turns back, in viewports.
   scroll_depth?: number;
+  /// A reply this many words long arrives at once and reveals (for `reply_settle_ms`, default
+  /// 1500) before the timed stream appends to it: per-frame cost against the reply's length.
+  reply_words?: number;
+  reply_settle_ms?: number;
 };
 
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -161,6 +165,8 @@ export async function loadRun(
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
     chunkMs: Math.max(1, options.chunk_ms ?? 4),
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+    prefixWords: options.reply_words,
+    prefixSettleMs: options.reply_settle_ms,
   });
   let streamDone = false;
   let streamFinished: number | undefined;
