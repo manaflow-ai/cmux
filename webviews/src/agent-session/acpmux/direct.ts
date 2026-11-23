@@ -13,6 +13,7 @@ import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import type { RaceRecord, RaceStart } from "./races/model";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
+import { approvedPlanOf } from "./approvedPlan";
 import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
@@ -10478,6 +10479,7 @@ export class AcpmuxDirectClient {
           icon: parseSessionIcon(summary.icon),
           goal: taskGoal(summary.goal),
           taskList: (this.publishedTaskList = chatTaskListOf(summary.taskList, this.publishedTaskList)),
+          approvedPlan: approvedPlanOf(summary.approvedPlan),
           harness: summary.harness,
           family: typeof summary.family === "string" ? summary.family : undefined,
           agentInfo:
