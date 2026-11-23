@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAppCore
+import CmuxNextAppTry
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -69,6 +70,7 @@ enum SettingsHandlers {
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         LiveWebHandlers.bind(into: registry, context: context)
+        AppTryActions.bind(into: registry, bundled: context.services.bundledCLI, window: { context.activeWindow?.window })
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

@@ -186,7 +186,7 @@ async fn a_rebuild_ends_a_notified_helper_completed_at_its_notification_once() {
     );
     log("mux", "exited", json!({}), notified + 1_000);
 
-    let tree = hub.subagents_in_log(&session);
+    let tree = hub.subagents_from_log(&session, "inc");
     hub.seed_subagents(&session, tree);
     let ends: Vec<Value> = hub
         .events(&session.id, 0, 256)
@@ -202,7 +202,10 @@ async fn a_rebuild_ends_a_notified_helper_completed_at_its_notification_once() {
     assert_eq!(ends[0]["endedAt"], json!(notified));
     assert_eq!(ends[0]["startedAt"], json!(spawned));
 
-    assert!(hub.subagents_in_log(&session).take_orphans().is_empty(), "a rebuild ends it once");
+    assert!(
+        hub.subagents_from_log(&session, "inc").take_orphans().is_empty(),
+        "a rebuild ends it once"
+    );
     hub.shutdown_all().await;
 }
 
@@ -234,7 +237,7 @@ async fn measure_relaunch_expiry_ends() {
     }
     let seq = hub.events(&session.id, 0, usize::MAX).unwrap().last().map(|e| e.seq).unwrap_or(0);
     let now = now_ms();
-    let tree = hub.subagents_in_log(&session);
+    let tree = hub.subagents_from_log(&session, "inc");
     hub.seed_subagents(&session, tree);
     let ends: Vec<Value> = hub
         .events(&session.id, seq, usize::MAX)
@@ -259,7 +262,7 @@ async fn measure_relaunch_expiry_ends() {
     for e in &ends {
         *by_state.entry(format!("{}/{}", e["state"], e["reason"])).or_default() += 1;
     }
-    let again = hub.subagents_in_log(&session).take_orphans().len();
+    let again = hub.subagents_from_log(&session, "inc").take_orphans().len();
     println!(
         "EXPIRY_MEASURE fixture={path} relaunch_ends={} false_disconnected={false_disconnected} \
          disconnected={disconnected} dated_now={dated_now} zero_or_unknown_duration={zero} \

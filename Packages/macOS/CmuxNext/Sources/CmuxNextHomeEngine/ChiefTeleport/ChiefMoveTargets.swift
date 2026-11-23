@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The "Move Chief To…" list (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac
 /// first, then every SSH or paired-server host the person made a remote group (a server moves over SSH like
 /// an SSH host), then cmux Cloud. Pure:
@@ -13,7 +15,8 @@ public nonisolated struct ChiefMoveTargets: Sendable {
         /// destination, or the server name as a host name for an overlay route; nil when no SSH
         /// route exists.
         case server(destination: String?)
-        /// The account's Cloud Chief (`cloud`, or `cloud:staging` when the app signs in to staging).
+        /// The account's Cloud Chief (`cloud`; `staging`: the app signs in to another Cloud than
+        /// production, and the move goes to that one, `cloud:<its API>`).
         case cloud(staging: Bool)
     }
 
@@ -37,8 +40,10 @@ public nonisolated struct ChiefMoveTargets: Sendable {
 
     /// The person's Cloud session.
     public enum Cloud: Equatable, Sendable {
-        /// Signed in, to staging or production.
-        case signedIn(staging: Bool)
+        /// Signed in: `api` is the Cloud API the app uses when it is not production (staging, a
+        /// development backend), nil for production. A move goes to the same Cloud the app reads, where
+        /// its session is valid and where the app finds the moved Chief.
+        case signedIn(api: URL?)
         case signedOut
     }
 
@@ -53,7 +58,7 @@ public nonisolated struct ChiefMoveTargets: Sendable {
     ///   - localHome: the Chief home a move back to this Mac lands in.
     ///   - hosts: the connected or remembered machines; only remote groups list, Cloud VMs never
     ///     (`--to cloud` is the account's Cloud Chief, not a VM).
-    ///   - cloud: whether the app is signed in to Cloud, and to staging.
+    ///   - cloud: whether the app is signed in to Cloud, and to which one.
     public init(localHome: String, hosts: [Host], cloud: Cloud) {
         var list = [ChiefMoveTarget(machineID: Self.localID, name: "", kind: .local(home: localHome), to: "local:\(localHome)", disabledReason: nil)]
         for host in hosts where host.isRemoteGroup {
@@ -71,9 +76,15 @@ public nonisolated struct ChiefMoveTargets: Sendable {
             }
         }
         switch cloud {
-        case .signedIn(let staging):
-            list.append(ChiefMoveTarget(machineID: Self.cloudID, name: "", kind: .cloud(staging: staging),
-                                        to: staging ? "cloud:staging" : "cloud", disabledReason: nil))
+        case .signedIn(let api):
+            // Without a trailing slash, as the engine reads it (`api_base`).
+            let base = api.map { url in
+                var text = url.absoluteString
+                while text.hasSuffix("/") { text.removeLast() }
+                return text
+            }
+            list.append(ChiefMoveTarget(machineID: Self.cloudID, name: "", kind: .cloud(staging: base != nil),
+                                        to: base.map { "cloud:\($0)" } ?? "cloud", disabledReason: nil))
         case .signedOut:
             list.append(ChiefMoveTarget(machineID: Self.cloudID, name: "", kind: .cloud(staging: false), to: "cloud", disabledReason: .signInNeeded))
         }

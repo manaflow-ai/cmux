@@ -582,6 +582,7 @@ fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["vm", "new"], true), NewRoute::App);
     assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--label", "fleet=lanes"], true), NewRoute::VmApi);
 }
 
 #[test]

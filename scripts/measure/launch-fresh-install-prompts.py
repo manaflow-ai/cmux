@@ -16,6 +16,7 @@ action "left": nothing in it is pressed and nothing is typed, ever. The fleet's 
 whatever any job declares.
 """
 import json
+import time
 import subprocess
 import sys
 
@@ -94,7 +95,12 @@ def press(binary, title, baseline, when):
             row["action"] = f"no {title} button: left"
         else:
             click = cua(binary, "click", {"pid": pid, "window_id": wid, "element_token": token, "action": "press"})
-            row["action"] = f"pressed {title}" if "error" not in click else f"press {title} failed: {click['error'][:120]}"
+            if "error" in click:
+                row["action"] = f"press {title} failed: {click['error'][:120]}"
+            else:  # landed only when the prompt is gone
+                time.sleep(0.5)
+                up = any(w["window_id"] == wid for _, _, w in windows(binary, PROMPT_OWNERS))
+                row["action"] = f"pressed {title}, prompt still up" if up else f"pressed {title}, prompt gone"
         rows.append(row)
     for owner, pid, window in windows(binary, NEVER_TOUCH):
         rows.append({"when": when, "owner": owner, "pid": pid, "window_id": window["window_id"],

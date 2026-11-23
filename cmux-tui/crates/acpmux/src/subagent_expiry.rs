@@ -75,15 +75,32 @@ pub struct Ended {
 }
 
 /// What a harness exit left of a subagent whose end the log never got.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub(super) struct Orphan {
     state: &'static str,
     ended_at: Option<u64>,
     started_at: Option<u64>,
 }
 
-/// What the tree keeps for expiry.
-#[derive(Debug, Default)]
+/// An `Orphan` as a checkpoint holds it: its end state by name, read back as the same static
+/// state it was written from.
+#[derive(serde::Deserialize)]
+struct StoredOrphan {
+    state: String,
+    ended_at: Option<u64>,
+    started_at: Option<u64>,
+}
+
+impl<'de> serde::Deserialize<'de> for Orphan {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let o = StoredOrphan::deserialize(d)?;
+        Ok(Orphan { state: stored_state(&o.state), ended_at: o.ended_at, started_at: o.started_at })
+    }
+}
+
+/// What the tree keeps for expiry. It rides in the adoption checkpoint with the tree
+/// (`hub/hosts/checkpoint.rs`), so a resumed log read keeps its orphans and event times.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Expiry {
     /// When the update being read happened (epoch ms; 0 when unknown).
     clock: u64,
@@ -95,11 +112,48 @@ pub(super) struct Expiry {
     agent_of: HashMap<String, String>,
     /// The end Claude's notification gave a running subagent and when it came, by its id, kept
     /// until it leaves or its task starts again (a SendMessage resume).
+    #[serde(with = "heard_end_serde")]
     heard_end: HashMap<String, (&'static str, u64)>,
     /// Subagents a harness exit ended in a log read, with no end record of theirs after it.
     orphans: HashMap<String, Orphan>,
     /// When the aged-out check last ran.
     last_sweep: u64,
+}
+
+/// An end state read back from a checkpoint as the same static state `end_state` (or a harness
+/// exit's `disconnected`) gave it.
+fn stored_state(state: &str) -> &'static str {
+    match state {
+        "failed" => "failed",
+        "cancelled" => "cancelled",
+        "disconnected" => "disconnected",
+        _ => "completed",
+    }
+}
+
+/// `Expiry::heard_end` in a checkpoint: each end state by name and when it came, read back as
+/// the same static state `end_state` gives.
+mod heard_end_serde {
+    use std::collections::HashMap;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        map: &HashMap<String, (&'static str, u64)>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        map.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<HashMap<String, (&'static str, u64)>, D::Error> {
+        let named = HashMap::<String, (String, u64)>::deserialize(d)?;
+        Ok(named
+            .into_iter()
+            .map(|(id, (state, at))| (id, (super::stored_state(&state), at)))
+            .collect())
+    }
 }
 
 /// The state a Claude task status ends a subagent in.
