@@ -14,14 +14,14 @@ final class TabPreviewSource: TabPreviewProvider {
     private let pages: InternalPageTabStore  // AppServices owns both; the store holds nothing of this
     let chats: AgentPanePictures
 
-    init(cache: TabContentCache, pages: InternalPageTabStore, chats: @escaping @MainActor (String) -> AgentPaneView?) {
+    init(cache: TabContentCache, pages: InternalPageTabStore, images: AgentPaneLaunchImages, chats: @escaping @MainActor (String) -> AgentPaneView?) {
         (self.cache, self.pages) = (cache, pages)
-        self.chats = AgentPanePictures(view: chats, keep: { [previews = cache.previews] in previews.insert($1, for: $0) })
+        self.chats = AgentPanePictures(view: chats, images: images, keep: { [previews = cache.previews] in previews.insert($1, for: $0) })
     }
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
         if let page = pages.existingView(tab.rawValue) { return await pages.pictures.picture(of: page, maxPixelSize: maxPixelSize) }
-        let image = await chats.freshPicture(tab.rawValue, fit: maxPixelSize) ?? cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize)
+        let image = await chats.picture(tab.rawValue, fit: maxPixelSize) { await cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize) }
         return await Self.shown(image, key: tab.rawValue, cache: cache)
     }
 

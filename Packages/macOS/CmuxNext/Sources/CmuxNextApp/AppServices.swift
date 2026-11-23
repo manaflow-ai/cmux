@@ -242,7 +242,7 @@ final class AppServices {
         RestartToUpdatePaletteRows(staged: { [weak self] in self?.updater.restartableUpdate.map { ($0.title, $0.version) } }).install(into: palette, registry: registry)
         return palette
     }()  // first read in init (no IUO)
-    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages) { [weak self] in self?.madeAgentTabs?.existingView($0) }  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages, images: launchImages) { [weak self] in self?.madeAgentTabs?.existingView($0) }  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()

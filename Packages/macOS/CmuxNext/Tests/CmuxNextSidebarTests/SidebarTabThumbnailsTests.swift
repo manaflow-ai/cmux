@@ -75,6 +75,50 @@ import Testing
         #expect(WorkspacePaneShapeView.fillRect(for: CGSize(width: 400, height: 40), in: tile) == CGRect(x: -140, y: 20, width: 400, height: 40))
     }
 
+    // Each tab kind's tile says what it is until its picture comes (#51768: "make sure that they all work").
+
+    private static func says(_ label: WorkspacePaneShapeView.Label, _ title: String, _ detail: String?) -> Bool {
+        label.title == title && label.detail == detail
+    }
+
+    @Test func aChatTileWithNoPictureSaysItsTitleAndFolder() {
+        let chat = SidebarTab(id: Self.chat, title: "Cloud first-token speed", kind: .agentChat, folder: "~/src/cmux")
+        #expect(Self.says(WorkspacePaneShapeView.label(for: chat), "Cloud first-token speed", "~/src/cmux"))
+    }
+
+    @Test func aTerminalTileWithNoPictureSaysItsTitleAndFolder() {
+        let shell = SidebarTab(id: Self.chat, title: "zsh", kind: .terminal, folder: "~", branch: "main")
+        #expect(Self.says(WorkspacePaneShapeView.label(for: shell), "zsh", "~"))
+        let untitled = SidebarTab(id: Self.chat, title: " ", kind: .terminal, branch: "main")
+        #expect(Self.says(WorkspacePaneShapeView.label(for: untitled), "main", nil))
+    }
+
+    @Test func aPageTileWithNoPictureSaysItsTitleAndHost() {
+        let page = SidebarTab(id: Self.page, title: "Pull requests", kind: .browser, host: "github.com")
+        #expect(Self.says(WorkspacePaneShapeView.label(for: page), "Pull requests", "github.com"))
+    }
+
+    @Test func aBlankOrLoadingPageTileIsNeverAnEmptyBox() {
+        let blank = SidebarTab(id: Self.page, title: "about:blank", kind: .browser)
+        #expect(Self.says(WorkspacePaneShapeView.label(for: blank), Strings.hoverCardNewTab, nil))
+        let untitled = SidebarTab(id: Self.page, title: "", kind: .browser)
+        #expect(WorkspacePaneShapeView.label(for: untitled).title == Strings.hoverCardNewTab)
+        let loading = SidebarTab(id: Self.page, title: "", kind: .browser, host: "example.com")  // no title yet
+        #expect(Self.says(WorkspacePaneShapeView.label(for: loading), "example.com", nil))
+        let newTab = SidebarTab(id: Self.chat, title: "", kind: .newTab)
+        #expect(Self.says(WorkspacePaneShapeView.label(for: newTab), Strings.hoverCardNewTab, nil))
+    }
+
+    @Test func theCardNamesEachPicturelessTileByItsTab() {
+        let card = WorkspaceHoverCardView()
+        card.configurePaneShape(Self.split, tabs: [
+            SidebarTab(id: Self.chat, title: "Cloud first-token speed", kind: .agentChat),
+            SidebarTab(id: Self.page, title: "about:blank", kind: .browser),
+        ])
+        #expect(card.paneShape.label(ofTile: 0)?.title == "Cloud first-token speed")
+        #expect(card.paneShape.label(ofTile: 1)?.title == Strings.hoverCardNewTab)
+    }
+
     @Test func theShapeListsEachFrontTabOnce() {
         let twice = SidebarPaneShape.split(axis: .vertical, ratio: 0.5, .pane(.init(kind: .terminal, tab: Self.chat)),
                                            .split(axis: .horizontal, ratio: 0.5, .pane(.init(kind: nil)), .pane(.init(kind: .terminal, tab: Self.chat))))

@@ -4,8 +4,9 @@ import CmuxNextIcons
 import CmuxNextWakeups
 
 /// The hover card's miniature of a workspace's splits (``SidebarPaneShape``): one rounded tile per pane at its
-/// real share of the screen showing the pane's front tab as it last looked (``SidebarTabThumbnails``, #51768), its
-/// kind's mark until a picture comes, the focused pane outlined in the accent.
+/// real share of the screen showing the pane's front tab as it last looked (``SidebarTabThumbnails``, #51768), the
+/// focused pane outlined in the accent. Until a tab has a picture (a chat never on screen since launch, a blank or
+/// loading page, a shell showing only its prompt) its tile says what it is: its icon, title and folder or host.
 /// Leo 2026-11-22 (ask-890db939a2): "i have this layout. so. the preview should be able to depict that."
 ///
 /// While the card shows, its pictures refresh every ``refreshInterval``; a tile keeps its picture until a newer one
@@ -28,6 +29,18 @@ final class WorkspacePaneShapeView: NSView {
             needsDisplay = true
             setAccessibilityLabel(shape.map { Self.accessibilityText($0) })
         }
+    }
+
+    /// What a tile with no picture says, by its pane's front tab (``label(for:)``).
+    var labels: [TabID: Label] = [:] {
+        didSet { if labels != oldValue { needsDisplay = true } }
+    }
+
+    /// A pictureless tile's text: its tab's icon, title and a second line (a folder, a page's host).
+    struct Label: Equatable {
+        var icon: IconName
+        var title: String
+        var detail: String?
     }
 
     /// Where the tiles' pictures come from: the hover card controller's store (a test's own).
@@ -72,6 +85,28 @@ final class WorkspacePaneShapeView: NSView {
         return thumbnails.image(for: tab)
     }
 
+    /// What `tab`'s tile says while it has no picture: a chat's or terminal's title over its folder, a page's title
+    /// over its host, and a blank or loading page (no title, no host yet) as a New Tab, never an empty box.
+    static func label(for tab: SidebarTab) -> Label {
+        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch tab.kind {
+        case .newTab:
+            return Label(icon: tab.kind.icon, title: Strings.hoverCardNewTab)
+        case .browser:
+            let shown = title.isEmpty || title == "about:blank" ? tab.host ?? Strings.hoverCardNewTab : title
+            return Label(icon: tab.kind.icon, title: shown, detail: tab.host == shown ? nil : tab.host)
+        default:
+            let detail = tab.folder ?? tab.branch
+            return Label(icon: tab.kind.icon, title: title.isEmpty ? detail ?? "" : title, detail: title.isEmpty ? nil : detail)
+        }
+    }
+
+    /// What tile `index` says while it has no picture (tests).
+    func label(ofTile index: Int) -> Label? {
+        guard let panes = shape?.frames(in: .zero, gap: 0), panes.indices.contains(index), let tab = panes[index].pane.tab else { return nil }
+        return labels[tab]
+    }
+
     private func refreshTick() {
         // A card put away (ordered out, hidden or closed) stops asking; its next show starts again.
         guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return stopRefreshing() }
@@ -103,20 +138,60 @@ final class WorkspacePaneShapeView: NSView {
                 (pane.focused ? focus : edge).setStroke()
                 path.lineWidth = pane.focused ? 1.5 : 1
                 path.stroke()
-                // A mark only where it fits with room around it, so a sliver of a pane reads as a pane, not a glyph.
-                guard picture == nil, let kind = pane.kind, frame.width >= Self.markSize * 2, frame.height >= Self.markSize * 2,
-                      let image = CGImage.icon(kind.iconName, size: Self.markSize, scale: window?.backingScaleFactor ?? 2, tint: markTint),
-                      let context = NSGraphicsContext.current?.cgContext else { continue }
-                let mark = CGRect(x: frame.midX - Self.markSize / 2, y: frame.midY - Self.markSize / 2,
-                                  width: Self.markSize, height: Self.markSize)
-                context.saveGState()
-                // The view is flipped; a CGImage draws bottom-up.
-                context.translateBy(x: 0, y: mark.maxY + mark.minY)
-                context.scaleBy(x: 1, y: -1)
-                context.draw(image, in: mark)
-                context.restoreGState()
+                guard picture == nil else { continue }
+                if let label = pane.tab.flatMap({ labels[$0] }), !label.title.isEmpty, frame.width >= Self.labelMinWidth,
+                   frame.height >= Self.labelMinHeight {
+                    drawLabel(label, in: frame, clippedTo: path, tint: markTint)
+                } else if let kind = pane.kind {
+                    drawMark(kind.iconName, centeredIn: frame, tint: markTint)
+                }
             }
         }
+    }
+
+    /// The smallest tile that says its tab's title; a smaller one shows its kind's mark only.
+    static let labelMinWidth: CGFloat = 44
+    static let labelMinHeight: CGFloat = 20
+    static let labelInset: CGFloat = 5
+
+    /// A mark only where it fits with room around it, so a sliver of a pane reads as a pane, not a glyph.
+    private func drawMark(_ icon: IconName, centeredIn frame: CGRect, tint: CGColor) {
+        guard frame.width >= Self.markSize * 2, frame.height >= Self.markSize * 2 else { return }
+        drawIcon(icon, in: CGRect(x: frame.midX - Self.markSize / 2, y: frame.midY - Self.markSize / 2, width: Self.markSize, height: Self.markSize), tint: tint)
+    }
+
+    private func drawIcon(_ icon: IconName, in mark: CGRect, tint: CGColor) {
+        guard let image = CGImage.icon(icon, size: Self.markSize, scale: window?.backingScaleFactor ?? 2, tint: tint),
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        // The view is flipped; a CGImage draws bottom-up.
+        context.translateBy(x: 0, y: mark.maxY + mark.minY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: mark)
+        context.restoreGState()
+    }
+
+    /// The tab's icon and title on the tile's first line, its detail under them where the tile has room.
+    private func drawLabel(_ label: Label, in frame: CGRect, clippedTo path: NSBezierPath, tint: CGColor) {
+        let inset = Self.labelInset
+        let font = Typography.caption
+        let line = ceil(font.ascender - font.descender + font.leading)
+        let firstY = frame.minY + inset - 1
+        drawIcon(label.icon, in: CGRect(x: frame.minX + inset, y: firstY + (line - Self.markSize) / 2, width: Self.markSize, height: Self.markSize), tint: tint)
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let textX = frame.minX + inset + Self.markSize + 4
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+        (label.title as NSString).draw(with: CGRect(x: textX, y: firstY, width: max(0, frame.maxX - inset - textX), height: line),
+                                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                       attributes: [.font: font, .foregroundColor: Palette.textPrimary, .paragraphStyle: style])
+        if let detail = label.detail, frame.height >= inset * 2 + line * 2 {
+            (detail as NSString).draw(with: CGRect(x: frame.minX + inset, y: firstY + line, width: max(0, frame.width - inset * 2), height: line),
+                                      options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                      attributes: [.font: font, .foregroundColor: Palette.textSecondary, .paragraphStyle: style])
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// Draws `image` over `frame`, scaled to fill it and kept to its top (a page's head, a chat's header), clipped to

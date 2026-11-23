@@ -3,7 +3,8 @@ public import AppKit
 /// When a chat is pictured for the sidebar hover card's split miniature (#51768): on a hover while it is on screen, at
 /// most once a ``freshness``, and as it leaves the screen (``willLeaveScreen(_:)``, at most once a
 /// ``leaveFreshness``). A hidden chat is never pictured (Chromium pictures no hidden page); the app keeps each picture
-/// (`keep`, at most ``side`` px) and shows its last one between pictures.
+/// (`keep`, at most ``side`` px) and shows its last one between pictures; a chat with none yet (hidden since
+/// launch) shows its last page: a released chat's held frame, or the page the last quit saved (``AgentPaneLaunchImages``).
 @MainActor
 public final class AgentPanePictures {
     /// Keeps `image` as tab `key`'s picture.
@@ -20,12 +21,26 @@ public final class AgentPanePictures {
 
     private let view: @MainActor (String) -> AgentPaneView?
     private let keep: Keep
+    private let images: AgentPaneLaunchImages?
     private var times: [String: ContinuousClock.Instant] = [:]
     private var inFlight: Set<String> = []
 
     /// `view` gives a tab's chat view when one is made (nil for every other tab).
-    public init(view: @escaping @MainActor (String) -> AgentPaneView?, keep: @escaping Keep) {
-        (self.view, self.keep) = (view, keep)
+    public init(view: @escaping @MainActor (String) -> AgentPaneView?, images: AgentPaneLaunchImages? = nil, keep: @escaping Keep) {
+        (self.view, self.images, self.keep) = (view, images, keep)
+    }
+
+    /// Tab `key`'s picture for a hover: a new one of its chat when one can be taken now (``freshPicture(_:fit:)``),
+    /// else `kept` (the app's last picture of the tab), else its chat's last page, kept from then on.
+    public func picture(_ key: String, fit maxPixelSize: CGSize, kept: () async -> CGImage?) async -> CGImage? {
+        if let fresh = await freshPicture(key, fit: maxPixelSize) { return fresh }
+        if let image = await kept() { return image }
+        guard view(key) != nil, let page = images?.lastPage(key) else { return nil }
+        let side = Self.side
+        guard let scaled = await Task.detached(priority: .userInitiated, operation: { AgentPaneVideoInfo.scaled(page, toFit: side) }).value
+        else { return nil }
+        keep(key, scaled)  // the next hover reads it from `kept`, not decoding the page again
+        return scaled
     }
 
     /// A new picture of tab `key`'s chat, at most `maxPixelSize`, when it is on screen and its last is older than
