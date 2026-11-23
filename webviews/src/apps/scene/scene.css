@@ -557,15 +557,15 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
 }
 .cmux-app-scene-stat-value {
   color: var(--agent-text);
-  font-size: 34px;
+  font-size: var(--text-heading);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: var(--text-heading--line-height);
   white-space: nowrap;
 }
 .cmux-app-scene-stat[data-variant="prominent"] .cmux-app-scene-stat-value {
@@ -577,9 +577,9 @@
 .cmux-app-scene-stat-caption {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--ds-space-1);
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
 }
 .cmux-app-scene-stat-delta {
