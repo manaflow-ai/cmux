@@ -10,7 +10,7 @@ extension SidebarItemRowView {
 
     func editingChanged() {
         if isEditing, onRemove != nil, removeButton == nil {
-            let button = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: "")
+            let button = SidebarIconButton.rowControl(icon: .actionClose, label: "")
             button.onPress = { [weak self] in self?.onRemove?() }
             addSubview(button)
             removeButton = button

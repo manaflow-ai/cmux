@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The list layout's table: hands keys it does not use to the pane
 /// (type-select, Files shortcuts) and asks the pane for context menus.
@@ -18,6 +19,6 @@ final class FileTableView: NSTableView {
         if row >= 0, !selectedRowIndexes.contains(row) {
             selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
-        return menuProvider?(row)
+        return NSMenu.withoutSystemItems(menuProvider?(row))
     }
 }

@@ -59,6 +59,19 @@
 //!   itself; other agents' messages, notices and its continuation wait; `acpmux retry` or the
 //!   person's own prompt sends it on, as above. Any other chat's Stop is as before.
 //!
+//! The audit after the 2026-11-18 loop found three more ways past the hold (Leo, 2026-11-18:
+//! "claude-sr2-coord fell into a weird "rate limited" loop again 429 and whatever"):
+//!
+//! - A turn Claude Code started itself (a background task's or subagent's notice, a scheduled
+//!   wakeup, a `/loop` tick) that fails on the limit is a strike and holds the chat as a
+//!   prompted one does (`background_turn.rs`).
+//! - A parked chat goes on at once only at the person's own retry or prompt. Any other retry
+//!   (an agent's, a script's, a sub-session's `retry_session`) is refused until the park's
+//!   backoff ran out ([`RateHold::retry_at`], `retry_turn.rs` `retry_rate_gate`).
+//! - Only the held turn's own continuation goes past the hold ([`Hub::rate_holds`]); a stopped
+//!   sub-session's resume (`subsession_resume.rs`) waits for it like any prompt, and goes
+//!   through the same gate as a retry.
+//!
 //! A 429 storm on a long-context chat lost messages (`tests/hub_integration/auto_resume_429_storm.rs`,
 //! 9 of 58): the turn a reset folded them into failed on the 429 again, and its continuation's
 //! "continue" carried none of them. A 429 refuses the request before the model reads it:
@@ -166,6 +179,15 @@ impl RateHold {
     /// The chat's strikes: turns in a row that failed on the limit.
     pub(crate) fn strikes(&self) -> u32 {
         self.lock().strikes
+    }
+
+    /// When a parked chat may be taken back by a retry that is not the person's own
+    /// (`retry_turn.rs` `retry_rate_gate`): its backoff of its strikes ([`backoff_ms`] from
+    /// [`MIN_HOLD_MS`], at most [`MAX_HOLD_MS`]) after it parked. None when it is not parked.
+    pub(crate) fn retry_at(&self) -> Option<u64> {
+        let s = self.lock();
+        let parked = s.parked?;
+        Some(parked.saturating_add(backoff_ms(s.strikes, MIN_HOLD_MS)))
     }
 
     /// Whether the limit has the chat: held, parked, or with a strike. A Stop parks such a chat
@@ -544,7 +566,10 @@ impl Hub {
             b"turn_result",
         ];
         let mut last = None;
-        let scanned = self.store.scan_back(
+        // Every kind it reads is in the log's kind copies (`store/kind_index.rs`): a chat with no
+        // completed turn near its end reads its copies, not its whole log back from the end, at
+        // every start (ask-5136ca7948).
+        let scanned = self.store.scan_back_indexed(
             &session.id,
             0,
             u64::MAX,
@@ -681,10 +706,25 @@ impl Hub {
 
 impl Hub {
     /// Whether a prompt with `provenance` waits for `session`'s hold: every one but acpmux's own
-    /// continuation of the cut turn (`auto_resume` provenance), which runs once the hold is due.
+    /// continuation of the held turn (`auto_resume` provenance whose `turnId` is the hold's turn),
+    /// which runs once the hold is due. Before, every `auto_resume` prompt went past it: a
+    /// stopped sub-session's resume (`reason: "stopped"`, `subsession_resume.rs`) and a restart's
+    /// continuation of another turn too, each a full-context request into the limit.
     pub(super) fn rate_holds(session: &Session, provenance: Option<&Value>) -> bool {
-        Self::rate_held(session)
-            && provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) != Some("auto_resume")
+        Self::rate_held(session) && !Self::held_turns_own(session, provenance)
+    }
+
+    /// Whether `provenance` is acpmux's own continuation of the turn `session` is held for.
+    fn held_turns_own(session: &Session, provenance: Option<&Value>) -> bool {
+        let Some(p) = provenance else { return false };
+        let field = |k: &str| p.get(k).and_then(Value::as_str);
+        if field("kind") != Some("auto_resume")
+            || field("reason") == Some(super::subsession_resume::STOPPED_REASON)
+        {
+            return false;
+        }
+        let held = session.rate_hold.lock();
+        field("turnId").is_some_and(|t| held.turn.as_deref() == Some(t))
     }
 }
 
