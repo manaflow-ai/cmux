@@ -169,6 +169,12 @@ pub struct Sender {
     /// the receiver cannot look at another machine's processes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim: Option<serde_json::Value>,
+    /// For a send no session made: the relay record (`{by, machine, session}`,
+    /// `prompt_provenance::FROM_RELAY`) the sending daemon took from a relay on its own unix
+    /// socket, its word on where the message came from, as a peer link's `fromRelay` is. A hub
+    /// that does not carry it drops it, and the receiver names the machine the hub proved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<serde_json::Value>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running

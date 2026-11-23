@@ -32,6 +32,7 @@ use crate::mesh::{
     Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
+use crate::prompt_provenance::RelaySender;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -948,6 +949,37 @@ fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
 }
 
+/// What the transport proves of a message no session sent (the lane-gh broker's `acpmux send`, a
+/// shell outside acpmux): the machine, as a relay record (`prompt_provenance::FROM_RELAY`) the
+/// receiver shows as verified. The hub authenticated the sending daemon by its credential and
+/// stamped `from.daemonId`; the machine is the one this person's book lists for it, else the host
+/// the hub returned beside that stamp. The session is the sending daemon's relay record's, its
+/// word as a peer link's `fromRelay` is, kept only when that record names the same machine.
+/// None for a message from a session (`fromSessionId` proves it), a team address, or one with no
+/// hub stamp: those read as [`sender_name`] says.
+/// Why: every broker relay through the hub read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had proved HOST, and receivers asked the sender to confirm.
+fn hub_relay(message: &InMessage, book_host: Option<&str>) -> Option<RelaySender> {
+    let from = &message.from;
+    let present = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).is_some();
+    if present(from.session_id.as_deref())
+        || present(from.team_address.as_deref())
+        || !present(from.daemon_id.as_deref())
+    {
+        return None;
+    }
+    let machine = book_host.or(from.host.as_deref()).map(str::trim).filter(|h| !h.is_empty())?;
+    let carried = from.relay.as_ref().and_then(RelaySender::of);
+    let (by, session) = match carried {
+        Some(r) if r.machine == machine => (r.by, r.session),
+        _ => (HUB_RELAY.to_owned(), None),
+    };
+    RelaySender::of(&json!({"by": by, "machine": machine, "session": session}))
+}
+
+/// The relay a [`hub_relay`] record names when the sending daemon carried none: the team hub.
+const HUB_RELAY: &str = "mesh-hub";
+
 /// The host this person's address book lists for the daemon the hub stamped on `message`
 /// (`from.daemonId`): the machine as the hub proved it, not as the sender wrote it.
 fn stamped_host(hub: &Hub, message: &InMessage) -> Option<String> {
@@ -997,7 +1029,14 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
-    let from_name = sender_name(message, stamped_host(hub, message).as_deref());
+    let book_host = stamped_host(hub, message);
+    // A send no session made: the machine the hub proved names it, with the session its daemon's
+    // relay record names, so the label is verified rather than declared ([`hub_relay`]).
+    let relay = hub_relay(message, book_host.as_deref());
+    let from_name = match &relay {
+        Some(relay) if !team => relay.name(),
+        _ => sender_name(message, book_host.as_deref()),
+    };
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
@@ -1040,7 +1079,7 @@ pub async fn deliver(
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
-        relay: None,
+        relay: relay.filter(|_| !team),
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so

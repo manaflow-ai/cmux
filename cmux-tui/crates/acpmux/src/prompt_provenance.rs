@@ -810,7 +810,7 @@ pub struct RelaySender {
 impl RelaySender {
     /// The relay record in `value`, each field one name of at most [`MAX_NAME_CHARS`] (a
     /// session at most [`MAX_FIELD_BYTES`]); anything else is no relay record.
-    fn of(value: &Value) -> Option<Self> {
+    pub(crate) fn of(value: &Value) -> Option<Self> {
         let field = |k: &str| value.get(k).and_then(Value::as_str);
         let by = field("by").filter(|b| harness_fits(b))?;
         let machine = field("machine").filter(|m| harness_fits(m))?;
@@ -822,7 +822,7 @@ impl RelaySender {
         Some(Self { by: by.to_owned(), machine: machine.to_owned(), session })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         json!({"by": self.by, "machine": self.machine, "session": self.session})
     }
 

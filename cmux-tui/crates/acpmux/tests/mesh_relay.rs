@@ -411,6 +411,112 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     relay.stop().await;
 }
 
+/// The provenance of the user message `prompt_id` in `session`, once it is recorded.
+async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str) -> Value {
+    for _ in 0..600 {
+        let page = local
+            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == prompt_id) {
+            return e["msg"]["_meta"]["provenance"].clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{prompt_id} never reached {session}");
+}
+
+/// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
+/// the machine the hub proved, verified: it read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
+/// sender to confirm. The sending daemon's relay record names the session when it names the same
+/// machine; one that names another machine is not believed.
+#[tokio::test]
+async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_verified() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let sessionless = |id: &str, relay: Option<Value>| {
+        let mut m = message(id, "dep-land", Kind::Prompt);
+        m.from.name = None;
+        m.from.relay = relay;
+        m
+    };
+    fake.lease(sessionless("msg-bare", None));
+    fake.lease(sessionless(
+        "msg-relay",
+        Some(json!({"by": "lane-gh", "machine": "gcp-lane", "session": "coord"})),
+    ));
+    fake.lease(sessionless(
+        "msg-other",
+        Some(json!({"by": "lane-gh", "machine": "elsewhere", "session": "coord"})),
+    ));
+    for (id, shown) in
+        [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
+    {
+        fake.until("the ack", |s| !s.acked(id).is_empty()).await;
+        let p = delivered_provenance(&mut local, &session, id).await;
+        assert_eq!(p["fromName"], shown, "{id}: {p}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
+        assert_eq!(record["verification"], "verified", "{id}: {record}");
+        assert_eq!(record["authenticated"], true, "{id}: {record}");
+        assert_eq!(record["relay"]["machine"], "gcp-lane", "{id}: {record}");
+    }
+    relay.stop().await;
+}
+
+/// A send from no session (a relay on this machine's unix socket) carries its relay record to the
+/// hub, so the receiving machine can name the session it came from; a proven session's send
+/// carries none, whatever it wrote.
+#[tokio::test]
+async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let relayed = |id: &str| {
+        let mut request = send_queue("dep-land", id);
+        request["request"]["_meta"]["acpmux"]["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"});
+        request
+    };
+    let mut broker = Client::local(&a);
+    broker.call("initialize", json!({"protocolVersion": 1})).await;
+    let queued = broker.call("_acpmux/send_queue", relayed("prompt-relay-1")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id, None, "{from:?}");
+    assert_eq!(
+        from.relay,
+        Some(json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"})),
+        "{from:?}"
+    );
+
+    let mut as_lane = Client::local(&a);
+    let token = acpmux::hub::person::caller_token(&lane);
+    let caller = json!({"callerSession": {"sessionId": lane, "token": token}});
+    as_lane.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    let queued = as_lane.call("_acpmux/send_queue", relayed("prompt-relay-2")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+    assert_eq!(from.relay, None, "{from:?}");
+}
+
 /// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
 /// carries is the sending daemon's, which this one cannot confirm, so it is dropped.
 #[tokio::test]

@@ -105,7 +105,15 @@ pub(super) async fn relay(
             }
             let message = OutMessage {
                 to,
-                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
+                // The outbox takes only this machine's unix socket (`outbox::handle`), so a
+                // delivery with no caller is a relay's there, as `relay_of` reads it.
+                from: sender(
+                    hub,
+                    delivery.caller.as_deref(),
+                    carried.named,
+                    carried.claim,
+                    delivery.caller.is_none().then(|| relay_of(&delivery.request)).flatten(),
+                ),
                 kind: Kind::Prompt,
                 op: None,
                 body: carried.body,
@@ -221,7 +229,7 @@ fn message(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
@@ -337,15 +345,37 @@ fn class_note(row: &mut Value, inline: Option<PromptClass>) {
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-/// session is proven, as a display name. `claim` is provenance only, never the sender.
-fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
+/// session is proven, as a display name. `claim` is provenance only, never the sender. `relay` is
+/// the relay record of a send no session made, which goes only when no caller is proven.
+fn sender(
+    hub: &Hub,
+    caller: Option<&str>,
+    named: Option<String>,
+    claim: Option<Value>,
+    relay: Option<Value>,
+) -> Sender {
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
         host: Some(crate::pairing::machine_name()),
         claim,
+        relay: relay.filter(|_| caller.is_none()),
         ..Sender::default()
     }
+}
+
+/// The relay record (`prompt_provenance::FROM_RELAY`) of a send a relay on this machine's unix
+/// socket made outside any session (the lane-gh broker's `acpmux send`), read as the peer link
+/// reads it (`peer_forward::name_sender`): only well-formed fields, from no proven caller.
+fn local_relay(conn: &Conn, request: &Value) -> Option<Value> {
+    (conn.origin == super::Origin::Local && conn.caller().is_none())
+        .then(|| relay_of(request))
+        .flatten()
+}
+
+/// `request`'s relay record, well formed, as the hub's message carries it (`Sender::relay`).
+fn relay_of(request: &Value) -> Option<Value> {
+    crate::prompt_provenance::relay_sender(request)?.relay.map(|r| r.to_value())
 }
 
 pub(super) async fn send(
@@ -369,7 +399,7 @@ pub(super) async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
