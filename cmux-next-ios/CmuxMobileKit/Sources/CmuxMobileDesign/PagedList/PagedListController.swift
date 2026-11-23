@@ -361,6 +361,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The committed-frame measure's last sample, where the last committed frame drew the list, and
     /// where the last layout pass found it (the pass measure's mid-placement mark).
     private var committedSample: ShiftSample?
+    /// The rows on screen when the committed-frame measure last sampled (``PagedListFollow``).
+    private var committedRows: [PagedListFollow.Row<CellID>] = []
     private var committedFrame: CGRect?
     private var passFrame: CGRect?
     private var commitWatch: PagedListCommitWatch?
@@ -1058,19 +1060,33 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                                           offset: offsetY, explained: ledger.committedExplained, spring: spring.isRunning,
                                           trail: commitTrail))
         }
+        let bottom = current?.bottom ?? false
+        func rowsOnScreen(bottom: Bool) -> [PagedListFollow.Row<CellID>] {
+            collectionView.indexPathsForVisibleItems.sorted().compactMap { indexPath in
+                guard let id = dataSource.itemIdentifier(for: indexPath), case .row = id,
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+                return .init(id: id, y: windowY(attributes, bottom: bottom))
+            }
+        }
+        let visible = rowsOnScreen(bottom: bottom)
+        // Now, as the last sample read its rows (their tops, or bottoms), with the row read then
+        // where the layout has it now, also off screen (after the rows on screen, so its place among
+        // them says it left them).
+        var rows = committedSample.map { $0.bottom == bottom ? visible : rowsOnScreen(bottom: $0.bottom) } ?? visible
+        if let last = committedSample, !rows.contains(where: { $0.id == last.id }), let y = windowY(of: last.id, bottom: last.bottom) {
+            rows.append(.init(id: last.id, y: y))
+        }
         defer {
+            committedRows = visible
             committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             committedFrame = frame
             ledger.resetCommitted()
             commitTrail.removeAll(keepingCapacity: true)
         }
         guard let last = committedSample, abs(last.width - width) < 0.5,
-              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
-        // The row is measured by its own id whatever else changed in the frame: a row inserted or
-        // removed next to it does not excuse its move (the up-slow-flood frame that drew the rows
-        // 75 pt off for one frame while a row went, step 3c24c106, video frame 224).
-        _ = indexPath
-        let was = last.windowY
+              let followed = PagedListFollow.pick(previous: committedRows, current: rows, reading: last.id) else { return }
+        let was = followed.was
+        let now = followed.now
         let shift = (now - was) + ledger.committedExplained
         report(shift)
         if abs(shift) > 0.5, let detail = probe.shiftDetail {
@@ -1126,19 +1142,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let explained = ledger.committedExplained
         defer { drawnRows = rows; drawnReading = reading }
         guard !drawnRows.isEmpty else { return }
-        // The row being read last frame when it is still drawn, else the first row drawn in both
-        // frames (a row swapped out of the list is not followed out of it).
-        let was: (id: CellID, y: CGFloat)?
-        if let id = drawnReading, let row = drawnRows.first(where: { $0.id == id }), rows.contains(where: { $0.id == id }) {
-            was = row
-        } else {
-            was = drawnRows.first { old in rows.contains { $0.id == old.id } }
-        }
-        guard let was, let now = rows.first(where: { $0.id == was.id }) else { return }
-        let shift = (now.y - was.y) + explained
+        // The same choice of row as the committed-frame measure (``PagedListFollow``).
+        guard let followed = PagedListFollow.pick(previous: drawnRows.map { PagedListFollow.Row(id: $0.id, y: $0.y) },
+                                                  current: rows.map { PagedListFollow.Row(id: $0.id, y: $0.y) },
+                                                  reading: drawnReading) else { return }
+        let shift = (followed.now - followed.was) + explained
         let detail = abs(shift) > 0.5 && probe?.shiftDetail != nil
-            ? String(format: "drawn moved=%.1f explained=%.1f row=%@ followed=%@", now.y - was.y, explained,
-                     String(describing: was.id), was.id == drawnReading ? "reading" : "survivor")
+            ? String(format: "drawn moved=%.1f explained=%.1f row=%@ followed=%@", followed.now - followed.was, explained,
+                     String(describing: followed.id), followed.id == drawnReading ? "reading" : "survivor")
             : nil
         report(shift, detail)
     }
