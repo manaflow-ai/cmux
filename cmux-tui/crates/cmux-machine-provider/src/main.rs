@@ -4,8 +4,8 @@
 //!
 //! ```text
 //! cmux-gcp-machine plan   --key K --project P --zone Z --image I [--machine-type T] [--disk-gb N] [--idle-minutes N]
-//! cmux-gcp-machine create --key K --project P --zone Z --image I ... --token-fd N [--wait]
-//! cmux-gcp-machine start|stop|snapshot|delete --key K --machine M --project P --zone Z --token-fd N [--wait]
+//! cmux-gcp-machine create --key K --project P --zone Z --image I ... --token-fd N [--no-wait]
+//! cmux-gcp-machine start|stop|snapshot|delete --key K --machine M --project P --zone Z --token-fd N [--no-wait]
 //! cmux-gcp-machine observe --machine M --project P --zone Z --token-fd N
 //! cmux-gcp-machine pending --project P
 //! ```
@@ -13,6 +13,10 @@
 //! The token comes from a descriptor the caller opened (`--token-fd 3`
 //! with `3< <(mint-a-token)`), never argv or the environment. Every call but
 //! `plan` and `pending` is refused while `labs.gcpMachineProvider` is off.
+//!
+//! A mutating call waits for its operation to finish. `--no-wait` returns
+//! once Compute Engine accepts it, exits 75 and leaves the op pending in the
+//! ledger (`pending` lists it); running the same key again settles it.
 
 use cmux_machine_provider::{
     AccessToken, CreateSpec, CurlTransport, GcpProvider, IdempotencyKey, Ledger, MachineProvider,
@@ -111,7 +115,7 @@ fn run(args: &[String]) -> Result<String, ProviderError> {
         AccessToken::from_fd(fd)?,
         Box::new(CurlTransport::default()),
     )?;
-    provider.wait = flags.contains_key("wait");
+    provider.wait = !flags.contains_key("no-wait");
     if verb == "observe" {
         let state = provider.observe(need("machine")?)?;
         return Ok(serde_json::to_string(&state).unwrap_or_default());

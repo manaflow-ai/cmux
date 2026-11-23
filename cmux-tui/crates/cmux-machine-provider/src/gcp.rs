@@ -157,7 +157,9 @@ pub struct GcpProvider {
     transport: Box<dyn Transport>,
     base: String,
     /// Wait for each mutating call's operation to finish (one server-side
-    /// wait call) before answering.
+    /// wait call) before answering. On by default: an accepted operation can
+    /// still fail, so a call that does not wait answers `Indeterminate` and
+    /// its ledger line stays pending until a later run sees the op settled.
     pub wait: bool,
 }
 
@@ -183,7 +185,7 @@ impl GcpProvider {
             token,
             transport,
             base: COMPUTE.to_owned(),
-            wait: false,
+            wait: true,
         })
     }
 
@@ -220,16 +222,23 @@ impl GcpProvider {
         {
             return Err(ProviderError::Api { status: 200, message: message.to_owned() });
         }
-        if !self.wait {
-            return Ok(());
-        }
         let Some(name) = operation.get("name").and_then(Value::as_str) else {
+            // Not an operation: nothing to wait for or to fail later.
             return Ok(());
         };
         let name_ok = name.len() <= 128
             && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
         if !name_ok {
             return Err(ProviderError::Indeterminate(format!("operation {name:?}")));
+        }
+        if !self.wait {
+            // Accepted is not done: the operation can still fail, so the
+            // ledger keeps the op pending and the next run with this key
+            // settles it by looking (or reissues under the same request id,
+            // which returns this operation).
+            return Err(ProviderError::Indeterminate(format!(
+                "operation {name} accepted, not waited for: run this key again to settle it"
+            )));
         }
         let done =
             self.call("POST", &format!("{}/operations/{name}/wait", self.zone_url()), None)?;
@@ -398,13 +407,7 @@ impl MachineProvider for GcpProvider {
                     None,
                 )?;
                 self.finish(&operation)?;
-                let state = if !self.wait {
-                    if request.op == Op::Start {
-                        MachineState::Provisioning
-                    } else {
-                        MachineState::Stopping
-                    }
-                } else if request.op == Op::Start {
+                let state = if request.op == Op::Start {
                     MachineState::Running
                 } else {
                     MachineState::Stopped
@@ -448,10 +451,7 @@ impl MachineProvider for GcpProvider {
                 ) {
                     Ok(operation) => {
                         self.finish(&operation)?;
-                        Ok((
-                            if self.wait { MachineState::Deleted } else { MachineState::Deleting },
-                            None,
-                        ))
+                        Ok((MachineState::Deleted, None))
                     }
                     Err(ProviderError::NotFound(_)) => Ok((MachineState::Deleted, None)),
                     Err(e) => Err(e),

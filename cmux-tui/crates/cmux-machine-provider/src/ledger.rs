@@ -281,22 +281,22 @@ fn scope_of(provider: &dyn MachineProvider) -> String {
     format!("{}/{}/{}", provider.provider(), provider.project(), provider.location())
 }
 
-/// The state that shows a pending op took effect, or `None` when it must be
-/// reissued. A snapshot is never settled by looking: its provider-side name
-/// is deterministic, so the reissue finds it.
+/// The state that shows a pending op finished, or `None` when it must be
+/// reissued. A state still in flight (provisioning, deleting) settles
+/// nothing: the operation behind it can still fail, and a `done` line is
+/// never retried. The reissue carries the same request id, so the provider
+/// answers with the original operation and the call waits on it. A snapshot
+/// is never settled by looking: its provider-side name is deterministic, so
+/// the reissue finds it.
 fn settled_by(op: Op, observed: Option<MachineState>) -> Option<MachineState> {
     match (op, observed) {
-        (Op::Create, Some(state))
-            if !matches!(state, MachineState::Deleting | MachineState::Deleted) =>
-        {
-            Some(state)
-        }
+        (
+            Op::Create,
+            Some(state @ (MachineState::Running | MachineState::Stopping | MachineState::Stopped)),
+        ) => Some(state),
         (Op::Delete, None | Some(MachineState::Deleted)) => Some(MachineState::Deleted),
-        (Op::Delete, Some(MachineState::Deleting)) => Some(MachineState::Deleting),
         (Op::Stop, Some(MachineState::Stopped)) => Some(MachineState::Stopped),
-        (Op::Start, Some(state @ (MachineState::Running | MachineState::Provisioning))) => {
-            Some(state)
-        }
+        (Op::Start, Some(MachineState::Running)) => Some(MachineState::Running),
         _ => None,
     }
 }
