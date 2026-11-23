@@ -191,10 +191,13 @@ impl Observation {
             Status::Paused | Status::Stopped => Observation::Paused,
             Status::Failed => Observation::Failed,
             Status::Destroyed => Observation::Destroyed,
+            // `stopped` (cmux-lifeline: confirmed after a refused or failed start) is not a
+            // power state this machine models, so it proves neither running nor paused.
             Status::Provisioning
             | Status::Unknown
             | Status::Pausing
             | Status::Starting
+            | Status::Stopped
             | Status::Deleting => Observation::Unknown,
         }
     }
