@@ -521,6 +521,56 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Per-account usage (feature map `usage-per-account`, Leo 2026-11-23: "Per-account 5-hour and weekly
+  // limits and the last cache-miss cause"): a Claude account's newest saved windows, and its usage
+  // block's hover line naming the last prompt cache miss (the `title`, read by the capture as
+  // `data-cache-miss`).
+  ...Object.fromEntries(
+    (
+      [
+        ["expired", "the 5-hour cache window lapsed between turns", true],
+        ["model", "a model switch started a new cache", true],
+        ["compaction", "only a miss is known yet: no windows, the hover line alone", false],
+      ] as const
+    ).map(([cause, why, windows]) => [
+      `agents-harnesses-claude-usage-miss-${cause}`,
+      variant("agents", {
+        note: `Claude's account row shows the 5-hour and weekly limits its chats last saved; hovering the usage names the last cache miss: ${cause} (${why}).`,
+        harnesses: {
+          loading: false,
+          problem: null,
+          accounts: providerAccounts.map((account) =>
+            account.id === "claude-login"
+              ? {
+                  ...account,
+                  usage: {
+                    windows: windows
+                      ? [
+                          { id: "session", usedPercent: 34, windowMins: 300 },
+                          { id: "weekly", usedPercent: 18, windowMins: 10080 },
+                        ]
+                      : [],
+                    plan: "max",
+                    lastCacheMiss: { cause, at: minutesAgo(12) },
+                  },
+                }
+              : account,
+          ),
+          harnesses: [
+            {
+              id: "claude",
+              name: null,
+              kind: "claude-stdio",
+              source: "path",
+              problem: null,
+              version: "2.0.9",
+              checkedAt: minutesAgo(54),
+            },
+          ],
+        },
+      }),
+    ]),
+  ),
   // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
@@ -1037,6 +1087,12 @@ Object.assign(variants, {
     focus: "notifications.attention.mark",
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
+  }),
+  // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
+  "agent-blocked-banner": variant("notifications", {
+    focus: "notifications.delivery.blocked",
+    options: { values: { "notifications.delivery.blocked": "banner" } },
+    note: "Settings > Notifications with Agent Blocked set to Banner: an agent that turns Blocked posts a banner.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),

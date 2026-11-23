@@ -37,6 +37,10 @@ fn the_forward_is_a_unix_socket_forward_that_fails_at_once_and_ends_options_befo
     let argv = forward_argv("gcp-1", Path::new("/tmp/x/d.sock"), "/home/cmux/.acpmux/acpmux.sock");
     let at = |s: &str| argv.iter().position(|a| a == s).unwrap();
     assert!(argv.contains(&"ExitOnForwardFailure=yes".to_owned()), "{argv:?}");
+    // Its own connection, never the fleet config's shared master for the host (item D).
+    assert_eq!(argv[at("ControlMaster=no") - 1], "-o", "{argv:?}");
+    assert_eq!(argv[at("ControlPath=none") - 1], "-o", "{argv:?}");
+    assert!(at("ControlPath=none") < at("--"), "{argv:?}");
     assert_eq!(argv[at("-L") + 1], "/tmp/x/d.sock:/home/cmux/.acpmux/acpmux.sock");
     assert_eq!(argv[at("--") + 1], "gcp-1");
     assert_eq!(argv.last().unwrap(), "gcp-1");
@@ -387,7 +391,11 @@ fn move_from_auto_excludes_source_registry_and_ssh_aliases() {
         {"name": "target", "url": "ssh://target-host"}
     ]});
     let registry = json!({"machines": {"source": {"aliases": ["source-alias"]}}});
-    let source = Source::Peer { name: "SOURCE.local".into(), ssh: "source-host".into() };
+    let source = Source::Peer {
+        name: "SOURCE.local".into(),
+        ssh: "source-host".into(),
+        socket: "/remote/acpmux.sock".into(),
+    };
     let mut targets = Targets::new("auto", &peers).unwrap();
     targets.exclude_source(&source, Some(&registry)).unwrap();
     let hosts = json!([
@@ -653,36 +661,76 @@ fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
     assert_eq!(git(&origin, &["rev-parse", "refs/heads/main"]), main_before, "main never pushed");
     assert_eq!(git(&origin, &["rev-parse", &dest]), head);
 
-    // The target's side, with no `wt` on PATH: a clone of its own, at the commit, detached.
-    let target_home = base.path().join("target-home");
-    std::fs::create_dir(&target_home).unwrap();
-    let mut child = StdCommand::new("/bin/sh")
-        .arg("-c")
-        .arg(WORKTREE_SCRIPT)
-        .env("HOME", &target_home)
-        .env("PATH", "/usr/bin:/bin")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        use std::io::Write as _;
-        let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
-        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-    }
-    let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let there = PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
-    assert_eq!(git(&there, &["rev-parse", "HEAD"]), head);
-    let symbolic = StdCommand::new("git")
-        .arg("-C")
-        .arg(&there)
-        .args(["symbolic-ref", "-q", "HEAD"])
-        .status()
-        .unwrap();
-    assert!(!symbolic.success(), "the target's checkout is detached");
-    assert!(there.join("b.txt").exists());
+    // The target's side: WORKTREE_SCRIPT with PATH holding `bin` (a stand-in `wt`, or none).
+    let target = |case: &str, wt: Option<&str>| {
+        let target_home = base.path().join(format!("target-home-{case}"));
+        let bin = target_home.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        if let Some(body) = wt {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::write(bin.join("wt"), body).unwrap();
+            std::fs::set_permissions(bin.join("wt"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let mut child = StdCommand::new("/bin/sh")
+            .arg("-c")
+            .arg(WORKTREE_SCRIPT)
+            .env("HOME", &target_home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("WT_STANDIN_URL", &url)
+            .env("WT_STANDIN_REF", &dest)
+            .env("WT_STANDIN_LOG", target_home.join("wt.log"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write as _;
+            let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
+            child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        }
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(out.status.success(), "{case}: {stderr}");
+        let there =
+            PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
+        assert_eq!(git(&there, &["rev-parse", "HEAD"]), head, "{case}");
+        let symbolic = StdCommand::new("git")
+            .arg("-C")
+            .arg(&there)
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .status()
+            .unwrap();
+        assert!(!symbolic.success(), "{case}: the target's checkout is detached");
+        assert!(there.join("b.txt").exists(), "{case}");
+        let notes: Vec<String> =
+            stderr.lines().filter_map(|l| l.strip_prefix(FOLDER_NOTE).map(str::to_owned)).collect();
+        let log = std::fs::read_to_string(target_home.join("wt.log")).unwrap_or_default();
+        (notes, log)
+    };
+    let short = &head[..12];
+    // No `wt`: a clone of its own, and the move says so.
+    let (notes, _) = target("no-wt", None);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].starts_with("no wt on PATH; cloning"), "{notes:?}");
+    // A `wt` that refuses the commit as the real one does (a commit on no branch is not in its
+    // partial-clone mirror): the clone, and a line naming why, never a silent fallback.
+    let refusing = "#!/bin/sh\necho \"$*\" >> \"$WT_STANDIN_LOG\"\n\
+        echo \"wt: refused: $4 is not in this partial clone\" >&2\nexit 1\n";
+    let (notes, log) = target("wt-refuses", Some(refusing));
+    assert_eq!(log.trim(), format!("new o/r --at {head} --name move-{short}"));
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].starts_with(&format!("wt new --at {short} failed")), "{notes:?}");
+    // A `wt` that makes the checkout: used as it is, with nothing to say.
+    let making = "#!/bin/sh\necho \"$*\" >> \"$WT_STANDIN_LOG\"\n\
+        d=\"$HOME/wt-made\"; git clone -q --no-checkout -- \"$WT_STANDIN_URL\" \"$d\" >&2 || exit 1\n\
+        git -C \"$d\" fetch -q origin \"$WT_STANDIN_REF\" >&2 || exit 1\n\
+        git -C \"$d\" -c advice.detachedHead=false checkout -q --detach \"$4\" >&2 || exit 1\n\
+        echo \"wt: made $d\"\necho \"$d\"\n";
+    let (notes, log) = target("wt-makes", Some(making));
+    assert_eq!(log.trim(), format!("new o/r --at {head} --name move-{short}"));
+    assert!(notes.is_empty(), "{notes:?}");
 
     drop_ref(&src, &dest);
     assert!(git(&origin, &["for-each-ref", "refs/acpmux"]).is_empty(), "the move's ref is gone");
@@ -745,24 +793,27 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
     assert!(lines[0].ends_with("refresh it with `acpmux machine update old`"), "{}", lines[0]);
 }
 
-/// Item D: a move ends only once this machine lists the moved chat reachable on its new
+/// Item D: a move ends only once this machine lists the moved chats reachable on their new
 /// machine; a last-known copy, or a row whose peer is reconnecting, is not yet. Past the bound
-/// it says why instead of waiting on.
+/// it says why instead of waiting on. F3: the chats of one move are waited on together, one
+/// request for all still waited on, not one bounded wait per chat.
 #[tokio::test(start_paused = true)]
-async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
+async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let row = |stale: bool, state: &str| {
-        json!({"rows": [
-            {"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}},
-            {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
-        ]})
+    let row = |id: &str, stale: bool, state: &str| {
+        vec![
+            json!({"sessionId": id, "status": "closed", "movedTo": {"host": "t"}}),
+            json!({"sessionId": id, "peer": "t", "stale": stale, "peerState": state}),
+        ]
     };
+    let rows = |parts: Vec<Vec<Value>>| json!({"rows": parts.concat()});
+    // s2 is listed reachable at the second ask, s1 at the fourth.
     let replies = [
-        json!({"rows": []}),
-        row(true, "reconnecting"),
-        row(false, "reconnecting"),
-        row(false, "connected"),
+        rows(vec![]),
+        rows(vec![row("s1", true, "reconnecting"), row("s2", false, "connected")]),
+        rows(vec![row("s1", false, "reconnecting")]),
+        rows(vec![row("s1", false, "connected")]),
     ];
     let socket_dir = tempfile::tempdir().unwrap();
     let socket = socket_dir.path().join("daemon.sock");
@@ -771,7 +822,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
         let (stream, _) = listener.accept().await.unwrap();
         let (rd, mut wr) = stream.into_split();
         let mut lines = BufReader::new(rd).lines();
-        let mut asked = 0;
+        let mut asked = Vec::new();
         while let Ok(Some(line)) = lines.next_line().await {
             let Message::Request { id, method: called, params, .. } =
                 Message::parse(&line).unwrap()
@@ -783,9 +834,11 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
                 continue;
             }
             assert_eq!(called, method::MUX_INFO);
-            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["s1"]));
-            let reply = replies.get(asked).cloned().unwrap_or_else(|| row(false, "reconnecting"));
-            asked += 1;
+            asked.push(params.unwrap_or_default()["sessionIds"].clone());
+            let reply = replies
+                .get(asked.len() - 1)
+                .cloned()
+                .unwrap_or_else(|| rows(vec![row("s1", false, "reconnecting")]));
             wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
         }
         asked
@@ -793,17 +846,27 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    await_arrival(&client, "s1", bound, poll).await.unwrap();
-    // A link that stays down: the wait ends at its bound and says why.
-    let why =
-        await_arrival(&client, "s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
-    assert_eq!(why, "peer reconnecting");
+    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let started = tokio::time::Instant::now();
+    assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
+    assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
+    // A link that stays down: the wait ends at its bound and says why, per chat.
+    let one = vec!["s1".to_owned()];
+    let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
+    assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
-    assert!((4 + 4..=4 + 5).contains(&asked), "asked {asked} times");
+    assert_eq!(
+        asked[..4],
+        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+    );
+    assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
-    assert_eq!(arrived(&json!({"rows": []})), Err("not listed here yet".to_owned()));
-    let stale = arrived(&row(true, "reconnecting")).unwrap_err();
+    let one_row = |stale, state| rows(vec![row("s1", stale, state)]);
+    assert_eq!(arrived(&rows(vec![]), "s1"), Err("not listed here yet".to_owned()));
+    let stale = arrived(&one_row(true, "reconnecting"), "s1").unwrap_err();
     assert!(stale.contains("last-known copy"), "{stale}");
-    assert_eq!(arrived(&row(false, "degraded")), Ok(()));
+    assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
+    // Another chat's row says nothing of this one.
+    assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
 }
