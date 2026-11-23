@@ -213,7 +213,7 @@ class FixtureRepo(unittest.TestCase):
 
 
 class RealWorkflow(unittest.TestCase):
-    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and its own setup-tooling-route step feeds it."""
+    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and the job's own setup-tooling-route step feeds it."""
 
     @classmethod
     def setUpClass(cls):
@@ -247,7 +247,7 @@ class RealWorkflow(unittest.TestCase):
         expected = [s["id"] for s in self.job["steps"] if "run" in s and not s["id"].startswith("setup-")]
         self.assertEqual([s.key for s in decision.steps], expected)
 
-    def test_the_job_runs_the_router_before_its_selectable_steps(self):
+    def test_the_route_step_runs_the_router_before_every_selected_step(self):
         steps = self.job["steps"]
         index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-route")
         step = steps[index]
@@ -255,12 +255,17 @@ class RealWorkflow(unittest.TestCase):
                       step["run"])
         self.assertIn("--job tooling-tests", step["run"])
         self.assertIn("tooling_all=true", step["run"])  # a router failure runs every step
-        self.assertIs(step.get("continue-on-error"), True)
-        self.assertEqual(step["if"], "${{ github.event_name == 'pull_request' }}")
-        first_selected = next(i for i, s in enumerate(steps) if str(s.get("id", "")).startswith("tt-"))
-        self.assertLess(index, first_selected)
+        self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the job
+        self.assertEqual(step["if"], "${{ github.event_name == 'pull_request' }}")  # any other event runs every step
+        # The router reads workflows with PyYAML, which the venv step puts on PATH first.
+        setup_python = next(i for i, s in enumerate(steps) if s.get("id") == "setup-python")
+        self.assertLess(setup_python, index)
+        self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
+        # No routing job of its own: tooling-tests waits only on coalesce.
+        self.assertEqual(self.job["needs"], "coalesce")
         self.assertNotIn("portable-placement", self.document["jobs"])
-        self.assertTrue(self.job["if"].startswith("${{ !cancelled()"))
+        self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
+
 
 if __name__ == "__main__":
     unittest.main()
