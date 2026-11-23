@@ -2182,8 +2182,11 @@ class BlacksmithStall(unittest.TestCase):
     """A queue rescue never moves a job onto a Blacksmith label the pickers call stalled (run 40466780519)."""
 
     def test_the_dev_daily_retry_label_comes_from_its_workflow(self):
-        # The dev daily's signing jobs read the macos_26 pool: a re-run may take any of its members.
-        self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH, "blacksmith-12vcpu-macos-26"})
+        # The dev daily's signing jobs keep their literal label (tests/test_ci_no_single_size_pins.py).
+        self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH})
+        # A pool read may take any of the pool's members.
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}\n"),
+                         {BLACKSMITH, "blacksmith-12vcpu-macos-26"})
         self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_15 }}\n"),
                          {"blacksmith-6vcpu-macos-15"})
         self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).nope }}\n"),
@@ -7491,7 +7494,7 @@ class Workflow(unittest.TestCase):
         # rescues from, and the ephemeral selector follows it.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

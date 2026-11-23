@@ -1089,8 +1089,9 @@ jobs:
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
-        # an owned Mac would otherwise keep.
-        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
+        # an owned Mac would otherwise keep, but never a simulator slot device
+        # (SIMULATOR_KEEP=1), which stays booted for the slot's next job.
+        if: ${{ always() && env.SIMULATOR_ID != '' && env.SIMULATOR_KEEP != '1' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"
@@ -1448,8 +1449,9 @@ jobs:
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
-        # an owned Mac would otherwise keep.
-        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
+        # an owned Mac would otherwise keep, but never a simulator slot device
+        # (SIMULATOR_KEEP=1), which stays booted for the slot's next job.
+        if: ${{ always() && env.SIMULATOR_ID != '' && env.SIMULATOR_KEEP != '1' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"

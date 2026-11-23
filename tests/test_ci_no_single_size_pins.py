@@ -26,7 +26,8 @@ allowed only where it is not a route:
 
 A bare (unquoted) Blacksmith label in a selection is always a pin. EXCEPTIONS names the few selections that keep a
 literal on purpose, each with its reason; SELECTIONS_KEPT_LITERAL names whole selections kept the same way, and a job that holds signing or release
-material (holds_signing_material) keeps its route under its own trust rules. Workflow-dispatch input defaults are dispatch
+material (holds_signing_material), or that main's keychain guard pins to a literal ephemeral label (rule 6 or 7 of
+tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py), keeps its route under its own trust rules. Workflow-dispatch input defaults are dispatch
 choices a person makes, and are not scanned. GitHub-hosted labels are the other half of the invariant and stay
 with tests/test_ci_self_hosted_guard.sh, whose exact-line exceptions (the light-Linux jobs in .github/runners.json
 `hosted_light_jobs` with their measured wall time, provenance publishing) are the only hosted routes.
@@ -34,6 +35,7 @@ with tests/test_ci_self_hosted_guard.sh, whose exact-line exceptions (the light-
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import unittest
@@ -62,6 +64,15 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
+    ("relay-tls.yml", "jobs.system-keychain.runs-on"): (
+        "adds and removes a root CA in the System keychain under sudo and selects Xcode 16.2, so it needs a "
+        "disposable Blacksmith macOS 15 machine; on PR #51718 the macos_15 pool read sent it to an owned mini "
+        "(glaeda-std-xcode-26.6, job 137906049596), where Xcode 16.2 is absent and a keychain write would persist"
+    ),
+    ("billing-nightly.yml", "jobs.alert.runs-on"): (
+        "holds the billing health token, and main's billing guard keeps every secret job off a variable runner "
+        "(tests/test_ci_billing_nightly.py test_secret_jobs_run_on_a_literal_runner)"
+    ),
     ("cmux-next-dev-daily.yml", "jobs.tip-dmg-build.runs-on"): (
         "falls back exactly as verify, a signing job kept under its trust rules, and the runner job's pick counts "
         "Blacksmith room only on that one label (BLACKSMITH_LABELS; tests/test_cmux_next_dev_tip_feed.py)"
@@ -88,6 +99,20 @@ SELECTIONS_KEPT_LITERAL = {
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
 import workflow_jobs  # noqa: E402
+import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain  # noqa: E402
+
+
+def keychain_needs_a_literal(workflow: str, jobs: dict, name: str) -> bool:
+    """Main's keychain guard pins this job to a literal ephemeral label: rule 7 (it holds a signing secret, including
+    App Store Connect, iOS and Sparkle keys) or rule 6 (it runs bundle code on a release job's output)."""
+    job = jobs.get(name)
+    if not isinstance(job, dict):
+        return False
+    if keychain.SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
+        return True
+    moved = dict(jobs)
+    moved[name] = {**job, "runs-on": "${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}"}
+    return any(failure.startswith(f"{workflow} {name}:") for failure in keychain.failures_of(workflow, moved))
 # A fork branch whose operand reads any repository variable, directly or through fromJSON.
 VARS_READ = re.compile(r"\bvars\.")
 # The one Linux label's fork operand (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you shouldn't have to think
@@ -170,7 +195,7 @@ def violations(directory: Path = WORKFLOWS) -> list[str]:
         for path, value in selections(jobs, ("jobs",)):
             if (workflow.name, ".".join(path)) in SELECTIONS_KEPT_LITERAL:
                 continue
-            if holds_signing_material(jobs.get(path[1])):
+            if holds_signing_material(jobs.get(path[1])) or keychain_needs_a_literal(workflow.name, jobs, path[1]):
                 continue
             value = without_fork_hosted_default(value)
             if FORK_READS_POOLS.search(value) or any(
@@ -228,6 +253,14 @@ class NoSingleSizePins(unittest.TestCase):
         self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
+
+    def test_jobs_the_keychain_guard_pins_keep_their_literal(self) -> None:
+        for workflow, name in (("ios-asc-ops.yml", "op"), ("resume-nightly-notarization.yml", "verify-stapled")):
+            with self.subTest(workflow=workflow, job=name):
+                document = yaml.load((WORKFLOWS / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+                self.assertTrue(keychain_needs_a_literal(workflow, document["jobs"], name))
+        document = yaml.load((WORKFLOWS / "release.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        self.assertFalse(keychain_needs_a_literal("release.yml", document["jobs"], "build-ghostty-cli-helper"))
 
     def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","

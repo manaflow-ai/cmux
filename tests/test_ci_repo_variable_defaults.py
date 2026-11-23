@@ -66,6 +66,14 @@ PAID_CAPABLE_RUNNER_VARS = {
     "MACOS_RUNNER_26_LARGE": "blacksmith-12vcpu-macos-26",
 }
 
+# The pool read that may stand for each free label: the pool's lead is that label's size.
+PAID_CAPABLE_POOL_DEFAULTS = {
+    "MACOS_RUNNER_15": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DISPLAY": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DUAL_XCODE": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_26_LARGE": "fromJSON(vars.RUNNER_POOLS).macos_26_large",
+}
+
 # The gate as it must appear immediately before the read. The lookbehind keeps
 # `inputs.CI_PAID_MACOS_OVERFLOW == '1' && ` from passing for the repository's
 # own flag.
@@ -132,14 +140,18 @@ def is_comparison(text: str, end: int) -> bool:
 
 
 def default_chain_reaches_literal(text: str, end: int) -> bool:
-    """True when a chain of `|| vars.Y || 'literal'` ends in a literal."""
+    """True when a chain of `|| vars.Y || 'literal'` ends in a literal or a declared runner pool."""
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
-            return re.match(r"\s*\|\|\s*'[^']+'", rest) is not None
+            return re.match(r"\s*\|\|\s*(?:'[^']+'|" + POOL_READ + ")", rest) is not None
         rest = rest[chained.end():]
 
+
+# A declared pool's read (tests/test_ci_no_single_size_pins.py): the writer keeps every pool in
+# .github/runners.json set, so it is the fallback for the same free Blacksmith size a literal named.
+POOL_READ = r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+"
 
 # The one routing source (scripts/ci/runner_pools.py): RUNNER_POOLS has no literal fallback on purpose.
 # Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
@@ -180,7 +192,7 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || 'blacksmith-12vcpu-macos-26').
-        if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
+        if re.search(r"\|\|\s*(?:'[^']+'|" + POOL_READ + r")\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
@@ -248,6 +260,9 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
                         f"label, so write `vars.{PAID_OVERFLOW_GATE} == '1' && "
                         f"vars.{name} || '{free_label}'`"
                     )
+                    continue
+                if re.match(r"\s*\|\|\s*" + re.escape(PAID_CAPABLE_POOL_DEFAULTS[name]) + r"(?![A-Za-z0-9_])",
+                            line[read.end():]):
                     continue
                 fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
                 if fallback is None or fallback.group(1) != free_label:

@@ -214,6 +214,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
 
+      - name: Validate no job takes one runner size
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_single_size_pins.py
+
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
@@ -242,8 +246,23 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      # Three shards of one file: alone it outlasted every other guard and set CI fast guards' wall time.
+      - name: Validate main-fix merge evidence (installed helper)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: installed-helper
+        run: python3 tests/test_gh_merge_green.py
+
+      - name: Validate main-fix merge evidence (merged-head checks)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: merged-head
+        run: python3 tests/test_gh_merge_green.py
+
       - name: Validate main-fix merge evidence
         if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: rest
         run: python3 tests/test_gh_merge_green.py
 
       - name: Validate the gh-merge-green fast gate
@@ -875,6 +894,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate iOS simulator selection and per-slot devices
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_select_ios_simulator.py
+
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1165,6 +1188,10 @@ jobs:
       - name: Validate the PR media privacy gate
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
+
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
