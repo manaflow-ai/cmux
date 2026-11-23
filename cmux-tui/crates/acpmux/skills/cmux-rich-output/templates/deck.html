@@ -653,6 +653,7 @@ html.deck-console .deck-console-foot { grid-area: foot; display: flex; flex-wrap
     else if (data?.t === "hello") {
       if (data.sig !== sig && data.born > born) location.reload();
       else if (!inConsole()) send({ t: "go", i: current });
+      else send({ t: "captions", on: state.captions }); // a window opened later learns the captions state
     }
   };
 
