@@ -7,7 +7,7 @@
 import { expect, test } from "bun:test";
 import { mergeQueue } from "../direct";
 import { translate } from "../i18n";
-import { subagentRetryNotice } from "./retryState";
+import { retryErrorDetail, retryErrorKind, retryErrorSummary, subagentRetryNotice } from "./retryState";
 
 /// The `queued` record's provenance acpmux puts on the resume (subagent_retry.rs).
 const marked = {
@@ -159,4 +159,47 @@ test("the record's provenance names the subagent and the error over the words", 
 
 test("the label is in the catalog", () => {
   expect(translate("composer.queuedSubagentRetry")).toBe("Resume subagent");
+});
+
+// cmux#51938 (Austin, 2026-11-23: "its really bad, why do we have this?"): the queued resume dumped
+// a 529's whole text inline, its gateway host and request id included. The row names the cause in a
+// word; opened, the provider's sentences without the host or request id.
+const overloaded =
+  "Agent terminated early due to an API error: API Error: Repeated 529 Overloaded errors. The API is at " +
+  "capacity — this is usually temporary. Try again in a moment. If it persists, check your inference " +
+  "gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 529, request id req_016L";
+
+test("a resume's error reads as its cause in a word", () => {
+  const t = (key: string) => translate(key as Parameters<typeof translate>[0]);
+  expect(retryErrorKind(overloaded)).toBe("overloaded");
+  expect(retryErrorSummary(t, overloaded)).toBe("Overloaded");
+  expect(retryErrorSummary(t, "API Error: 529 overloaded (retry later)")).toBe("Overloaded");
+  expect(retryErrorSummary(t, "429 Too Many Requests")).toBe("Rate limited");
+  expect(retryErrorSummary(t, "stream disconnected before completion: error sending request")).toBe(
+    "Connection failed",
+  );
+  expect(retryErrorSummary(t, "connect ECONNREFUSED 127.0.0.1:4016")).toBe("Connection failed");
+  expect(retryErrorSummary(t, "agent process closed")).toBe("Agent exited");
+  expect(retryErrorSummary(t, "API Error: 502 Bad Gateway")).toBe("Server error");
+  expect(retryErrorSummary(t, "something odd")).toBe("Temporary error");
+  expect(retryErrorSummary(t, undefined)).toBeUndefined();
+  expect(retryErrorSummary(t, "  ")).toBeUndefined();
+});
+
+test("an opened resume's error keeps the provider's sentences, never a host, URL or request id", () => {
+  const detail = retryErrorDetail(overloaded)!;
+  expect(detail).toBe(
+    "Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.",
+  );
+  for (const plumbing of ["ts.net", "4016", "req_", "request id", "error type", "Agent terminated", "API Error:"])
+    expect(detail).not.toContain(plumbing);
+  expect(retryErrorDetail("API Error: 529 overloaded (retry later)")).toBe("529 overloaded (retry later)");
+  expect(retryErrorDetail("Upstream failed at https://gw.example.com:8443/v1/messages.")).toBeUndefined();
+  expect(retryErrorDetail("Overloaded (request id req_abc). Retry soon.")).toBe("Overloaded. Retry soon.");
+  expect(retryErrorDetail(undefined)).toBeUndefined();
+});
+
+test("every cause has its words in the catalog", () => {
+  for (const kind of ["overloaded", "rateLimited", "network", "agentExited", "server", "other"] as const)
+    expect(translate(`composer.queuedRetryWhy.${kind}`)).not.toBe(`composer.queuedRetryWhy.${kind}`);
 });

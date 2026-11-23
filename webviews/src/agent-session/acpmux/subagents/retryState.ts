@@ -177,6 +177,67 @@ export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | 
 /// (Leo, 2026-10-30: "this looks weird and unrendered").
 export type SubagentRetryNotice = { name?: string; agentId?: string; error?: string };
 
+/// What failed the subagent, as the queued resume's row names it in a word or two after the name
+/// (cmux#51938, Austin 2026-11-23: "its really bad, why do we have this?" of a row that dumped a
+/// 529's whole text, its gateway host and request id inline). The error's own words wait behind the
+/// row: opened, a cleaned sentence (`retryErrorDetail`); its menu's Copy error, the raw text.
+export type RetryErrorKind = "overloaded" | "rateLimited" | "network" | "agentExited" | "server" | "other";
+
+const OVERLOADED = /\b529\b|overload|at capacity/i;
+const RATE_LIMITED = /\b429\b|rate.?limit|too many requests|usage limit|quota/i;
+const NETWORK =
+  /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error|dropped)|stream disconnected|network (?:error|is unreachable)|\bunreachable\b|timed out|timeout/i;
+const AGENT_EXITED = /agent process (?:closed|exited|died|ended)|exited (?:unexpectedly|with)|terminated by signal/i;
+const SERVER = /\b5\d\d\b|server[ _]error|service unavailable|bad gateway|internal error/i;
+
+export function retryErrorKind(error: string | undefined): RetryErrorKind {
+  if (!error) return "other";
+  if (OVERLOADED.test(error)) return "overloaded";
+  if (RATE_LIMITED.test(error)) return "rateLimited";
+  if (NETWORK.test(error)) return "network";
+  if (AGENT_EXITED.test(error)) return "agentExited";
+  if (SERVER.test(error)) return "server";
+  return "other";
+}
+
+const KIND_LABEL: Record<RetryErrorKind, StringKey> = {
+  overloaded: "composer.queuedRetryWhy.overloaded",
+  rateLimited: "composer.queuedRetryWhy.rateLimited",
+  network: "composer.queuedRetryWhy.network",
+  agentExited: "composer.queuedRetryWhy.agentExited",
+  server: "composer.queuedRetryWhy.server",
+  other: "composer.queuedRetryWhy.other",
+};
+
+/// The row's one-word cause ("Overloaded"); none when acpmux named no error.
+export function retryErrorSummary(t: Translate, error: string | undefined): string | undefined {
+  return error?.trim() ? t(KIND_LABEL[retryErrorKind(error)]) : undefined;
+}
+
+/// Wrapper words around the provider's own sentence: Claude Code's "Agent terminated early due to an
+/// API error:" and the "API Error:" it repeats.
+const WRAPPER = /^(?:\s*(?:agent terminated early due to an api error|api error)\s*:\s*)+/i;
+/// A sentence that names where the call went or which call it was (a gateway's host and port, a URL,
+/// a request id, the error's type and status fields): for a bug report, never the row.
+const PLUMBING =
+  /https?:\/\/|\b[\w-]+(?:\.[\w-]+)+:\d{2,5}\b|\.ts\.net\b|\brequest[ _-]?id\b|\breq_[A-Za-z0-9]+|\berror type\b|\binference gateway\b/i;
+
+/// The error as the opened row reads it: the provider's sentences without the wrapper words or any
+/// sentence that carries a host, URL or request id. Undefined when nothing readable is left.
+export function retryErrorDetail(error: string | undefined): string | undefined {
+  const text = error?.replace(WRAPPER, "").trim();
+  if (!text) return undefined;
+  // A parenthesis that names one goes first (an unclosed one runs to the end: acpmux cuts long
+  // errors), then any sentence still naming one.
+  const kept = text
+    .replace(/\s*\([^()]*(?:\)|$)/g, (group) => (PLUMBING.test(group) ? "" : group))
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !PLUMBING.test(sentence))
+    .join(" ")
+    .trim();
+  return kept || undefined;
+}
+
 /// `retry_text`'s words: `Your subagent "<name>" (agent id <id>) failed on a transient upstream
 /// error (<error>). Resume it …`, the name left out when acpmux has none. acpmux writes the name as
 /// it is, so a name may hold quotes: it ends at the `" (agent id ` that follows it.
