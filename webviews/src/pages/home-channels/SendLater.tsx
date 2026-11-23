@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
+import { intl } from "../../ui/intl";
 
 /** Where the composer puts Send Later: a clock button among its tools, or a segment on Send. */
 export type SendLaterStyle = "clock" | "split";
@@ -48,7 +49,7 @@ export function sendLaterTime(at: number, now: Date, language: string): string {
             day: "numeric",
             ...(when.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
           };
-  return new Intl.DateTimeFormat(language, options).format(when);
+  return intl.DateTimeFormat(language, options).format(when);
 }
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
