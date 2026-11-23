@@ -15,7 +15,7 @@ extension HomeChiefRoster {
     }
 
     /// The Chiefs New Message lists before anything is typed, as Messages lists recent conversations: the main
-    /// Chief, and every Chief whose conversation has a message from the last `within` (14 days). A Chief with no
+    /// Chief, and every Chief whose conversation has a message from the last `within` (14 days) or was made in it. A Chief with no
     /// messages, or none lately, is left out of that list, not hidden: typing its name in To: still finds it, and the
     /// Home list still shows it. Everyone else in `contacts` (the team, people of DMs) stays, in order (#48467: the
     /// list showed six Chiefs, most of them old, idle ones).
@@ -32,7 +32,9 @@ extension HomeChiefRoster {
             guard contact.source == .agent else { return true }
             let own = chiefRows.filter { $0.summary.participants.contains { $0.id == contact.id } }
             if let main, own.contains(where: { $0.id == main }) { return true }
-            return own.contains { $0.summary.lastSeq > 0 && $0.timestamp >= now.addingTimeInterval(-within) }
+            // A message lately, or a Chief made lately (New Chief: listed before its first message).
+            let since = now.addingTimeInterval(-within)
+            return own.contains { ($0.summary.lastSeq > 0 && $0.timestamp >= since) || $0.summary.createdAt >= since }
         }
     }
 

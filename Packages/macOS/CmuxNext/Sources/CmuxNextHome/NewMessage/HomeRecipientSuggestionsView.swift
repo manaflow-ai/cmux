@@ -192,7 +192,10 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         rows.indices.contains(row) && rows[row].isSelectable
     }
 
-    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
+    /// The highlight keeps the inset style's 8 pt from the panel's sides (the table is plain: #48467).
+    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        ThemedTableRowView(selectionInset: Self.rowInset - Metrics.space4)
+    }
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch rows[row] {

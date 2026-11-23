@@ -80,14 +80,29 @@ struct HomeWindowControlsTests {
     /// #48467, the person: "can we make this text search bar in the top and then the filter on the right". Clear of
     /// the lights, Search is on the top row with the filter to its right, centred on one line, and no empty row sits
     /// above them; the chat's compose sits on that line too.
+    /// Driven through the real list beside the window's sidebar (clear of the lights), as the app lays it out.
     @Test(arguments: [240, 320, 480] as [CGFloat])
     func searchTopFilterRightBesideTheLights(_ width: CGFloat) throws {
-        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
+        let win = Self.window()
+        defer { win.close() }
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 700))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        home.frame = NSRect(x: 240, y: 0, width: width, height: 700)
+        root.addSubview(home)
+        win.contentView = root
+        home.layoutSubtreeIfNeeded()
+        home.list.headerView.needsLayout = true
+        home.list.headerView.layoutSubtreeIfNeeded()
+        let h = home.header
+        #expect(h == HomeSidebarHeaderLayout(width: width, searchOpen: false), "the header laid out for traffic lights it is clear of")
         #expect(!h.compact)
         #expect(h.filter.minX >= h.search.maxX, "the filter is not right of Search at \(width)")
         #expect(abs(h.filter.midY - h.search.midY) <= 0.5, "Search \(h.search) and the filter \(h.filter) are not on one line")
         #expect(h.search.maxY <= HomeSidebarHeaderLayout.band, "Search is below the top row at \(width): \(h.search)")
         #expect(abs(h.search.midY - HomeChatColumnView.composeCenterY) <= 0.5, "compose is not level with Search")
+        // The views follow the layout.
+        #expect(home.searchCapsule.frame == h.search)
+        #expect(home.unreadToggle.frame == h.filter)
     }
 
     /// The list moves under the lights (the window's sidebar closes) without a width change: the

@@ -53,9 +53,13 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
         var seen: Set<ParticipantID> = []
         var result: [HomeContact] = []
         for row in rows where row.kind == .chief {
+            // The Chief's own name goes to its Chief only, and only where the row has one: another agent posting
+            // in it (a helper, a subagent) keeps its own name.
+            let chiefs = row.summary.participants.filter { $0.id != me && $0.isChief }
             for peer in row.summary.participants where peer.id != me && peer.kind == .agent && !peer.visibleName.isEmpty {
                 guard seen.insert(peer.id).inserted else { continue }
-                result.append(HomeContact(id: peer.id, name: names[row.id] ?? peer.visibleName, source: .agent))
+                let own = chiefs.count == 1 && chiefs[0].id == peer.id ? names[row.id] : nil
+                result.append(HomeContact(id: peer.id, name: own ?? peer.visibleName, source: .agent))
             }
         }
         return result

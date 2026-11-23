@@ -181,6 +181,10 @@ struct HomeNewMessageTests {
         #expect(HomeContact.agents(in: rows, me: Self.me, names: names).map(\.name) == ["Main", "joker"])
         // A Chief with no record name keeps its participant's.
         #expect(HomeContact.agents(in: rows, me: Self.me, names: [ConversationID("conv-b"): "joker"]).map(\.name) == ["Chief", "joker"])
+        // Another agent posting in a Chief's conversation keeps its own name, not the Chief's.
+        let helper = Participant(id: ParticipantID("helper"), kind: .agent, displayName: "Helper")
+        let mixed = [Self.row("conv-a", participants: [a, helper])]
+        #expect(HomeContact.agents(in: mixed, me: Self.me, names: names).map(\.name) == ["Main", "Helper"])
     }
 
     /// The list before anything is typed has the main Chief and the Chiefs with a message in the last 14 days, as
@@ -199,12 +203,14 @@ struct HomeNewMessageTests {
         let recent = chief("recent", seq: 4, daysAgo: 2)
         let stale = chief("stale", seq: 9, daysAgo: 15)
         let unused = chief("unused", seq: 0, daysAgo: 1)
-        let rows = [main.1, recent.1, stale.1, unused.1]
+        var made = chief("made", seq: 0, daysAgo: 0)          // New Chief just now: listed before its first message
+        made.1.summary.createdAt = now.addingTimeInterval(-60)
+        let rows = [main.1, recent.1, stale.1, unused.1, made.1]
         let roster = HomeChiefRoster(main: main.1.id)
-        let contacts = [main.0, recent.0, stale.0, unused.0, Self.ada]
-        #expect(roster.recentChiefs(contacts, rows: rows, now: now).map(\.id) == [main.0.id, recent.0.id, Self.ada.id])
-        // No main Chief known: only the recent one.
-        #expect(HomeChiefRoster().recentChiefs(contacts, rows: rows, now: now).map(\.id) == [recent.0.id, Self.ada.id])
+        let contacts = [main.0, recent.0, stale.0, unused.0, made.0, Self.ada]
+        #expect(roster.recentChiefs(contacts, rows: rows, now: now).map(\.id) == [main.0.id, recent.0.id, made.0.id, Self.ada.id])
+        // No main Chief known: only the recent ones.
+        #expect(HomeChiefRoster().recentChiefs(contacts, rows: rows, now: now).map(\.id) == [recent.0.id, made.0.id, Self.ada.id])
     }
 
     /// #48467: in the dev build the list under To: cut its last row off ("Member" with half of "Team" under it): the

@@ -5,6 +5,15 @@ import CmuxNextDesignTokens
 /// selected rows in dialogs and lists read like the sidebar's and the palette's. Never emphasized,
 /// so the row's text keeps its own color instead of turning white on blue.
 public final class ThemedTableRowView: NSTableRowView {
+    /// How far the selection sits in from the row's sides, beyond the usual `space1` (a plain-style list whose
+    /// content is inset, as New Message's under To:, keeps its highlight inside the panel's edges).
+    public var selectionInset: CGFloat = 0
+
+    public convenience init(selectionInset: CGFloat) {
+        self.init(frame: .zero)
+        self.selectionInset = selectionInset
+    }
+
     public override var isEmphasized: Bool {
         get { false }
         set {}
@@ -12,7 +21,7 @@ public final class ThemedTableRowView: NSTableRowView {
 
     public override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        let rect = bounds.insetBy(dx: Metrics.space1, dy: 1)
+        let rect = bounds.insetBy(dx: Metrics.space1 + selectionInset, dy: 1)
         performWithTheme { Palette.selectionFill }.setFill()
         NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill() // radius-allow: a table row's selection, not a button
     }
