@@ -475,6 +475,15 @@ class OneBaseCheck(unittest.TestCase):
                              ("one", "two"))
             self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
 
+    def test_one_shard_downloaded_without_its_folder_still_joins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "dl", 1, {TEST: False})
+            (tmp / "dl" / history.HEAD_ARTIFACT.format(1)).rename(tmp / "in")
+            self.assertIsNone(history.join_heads(tmp / "in", [1], tmp / "out"))
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertIn("shard1 has no", history.join_heads(tmp / "in", [1, 2], tmp / "out2"))  # two shards keep folders
+
     def test_a_missing_shard_fails_and_an_unreadable_one_leaves_the_results_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
