@@ -2768,6 +2768,8 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
+            // Their ends go nowhere now: none stays watched (`bg_notify.rs`).
+            self.bg_unwatch_session(&session.id);
             {
                 // Under the breakdown's lock: a time breakdown save running now lands before the
                 // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
