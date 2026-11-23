@@ -32,8 +32,6 @@ pub const SETTINGS_KEY: &str = "agentPane.savedPrompts";
 pub const VERSION: u32 = 1;
 /// The most characters a name may have.
 pub const MAX_NAME_CHARS: usize = 64;
-/// The most bytes a prompt's text may have.
-pub const MAX_TEXT_BYTES: usize = 32 * 1024;
 /// The most prompts the store keeps.
 pub const MAX_SAVED: usize = 200;
 
@@ -170,12 +168,7 @@ pub fn save(path: &Path, name: &str, text: &str, now_ms: u64) -> Result<Prompt, 
     if text.trim().is_empty() {
         return Err(RpcError::invalid_params("text is empty"));
     }
-    if text.len() > MAX_TEXT_BYTES {
-        return Err(RpcError::invalid_params(format!(
-            "text is longer than {} KiB",
-            MAX_TEXT_BYTES / 1024
-        )));
-    }
+    // No size bound: a saved prompt is a prompt, and nothing on the send path caps one.
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut saved = load(path).map_err(unreadable)?;
     let prompt = Saved { name: name.to_owned(), text: text.to_owned(), updated_at: now_ms };
@@ -365,8 +358,8 @@ mod tests {
         assert_eq!(refused(&"n".repeat(65), "t").code, -32602);
         assert_eq!(refused("two\nlines", "t").code, -32602);
         assert_eq!(refused("n", "  \n ").code, -32602);
-        assert_eq!(refused("n", &"x".repeat(MAX_TEXT_BYTES + 1)).code, -32602);
-        save(&path, &"é".repeat(64), &"x".repeat(MAX_TEXT_BYTES), 1).unwrap();
+        // A long prompt is saved whole: the store caps no prompt's size.
+        save(&path, &"é".repeat(64), &"x".repeat(256 * 1024), 1).unwrap();
         assert_eq!(list(&path, &[]).len(), 1);
     }
 
