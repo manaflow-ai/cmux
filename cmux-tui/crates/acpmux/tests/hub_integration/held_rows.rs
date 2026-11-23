@@ -13,6 +13,9 @@ async fn a_turns_opening_rows_are_all_sent_in_row_order_before_its_answer() {
         .await
         .unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
+    // A connection that watches the list and has the chat open, as a peer daemon's link does.
+    c.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    c.request(method::MUX_ATTACH, json!({"session": "held", "limit": 100})).await.unwrap();
     for turn in 0..3 {
         let prompt = c
             .send(
@@ -28,8 +31,9 @@ async fn a_turns_opening_rows_are_all_sent_in_row_order_before_its_answer() {
             .map(|(_, p)| p)
             .collect();
         let kinds: Vec<&str> = rows.iter().filter_map(|p| p["recordKind"].as_str()).collect();
+        let methods: Vec<&str> = seen.iter().map(|(m, _)| m.as_str()).collect();
         for opening in ["user_message", "turn_started"] {
-            assert_eq!(kinds.iter().filter(|k| **k == opening).count(), 1, "{kinds:?}");
+            assert_eq!(kinds.iter().filter(|k| **k == opening).count(), 1, "{kinds:?} {methods:?}");
         }
         assert!(kinds.contains(&"status") && kinds.contains(&"turn_end"), "{kinds:?}");
         // Row order is the order of their records: a held row is never passed by a later row.

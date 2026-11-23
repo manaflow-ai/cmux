@@ -453,10 +453,6 @@ mod tests {
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);
         assert_eq!(row.listed(Some("x"), true).matches("\"peerState\"").count(), 1);
         assert_eq!(serde_json::to_value(&row).unwrap(), summary);
-    }
-
-    #[test]
-    fn an_empty_or_non_object_row_lists_as_it_was() {
         // A row with no chart keeps the one the row before it had; one with a chart keeps its own.
         let bare = PeerRow::new(&json!({"sessionId": "s1", "status": "running"}));
         let kept = bare.clone().keeping_time_breakdown(Some(&row));
@@ -467,6 +463,10 @@ mod tests {
         assert_eq!(own.clone().keeping_time_breakdown(Some(&row)), own);
         assert_eq!(bare.clone().keeping_time_breakdown(Some(&bare)), bare);
         assert_eq!(bare.clone().keeping_time_breakdown(None), bare);
+    }
+
+    #[test]
+    fn an_empty_or_non_object_row_lists_as_it_was() {
         let empty = PeerRow::new(&json!({}));
         assert_eq!(empty.listed(Some("ok"), false), r#"{"stale":false,"peerState":"ok"}"#);
         assert_eq!(PeerRow::new(&Value::Null).listed(None, false), "null");
