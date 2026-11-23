@@ -57,13 +57,6 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
-  /// The thread's margin holds the scroll origin and the fraction of a pixel of the older-history room
-  /// its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less that.
-  function roomFraction(scroller: HTMLElement): number {
-    const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
-    return room - Math.floor(room);
-  }
-
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -365,6 +358,13 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     let previousMounted = -1;
     let previousSignature = "";
     let lastChange = { frame: 0, at: 0, clock: 0 };
+    // The thread's margin holds the scroll origin and the fraction of a pixel of the older-history
+    // room its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less
+    // that. Inline: the sampler runs in the page from its source, so it can reach no test-side helper.
+    const roomFraction = (scroller: HTMLElement) => {
+      const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
+      return room - Math.floor(room);
+    };
     const screensAbove = (scroller: HTMLElement) => {
       const origin =
         (Number.parseFloat(
