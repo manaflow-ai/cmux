@@ -24,7 +24,7 @@ Prints one `LR-SEED {json}` line: windows, this seed's workspaces in each window
 `error` when the session it made is not that shape. Exit 0 when the shape holds, 1 when not, 2 when the socket never
 answered.
 """
-import argparse, json, socket, sys, time
+import argparse, json, os, socket, sys, time
 
 
 def rpc(path, method, params=None, timeout=60):
@@ -128,6 +128,14 @@ class Seed:
             raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
         self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
 
+    def chat(self):
+        """Opens a new agent chat (palette.newAgentChat) and waits until the focus is on a tab other than the one before."""
+        before = (self.topology().get("focus") or {}).get("tab")
+        self.action("palette.newAgentChat")
+        if not wait(lambda: (self.topology().get("focus") or {}).get("tab") not in (None, before), 30):
+            raise RuntimeError(f"palette.newAgentChat focused no new tab in 30 s (tab before {before})")
+        self.row["chat_tab"] = (self.topology().get("focus") or {}).get("tab")
+
     def build(self):
         """Raises RuntimeError naming the step that failed."""
         windows = self.window_ids()
@@ -173,6 +181,8 @@ class Seed:
             counts[window] += 1
         if self.front_mode == "home":  # --front tab: the last workspace's terminal tab stays in front
             self.action("home.show")
+        elif self.front == "chat":  # --front chat: a new agent chat tab in the last workspace stays in front
+            self.chat()
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
         mine = set().union(*ours.values())
@@ -208,7 +218,7 @@ def main(argv=None):
     parser.add_argument("--front-out", help="write the front just before the quit here (launch-ready.swift's shape)")
     # launch-ready.sh front=home|tab: the front the session is left on, and --stay leaves the app running (the probe
     # quits it after reading that front).
-    parser.add_argument("--front", choices=["home", "tab"], default="home")
+    parser.add_argument("--front", choices=["home", "tab", "chat"], default="home")
     parser.add_argument("--stay", action="store_true")
     # launch-ready.sh snapshot=unknown: close the workspace with this model key (closeWorkspace), and nothing else.
     parser.add_argument("--close-workspace", default="")
@@ -223,6 +233,12 @@ def main(argv=None):
         seed.row = {"close_asked": args.close_workspace}
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
         seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
+        # Which of the three it was: no socket file, a socket that refuses or errors, or a topology not loaded yet.
+        seed.row["socket_exists"] = os.path.exists(args.socket)
+        try:
+            seed.row["last_reply"] = json.dumps(rpc(args.socket, "snapshot.get", timeout=10))[:600]
+        except Exception as e:  # noqa: BLE001 - the reason is the output
+            seed.row["last_reply"] = "%s: %s" % (type(e).__name__, e)
     else:
         try:
             if args.close_workspace:
@@ -232,7 +248,16 @@ def main(argv=None):
         except RuntimeError as error:
             seed.row["error"], code = str(error), 1
         finally:
-            time.sleep(1)  # measurement script: the session's save after the last change, before the quit
+            # The session's save after the last change, before the quit: the app's model (topology and front) reads the
+            # same for 1 s (5 reads 0.25 s apart), so the last change has landed; 15 s at most, then the quit goes on.
+            last, same, deadline = None, 0, time.monotonic() + 15
+            while same < 5 and time.monotonic() < deadline:
+                now = (seed.topology(), seed.front())
+                same, last = (same + 1 if now == last else 1), now
+                if same < 5:
+                    time.sleep(0.25)  # measurement script: the poll interval of the model
+            if same < 5:
+                print("LR-SEED-WAIT the app's model kept changing for 15 s before the quit", file=sys.stderr, flush=True)
             # The seed quits the app itself, so the probe reads no front at its quit; this one is what run1 must reopen.
             if args.front_out:
                 try:

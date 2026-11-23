@@ -308,7 +308,7 @@ function withReceipt(Component: typeof HomeLists) {
           data-home-lists={homeListsShown(props.sessions, props.currentId, props.asks, props.tabs) ? "" : undefined}
         >
           <div className="acpmux-stage">
-            <EmptyState project="atlas-web" />
+            <EmptyState />
           </div>
           <div className="acpmux-dock">
             <div className="acpmux-home-area">

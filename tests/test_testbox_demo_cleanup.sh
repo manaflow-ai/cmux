@@ -266,7 +266,7 @@ set +m
 set -e
 # The bound acts within 50 ms; 15 s leaves a busy runner room and is still
 # under the 30 s bound, so a hung bound is caught, never waited out.
-( sleep 15; kill -TERM -- "-$reap_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+( sleep 15; kill -TERM -- "-$reap_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &  # sleep-ok: the watchdog's bound
 watchdog_pid=$!
 wait "$reap_pid" 2>/dev/null || true
 kill -KILL "$watchdog_pid" 2>/dev/null || true
