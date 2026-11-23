@@ -448,7 +448,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = themedMenu() else { return super.rightMouseDown(with: event) }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: self)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
