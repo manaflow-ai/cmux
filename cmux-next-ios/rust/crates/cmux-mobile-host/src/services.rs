@@ -34,8 +34,25 @@ pub struct Peer {
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path and a direct path's peer address, for its route
+    /// ([`cmux_mobile_link::dial::route_name`]); `None` off a dialed link.
+    pub route: Option<LinkRoute>,
     /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
     pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+}
+
+/// What the link's route is read from.
+#[derive(Debug, Clone)]
+pub struct LinkRoute {
+    pub path: tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>,
+    pub peer: cmux_mobile_link::dial::PeerAddr,
+}
+
+impl LinkRoute {
+    /// The route now: `direct-lan`, `direct-wan`, `direct`, `relay` or `none`.
+    pub fn name(&self) -> &'static str {
+        cmux_mobile_link::dial::route_name(*self.path.borrow(), *self.peer.borrow())
+    }
 }
 
 impl Peer {
@@ -155,9 +172,11 @@ pub async fn serve(
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         "phone-frames" => {
-            crate::phone_frames::serve(
+            let route = peer.route.clone();
+            crate::phone_frames::serve_on(
                 &peer.device_id,
                 &crate::phone_frames::default_path(),
+                &move || route.as_ref().map(LinkRoute::name),
                 &sender,
                 receiver,
             )
@@ -735,6 +754,8 @@ async fn splice(
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
+                    // A redraw's id and its read time (Mac redraw to iPhone paint).
+                    let (line, _) = crate::paint_latency::stamp_line(line);
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -946,7 +967,8 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     let Some(line) = exposed_daemon_line(line, exposure.as_ref()) else { continue };
-                    if sender.send(Bytes::from(line)).await.is_err() {
+                    let mark = crate::paint_latency::flush_mark(&line);
+                    if sender.send_marked(Bytes::from(line), mark).await.is_err() {
                         // The phone is gone (its close frame, a removed phone). Its
                         // close reaches the phone-to-daemon task, which releases its
                         // sizes: let that finish (bounded) instead of aborting it,

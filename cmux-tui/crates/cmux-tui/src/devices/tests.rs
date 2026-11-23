@@ -776,6 +776,17 @@ fn device_help_names_every_device_verb_and_points_vms_at_vm() {
     }
 }
 
+/// `cmux device add HOST --yes` keeps the direct ssh enroll as its default; the hub join is
+/// opt-in with `--hub` (interim-coord, 2026-11-20: no default flip), and the usage says so.
+#[test]
+fn device_add_enrolls_by_default_and_joins_the_hub_only_with_hub() {
+    assert_eq!(super::AddRoute::of(false), super::AddRoute::Enroll);
+    assert_eq!(super::AddRoute::of(true), super::AddRoute::HubJoin);
+    assert!(super::USAGE.contains("cmux device add HOST --yes [--name NAME] [--hub] [--json]"));
+    assert!(super::USAGE.contains("With --yes --hub"), "{}", super::USAGE);
+    assert!(!super::USAGE.contains("--enroll"), "{}", super::USAGE);
+}
+
 /// Every row says what its device is, with the glyph its kind names: what a peer reported, the
 /// source (a `ws://` peer is a Cloud machine), the OS, a phone pairing, else generic.
 #[test]

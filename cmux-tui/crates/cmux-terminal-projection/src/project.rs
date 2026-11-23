@@ -515,6 +515,10 @@ pub struct View {
     /// The oldest host row (absolute) a reset must paint (rows the reader
     /// is on, or asked for by scrolling up); nil: only the tail window.
     pub keep_from: Option<u64>,
+    /// [`Terminal::history_pushed`] at the last paint: a reset also paints
+    /// every row pushed since, so a phone painted once per frame holds the
+    /// rows a paint per chunk would have streamed to it.
+    pub pushed_at_paint: Option<u64>,
     /// The first host row (absolute) the last reset painted: older rows are
     /// in the model, not on the phone, until [`View::load_older`].
     window_from: u64,
@@ -555,6 +559,7 @@ impl View {
             phone_cursor_visible: true,
             needs_reset: true,
             keep_from: None,
+            pushed_at_paint: None,
             window_from: 0,
             line_cache: HashMap::new(),
             bytes_out: 0,
@@ -604,8 +609,15 @@ impl View {
     /// older ones kept by [`View::keep_from`]. A width change costs this
     /// window, not the whole scrollback.
     fn window_start(&self, term: &Terminal) -> usize {
-        let tail =
+        let mut tail =
             rows_back(term, term.history.len(), self.cols, TAIL_SCREENS * self.rows, self.compact);
+        if let Some(at) = self.pushed_at_paint {
+            // Rows pushed since the last paint (all of them past a clear,
+            // which empties the history).
+            let new = term.history_pushed.saturating_sub(at) as usize;
+            let len = term.history.len();
+            tail = tail.min(line_start(term, len - new.min(len)));
+        }
         match self.keep_from {
             Some(keep) => {
                 let keep = keep.saturating_sub(term.history_dropped) as usize;
@@ -631,6 +643,12 @@ impl View {
 
     /// Brings the phone's terminal to the host's primary screen now.
     pub fn paint(&mut self, term: &mut Terminal, passthrough: &[u8]) -> Option<Paint> {
+        let paint = self.paint_now(term, passthrough);
+        self.pushed_at_paint = Some(term.history_pushed);
+        paint
+    }
+
+    fn paint_now(&mut self, term: &mut Terminal, passthrough: &[u8]) -> Option<Paint> {
         if term.reset_needed {
             // The scrollback was cleared or the host resized: rows are not
             // the ones cached under their numbers.
@@ -795,7 +813,7 @@ impl View {
             // A change in rows the phone's terminal scrolled away: start over.
             self.needs_reset = true;
             term.reset_needed = false;
-            return self.paint(term, passthrough);
+            return self.paint_now(term, passthrough);
         }
         let old_shown_end = shown_end;
         if let Some((row, 0)) = first_changed {
