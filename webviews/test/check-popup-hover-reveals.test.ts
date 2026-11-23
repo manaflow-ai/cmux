@@ -98,3 +98,37 @@ test("the edited-files aggregate label is a bounded direct-navigation exception"
   expect(findHoverRevealViolations(css.replace("summary-link", "menu-trigger"), file)).toHaveLength(1);
   expect(findHoverRevealViolations(css, "another-card.css")).toHaveLength(1);
 });
+
+test("the flag form covers a hover reveal (a subject :has sets it, a style query reads it)", () => {
+  const css = `
+    .new-row:hover .new-actions { opacity: 1; }
+    .new-row:has([data-popup-open]) { --popup-in-new-row: 1; }
+    @container style(--popup-in-new-row: 1) { .new-row.new-row .new-actions { opacity: 1; } }
+  `;
+  expect(findHoverRevealViolations(css)).toEqual([]);
+  // The flag must be set by the block's own popup-open :has(), and read in the same media context.
+  expect(findHoverRevealViolations(css.replace("--popup-in-new-row: 1; }", "color: red; }"))).toHaveLength(1);
+  expect(
+    findHoverRevealViolations(
+      css.replace(".new-row.new-row .new-actions { opacity: 1; }", ".new-row.new-row .new-actions { opacity: 0; }"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    findHoverRevealViolations(
+      `@media (hover: hover) { .new-row:hover .new-actions { opacity: 1; } }\n${css.split("\n").slice(2).join("\n")}`,
+    ),
+  ).toHaveLength(1);
+});
+
+test("the flag form covers an attribute-scoped :is(:hover, :focus-within) reveal", () => {
+  const css = `
+    .tools[data-look=peek]:is(:hover, :focus-within) [data-dormant] { opacity: 1; }
+    .tools[data-look=peek]:has([data-popup-open]) { --popup-in-tools: 1; }
+    @container style(--popup-in-tools: 1) { .tools.tools[data-look=peek] [data-dormant] { opacity: 1; } }
+  `;
+  expect(findHoverRevealViolations(css)).toEqual([]);
+  // A flag set on another look of the block does not cover this one.
+  expect(
+    findHoverRevealViolations(css.replace(".tools[data-look=peek]:has(", ".tools[data-look=other]:has(")),
+  ).toHaveLength(1);
+});

@@ -836,7 +836,7 @@ async fn run_client(
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
         let route_record = link_sidecars::write_tunnel_route(&local_socket, &route);
-        let _sidecars = sidecars.attach(&connection);
+        let _sidecars = sidecars.attach(&connection, &multiplexer);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {

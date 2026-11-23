@@ -11,7 +11,7 @@
   // background: a near-black card with the frame's violet cast. foreground: a lavender-white, the
   // popovers' text. selection: the accent at 30% over the card. accent: the light theme's indigo
   // lifted to a periwinkle that reads on dark.
-  "colors": { "background": "#18171f", "foreground": "#ebe8f7", "selection": "#3a3973", "accent": "#7479f5" },
+  "colors": { "background": "#18171f", "foreground": "#ebe8f7", "selection": "#706fa9", "accent": "#7479f5" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
   // ANSI colors at a vivid, cool chroma, each solved in OKLCH over the page (5.5:1, the bright ones
@@ -21,7 +21,7 @@
     "foreground = #ebe8f7",
     "cursor-color = #7479f5",
     "cursor-text = #18171f",
-    "selection-background = #3a3973",
+    "selection-background = #706fa9",
     "selection-foreground = #ebe8f7",
     "palette = 0=#454b50",
     "palette = 1=#ec626b",
@@ -85,7 +85,7 @@
   // The frame: the space color, a little translucent so the desktop tints it, no edge line, and
   // hairline-separated sections (pinned above, today below).
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#2b2945",
+  "appearance.surfaces.sidebar.color": "#161430",
   "appearance.surfaces.sidebar.opacity": 0.88,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -107,7 +107,7 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#18171f",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#2b2945",
+  "appearance.surfaces.splitDivider.color": "#161430",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: a dark wash of the space color.

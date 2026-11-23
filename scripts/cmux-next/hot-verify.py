@@ -101,6 +101,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 ROOT = HERE.parents[1]
 BASE_BRANCH = "feat-cmux-next"
 NO_APP = "/nonexistent/hot-verify-no-app"
@@ -148,12 +150,12 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
-# The app repainting after a theme change or an overlay reload: a capture's own bounded delay, never a wait on
-# a condition (the release socket says nothing about paint).
-SETTLE_LAUNCH = 4.0
-SETTLE_THEME = 1.5
-SETTLE_WEB = 5.0
-SETTLE_DEV_SERVER = 10.0
+# The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
+# window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
+REPAINT_LAUNCH = 20.0
+REPAINT_THEME = 10.0
+REPAINT_WEB = 20.0
+REPAINT_DEV_SERVER = 30.0
 MAX_STEPS = 60
 ENGINES = ("webkit", "chromium")
 DEFAULT_ENGINE = "webkit"
@@ -186,7 +188,9 @@ def log(message: str) -> None:
 
 # A line where a tool says why it failed: cargo's and git's `error:`/`fatal:`, rustc's `error[E0425]:`, and a
 # compiler's `path:line:col: error: ...` (Zig, Swift, clang).
-ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: ")
+# Also a script's thrown error (`TypeError: ...`, Node's `ENOENT: no such file or directory, scandir ...`): bun's
+# "error: postinstall script ... exited with 1" alone hid that a sparse checkout lacked release-notes/ (2026-11-22).
+ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: |(?:^|\s)(?:[A-Z]\w*Error|E[A-Z]{2,}):\s")
 
 
 def why_failed(output: str, most: int = 300) -> str:
@@ -209,6 +213,13 @@ def why_failed(output: str, most: int = 300) -> str:
         kept.append(line)
         size += len(line) + 3
     return " | ".join(reversed(kept))[:most] if kept else text[-most:]
+
+
+def why_exited(done: subprocess.CompletedProcess, most: int = 300) -> str:
+    """Why a step failed, never empty: its own words (why_failed of stderr, else stdout), else its exit status and
+    that it printed nothing (an empty "web-overlay.sh server --local:" said nothing at all, 2026-11-22)."""
+    said = why_failed(done.stderr or done.stdout, most)
+    return said or f"exited {done.returncode} and printed nothing"
 
 
 def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, timeout: float = GIT_SECONDS) -> str:
@@ -693,6 +704,12 @@ class Side:
         if not self.exists():
             return errors
         state = self.state()
+        # A dev server still starting behind a run (start_dev_server_behind) would point the copy at it after the
+        # `server off` below: its starting script, in its own process group, goes first.
+        starter = state.get("dev_server_starter_pid")
+        if isinstance(starter, int) and starting_dev_server(starter):
+            with contextlib.suppress(OSError):
+                os.killpg(starter, 15)
         if state.get("dev_server"):
             with contextlib.suppress(LookError, OSError, subprocess.SubprocessError):
                 env = {**os.environ, **self.env()}
@@ -712,8 +729,21 @@ class Side:
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
         with contextlib.suppress(LookError):
-            self.remember(dev_server=False, recorder_pid=None, recorder_name=None, worktree=None)
+            self.remember(dev_server=False, dev_server_starter_pid=None, recorder_pid=None, recorder_name=None,
+                          worktree=None)
         return errors
+
+
+def starting_dev_server(pid: int) -> bool:
+    """PID is still the web-overlay.sh a run started, the leader of its own process group, so killing that group
+    stops nothing else."""
+    try:
+        if os.getpgid(pid) != pid:
+            return False
+    except OSError:
+        return False
+    done = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    return "web-overlay.sh" in done.stdout
 
 
 def process_runs(pid: int, name: str) -> bool:
@@ -1341,30 +1371,123 @@ def web_checkout(repo: Path, head: str, scratch: Path) -> Path:
     return tree
 
 
+# Besides the bundles' inputs, what webviews/dev-server and vite.config.ts read at start: the markdown viewer's
+# shell (plugins.ts), the gallery's fixtures and themes (galleryHost.ts), the looks, and the Swift design tunables.
+DEV_SERVER_READS = ["schemas", "Resources/markdown-viewer", "Resources/cmux-themes", "Resources/ghostty/themes",
+                    "examples", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"]
+
+
+def widen_sparse(tree: Path) -> None:
+    """A sparse checkout (wt's default) gets the files its webviews read (web-bundle-key.py --inputs: the string
+    catalogs, release-notes highlights, schemas), so its dev server's install and string tables find them: from
+    a wt checkout with only /scripts/ and /webviews/, `cmux app try .` stopped at bun's postinstall
+    (gen-strings.mjs: ENOENT release-notes/next/highlights, 2026-11-22). Adding is all it does; nothing leaves."""
+    if git(tree, "config", "--bool", "core.sparseCheckout", check=False).strip() != "true":
+        return
+    done = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--inputs"],
+                          capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise LookError(f"web-bundle-key.py --inputs: {why_exited(done)}")
+    cone = git(tree, "config", "--bool", "core.sparseCheckoutCone", check=False).strip() == "true"
+    patterns = []
+    for name in [*done.stdout.split(), *DEV_SERVER_READS]:
+        name = name.removeprefix(":(glob)").strip("/")
+        if cone:  # cone mode takes directories only: the part before the first wildcard, else the file's folder
+            glob = re.search(r"[*?\[]", name)
+            name = name[:glob.start()].rstrip("/") if glob else (name if (tree / name).is_dir() else str(Path(name).parent))
+            if name in ("", "."):
+                continue
+        entry = name if cone else f"/{name}"
+        if name and entry not in patterns:
+            patterns.append(entry)
+    if not patterns:
+        return
+    listed = set(git(tree, "sparse-checkout", "list", check=False).split())
+    missing = [p for p in patterns if p not in listed]
+    if missing:
+        log(f"sparse checkout: adding the files its web UI reads ({len(missing)} paths: {' '.join(missing[:4])}...)")
+        git(tree, "sparse-checkout", "add", *missing)
+
+
+def tree_web_key(tree: Path) -> str | None:
+    """TREE's web source key as it is on disk, edits and untracked files included (web-bundle-key.py hashes
+    every file git sees under the bundle inputs), when CI published bundles for exactly that key; else None."""
+    script = tree / "scripts/cmux-next/web-bundle-key.py"
+    if not script.is_file():
+        return None
+    try:
+        done = subprocess.run([sys.executable, str(script), str(tree), "--source"], capture_output=True, text=True,
+                              timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        log(f"no web source key for {tree}: {error}")
+        return None
+    key = (done.stdout or "").strip()
+    if done.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", key):
+        return None
+    return key if fetch_json(f"{WEB_BASE}/{key}/manifest.json") else None
+
+
+def fetch_bundles(key: str) -> Path:
+    """The published bundles of KEY, unpacked once into the cache: a key names its inputs' content, so a later
+    try of the same web takes them with no download."""
+    bundles = cache_dir() / "web-bundles" / key
+    if (bundles / ".manifest.json").is_file():
+        return bundles
+    bundles.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
+                          capture_output=True, text=True, timeout=APPLY_SECONDS)
+    if done.returncode != 0:
+        raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+    return bundles
+
+
+def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
+    """A dev server of TREE, started without waiting for it: the copy already shows TREE's web from its
+    published bundles, and once the server answers it wins over them (web-overlay.sh), so later edits under
+    webviews/ hot reload as before. Its pid of the starting script, or None with no bun here."""
+    if not shutil.which("bun"):
+        return None
+    side.remember(dev_server=True)
+    logged = cache_dir() / f"dev-server-start-{side.name}.log"
+    logged.parent.mkdir(parents=True, exist_ok=True)
+    with open(logged, "w") as out:
+        started = subprocess.Popen([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree),
+                                    "--port", str(free_port())], env=env, stdin=subprocess.DEVNULL, stdout=out,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+    side.remember(dev_server_starter_pid=started.pid)
+    return started.pid
+
+
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
               settle: bool = True) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
-    server returns once the server answers the agent pane; SETTLE (a look, whose after shot follows) then also gives
-    the copy's pages their bounded reload. A run takes no shot, so it waits for nothing more (cmux app try .: about
-    10 of its 11.7-14.9 s edit_to_live were this wait, 2026-11-18)."""
+    server returns once the server answers the agent pane. A look (SETTLE, whose after shot follows) then waits for
+    the copy's window to repaint (Repaint, in look); a run takes no shot, so it waits for nothing more (cmux app
+    try .: about 10 of its 11.7-14.9 s edit_to_live were a fixed wait here, 2026-11-18)."""
     env = {**os.environ, **side.env()}
     head = planned["head"]
-    key = None if src_tree is not None else published_web_key(repo, planned)
+    # A run (no settle) of a checkout whose web, as it is on disk, CI already published (a pushed branch, an
+    # unedited clone) takes those bundles: no cold dev server stands between the command and a live copy. Its
+    # dev server still starts, behind them. A look of a checkout keeps its dev server first, as before.
+    if src_tree is None:
+        key = published_web_key(repo, planned)
+    else:
+        key = None if settle else tree_web_key(src_tree)
     if key:
-        bundles = scratch / "web-bundles"
-        done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
-                              capture_output=True, text=True, timeout=APPLY_SECONDS)
-        if done.returncode != 0:
-            raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+        bundles = fetch_bundles(key)
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
-            raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
-        time.sleep(SETTLE_WEB)
-        return {"how": "published bundles", "key": key}
+            raise LookError(f"web-overlay.sh install: {why_exited(done)}")
+        applied = {"how": "published bundles", "key": key}
+        if src_tree is not None:
+            applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
+        return applied
     if not shutil.which("bun"):
         raise LookError("no web bundles are published for the head and no bun here serves its webviews")
     tree = src_tree
+    if tree is not None:
+        widen_sparse(tree)
     if tree is None:
         # A dev server runs the head's own code here: only a head on a branch of origin or already merged.
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
@@ -1379,9 +1502,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     done = subprocess.run([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree), "--port",
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
-        raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
-    if settle:
-        time.sleep(SETTLE_DEV_SERVER)
+        raise LookError(f"web-overlay.sh server --local: {why_exited(done)}")
     return {"how": "dev server", "port": port}
 
 
@@ -1502,7 +1623,56 @@ def set_theme(sock: str, mode: str) -> None:
     answer = rpc(sock, "settings.set", {"path": "appearance.theme", "value": THEMES[mode]}, timeout=30)
     if "error" in answer:
         raise LookError(f"settings.set appearance.theme: {answer['error']}")
-    time.sleep(SETTLE_THEME)
+
+
+def png_pixels(path: Path) -> str:
+    """A digest of a PNG's image data (its IDAT chunks, not its metadata), or of the whole file if it is no PNG."""
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return hashlib.sha256(data).hexdigest()
+    digest, at = hashlib.sha256(), 8
+    while at + 8 <= len(data):
+        size = int.from_bytes(data[at:at + 4], "big")
+        if data[at + 4:at + 8] == b"IDAT":
+            digest.update(data[at + 8:at + 8 + size])
+        at += 12 + size
+    return digest.hexdigest()
+
+
+class Repaint:
+    """Waits for the copy's window to finish repainting, by its own pixels: shots into a scratch file until they
+    stop changing (and, after a change the window must show, until they first differ from the last shot). Best
+    effort: past the bound the look goes on and logs it, as the fixed delays this replaces did. A shot that fails
+    ends the wait at once; the look's own shot then says why."""
+
+    def __init__(self, shoot: Shooter, pid: int, scratch: Path):
+        self.shoot, self.pid, self.path = shoot, pid, scratch / "repaint.png"
+        self.last = None
+
+    def pixels(self):
+        try:
+            self.shoot(self.pid, self.path)
+            return png_pixels(self.path)
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+            return ("no shot", str(error)[:200])
+
+    def saw(self, path: Path) -> None:
+        """PATH is the look's latest shot of the window: a later wait(changed=True) waits to differ from it."""
+        with contextlib.suppress(OSError):
+            self.last = png_pixels(path)
+
+    def wait(self, what: str, seconds: float, changed: bool = False) -> None:
+        began = time.monotonic()
+        if changed and self.last is not None:
+            last = self.last
+            if not wait_until(lambda: self.pixels() != last, f"the window to change after {what}", seconds,
+                              interval=0.2, raise_on_timeout=False):
+                log(f"the window did not change within {seconds:g} s after {what}; shooting it as it is")
+        left = max(5.0, seconds - (time.monotonic() - began))
+        try:
+            self.last = wait_stable(self.pixels, f"the window after {what}", left, interval=0.2, reads=3)
+        except StateWaitTimeout as error:
+            log(f"{error}; shooting it as it is")
 
 
 def commit_time(repo: Path, sha: str) -> float | None:
@@ -1553,7 +1723,7 @@ def command_look(args) -> int:
         receipt["marker"] = marker(planned["head"], receipt["app"].get("commit") or receipt["app"].get("version")
                                    or "unknown", planned["layers"], planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began)
-    except (LookError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         if not args.watch:
             with phases("stop"):
@@ -1614,11 +1784,15 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             named = side.socket()
             sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
             until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
-            time.sleep(SETTLE_LAUNCH)
+            repaint = Repaint(shoot, pid, scratch)
+            repaint.wait("launch", REPAINT_LAUNCH)
         with phases("before"):
-            for mode in ("light", "dark"):
+            for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                # The first theme may be the one the copy has: only a later switch must show a change.
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=index > 0)
                 shoot(pid, out / "before" / f"{mode}.png")
+                repaint.saw(out / "before" / f"{mode}.png")
         if not args.no_video:
             with phases("video"):
                 video = Video(out, kit)
@@ -1635,11 +1809,17 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
+                # The copy's pages reload on the new overlay: wait for the window to change from the before shot
+                # and settle (a change the main window does not show waits out the bound).
+                dev = applied["web"].get("how") == "dev server"
+                repaint.wait("the web reload", REPAINT_DEV_SERVER if dev else REPAINT_WEB, changed=True)
         receipt["applied"] = applied
         with phases("after"):
             for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=True)
                 shoot(pid, out / "after" / f"{mode}.png")
+                repaint.saw(out / "after" / f"{mode}.png")
                 if index == 0:
                     receipt["edit_to_visible_s"] = round(time.monotonic() - handed, 3)
                     pushed = commit_time(repo, planned["head"])
@@ -1654,7 +1834,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
-    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
     finally:
         if video is not None and video.running:

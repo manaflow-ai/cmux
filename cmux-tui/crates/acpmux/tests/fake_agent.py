@@ -20,12 +20,16 @@ Behaviour per prompt text:
                  successful call clears the episode before end_turn
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
+  "delta-chunks: N L" -> N reply chunks of exactly L bytes each, then end_turn
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
   "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
+  "steps"      -> a finished tool call every 150 ms until session/cancel (see FAKE_STEPS_IN)
+  "tool-then-cancel: <p>" -> a running tool call tc-1 until a write to FIFO <p>, its result, then
+                 as "until-cancel" (a turn a move may stop between its tool calls)
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
                  held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
@@ -75,6 +79,10 @@ FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answer
 session/fork with a bare "Internal error", as Kimi does.
 
 FAKE_UNTIL_CANCEL_IN=<text>: a prompt containing <text> is an "until-cancel" one.
+
+FAKE_STEPS_IN=<text>: a prompt containing <text> is a "steps" one. FAKE_STEP_LOG=<path>: each
+finished step's tool call id, one per line, written after its result is sent. FAKE_STEPS_END=<path>:
+once that file exists a "steps" turn ends by itself.
 
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
@@ -804,6 +812,24 @@ def handle_prompt(rid, params):
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
     # (as "gate:") and ends: "worked" and end_turn, or cancelled when a
     # session/cancel came while it was blocked.
+    if text.startswith("tool-then-cancel:"):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc-1", "title": "Run the build",
+                     "kind": "execute", "status": "in_progress"})
+        with open(text[len("tool-then-cancel:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tc-1", "status": "completed",
+                     "rawOutput": "built"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("work-gate:"):
         path, _, title = text[len("work-gate:"):].partition(" | ")
         update(sid, {"sessionUpdate": "plan", "entries": [
@@ -835,6 +861,22 @@ def handle_prompt(rid, params):
         with open(text[len("meta-gate:"):].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "opencode-task" runs a subagent as OpenCode 1.19 does: only as its `task` tool call, whose
+    # end names the child's own session and model (manaflow-ai/cmux#50203).
+    if text == "opencode-task":
+        call, child = "chatcmpl-tool-oc1", "ses_child_oc1"
+        task = {"description": "Reply PONG", "prompt": "Reply PONG.", "subagent_type": "general"}
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "pending", "rawInput": {}, "locations": []})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "in_progress", "rawInput": task, "locations": []})
+        out = f'<task id="{child}" state="completed">\n<task_result>\nPONG\n</task_result>\n</task>'
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "Reply PONG", "kind": "think",
+                     "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": out}}],
+                     "rawOutput": {"output": out, "metadata": {"model": {"modelID": "big-pickle", "providerID": "opencode"},
+                                                               "parentSessionId": sid, "sessionId": child, "truncated": False}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
@@ -1398,6 +1440,14 @@ def handle_prompt(rid, params):
             update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"w{n} "}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "delta-chunks: N L" streams N reply chunks of exactly L bytes each, one write per chunk as a
+    # harness streams them, then ends the turn (tests/delta_cost.rs: what one text delta costs).
+    if text.startswith("delta-chunks:"):
+        count, length = (int(x) for x in text[13:].split())
+        for _ in range(count):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "d" * length}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("big-output:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -1652,6 +1702,35 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "steps" (or a prompt containing FAKE_STEPS_IN) is a turn that works until told to stop: a
+    # tool call every 150 ms (step-PID-N: 20 ms running, then its result), each finished call's
+    # id appended to FAKE_STEP_LOG once its result is sent. A session/cancel between two calls
+    # ends it cancelled; once the file FAKE_STEPS_END exists it says "stepped" and ends its turn.
+    if text == "steps" or (os.environ.get("FAKE_STEPS_IN") or "\0") in text:
+        end, step_log = os.environ.get("FAKE_STEPS_END"), os.environ.get("FAKE_STEP_LOG")
+        for n in range(2000):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            if end and os.path.exists(end):
+                break
+            call = f"step-{os.getpid()}-{n}"
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": f"step {n}",
+                         "kind": "execute", "status": "in_progress"})
+            time.sleep(0.02)
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed",
+                         "rawOutput": f"done {n}"})
+            if step_log:
+                fd = os.open(step_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                os.write(fd, (call + "\n").encode())
+                os.close(fd)
+            time.sleep(0.13)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "stepped"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
