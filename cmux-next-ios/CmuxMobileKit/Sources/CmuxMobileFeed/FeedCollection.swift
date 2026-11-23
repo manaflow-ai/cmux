@@ -758,7 +758,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
-        jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        // Reduce Motion: the list is at its top at once.
+        jumpingToTop = animated && !UIAccessibility.isReduceMotionEnabled && abs(collectionView.contentOffset.y - top.y) > 0.25
         trace("jump from \(Int(collectionView.contentOffset.y)) to \(Int(top.y)) animated=\(jumpingToTop)")
         collectionView.setContentOffset(top, animated: jumpingToTop)
         if !jumpingToTop {

@@ -891,10 +891,16 @@ struct ShellTabs: View {
 
     var body: some View {
         @Bindable var shell = shell
-        TabView(selection: $shell.tab) {
+        // SwiftUI writes the selection on every tap of a tab, the selected one too: a write of the
+        // value it already has is that re-tap (pop to the root, then scroll to the top).
+        let selection = Binding<RootTab>(get: { shell.tab }, set: { tab in
+            if tab == shell.tab { shell.retapped(tab) } else { shell.tab = tab }
+        })
+        TabView(selection: selection) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
                     .modifier(TabBarVisibility(shell: shell, tab: .home))
+                    .modifier(TabRetapScroll(shell: shell, tab: .home))
                     .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
@@ -902,6 +908,7 @@ struct ShellTabs: View {
                     .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
+                    .modifier(TabRetapScroll(shell: shell, tab: .workspaces))
                     .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
@@ -935,12 +942,14 @@ struct ShellTabs: View {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
                 .modifier(TabBarVisibility(shell: shell, tab: .settings))
+                .modifier(TabRetapScroll(shell: shell, tab: .settings))
                 .modifier(TabBarProbeHost())
             }
         }
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        .cmuxMobileSensoryFeedback(.selection, trigger: shell.tabRetaps)
         // A closed ask's notification leaves Notification Center; only when an ask opens or
         // closes, or the Feed finishes reading its Macs.
         .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
@@ -967,7 +976,7 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, scrollToTop: shell.topRequests[.feed, default: 0], reconnect: {
             await shell.live?.reconnectFeeds()
         }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }

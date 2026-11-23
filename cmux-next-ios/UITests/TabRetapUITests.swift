@@ -23,6 +23,16 @@ final class TabRetapUITests: XCTestCase {
         XCTAssertFalse(first.exists && first.isHittable, "the first row still shows after scrolling down")
         attach(app, "feed-scrolled-down")
 
+        // Leaving the tab and coming back is not a re-tap: the Feed keeps its place.
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 15), "Settings\n\(app.debugDescription)")
+        app.tabBars.buttons["Feed"].tap()
+        XCTAssertTrue(app.navigationBars["Feed"].waitForExistence(timeout: 15), "back on the Feed\n\(app.debugDescription)")
+        let settle = XCTestExpectation(description: "no scroll follows the tab change")
+        settle.isInverted = true
+        _ = XCTWaiter.wait(for: [settle], timeout: 2)
+        XCTAssertFalse(all.isHittable, "changing tabs scrolled the Feed to its top")
+
         app.tabBars.buttons["Feed"].tap()
         let landed = NSPredicate { _, _ in
             first.exists && first.isHittable && all.exists && abs(all.frame.minY - topFrame.minY) < 1
