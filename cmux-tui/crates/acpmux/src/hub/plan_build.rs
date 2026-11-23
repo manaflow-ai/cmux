@@ -26,7 +26,7 @@
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::store::SessionStatus;
+use crate::store::{SessionStatus, now_ms};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -190,6 +190,40 @@ pub(crate) fn edited_input(request: &Value) -> Option<Value> {
         return None;
     }
     tool.get("rawInput").filter(|v| v.is_object()).cloned()
+}
+
+/// What the chat keeps of a plan approval `request` the person allowed (`ApprovedPlan`), or None
+/// for an ask that approves no plan. The markdown is the plan as the agent builds it: the
+/// person's edit when they made one (`edit_plan`).
+pub(crate) fn approved_plan(
+    request: &Value,
+    permission_id: &str,
+) -> Option<crate::store::ApprovedPlan> {
+    let markdown = plan_of(request)?;
+    let edited = request.pointer("/toolCall/_meta/acpmux/plan/edited").and_then(Value::as_bool)
+        == Some(true);
+    Some(crate::store::ApprovedPlan {
+        markdown,
+        edited,
+        permission_id: permission_id.to_owned(),
+        turn: 0,
+        at: 0,
+    })
+}
+
+impl Hub {
+    /// Keeps `plan` as `session`'s approved plan, stamped with its turn and time, logs it as an
+    /// `approved_plan` record (watchers redraw the summary's `approvedPlan`) and saves the meta.
+    pub(crate) fn approved_plan_set(&self, session: &Session, plan: crate::store::ApprovedPlan) {
+        let plan = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let plan = crate::store::ApprovedPlan { turn: m.turn_count, at: now_ms(), ..plan };
+            m.approved_plan = Some(plan.clone());
+            plan
+        };
+        self.append(session, "mux", "approved_plan", json!({"approvedPlan": plan}));
+        self.save_meta(session);
+    }
 }
 
 /// The first option of `kind` an ask offers.
