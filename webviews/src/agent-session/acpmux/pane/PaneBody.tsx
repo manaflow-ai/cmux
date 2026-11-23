@@ -336,6 +336,8 @@ export type PaneBodyDeps = NewTabShown &
     setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
     sessionInfo: ReturnType<typeof useSessionInfo>;
     readOnlySubagent: boolean;
+    /// The dock draws the composer and its quiet row (App.tsx `dockFoot`; bottomStack.css `data-foot`).
+    dockFoot: boolean;
     localCwd: string | undefined;
     remoteChat: boolean;
     runSplitAction: (id: string, cwd: string | undefined, mode: QuickActionMode) => void;
@@ -402,7 +404,6 @@ export type PaneBodyDeps = NewTabShown &
     dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
-    sandboxDraftMoved: boolean;
     composer: false | React.JSX.Element;
     artifact: OpenedArtifact | undefined;
     liveArtifact: Artifact | undefined;
@@ -604,6 +605,7 @@ export function drawPaneBody({
   setShareOpen,
   sessionInfo,
   readOnlySubagent,
+  dockFoot,
   localCwd,
   remoteChat,
   runSplitAction,
@@ -671,7 +673,6 @@ export function drawPaneBody({
   dotGridArm,
   hostLine,
   forkPendingLine,
-  sandboxDraftMoved,
   composer,
   artifact,
   liveArtifact,
@@ -1527,7 +1528,16 @@ export function drawPaneBody({
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
+              <div
+                ref={setDock}
+                className="acpmux-dock"
+                style={parkStyle}
+                inert={parkedVisible || undefined}
+                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                // bottomStack.css gives the transcript up first for it, from this, not from a
+                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                data-foot={dockFoot ? "" : undefined}
+              >
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
@@ -1567,7 +1577,7 @@ export function drawPaneBody({
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {dockFoot && composer}
               </div>
             </Activity>
           )}
