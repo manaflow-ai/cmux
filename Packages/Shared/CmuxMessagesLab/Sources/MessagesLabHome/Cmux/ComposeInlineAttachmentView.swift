@@ -31,7 +31,7 @@ final class ComposeInlineAttachmentView: NSView {
         removeButton.contentTintColor = NSColor(white: 1, alpha: 0.95)
         removeButton.imageScaling = .scaleProportionallyUpOrDown
         removeButton.setAccessibilityLabel(CmuxStrings.removeAttachment)
-        removeButton.toolTip = CmuxStrings.removeAttachment
+        removeButton.setHomeToolTip(CmuxStrings.removeAttachment)
         removeButton.target = self
         removeButton.action = #selector(removeClicked)
         removeButton.alphaValue = 0
@@ -89,7 +89,7 @@ final class ComposeInlineAttachmentView: NSView {
             }.forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.removeAttachment, symbol: "xmark.circle") { [weak self] in self?.removeClicked() })
-        return menu
+        return NSMenu.systemFree(menu)
     }
 
     @objc func removeClicked() {

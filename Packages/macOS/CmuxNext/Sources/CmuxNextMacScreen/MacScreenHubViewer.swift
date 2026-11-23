@@ -95,6 +95,14 @@ public final class MacScreenHubViewer {
         }
     }
 
+    /// A hub came (the saved sign-in finished restoring, or the person signed in): a tab
+    /// refused only because there was none asks again for the scope it wanted. A tab opened
+    /// in the first seconds after launch otherwise kept "Not Signed In" after sign-in completed.
+    func hubArrived() {
+        guard case let .refused(.notSignedIn, requested) = phase, hub() != nil else { return }
+        request(requested)
+    }
+
     /// The request's HTTP answer came back. Cancelled (the person cancelled,
     /// or asked again) ends the session it made, unless this tab already runs
     /// that session (its ticket came first): ends are keyed to session ids.
@@ -303,7 +311,8 @@ public final class MacScreenHubViewer {
             pendingSignaling = try makeSignaling(ticket, hub)
         } catch {
             end(ticket.sessionId, reason: MacScreenHubReason.failed.rawValue, on: hub)
-            phase = .refused(.other, requested: ticket.scope)
+            phase = .refused(.other(reason: MacScreenHubRefusal.reason(error as? DeviceHubError ?? .transport(error.localizedDescription))),
+                             requested: ticket.scope)
             return
         }
         lastScope = ticket.scope

@@ -75,9 +75,46 @@ if "--bench=new-pane-start-state" in sys.argv:
 if "--bench=cmd-n-paint" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmd-n-paint-e2e.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmd-n-paint"]])
+# `--bench=cmdn-typing`: scripts/cmux-next/cmdn-typing-bench.py on the same tagged app (a display worker), the keys typed
+# right after Cmd-N and how many the new New Tab field lost, from a terminal and from a page, now, late and cold.
+if "--bench=cmdn-typing" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmdn-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmdn-typing"]])
+
+# `--bench=settings-open`: scripts/cmux-next/bench-settings-open.py on the same tagged app: Cmd-, to the painted Settings
+# page, the first open of each launch cold and the others warm. It takes the app (`--app`) and `--runs`, `--opens` and
+# `--settle`; the instant-create arguments (`--tag`, `--page-engine`) are not its own.
+if "--bench=settings-open" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-settings-open.py")
+    kept, args = [], sys.argv[1:]
+    compare, out = None, tempfile.mkdtemp(prefix="settings-open-")
+    for index, arg in enumerate(args):
+        name, _, value = arg.partition("=")
+        if name in ("--app", "--runs", "--opens", "--settle", "--json"):
+            kept += [arg] if "=" in arg else [arg, args[index + 1]]
+        elif name == "--compare-at":
+            # A second arm in the same step: built here at that commit (scripts/measure/app-at-commit.sh, bench
+            # configuration) and launched interleaved with --app, so both arms share the host and its state.
+            compare = value
+        elif name == "--out":
+            out = value if "=" in arg else args[index + 1]
+    if compare:
+        if not re.fullmatch(r"[0-9a-f]{40}", compare):
+            raise SystemExit(f"--compare-at={compare}: want a 40-hex commit")
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
+        built = subprocess.run(["bash", "-c", '. scripts/measure/app-at-commit.sh && measure_app_at_commit "$@"', "build",
+                                compare, "instantnewb", os.path.join(out, "compare-at"), "--config", "bench"],
+                               cwd=root, stdout=subprocess.PIPE, text=True)
+        app = built.stdout.strip().splitlines()[-1] if built.stdout.strip() else ""
+        if built.returncode or not os.path.isdir(app):
+            raise SystemExit(f"--compare-at={compare}: the build printed no app (exit {built.returncode})")
+        print(f"settings-open: compare arm {compare}: {app}", flush=True)
+        kept += ["--app", app]
+    os.execv(sys.executable, [sys.executable, other, *kept])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 import bench_arms  # noqa: E402
 import bench_page_engine  # noqa: E402
 
@@ -242,7 +279,7 @@ def start_load():
     loop = f'while :; do "{CLI}" workspace list >/dev/null 2>&1; "{CLI}" tree >/dev/null 2>&1; done'
     for _ in range(opts.storm):
         LOAD.append(subprocess.Popen(["/bin/sh", "-c", loop], env=CLI_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(3)  # test harness: let the load ramp
+    time.sleep(3)  # sleep-ok: the load's warm-up window; the phase measures under load that has run a while, not just spawned
 
 
 def stop_load():
@@ -293,7 +330,8 @@ def new_tab_page(settle=True):
     rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window_key()})
     ok = wait(lambda: (focused() or {}).get("kind") not in (None, "terminal"), 10, step=0.05)
     if ok and settle:
-        time.sleep(1)  # test harness: the page's handshake and field, as before a person types
+        # sleep-ok: the person's pause between Cmd-T and typing the address, which the timed newtab_url press models
+        time.sleep(1)
     return ok
 
 
@@ -310,8 +348,21 @@ def ensure_terminal(settle=True):
     print("newTab:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.25 if settle else 0.02)
     if settle:
-        time.sleep(1)  # test harness: shell prompt
+        shell_prompts("the new terminal's shell prompt")
     return ok
+
+
+def shell_prompts(what):
+    """Every terminal pane's shell drew its prompt: its mirror text (`debug.surfaces` text) is not empty and holds
+    still. Best effort, as the fixed wait it replaces: a note when it never does."""
+    def texts():
+        rows = [(p.get("text") or "").strip() for w in ((rpc("debug.surfaces", {"text": True}) or {}).get("windows") or [])
+                for p in w.get("panes", []) if p.get("kind") == "terminal"]
+        if not all(rows):
+            raise ValueError("a terminal has drawn nothing yet")
+        return rows
+    if wait_stable(texts, what, timeout=15, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: no settled terminal text for {what} in 15 s", flush=True)
 
 
 def switch_keys(runs):
@@ -334,7 +385,9 @@ def switch_keys(runs):
     field = lambda: (rpc("browser.page.eval", {"tab": page, "script": "JSON.stringify({v: document.getElementById('i').value, at: window.at, f: document.hasFocus()})"}) or {})
     read = lambda: (lambda value: value if isinstance(value, dict) else json.loads(value or "{}"))(field().get("value"))
     wait(lambda: "v" in read(), 20)
-    time.sleep(1.5)  # test harness: the page takes its first focus before the first switch away
+    # The page took its first focus (document.hasFocus) before the first switch away.
+    if not wait(lambda: read().get("f"), 10, step=0.05):
+        print("switch-keys: note: the page never reported focus in 10 s", flush=True)
     clear = lambda: rpc("browser.page.eval", {"tab": page, "script": "document.getElementById('i').value=''; window.at=[]; 1"})
     for index, case in [(i, c) for c in ("plain", "driven") for i in range(runs)]:
         if case == "plain":
@@ -737,7 +790,7 @@ def main():
             open(opts.json, "w").write(json.dumps(result, indent=1))
         return True
     launch()
-    time.sleep(2)  # test harness: shell prompt
+    shell_prompts("the launched window's shell prompt")
     window = window_key()
     rows = []
     switched = switch_keys(opts.switch_keys) if opts.switch_keys else []

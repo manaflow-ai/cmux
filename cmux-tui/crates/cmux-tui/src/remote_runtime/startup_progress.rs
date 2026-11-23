@@ -17,6 +17,9 @@ pub(crate) const PROGRESS_EVERY: Duration = Duration::from_secs(4);
 /// The first connect's progress lines.
 pub(super) struct StartupProgress {
     started: Instant,
+    /// The invitation this connect claims, when it claims one: its wait with no failure is the
+    /// host's owner yet to approve it, and the line says so.
+    invitation: Option<String>,
     state: Mutex<ProgressState>,
 }
 
@@ -24,11 +27,13 @@ pub(super) struct StartupProgress {
 struct ProgressState {
     last_line: Option<Instant>,
     last_failure: Option<String>,
+    /// The one line that says how to stop waiting has been printed.
+    hinted: bool,
 }
 
 impl StartupProgress {
-    pub(super) fn new() -> Self {
-        Self { started: Instant::now(), state: Mutex::default() }
+    pub(super) fn new(invitation: Option<String>) -> Self {
+        Self { started: Instant::now(), invitation, state: Mutex::default() }
     }
 
     /// A dial failed and is redialed: says why, unless a line went out within the interval.
@@ -55,18 +60,47 @@ impl StartupProgress {
                     None => {
                         state.last_line = Some(Instant::now());
                         let seconds = self.started.elapsed().as_secs();
-                        match &state.last_failure {
-                            Some(failure) => eprintln!(
-                                "remote connect: still connecting after {seconds}s; last: {failure}"
-                            ),
-                            None => eprintln!("remote connect: still connecting after {seconds}s"),
+                        if !state.hinted {
+                            // The reminder of how to stop goes out once.
+                            state.hinted = true;
+                            eprintln!(
+                                "remote connect: Ctrl-C stops waiting; `--connect-timeout-seconds N` gives up by itself"
+                            );
                         }
+                        eprintln!(
+                            "{}",
+                            still_connecting_line(
+                                seconds,
+                                state.last_failure.as_deref(),
+                                self.invitation.as_deref(),
+                            )
+                        );
                         PROGRESS_EVERY
                     }
                 }
             };
             tokio::time::sleep(wait).await;
         }
+    }
+}
+
+/// The periodic line of a startup with no answer yet. An invitation claim that reached the host
+/// and failed nothing waits on the host's owner, so it names the two commands to run there; before
+/// this it read only "still connecting after 4s" for the whole approval window.
+pub(super) fn still_connecting_line(
+    seconds: u64,
+    last_failure: Option<&str>,
+    invitation: Option<&str>,
+) -> String {
+    match (last_failure, invitation) {
+        (Some(failure), _) => {
+            format!("remote connect: still connecting after {seconds}s; last: {failure}")
+        }
+        (None, Some(id)) => format!(
+            "remote connect: waiting {seconds}s for the host to approve this device; on the host, \
+             `cmux remote enroll pending` lists it and `cmux remote enroll approve {id}` lets it in"
+        ),
+        (None, None) => format!("remote connect: still connecting after {seconds}s"),
     }
 }
 
@@ -80,4 +114,32 @@ pub fn startup_refusal(error: &anyhow::Error) -> Option<&Refusal> {
             .or_else(|| cause.downcast_ref::<ConnectionError>().and_then(ConnectionError::refusal))
             .or_else(|| cause.downcast_ref::<LinkError>().and_then(LinkError::refusal))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::still_connecting_line;
+
+    #[test]
+    fn an_invitation_wait_names_the_host_commands_that_approve_it() {
+        let line = still_connecting_line(8, None, Some("CI3913cdem3cZSqR2jimyA"));
+        assert_eq!(
+            line,
+            "remote connect: waiting 8s for the host to approve this device; on the host, \
+             `cmux remote enroll pending` lists it and \
+             `cmux remote enroll approve CI3913cdem3cZSqR2jimyA` lets it in"
+        );
+    }
+
+    #[test]
+    fn a_failing_or_plain_connect_keeps_its_line() {
+        assert_eq!(
+            still_connecting_line(4, Some("connection refused"), Some("id")),
+            "remote connect: still connecting after 4s; last: connection refused"
+        );
+        assert_eq!(
+            still_connecting_line(4, None, None),
+            "remote connect: still connecting after 4s"
+        );
+    }
 }
