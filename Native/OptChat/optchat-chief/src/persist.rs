@@ -104,6 +104,9 @@ fn describe(outcome: &Outcome, last: Option<&Outcome>) -> Option<String> {
             "backup push failed (retrying in {} s): {error}",
             retry.as_secs()
         )),
+        Outcome::Blocked { error, attempts } => Some(format!(
+            "backup push stopped after {attempts} attempts: {error}; inspect the backup repository and retry"
+        )),
         Outcome::Pushed { head } if !matches!(last, Some(Outcome::Pushed { .. }) | None) => {
             Some(format!("backup pushed {head} again"))
         }
