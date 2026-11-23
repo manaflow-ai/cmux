@@ -94,7 +94,159 @@ final class GestureConflictUITests: XCTestCase {
         XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open", file: file, line: line)
     }
 
+    // MARK: Artifacts: wide code inside the multi-file pager (cell 11)
+
+    /// A leftward drag on code wider than the phone scrolls the code; the gallery stays on the
+    /// first file.
+    @MainActor
+    func testArtifactGallery_WideCode_SwipeLeft_ScrollsCode() {
+        let app = launch(demo: "code-gallery")
+        expectPosition(app, "1 of 2")
+        let before = app.screenshot().pngRepresentation
+        let middle = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+        middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: -160, dy: 0)), withVelocity: .slow,
+                     thenHoldForDuration: 0.1)
+        Thread.sleep(forTimeInterval: 0.8)
+        attach(app, "code-after-swipe-left")
+        XCTAssertEqual(visiblePosition(app), "1 of 2", "the code's own scroll took the drag, not the file pager")
+        XCTAssertNotEqual(app.screenshot().pngRepresentation, before, "the code scrolled sideways")
+    }
+
+    /// Once the code sits at its trailing edge, the next leftward drag pages to the next file.
+    @MainActor
+    func testArtifactGallery_WideCodeAtEdge_SwipeLeft_PagesFiles() {
+        let app = launch(demo: "code-gallery")
+        expectPosition(app, "1 of 2")
+        let middle = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        var swipes = 0
+        while visiblePosition(app) == "1 of 2", swipes < 16 {
+            middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: -260, dy: 0)), withVelocity: .fast,
+                         thenHoldForDuration: 0)
+            swipes += 1
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        attach(app, "code-at-edge-paged")
+        XCTAssertEqual(visiblePosition(app), "2 of 2", "a drag past the code's edge pages")
+        XCTAssertGreaterThan(swipes, 1, "the first drag scrolled the code, not the pager")
+    }
+
+    /// A leftward swipe on the title bar (outside the code) pages at once.
+    @MainActor
+    func testArtifactGallery_TitleBar_SwipeLeft_PagesFiles() {
+        let app = launch(demo: "code-gallery")
+        expectPosition(app, "1 of 2")
+        let bar = app.navigationBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10), "the gallery's bar")
+        let from = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: -240, dy: 0)), withVelocity: .fast,
+                   thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 0.8)
+        attach(app, "title-paged")
+        XCTAssertEqual(visiblePosition(app), "2 of 2", "a swipe outside the code pages")
+    }
+
+    // MARK: Lists: the keyboard follows the finger (cell 41)
+
+    /// With the workspaces search keyboard up, a short scroll of the results keeps the keyboard
+    /// (interactive dismissal); `.onDrag` lowered it on any drag.
+    @MainActor
+    func testWorkspaces_SearchResults_DragUp_KeepsKeyboard() {
+        let app = launch(demo: nil, args: ["-cmux-mobile-tab", "workspaces"])
+        let list = app.collectionViews["workspaces.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30), "the workspaces list\n\(app.debugDescription)")
+        app.swipeDown()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "the search field")
+        search.tap()
+        expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
+        app.typeText("c")
+        let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -120)), withVelocity: .slow,
+                   thenHoldForDuration: 0.1)
+        Thread.sleep(forTimeInterval: 0.6)
+        attach(app, "search-after-drag-up")
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "a scroll that never reached the keyboard keeps it up")
+    }
+
+    // MARK: Sheets: the list scrolls before the sheet grows (cell 49), a draft is never dragged away (cell 50)
+
+    /// New Agent Chat With… at the medium height: an upward drag on its list scrolls the list;
+    /// the sheet (its bar) stays where it is.
+    @MainActor
+    func testWorkspace_AgentChooserSheet_DragUp_ScrollsListFirst() {
+        let app = launch(demo: nil, args: ["-cmux-mobile-tab", "workspaces"])
+        let row = app.buttons["workspace.row.ws-cmux"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "the ws-cmux row\n\(app.debugDescription)")
+        row.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Tabs"].firstMatch.tap()
+        let new = app.buttons["New"].firstMatch
+        XCTAssertTrue(new.waitForExistence(timeout: 10), "the grid's New")
+        new.tap()
+        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "New Agent Chat With")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "New Agent Chat With…")
+        item.tap()
+        let start = app.buttons["agentChooser.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 15), "the chooser sheet")
+        let harness = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "agentChooser.harness.")).firstMatch
+        XCTAssertTrue(harness.waitForExistence(timeout: 15), "the chooser's harness rows")
+        Thread.sleep(forTimeInterval: 0.8)
+        let barBefore = start.frame.minY
+        attach(app, "chooser-medium")
+        let from = harness.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -200)), withVelocity: .slow,
+                   thenHoldForDuration: 0.1)
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "chooser-after-drag-up")
+        XCTAssertEqual(start.frame.minY, barBefore, accuracy: 4, "the sheet stayed at its height: the list took the drag")
+    }
+
+    /// Send Message… with a draft: a drag down on the sheet does not dismiss it, and the draft
+    /// is still there (SPEC 4.8: swipe down dismisses unless the sheet holds unsaved input).
+    @MainActor
+    func testMessageChiefSheet_Draft_DragDown_KeepsDraft() {
+        let app = launch(demo: nil, args: ["-cmux-mobile-tab", "workspaces"])
+        let row = app.buttons["workspace.row.ws-cmux"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "the ws-cmux row\n\(app.debugDescription)")
+        row.press(forDuration: 1.0)
+        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Send Message")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "Send Message…")
+        item.tap()
+        // A vertical-axis TextField: a text view or a text field, by OS version.
+        let field = app.descendants(matching: .any)["chief.messageAbout.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the message field\n\(app.debugDescription)")
+        if !app.keyboards.firstMatch.exists { field.tap() }
+        expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
+        app.typeText("look at the transport change")
+        let bar = app.navigationBars["Message Chief"]
+        XCTAssertTrue(bar.exists, "the sheet's bar")
+        let from = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 500)), withVelocity: .fast,
+                   thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1.2)
+        attach(app, "message-sheet-after-drag-down")
+        XCTAssertTrue(field.exists, "the sheet is still open")
+        XCTAssertTrue((field.value as? String ?? "").contains("transport change"), "the draft is kept")
+    }
+
     // MARK: Helpers
+
+    /// The gallery's "N of M" on the page in view (the pager keeps its neighbour's too).
+    @MainActor
+    private func visiblePosition(_ app: XCUIApplication) -> String? {
+        let screen = app.windows.firstMatch.frame
+        let labels = app.staticTexts.matching(identifier: "artifact.position").allElementsBoundByIndex
+        return labels.first { screen.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }?.label
+    }
+
+    @MainActor
+    private func expectPosition(_ app: XCUIApplication, _ position: String) {
+        let deadline = Date().addingTimeInterval(30)
+        while visiblePosition(app) != position, Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+        XCTAssertEqual(visiblePosition(app), position, "the code gallery\n\(app.debugDescription)")
+        // The highlighted lines land after the page appears.
+        Thread.sleep(forTimeInterval: 1.0)
+    }
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.
     static let longDraft = (1...14).map { "Line \($0) of a long draft" }.joined(separator: " ")
@@ -127,11 +279,12 @@ final class GestureConflictUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(demo: String, env: [String: String] = [:]) -> XCUIApplication {
+    private func launch(demo: String?, args: [String] = [], env: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         for (k, v) in env { app.launchEnvironment[k] = v }
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES"] + args
+        if let demo { app.launchArguments += ["-cmux-mobile-demo", demo] }
         app.launch()
         addTeardownBlock { app.terminate() }
         return app

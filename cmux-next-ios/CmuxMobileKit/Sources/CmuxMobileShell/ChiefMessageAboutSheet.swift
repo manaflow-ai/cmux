@@ -62,7 +62,9 @@ struct ChiefMessageAboutSheet: View {
             }
         }
         .overlay { if sending { CmuxSpinner().controlSize(.large) } }
-        .interactiveDismissDisabled(sending)
+        // A drag down never throws away what was written (SPEC 4.8, gesture matrix cell 50):
+        // with a draft, Cancel closes it.
+        .interactiveDismissDisabled(sending || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .presentationDetents([.medium, .large])
         .onAppear { focused = true }
     }

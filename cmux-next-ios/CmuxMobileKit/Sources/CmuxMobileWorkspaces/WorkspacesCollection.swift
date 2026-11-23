@@ -334,7 +334,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         let view = WorkspacesCollectionView(frame: .zero, collectionViewLayout: layout)
         view.backgroundColor = .clear
         view.alwaysBounceVertical = true
-        view.keyboardDismissMode = .onDrag
+        // The keyboard follows the finger, as every other list (gesture matrix cell 41): a
+        // scroll through search results keeps it up until the drag reaches it.
+        view.keyboardDismissMode = .interactive
         view.contentInsetAdjustmentBehavior = .automatic
         // A row is a button (its press fill); the cell itself does not select.
         view.allowsSelection = false

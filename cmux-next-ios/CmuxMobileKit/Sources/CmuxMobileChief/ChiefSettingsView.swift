@@ -689,6 +689,32 @@ struct WindowSafeTopReader: UIViewControllerRepresentable {
     }
 }
 
+/// Installs `NavigationPopExclusion.ContentPopGate` while its page is on
+/// screen and hands the pop back to UIKit's delegate as it leaves.
+struct ContentPopGateHost: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Host { Host() }
+    func updateUIViewController(_ host: Host, context: Context) {}
+
+    final class Host: UIViewController {
+        private let gate = NavigationPopExclusion.ContentPopGate()
+
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            gate.install(on: navigationController)
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            gate.restore()
+        }
+    }
+}
+
 /// Messages' Edit: Chief's name, and its avatar on a Mac that reads and
 /// sets it, each a value on the right that opens a one-field page with Save.
 struct ChiefIdentityEditor: View {
@@ -796,6 +822,10 @@ struct ChiefFieldEditor: View {
             }
         }
         .onAppear { focused = true }
+        // The stack's full-width back swipe stays off the focused field: a
+        // rightward drag there moves the caret or scrolls a long value
+        // (gesture matrix cell 28). The edge swipe still goes back.
+        .background { ContentPopGateHost() }
     }
 
     private func commit() async {

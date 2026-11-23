@@ -55,6 +55,61 @@ public final class NavigationPopExclusion {
         return false
     }
 
+    /// Keeps a navigation controller's full-width content pop (iOS 26) off
+    /// `startsOnOwnDrag` regions while a page is on top, without taking the
+    /// recognizer from UIKit: it stands in as the delegate, asks the rule
+    /// first, and hands every question to the delegate it replaced, which
+    /// `restore()` puts back. For a page that leaves UIKit's own pop on (a
+    /// form with text fields) rather than installing a delegate of its own.
+    public final class ContentPopGate: NSObject, UIGestureRecognizerDelegate {
+        private weak var recognizer: UIGestureRecognizer?
+        private weak var previous: UIGestureRecognizerDelegate?
+
+        public override init() { super.init() }
+
+        /// Stands in for `navigation`'s content pop delegate (once; again
+        /// after `restore()`).
+        public func install(on navigation: UINavigationController?) {
+            guard #available(iOS 26.0, *), let navigation,
+                  let content = navigation.interactiveContentPopGestureRecognizer, content.delegate !== self else { return }
+            recognizer = content
+            previous = content.delegate
+            content.delegate = self
+        }
+
+        /// Puts the replaced delegate back (the page is leaving).
+        public func restore() {
+            if let recognizer, recognizer.delegate === self { recognizer.delegate = previous }
+            recognizer = nil
+            previous = nil
+        }
+
+        public func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+            let window = gesture.view?.window
+            if NavigationPopExclusion.startsOnOwnDrag(NavigationPopExclusion.startPoint(of: gesture, in: window), in: window) {
+                return false
+            }
+            return previous?.gestureRecognizerShouldBegin?(gesture) ?? true
+        }
+
+        public func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            previous?.gestureRecognizer?(gesture, shouldReceive: touch) ?? true
+        }
+
+        public func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                                      shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            previous?.gestureRecognizer?(gesture, shouldRecognizeSimultaneouslyWith: other) ?? false
+        }
+
+        public func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+            previous?.gestureRecognizer?(gesture, shouldRequireFailureOf: other) ?? false
+        }
+
+        public func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            previous?.gestureRecognizer?(gesture, shouldBeRequiredToFailBy: other) ?? false
+        }
+    }
+
     /// The start of a pan that has already travelled (UIKit asks a pop
     /// recognizer once the finger moved past its slop).
     public static func startPoint(of recognizer: UIGestureRecognizer, in window: UIWindow?) -> CGPoint {

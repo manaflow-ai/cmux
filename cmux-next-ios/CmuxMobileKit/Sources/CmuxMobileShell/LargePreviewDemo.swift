@@ -17,6 +17,21 @@ extension DemoDriver {
         let source = LinkFileArtifactSource(macName: "Mac", baseDirectory: "/demo", availableCapacity: capacity) { link }
         FilePreviewRequest(reference: "/demo/sample.pdf", source: source).present(from: presenter)
     }
+
+    /// `-cmux-mobile-demo code-gallery`: two code files with lines far wider
+    /// than the phone in the multi-file gallery, so a sideways drag on the code
+    /// has both the code's own scroll and the file pager under it (gesture
+    /// matrix cell 11, GestureConflictUITests).
+    func codeGallery() {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        guard var presenter = windows.first(where: \.isKeyWindow)?.rootViewController else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
+        let wide = (1...40).map { "let line\($0) = \"" + String(repeating: "wide code \($0) ", count: 12) + "\"" }.joined(separator: "\n")
+        let files = ["First.swift", "Second.swift"].enumerated().map { index, name in
+            LocalFile(id: "code-\(index)", name: name, data: Data(wide.utf8), isImage: false)
+        }
+        FilePreviewRequest(files: files, startingAt: files[0].id).present(from: presenter)
+    }
 }
 
 /// A single-page PDF with an unused 25 MiB stream. Its page content is small,

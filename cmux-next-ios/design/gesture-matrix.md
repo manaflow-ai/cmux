@@ -39,7 +39,7 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 8 | Terminal | wide TUI x horizontal pan | TUI pans, no back | FIXED | wide-scroller rule; UI test to add |
 | 9 | Browser (native) | page x horizontal swipe | page history, no workspace back | FIXED | web-view rule; UI test to add |
 | 10 | Artifacts | code x horizontal scroll | code scrolls, no back | FIXED | wide-scroller rule |
-| 11 | Artifacts (multi-file) | code x horizontal scroll vs file pager | code scrolls; pager from outside the code | OPEN | cluster C |
+| 11 | Artifacts (multi-file) | code x horizontal scroll vs file pager | code scrolls; pager from outside the code | OK (UIKit hands a drag past the inner scroller's edge to the pager) | `testArtifactGallery_WideCode_SwipeLeft_ScrollsCode`, `testArtifactGallery_WideCodeAtEdge_SwipeLeft_PagesFiles`, `testArtifactGallery_TitleBar_SwipeLeft_PagesFiles` |
 | 12 | Browser (streamed) | page x horizontal pan | page pans, no back | OPEN | cluster A |
 | 13 | Browser (streamed) | page x pinch | page zooms or tab zoom, one owner | OPEN | cluster A |
 | 14 | Tabs | whole screen x pinch | starts only on page or grid content | OPEN | cluster A |
@@ -56,7 +56,7 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 25 | Chief | bubble x long press | action overlay | OK | |
 | 26 | Chief | long draft x swipe down | draft scrolls until top | OK | |
 | 27 | Chief | back swipe x reply or caret | edge strip only | OK | |
-| 28 | Chief settings | text field x content pop | caret moves, no back | OPEN (unverified: UIKit's own delegate) | cluster C |
+| 28 | Chief settings | text field x content pop | caret moves, no back | FIXED (`NavigationPopExclusion.ContentPopGate` in front of UIKit's delegate) | UI test needs a Chief demo with engine control (the Edit page) |
 | 29 | Terminal | TUI x vertical pan vs selection | each owns its touch | OK | `TerminalTUILocalPanUITests` |
 | 30 | Terminal | selection x long press, handles | selection | OK | |
 | 31 | Terminal | key bar x horizontal scroll, joystick | key bar, no back | OK | |
@@ -69,7 +69,7 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 38 | Feed | row x tap on a control vs row open | control wins | OPEN | cluster B |
 | 39 | Feed | top x pull to refresh | only from the top | OK | |
 | 40 | Feed | list x interactive dismissal | keyboard follows | OK | |
-| 41 | Home, workspaces | search results x drag with keyboard | keyboard follows the finger (interactive) | OPEN | cluster C |
+| 41 | Home, workspaces | search results x drag with keyboard | keyboard follows the finger (interactive) | FIXED | `testWorkspaces_SearchResults_DragUp_KeepsKeyboard` |
 | 42 | Home, workspaces | rows x scroll, swipe, long press | native | OK | `HomeRowSwipeUITests` |
 | 43 | Home, workspaces | top x pull to search, refresh | only from the top | OK | |
 | 44 | Sidebar | search field x rightward drag | caret moves, drawer stays shut | OPEN | cluster B |
@@ -77,8 +77,8 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 46 | Sidebar | RTL x drawer vs row actions | same direction rule | OPEN | cluster B |
 | 47 | Sidebar | edge x two-axis scroller | back only once the edge swipe began | OPEN | cluster B |
 | 48 | Sidebar | content x drawer vs vertical scroll | scroll vertical | OK | |
-| 49 | Sheets | agent chooser, devices list x drag | list scrolls first (`.presentationContentInteraction(.scrolls)`) | OPEN | cluster C |
-| 50 | Sheets | Chief message x drag down with a draft | keeps the draft (confirm or refuse) | OPEN | cluster C |
+| 49 | Sheets | agent chooser, devices list x drag | list scrolls first (`.presentationContentInteraction(.scrolls)`) | FIXED | `testWorkspace_AgentChooserSheet_DragUp_ScrollsListFirst` (devices sheet: same modifier, no demo) |
+| 50 | Sheets | Chief message x drag down with a draft | keeps the draft: drag down refused while a draft exists (SPEC 4.8) | FIXED | `testMessageChiefSheet_Draft_DragDown_KeepsDraft` |
 | 51 | Sheets | prompt edit `TextEditor` x sheet drag | editor scrolls, sheet at top | OK | |
 | 52 | Sheets | task options, artifacts x drag | list first | OK | |
 | 53 | Settings | lists x pull to refresh | only from the top | OK | |
@@ -94,6 +94,6 @@ below.
   the streamed page. Register the toolbar capsule and overview cards with `NavigationPopExclusion` (TabsKit takes a
   region hook), give the stream view the web-view rule, and let the pinch start only on page or grid content.
 - B, feed and sidebar (35-38, 44-47): parent recognizers that never look at the touched view.
-- C, sheets, lists and Chief settings (11, 28, 41, 49, 50).
+- C, sheets, lists and Chief settings (11, 28, 41, 49, 50): fixed in lane/ios-gesture-sheets; 11 was right already.
 
 The cluster PRs are linked here as they open.

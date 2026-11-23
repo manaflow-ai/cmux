@@ -131,6 +131,8 @@ public struct WorkspaceScreen: View {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
                              start: { [source] start in source.startAgentChat(start) })
                     .presentationDetents([.medium, .large])
+                    // At the medium height a drag scrolls the list before it grows the sheet (cell 49).
+                    .presentationContentInteraction(.scrolls)
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
             .sheet(isPresented: Binding(get: { source.showingScreenSharing }, set: { source.showingScreenSharing = $0 })) {

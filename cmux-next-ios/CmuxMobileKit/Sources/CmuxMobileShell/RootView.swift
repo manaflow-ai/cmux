@@ -645,6 +645,8 @@ struct ShellView: View {
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
                 .presentationDetents([.medium, .large])
+                // At the medium height a drag scrolls the list before it grows the sheet (cell 49).
+                .presentationContentInteraction(.scrolls)
         }
         .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(
             get: { shell.invitingTeam != nil },
