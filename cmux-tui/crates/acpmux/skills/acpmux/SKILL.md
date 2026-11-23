@@ -437,7 +437,8 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
   one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
   starts a chat there, sends the prompt and answers the reply with its `machine_id` and
-  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
+  `session_id`; its `follow_up` commands send (`cmux chat send`), wait and read on
+  (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a
@@ -512,10 +513,14 @@ acpmux unarchive NAME                          # bring an archived chat back
 
 Add `--json` before the command for ids and paths to act on. The rest of the
 surface, one line each in `acpmux --help`: `race` and `compare` (one task on
-several models), `continue` (move a chat to another harness), `briefs` and `task`
-(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
-(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
+(move a chat to another harness), `briefs` and `task` (tracked work), `watch`
+(wake me when others finish), `inbox` and `deliver` (durable messages, reports),
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `bridge`,
+`desktop` and `register` (desktop apps), `group` (sidebar
+groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
+switch, remove, list; `account readiness` says which still need installing or a
+sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
 `stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
 

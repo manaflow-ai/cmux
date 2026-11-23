@@ -4,7 +4,9 @@
 //!
 //! The checks read the scene, not the source, so they hold for any way the view was built:
 //! - `type-size`: a point size that is not one of the system's type roles.
-//! - `type-style`: an Apple text style name the web and macOS renderers draw at different sizes.
+//! - `type-style`: a `font` name that is no type role: an Apple text style name off the roles
+//!   (`largeTitle`), named as the role at its size, or a name no renderer knows (it draws as body).
+//!   Both renderers draw a name from one table (`scene_type.rs`), so this is a rename hint.
 //! - `type-roles`: (widgets) more text styles in one tile than the system allows (4 in cmux's).
 //!   A pane or a specimen page may show more; a glanceable tile reads with few.
 //! - `spacing`: a gap or padding that is not on the system's spacing scale.
@@ -26,6 +28,7 @@ use serde_json::{Value, json};
 use super::design_components;
 use super::design_system::System;
 use super::scene::{self, Node};
+use super::scene_type;
 
 /// Findings printed at most; past it one line says how many more.
 const MAX_FINDINGS: usize = 20;
@@ -48,14 +51,6 @@ const COLOR_TOKENS: [&str; 12] = [
 
 /// Tokens that are accents: the rest are the text's own shades and the surface's.
 const ACCENT_TOKENS: [&str; 4] = ["accent", "success", "warning", "danger"];
-
-/// Apple text style names the two renderers draw at different sizes (web px, macOS pt).
-const DRIFTING_STYLES: [(&str, &str, &str); 4] = [
-    ("largeTitle", "15 px", "26 pt"),
-    ("title", "15 px", "22 pt"),
-    ("title2", "20 px", "17 pt"),
-    ("title3", "20 px", "15 pt"),
-];
 
 /// Props that hold a color.
 const COLOR_PROPS: [&str; 7] =
@@ -511,7 +506,7 @@ fn text(
     findings: &mut Findings,
     styles: &mut BTreeSet<String>,
 ) {
-    let weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
+    let mut weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
     let font = node.props.get("font");
     let mut size = 13.0;
     match font {
@@ -531,20 +526,53 @@ fn text(
                 None => format!("{points} {}", if weight.is_empty() { "regular" } else { weight }),
             });
         }
-        Some(Value::String(name)) => {
-            if let Some((_, web, mac)) = DRIFTING_STYLES.iter().find(|(n, _, _)| n == name) {
+        Some(Value::String(name)) => match scene_type::named(name) {
+            Some(style) => {
+                size = style.size;
+                if style.role.is_some() && scene_type::exact_role(style).is_none() {
+                    let role = style.role.as_deref().and_then(scene_type::named);
+                    let (fix_role, call) = match role {
+                        Some(role) => (
+                            role.name.as_str(),
+                            role.helper
+                                .as_deref()
+                                .map(|h| format!(" or {h}(...)"))
+                                .unwrap_or_default(),
+                        ),
+                        None => ("body", String::new()),
+                    };
+                    findings.add(
+                        "type-style",
+                        Some(node),
+                        format!(
+                            "font \"{name}\" is no type role: it draws {} pt {} (the role at that size is \"{fix_role}\")",
+                            style.size, style.weight
+                        ),
+                        format!("rename it: font \"{fix_role}\"{call}"),
+                    );
+                }
+                let drawn = if weight.is_empty() { style.weight.as_str() } else { weight };
+                styles.insert(match system.role_of(style.size, drawn) {
+                    Some(role) => role.name.clone(),
+                    None => format!("{name} {drawn}"),
+                });
+                weight = drawn;
+            }
+            None => {
+                let roles: Vec<&str> =
+                    scene_type::roles().iter().map(|r| r.name.as_str()).collect();
                 findings.add(
                     "type-style",
                     Some(node),
-                    format!("font \"{name}\" draws {web} on the web and {mac} on macOS"),
-                    "use a type role: BigNumber(...) (34 pt), Heading(...) (20 pt) or Headline(...) (15 pt)".into(),
+                    format!("font \"{name}\" is no type role or text style, so it draws as body"),
+                    format!("use a type role: {}", roles.join(", ")),
                 );
+                styles.insert(format!(
+                    "body{}",
+                    if weight.is_empty() { String::new() } else { format!(" {weight}") }
+                ));
             }
-            styles.insert(format!(
-                "{name}{}",
-                if weight.is_empty() { String::new() } else { format!(" {weight}") }
-            ));
-        }
+        },
         _ => {
             styles.insert(format!(
                 "body{}",

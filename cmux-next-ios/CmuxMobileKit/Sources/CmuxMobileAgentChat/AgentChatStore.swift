@@ -1869,9 +1869,10 @@ private final class EarlierHistorySource: AgentSessionSource {
 
 extension AgentChatStore {
     /// What the chat's loading state says. Connecting first: a chat whose start is over but
-    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
+    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
     public var loadingText: String {
-        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
             return "Connecting to \(summary.macName)…"
         }
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"

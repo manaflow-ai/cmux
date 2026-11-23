@@ -27,8 +27,17 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 }
 
 /// The acting tools whose result carries the window's state after acting.
-pub const OBSERVES: &[&str] =
-    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
+pub const OBSERVES: &[&str] = &[
+    "click",
+    "move_pointer",
+    "type_text",
+    "press_key",
+    "scroll",
+    "drag",
+    "set_value",
+    "perform_action",
+    "batch",
+];
 
 /// The acting tools whose pre-action guards `force` skips ([`crate::observe::guards`]).
 pub const GUARDED: &[&str] = &["click", "type_text", "scroll", "set_value", "perform_action"];
@@ -65,7 +74,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "settle".into(),
-                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. openai (default): capture at once, no wait; an effect that lands a moment later may not show yet, so ask for adaptive or follow with wait_for or a screenshot when you need to see it. adaptive: up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look; only with it is an outcome confirmed or no_effect. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key)."}),
                 );
                 props.insert(
                     "observe".into(),
@@ -94,6 +103,15 @@ impl Tool {
         schema
     }
 
+    /// Whether `tools/list` names the tool on this host. `record` needs an
+    /// H.264 encoder, which only the macOS desktop has (VideoToolbox): elsewhere
+    /// (a Linux cmux Cloud machine) a call answers `unsupported`, so the tool
+    /// is left out of the list, as the image check `cua-video-refused` requires
+    /// of a machine with no screen video. A direct call still reaches it.
+    pub fn listed(&self) -> bool {
+        self.name != "record" || cfg!(target_os = "macos")
+    }
+
     /// Whether the tool may change something (for retries and look-only).
     pub fn acts(&self) -> bool {
         self.access == Access::Act
@@ -109,7 +127,7 @@ fn delivery() -> Value {
 }
 
 fn window_id() -> Value {
-    json!({"type": "string", "description": "The window, from list_windows or a screenshot."})
+    json!({"type": "string", "description": "The window: its id from list_windows or a screenshot, or its title or app name (no list_windows needed; several matches are refused with the matches)."})
 }
 
 pub static TOOLS: &[Tool] = &[
@@ -184,6 +202,22 @@ pub static TOOLS: &[Tool] = &[
                     "count": {"type": "integer", "minimum": 1, "maximum": 3},
                     "modifiers": {"type": "array", "items": {"type": "string"}, "description": "shift, ctrl, alt/option, cmd/meta"},
                     "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix), or a path for an item in a submenu (\"Sort By > Name\"); the menu opens, the item is pressed and the menu closes in one call."},
+                    "delivery": delivery()
+                }),
+                &[],
+            )
+        },
+    },
+    Tool {
+        name: "move_pointer",
+        access: Access::Act,
+        description: "Move the pointer onto an element (element_id) or a point (x, y in screenshot pixels) of a window and press nothing: a hover, to show a tooltip, a hover card, a row's hover controls or a menu that opens on hover. Targets exactly as click does (with no window_id, x and y are pixels of your latest display screenshot). The result shows the window after the move. background (default): the move is sent to the app only; nothing takes focus, no window is raised and the person's pointer stays where it is, so hover effects the app draws from its own mouse-moved events show (web pages, most custom views), while some native tooltips and hover highlights that follow the real pointer may not. foreground: raises the window, brings its app to the front and moves the person's real pointer there, where it stays; only when background shows nothing and the person allowed it.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "element_id": {"type": "string"},
+                    "x": {"type": "number"}, "y": {"type": "number"},
                     "delivery": delivery()
                 }),
                 &[],
@@ -286,7 +320,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "batch",
         access: Access::Act,
-        description: "Run up to 20 steps on one window in order, in one call, and get one state at the end. A step is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\", ...that tool's arguments without window_id}, {\"action\": \"wait\", \"ms\": N}, or {\"action\": \"wait_for\", ...}. Every acting step is checked and run like its own call (settings, deny list, guards, never the person's focus) and gets its own outcome after its own settle. Steps: \"require\": \"confirmed\" stops the batch unless that step's outcome is confirmed (read back); \"not_no_effect\" stops it when the step did nothing; by default only an error stops it. \"target\": {\"role\", \"label\", \"text\"} instead of element_id names an element by what it is (label: the whole name, any case; text: part of the name or value), found when the step runs, so a step can act on what an earlier step opened; two matches are refused (ambiguous_element), never guessed. wait_for waits until an element (element_id or target) appears (default), disappears (\"until\": \"disappears\"), or its value equals (\"value_equals\") or contains (\"value_contains\") a text, reading the window again on every change the app reports, for at most timeout_ms (default 10000, at most 100000); a timeout stops the batch. The waits of one batch add up to at most 120 s. The reply's results lists every step: done (outcome, outcome_reason, read_back, changes: what changed in the window during that step), failed (code, message), or not_run; stopped_at names the step that stopped the batch and why. Nothing is checked or run when any step is malformed. No loops or conditions: for those, call the tools one at a time. A perform_action step names its accessibility action as \"perform\" (\"action\" is the step's). Example: [{\"action\": \"press_key\", \"keys\": \"cmd+s\"}, {\"action\": \"wait_for\", \"target\": {\"role\": \"sheet\"}}, {\"action\": \"set_value\", \"target\": {\"role\": \"text_field\", \"label\": \"Save As\"}, \"value\": \"notes\", \"require\": \"confirmed\"}, {\"action\": \"click\", \"target\": {\"role\": \"button\", \"label\": \"Save\"}}].",
+        description: "Run up to 20 steps on one window in order, in one call, and get one state at the end. A step is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\", ...that tool's arguments without window_id}, {\"action\": \"wait\", \"ms\": N}, or {\"action\": \"wait_for\", ...}. Every acting step is checked and run like its own call (settings, deny list, guards, never the person's focus) and gets its own outcome. A step captures the window at once, with no wait; only a step with \"require\": \"confirmed\" or \"not_no_effect\" (or \"settle\": \"adaptive\") settles first, because confirmed and no_effect need a settle to read back and compare, so put a wait_for step after an action whose effect lands a moment later. Steps: \"require\": \"confirmed\" stops the batch unless that step's outcome is confirmed (read back); \"not_no_effect\" stops it when the step did nothing; by default only an error stops it. \"target\": {\"role\", \"label\", \"text\"} instead of element_id names an element by what it is (label: the whole name, any case; text: part of the name or value), found when the step runs, so a step can act on what an earlier step opened; two matches are refused (ambiguous_element), never guessed. wait_for waits until an element (element_id or target) appears (default), disappears (\"until\": \"disappears\"), or its value equals (\"value_equals\") or contains (\"value_contains\") a text, reading the window again on every change the app reports, for at most timeout_ms (default 10000, at most 100000); a timeout stops the batch. The waits of one batch add up to at most 120 s. The reply's results lists every step: done (outcome, outcome_reason, read_back, changes: what changed in the window during that step), failed (code, message), or not_run; stopped_at names the step that stopped the batch and why. Nothing is checked or run when any step is malformed. No loops or conditions: for those, call the tools one at a time. A perform_action step names its accessibility action as \"perform\" (\"action\" is the step's). Example: [{\"action\": \"press_key\", \"keys\": \"cmd+s\"}, {\"action\": \"wait_for\", \"target\": {\"role\": \"sheet\"}}, {\"action\": \"set_value\", \"target\": {\"role\": \"text_field\", \"label\": \"Save As\"}, \"value\": \"notes\", \"require\": \"confirmed\"}, {\"action\": \"click\", \"target\": {\"role\": \"button\", \"label\": \"Save\"}}].",
         schema: || {
             let target = json!({
                 "type": "object",
@@ -345,6 +379,26 @@ pub static TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "list_alerts",
+        access: Access::Observe,
+        description: "System alerts on screen that list_windows hides (macOS: iCloud and crash notices, \"can't be opened\", Gatekeeper, privacy asks, keychain and password panels, the out-of-memory panel): alert_id, owner, bundle_id, pid, title, text, buttons, class, and put_off (the buttons dismiss_alert would press, preferred first; empty when a person must answer). Read through accessibility only: no pixels, never a field's value. Refused with alerts_off unless the person turned on the computerUse.alerts setting (off by default; no Computer Use tool changes it).",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
+        name: "dismiss_alert",
+        access: Access::Act,
+        description: "Put off one system alert from list_alerts by pressing one of its put_off buttons (Later, Not Now, OK, Cancel, Ignore, Don't Allow, Deny, Close, as its class allows) with an accessibility press: no pointer, no focus change. It never presses a button that allows, grants, opens Settings, reports, resets or submits, and never any button on a password panel: those are refused with alert_button_refused, and an alert with no put-off rule with alert_unknown (tell the person; do not try another tool). Refused with alerts_off unless the person turned on computerUse.alerts.",
+        schema: || {
+            obj(
+                json!({
+                    "alert_id": {"type": "string", "description": "The alert, from list_alerts."},
+                    "button": {"type": "string", "description": "The button's title, one of the alert's put_off."}
+                }),
+                &["alert_id", "button"],
+            )
+        },
+    },
+    Tool {
         name: "list_displays",
         access: Access::Discover,
         description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
@@ -380,6 +434,7 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 pub fn mcp_list() -> Value {
     let tools: Vec<Value> = TOOLS
         .iter()
+        .filter(|t| t.listed())
         .map(|t| {
             json!({
                 "name": t.name,
@@ -398,15 +453,14 @@ pub fn mcp_list() -> Value {
 
 /// The instructions an agent gets with the server (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
-reaches your other machines). For a task about this computer, look before you answer: \
-list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element ids or \
-pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each action \
-returns what changed and a screenshot; \"No change\" means it did nothing, so try another way \
-before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act in \
-the background; use delivery foreground only when status says the person allowed it, and only for \
-a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell \
-the person which Settings > Computer Use setting would allow it; never change those settings \
-yourself.";
+reaches your other machines). Use the fewest calls: a window_id can be the window's title or app \
+name, and each action returns what changed and a screenshot, so no look is needed before or after \
+it. When the task names the window and its controls, act at once: one batch whose steps name \
+elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
+commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
+saying it worked. Act in the background; use delivery foreground only when status says the person \
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell the person which Settings > Computer Use \
+setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {
@@ -441,6 +495,19 @@ mod tests {
         assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
         assert_eq!(safe_tag(" \u{7} "), None);
         assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
+    }
+
+    /// `record` is listed only where the desktop can encode H.264 (macOS);
+    /// every other tool is listed everywhere, and `find` reaches them all.
+    #[test]
+    fn record_is_listed_only_on_macos() {
+        let list = mcp_list();
+        let names: Vec<&str> =
+            list["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names.contains(&"record"), cfg!(target_os = "macos"), "{names:?}");
+        assert_eq!(names.len(), TOOLS.iter().filter(|t| t.listed()).count());
+        assert!(TOOLS.iter().filter(|t| t.name != "record").all(Tool::listed));
+        assert!(find("record").is_some());
     }
 
     /// The batch schema names every step field an agent can use.
