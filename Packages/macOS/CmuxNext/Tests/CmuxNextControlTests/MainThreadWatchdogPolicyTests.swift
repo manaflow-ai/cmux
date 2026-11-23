@@ -19,20 +19,20 @@ struct MainThreadWatchdogPolicyTests {
 
     /// A backgrounded (App Nap, throttled) app can leave the heartbeat stale
     /// for 10 s while the main thread idles in mach_msg or barely runs. That
-    /// is still reported as a hang, but it must not fail the debug assertion:
+    /// is still reported as a hang, but it is no busy hang:
     /// only a main thread that burned CPU through the stall is "busy".
-    @Test func idleOrThrottledStallDoesNotFailHangAssertion() {
+    @Test func idleOrThrottledStallIsNoBusyHang() {
         let assertNanos: UInt64 = 10_000_000_000
-        #expect(!MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 11_000_000_000, mainThreadCPUNanos: 0, assertNanos: assertNanos))
-        #expect(!MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 11_000_000_000, mainThreadCPUNanos: 200_000_000, assertNanos: assertNanos))
+        #expect(!MainThreadWatchdog.hangIsBusy(elapsedNanos: 11_000_000_000, mainThreadCPUNanos: 0, assertNanos: assertNanos))
+        #expect(!MainThreadWatchdog.hangIsBusy(elapsedNanos: 11_000_000_000, mainThreadCPUNanos: 200_000_000, assertNanos: assertNanos))
     }
 
-    @Test func busyStallPastThresholdFailsHangAssertion() {
+    @Test func busyStallPastThresholdIsABusyHang() {
         let assertNanos: UInt64 = 10_000_000_000
-        #expect(MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 10_500_000_000, mainThreadCPUNanos: 9_800_000_000, assertNanos: assertNanos))
-        #expect(!MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 9_000_000_000, mainThreadCPUNanos: 9_000_000_000, assertNanos: assertNanos))
-        // CPU unreadable: keep the wall-clock assertion.
-        #expect(MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 10_500_000_000, mainThreadCPUNanos: nil, assertNanos: assertNanos))
+        #expect(MainThreadWatchdog.hangIsBusy(elapsedNanos: 10_500_000_000, mainThreadCPUNanos: 9_800_000_000, assertNanos: assertNanos))
+        #expect(!MainThreadWatchdog.hangIsBusy(elapsedNanos: 9_000_000_000, mainThreadCPUNanos: 9_000_000_000, assertNanos: assertNanos))
+        // CPU unknown (unreadable, or gone with an ended heartbeat): nothing proves the main thread was busy (https://github.com/manaflow-ai/cmux/issues/50992).
+        #expect(!MainThreadWatchdog.hangIsBusy(elapsedNanos: 10_500_000_000, mainThreadCPUNanos: nil, assertNanos: assertNanos))
     }
 
     /// The watchdog thread reads the watched thread's CPU time (thread_info

@@ -366,23 +366,13 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    builder = fallback["with"]["darwin_builder"]
-    for mac_runner, expected in (("an-owned-mac-label", "linux"), ("", "mac")):
-        # `a != '' && 'linux' || 'mac'` yields a string, not a truth value: evaluate both arms.
-        on_mac = evaluate("${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-                          {"needs.tree-preflight.outputs.darwin_mac_runner": mac_runner, "__needs__": []})
-        _check(builder == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}"
-               and ("linux" if on_mac else "mac") == expected,
-               f"the fallback after a first build {'on an owned Mac' if mac_runner else 'by the Linux cross build'} "
-               f"uses darwin_builder {expected}")
-    _check("darwin_mac_runner" not in fallback["with"],
-           "the fallback never goes back to the owned Mac whose build just ended without artifacts")
+    _check(fallback["with"]["darwin_builder"] == "mac",
+           "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")
     plan_step = next(s for s in plan["steps"] if s.get("id") == "plan")
-    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}"
-           and plan_step["env"].get("FIRST_ON_MAC") == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-           "the plan's annotation names the first build's result and builder")
+    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}",
+           "the plan's annotation reports the cross build's result")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]
