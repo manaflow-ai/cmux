@@ -331,7 +331,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
-        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        # --trunk-tip-only: a feat-cmux-next push that is no longer the tip skips its builds on its first attempt;
+        # the newer push builds the tip, and cmux-tui-tree-request.yml's re-run builds this commit on demand.
+        run: >-
+          python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+          --trunk-tip-only --attempt "$RUN_ATTEMPT"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
       # tests (source.json daemonTests "separate", no daemon-tests marker):

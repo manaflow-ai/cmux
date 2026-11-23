@@ -385,7 +385,10 @@ jobs:
           wait=()
           [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
-          python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+          # The plan itself takes about a minute. Run 44731310755 (2026-11-20) printed nothing for 74 minutes after
+          # fetch-state, held by the job's cap: its prints sat in a pipe buffer, so the log named no line. Unbuffered,
+          # and past 10 minutes SIGABRT makes faulthandler print every thread's stack before it ends.
+          timeout -s ABRT 600 python3 -I -u -X faulthandler scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} ${route[@]+"${route[@]}"} --perf-result "$PERF_RESULT" \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
           { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"
