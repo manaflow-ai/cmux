@@ -899,6 +899,8 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
+        let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
         let mut handshake_ended = false;
         let mut health_asked: Option<tokio::time::Instant> = None;
@@ -1062,6 +1064,11 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
             }
+            if let Some(held) = reader.resume()
+                && held >= timings.ping_every
+            {
+                tracing::info!(peer = %self.name, "this daemon kept the link from reading for {}ms; its silence counts from now", held.as_millis());
+            }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
@@ -1070,6 +1077,12 @@ impl Peer {
                     // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
                     if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
                         wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                        continue;
+                    }
+                    // This daemon did not read for part of the probe's wait: the answer may be
+                    // in, unread. The probe waits its whole time from when reading resumed.
+                    if reader.reading() < network::NETWORK_PROBE {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE - reader.reading());
                         continue;
                     }
                     if request_probe {
@@ -1152,7 +1165,8 @@ impl Peer {
                         break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();
-                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
+                    // A gap this daemon made by not reading teaches the budget nothing.
+                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap).min(reader.reading());
                     let (was, silence) = self.with_silence(|b| {
                         let was = b.current();
                         b.answered_after(gap, now);
@@ -1162,7 +1176,7 @@ impl Peer {
                     if silence != was {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
@@ -1184,7 +1198,7 @@ impl Peer {
                         self.refresh_health();
                     }
                 }
-                frame = source.next() => {
+                frame = reader.listen(source.next()) => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
@@ -1400,7 +1414,7 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Read before the write: a large frame's write is not the peer's silence.
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {
