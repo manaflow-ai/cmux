@@ -71,6 +71,10 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
         break;
       }
     }
+    // The turn's end and the next prompt in one update (a queued message sent as the turn ends, a
+    // busy page drawing both at once): the next turn's prompt and live line come under the ended
+    // turn's Worked for, so look for that turn's Worked for from the end back to its prompt.
+    if (worked === undefined) worked = workedUnderNextPrompt(before, after);
     if (worked === undefined) return false;
     for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
       if (before[index]!.id === worked) return false;
@@ -83,6 +87,24 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
     // line regroups under a new id as the turn ends, and its id going is no cut transcript.
     if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
   return prompt === undefined || after.some((row) => row.id === prompt);
+}
+
+/// The running turn's Worked for in `after`, found from the end back to that turn's prompt (rows of
+/// the next turn may come under it). O(rows from the turn's prompt to the end).
+function workedUnderNextPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): string | undefined {
+  let prompt: string | undefined;
+  for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
+    if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
+  if (prompt === undefined) return undefined;
+  // The next turn's prompt may be another agent's message, drawn as a line (`isLineRow`), so any row
+  // after the ended turn's own counts: its Worked for is found back to its prompt.
+  const worked = `${WORKED}-${prompt}`;
+  for (let index = after.length - 1; index >= 0; index -= 1) {
+    const row = after[index]!;
+    if (row.id === prompt) return undefined;
+    if (row.id === worked) return worked;
+  }
+  return undefined;
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
