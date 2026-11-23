@@ -169,8 +169,11 @@ impl Bench {
     }
 }
 
-async fn echo(channel: &mut Channel, frame: &'static [u8]) {
+/// Send `frame` and return the number of stream data frames seen before its
+/// exact echo, including output from before, during and after the park.
+async fn echo(channel: &mut Channel, frame: &'static [u8]) -> usize {
     channel.send(Bytes::from_static(frame)).await.unwrap();
+    let mut preceding_frames = 0;
     let back = loop {
         let back =
             tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("the first frame");
@@ -178,12 +181,15 @@ async fn echo(channel: &mut Channel, frame: &'static [u8]) {
         if !matches!(back, Some(ChannelEvent::Data(ref bytes)) if bytes.first() == Some(&b'S')) {
             break back;
         }
+        preceding_frames += 1;
     };
     assert!(matches!(back, Some(ChannelEvent::Data(ref bytes)) if bytes.as_ref() == frame), "{back:?}");
+    preceding_frames
 }
 
-/// Resume to the first frame of a parked link, after `silent`: (probe ms, first frame ms).
-async fn parked(bench: &Bench, silent: Duration) -> (f64, f64) {
+/// Resume to the first frame of a parked link, after `silent`: (probe ms,
+/// first frame ms, stream frames before the exact echo).
+async fn parked(bench: &Bench, silent: Duration) -> (f64, f64, usize) {
     bench.delay(false);
     let (link, session_id, mut channel) = bench.link_up().await.expect("the phone links up");
     if bench.duress {
@@ -198,11 +204,11 @@ async fn parked(bench: &Bench, silent: Duration) -> (f64, f64) {
     dial::wireguard::resume_session(&session_id);
     link.probe(Duration::from_millis(1_500)).await.expect("the resumed link answers its probe");
     let probed = ms(start.elapsed());
-    echo(&mut channel, b"after").await;
+    let preceding_frames = echo(&mut channel, b"after").await;
     let first_frame = ms(start.elapsed());
     assert!(!link.is_parked());
     link.close("done");
-    (probed, first_frame)
+    (probed, first_frame, preceding_frames)
 }
 
 /// A full redial to the first frame: the old link closed, a new dial, a new channel.
@@ -231,7 +237,7 @@ fn round_trips(ms: Option<f64>, rtt_ms: u64) -> Option<f64> {
 async fn measure(bench: Bench, samples: usize, silent: Duration) {
     let (mut probe, mut first, mut redials, mut redial_failures) = (Vec::new(), Vec::new(), Vec::new(), 0);
     for _ in 0..samples {
-        let (probed, first_frame) = parked(&bench, silent).await;
+        let (probed, first_frame, _) = parked(&bench, silent).await;
         probe.push(probed);
         first.push(first_frame);
         match redial(&bench).await {
@@ -286,12 +292,13 @@ async fn profiles() {
         for duress in [false, true] {
             let bench = Bench::start_profiled(name, duress).await;
             let samples = 5;
-            let (mut probe, mut first, mut redials, mut redial_failures) =
-                (Vec::new(), Vec::new(), Vec::new(), 0);
+            let (mut probe, mut first, mut stream_frames, mut redials, mut redial_failures) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0);
             for _ in 0..samples {
-                let (probed, first_frame) = parked(&bench, Duration::from_secs(2)).await;
+                let (probed, first_frame, preceding_frames) = parked(&bench, Duration::from_secs(2)).await;
                 probe.push(probed);
                 first.push(first_frame);
+                stream_frames.push(preceding_frames);
                 match redial(&bench).await {
                     Some(ms) => redials.push(ms),
                     None => redial_failures += 1,
@@ -302,7 +309,9 @@ async fn profiles() {
             println!(
                 "PARK_RESUME_PROFILE {}",
                 json!({"profile": name, "duress": duress, "silent_s": 2, "samples": samples,
-                       "parked": {"probe_ms": median(probe), "first_frame_ms": parked_ms, "all_first_frame_ms": first},
+                       "parked": {"probe_ms": median(probe.clone()), "first_frame_ms": parked_ms,
+                                  "all_probe_ms": probe, "all_first_frame_ms": first,
+                                  "stream_frames_before_echo": stream_frames},
                        "redial": {"first_frame_ms": redial_ms, "all_first_frame_ms": redials,
                                   "timed_out": redial_failures},
                        "datagrams_delivered": delivered, "datagrams_dropped": dropped})

@@ -59,6 +59,8 @@ const CHANNEL_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 pub const PARK_SERVICE: &str = "_link.park";
 /// The `close` code that accepts a park.
 pub const PARKED: &str = "parked";
+/// Park argument advertising lossless, independently deflated data frames.
+const PARK_ENCODING: &str = "deflate-v1";
 /// The longest hold a side grants; a longer ask is cut to this.
 pub const MAX_PARK_HOLD: Duration = Duration::from_secs(10 * 60);
 /// The tunnel holds its connections this much past the park, so the link's
@@ -79,6 +81,7 @@ enum Park {
     /// Mac sends only control frames. Past `until` the link closes.
     Parked {
         until: Instant,
+        deflate: bool,
     },
     /// The phone is back ([`Link::resume`]); the first frame from the Mac
     /// ends the park on this side.
@@ -415,12 +418,12 @@ impl Outbox {
         match class {
             Class::Control => queues.control.push_back(frame),
             Class::Input => {
-                *queues.bytes.entry(frame.channel).or_default() += frame.payload.len();
+                *queues.bytes.entry(frame.channel).or_default() += frame.queue_bytes();
                 queues.input.push_back(frame);
             }
             Class::Bulk => {
                 let channel = frame.channel;
-                *queues.bytes.entry(channel).or_default() += frame.payload.len();
+                *queues.bytes.entry(channel).or_default() += frame.queue_bytes();
                 let queue = queues.bulk.entry(channel).or_default();
                 if queue.is_empty() {
                     queues.turns.push_back(channel);
@@ -461,7 +464,7 @@ impl Outbox {
                     return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
-                if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
+                if used == 0 || used + frame.queue_bytes() <= CHANNEL_QUEUE_BYTES {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
@@ -499,7 +502,7 @@ impl Outbox {
             return None;
         };
         if let Some(used) = queues.bytes.get_mut(&frame.channel) {
-            *used = used.saturating_sub(frame.payload.len());
+            *used = used.saturating_sub(frame.queue_bytes());
             if *used == 0 {
                 queues.bytes.remove(&frame.channel);
             }
@@ -714,6 +717,8 @@ struct Inner {
     park: watch::Sender<Park>,
     /// A parked Mac sends only control frames (the writers read this).
     writes_held: AtomicBool,
+    /// The next explicit probe must wake the Mac on the ordered stream.
+    resume_probe: AtomicBool,
     /// What the transport should hold ([`HoldHook`]); one task applies it.
     transport_hold: watch::Sender<Option<Duration>>,
     /// Tests: while `true`, a keepalive beat's pinger waits here before it
@@ -857,12 +862,12 @@ impl Inner {
     /// Park for `hold`: no keepalive on either side, the transport held, and
     /// on the Mac only control frames written, until the peer is heard again
     /// or `hold` passes (then the link closes).
-    fn set_parked(&self, hold: Duration) {
+    fn set_parked(&self, hold: Duration, deflate: bool) {
         let hold = hold.min(MAX_PARK_HOLD);
         if self.role == Role::Mac {
             self.writes_held.store(true, Ordering::Release);
         }
-        self.park.send_replace(Park::Parked { until: Instant::now() + hold });
+        self.park.send_replace(Park::Parked { until: Instant::now() + hold, deflate });
         self.transport_hold.send_replace(Some(hold + PARK_TRANSPORT_MARGIN));
         tracing::debug!(role = ?self.role, ?hold, "link parked");
     }
@@ -886,7 +891,7 @@ impl Inner {
     /// The park's deadline, while parked.
     fn parked_until(&self) -> Option<Instant> {
         match *self.park.borrow() {
-            Park::Parked { until } => Some(until),
+            Park::Parked { until, .. } => Some(until),
             Park::Off | Park::Resuming => None,
         }
     }
@@ -988,6 +993,7 @@ impl Link {
             media: Mutex::new(None),
             park: watch::channel(Park::Off).0,
             writes_held: AtomicBool::new(false),
+            resume_probe: AtomicBool::new(false),
             transport_hold: watch::channel(None).0,
             #[cfg(test)]
             pinger_gate: watch::channel(false).0,
@@ -1282,7 +1288,10 @@ impl Link {
         // A keepalive ping is not sent at all while parked.
         let mut datagram = false;
         let mut first = || {
-            datagram = self.inner.datagram_pings() && {
+            // An ordinary datagram can arrive after a later park. Only the
+            // ordered stream proves this wake follows the request to park.
+            let wake = !keepalive && self.inner.resume_probe.swap(false, Ordering::AcqRel);
+            datagram = !wake && self.inner.datagram_pings() && {
                 if self.inner.closed_reason().is_some() {
                     return Err(self.inner.closed_error());
                 }
@@ -1488,8 +1497,11 @@ impl Link {
         let millis = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
         // Parked before the ask: this side's keepalive must not ping in the
         // round trip, since a ping ends the Mac's park as soon as it starts.
-        self.inner.set_parked(hold);
-        let parked = match self.open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis })).await {
+        self.inner.set_parked(hold, false);
+        let parked = match self
+            .open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis, "encoding": PARK_ENCODING }))
+            .await
+        {
             Ok(mut channel) => Ok(matches!(
                 tokio::time::timeout(timeout, channel.recv()).await,
                 Ok(Some(ChannelEvent::Closed(info))) if info.code == PARKED
@@ -1513,6 +1525,7 @@ impl Link {
             return false;
         }
         self.inner.received();
+        self.inner.resume_probe.store(true, Ordering::Release);
         self.inner.park.send_replace(Park::Resuming);
         true
     }
@@ -1566,12 +1579,15 @@ where
         // Frames whose sender asked when they reach the transport (send_marked).
         let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
         marks.extend(frame.flushed.take());
+        let mut pong = frame.kind == FrameType::Pong;
         let mut traffic = !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
         let mut result = sink.feed(frame).await;
-        while result.is_ok() && pending < FLUSH_BYTES {
+        // Hand a pong to the transport before feeding more queued output.
+        while result.is_ok() && !pong && pending < FLUSH_BYTES {
             match outbox.pop(inner.writes_held.load(Ordering::Acquire)) {
                 Some(Next::Frame(mut frame)) => {
                     pending += frame.payload.len();
+                    pong = frame.kind == FrameType::Pong;
                     marks.extend(frame.flushed.take());
                     traffic |= !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
                     result = sink.feed(frame).await;
@@ -1884,7 +1900,7 @@ async fn read_loop<R>(
         // answer), on a resuming phone the first frame from the Mac.
         let park = *inner.park.borrow();
         match (park, inner.role) {
-            (Park::Parked { .. }, Role::Mac) if matches!(frame.kind, FrameType::Ping | FrameType::Data) => {
+            (Park::Parked { .. }, Role::Mac) if frame.kind == FrameType::Data => {
                 inner.unpark();
             }
             (Park::Resuming, _) => inner.unpark(),
@@ -1903,6 +1919,10 @@ async fn read_loop<R>(
         match frame.kind {
             FrameType::Ping => {
                 let _ = inner.push(stream, Class::Control, Frame::new(0, FrameType::Pong, frame.payload));
+                if inner.role == Role::Mac && matches!(park, Park::Parked { .. }) {
+                    // Queue the answer before waking either backlog writer.
+                    inner.unpark();
+                }
             }
             FrameType::Pong => {
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
@@ -1930,7 +1950,9 @@ async fn read_loop<R>(
                 if request.service == PARK_SERVICE {
                     match request.args.get("hold_ms").and_then(serde_json::Value::as_u64) {
                         Some(millis) if millis > 0 => {
-                            inner.set_parked(Duration::from_millis(millis));
+                            let deflate = request.args.get("encoding").and_then(serde_json::Value::as_str)
+                                == Some(PARK_ENCODING);
+                            inner.set_parked(Duration::from_millis(millis), deflate);
                             refuse(&inner, stream, frame.channel, PARKED, "");
                         }
                         _ => refuse(&inner, stream, frame.channel, "bad_request", "hold_ms must be positive"),
@@ -1959,23 +1981,30 @@ async fn read_loop<R>(
                     // Nobody accepts; the channel's drop refuses it.
                 }
             }
-            FrameType::Data => {
-                let inbox = inner.lock_channels().get(&frame.channel).map(|route| route.inbox.clone());
+            FrameType::Data | FrameType::DeflatedData => {
+                let channel = frame.channel;
+                let inbox = inner.lock_channels().get(&channel).map(|route| route.inbox.clone());
                 if let Some(inbox) = inbox {
                     // The reader never waits on one channel's owner (see
                     // `Inbox`), only on a channel holding its whole buffer.
                     // Past the stall budget that channel is closed `overflow`
                     // on both sides and the link goes on.
                     if inbox.owner_gone() {
-                        inner.lock_channels().remove(&frame.channel);
-                    } else if !inbox.push(ChannelEvent::Data(frame.payload)).await
-                        && inner.lock_channels().remove(&frame.channel).is_some()
-                    {
-                        tracing::warn!(
-                            channel = frame.channel,
-                            "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
-                        );
-                        refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
+                        inner.lock_channels().remove(&channel);
+                    } else {
+                        let payload = match frame.into_data() {
+                            Ok(payload) => payload,
+                            Err(error) => break format!("read failed: {error}"),
+                        };
+                        if !inbox.push(ChannelEvent::Data(payload)).await
+                            && inner.lock_channels().remove(&channel).is_some()
+                        {
+                            tracing::warn!(
+                                channel,
+                                "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                            );
+                            refuse(&inner, stream, channel, "overflow", "the channel was not read");
+                        }
                     }
                 }
             }
@@ -2096,6 +2125,11 @@ impl ChannelSender {
             }
             let size = chunk.len();
             let mut frame = Frame::new(self.id, FrameType::Data, chunk);
+            if self.inner.writes_held.load(Ordering::Acquire)
+                && matches!(*self.inner.park.borrow(), Park::Parked { deflate: true, .. })
+            {
+                frame.deflate_if_smaller();
+            }
             if rest.is_empty() {
                 frame.flushed = mark.take();
             }
@@ -2879,7 +2913,7 @@ mod tests {
         LinkConfig {
             keepalive: Some(Duration::from_millis(50)),
             keepalive_timeout: Duration::from_millis(600),
-            aligned: false,
+            ..LinkConfig::default()
         }
     }
 
@@ -3045,6 +3079,32 @@ mod tests {
         assert!(!phone.is_closed() && !mac.is_closed());
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn resume_probe_releases_ordered_output_with_liveness_datagrams() {
+        let (a, b) = tokio::io::duplex(1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let served = mac.accept().await.unwrap().channel;
+        assert!(phone.park(Duration::from_secs(10), Duration::from_secs(1)).await.unwrap());
+        let writes: Vec<_> = (0..20u8).map(|n| Bytes::from(vec![n; 512])).collect();
+        for bytes in &writes {
+            served.send(bytes.clone()).await.unwrap();
+        }
+        assert!(phone.resume());
+        phone.probe(Duration::from_secs(1)).await.unwrap();
+        assert!(!mac.is_parked());
+        served.close("done", "").await;
+        for bytes in writes {
+            assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(got)) if got == bytes));
+        }
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(info)) if info.code == "done"));
+    }
+
     /// A keepalive beat that fired just before the phone parked must not put
     /// its ping on the wire after the park: the Mac takes any ping from a
     /// parked phone as the phone back, and would unpark while the phone
@@ -3054,8 +3114,12 @@ mod tests {
     async fn a_keepalive_ping_deferred_past_a_park_stays_unsent() {
         let (a, b) = tokio::io::duplex(1024 * 1024);
         let beat = Duration::from_millis(200);
-        let config =
-            LinkConfig { keepalive: Some(beat), keepalive_timeout: Duration::from_secs(30), aligned: true };
+        let config = LinkConfig {
+            keepalive: Some(beat),
+            keepalive_timeout: Duration::from_secs(30),
+            aligned: true,
+            ..LinkConfig::default()
+        };
         let phone = Link::new(a, Role::Phone, config, None);
         let mac = Link::new(b, Role::Mac, LinkConfig { keepalive: None, ..LinkConfig::default() }, None);
 

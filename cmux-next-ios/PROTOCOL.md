@@ -494,6 +494,7 @@ most 16 KiB (readers still accept 256 KiB from older peers).
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+| 5 `deflated data` | parked writes only, negotiated below. Original payload length (u32 BE) and one raw DEFLATE stream |
 
 A channel whose owner does not read it may hold the link reader for at
 most 3 s; then that channel is closed `overflow` on both sides and the rest
@@ -537,6 +538,14 @@ and the phone redials on return as before. While parked:
 - The app's heartbeat, foreground and presence probes are suspended: a
   ping ends the park.
 
+A phone that can read type 5 adds `"encoding":"deflate-v1"` to its
+park request. For that park the Mac can encode each held data frame
+independently if it shrinks. Its original length (at most 16 KiB) counts
+towards the same queue limit. The phone restores each frame in channel
+order, including its original boundary. Other frames use their usual
+encoding. A Mac that predates the encoding ignores the argument, and a
+phone that omits it receives ordinary data.
+
 The park ends on the Mac at the phone's first ping, channel data or new
 channel (other than `_link.park`): a phone that sends a request (a
 notification action run in the background) is awake and waits for the
@@ -545,7 +554,10 @@ the background resumes its link for the request, then parks it again. On
 the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
 (less a 30 s margin, on the clock that runs while the device sleeps), the
 phone moves the tunnel onto a fresh socket, as for a network change, and
-probes once with a 1.5 s timeout. If the probe fails, the phone redials. If
+probes once with a 1.5 s timeout. The first explicit probe starts on the
+ordered stream even when liveness datagrams are available, so its ping
+follows the park request and releases queued output on the Mac. The Mac
+queues its pong before releasing the writers. If the probe fails, the phone redials. If
 the hold passes with nothing heard, the Mac closes the link (`park
 expired`). A WebRTC link is never parked: ICE consent ends a silent data
 channel after 30 s whatever the link does.
