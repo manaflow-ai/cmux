@@ -575,3 +575,33 @@ fn a_profile_entry_says_what_the_profile_says_it_is() {
     use_and_apply(&customize, &bare, 20);
     assert_eq!(customize.library().unwrap().entries[0].description, "profile bare");
 }
+
+#[test]
+fn a_rollback_turns_off_what_it_takes_away_and_rolling_forward_turns_it_back_on() {
+    let home = Home::new();
+    home.write("cmux-next.json", PLAIN);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    let name = ask_and_apply(&customize, &home, "make it compact", &settings("compact"), 10);
+    let applied = customize.generations().unwrap().current.unwrap();
+    assert!(customize.library().unwrap().entries[0].on);
+
+    // Rolled back past the apply: the change is gone, and the library says
+    // it is off, not on.
+    customize.rollback(None, "cli", 20).unwrap();
+    assert_eq!(home.density(), None);
+    let listing = customize.library().unwrap();
+    assert_eq!(listing.entries[0].name, name);
+    assert!(!listing.entries[0].on, "rolled back, yet on: {listing:?}");
+
+    // Rolled forward to it again: on again.
+    customize.rollback(Some(applied), "cli", 30).unwrap();
+    assert_eq!(home.density().as_deref(), Some("compact"));
+    assert!(customize.library().unwrap().entries[0].on);
+
+    // A toggle rolls back with its on-state too.
+    customize.library_set_on(&name, false, "cli", 40).unwrap();
+    customize.rollback(None, "cli", 50).unwrap();
+    assert_eq!(home.density().as_deref(), Some("compact"));
+    assert!(customize.library().unwrap().entries[0].on);
+}

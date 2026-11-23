@@ -9,7 +9,16 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { nextStepAsk } from "./nextStepAsk";
 import { PendingAsks } from "./PendingAsks";
-import { askKey, dismissAsk, dismissedAsks, shownAsks } from "./waitingAskStore";
+import {
+  answeredAsks,
+  askKey,
+  claimedReply,
+  dismissAsk,
+  dismissedAsks,
+  resetAnswerClaims,
+  shownAsks,
+  withAnswered,
+} from "./waitingAskStore";
 import { NextStepRow } from "../rows/NextStepRow";
 import { TurnActionsContext } from "./turnActions";
 import { NEXT_STEP, turnView, turnViewFrom, waitingAsks } from "./turns";
@@ -57,6 +66,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  resetAnswerClaims();
 });
 
 async function render(node: ReactNode): Promise<HTMLElement> {
@@ -149,11 +159,56 @@ test("question, a peer message's turn, then the answer through the card reaches 
   );
   const [inline, pinnedYes] = buttons(container).filter((b) => b.textContent?.includes("Yes"));
   await act(async () => inline!.click());
+  expect(pinnedYes!.isConnected && pinnedYes!.closest(".acpmux-next-step__answers")).toBeFalsy();
   await act(async () => pinnedYes!.click());
   const reply = "> Codex: Do you mean computer use, still working while the Mac is locked?\n\nYes";
-  expect(sent).toEqual([reply, reply]);
+  // The two copies share the card's key: the first click answers both, so the answer goes once.
+  expect(sent).toEqual([reply]);
   // Once sent, the person's prompt settles the card in the transcript and leaves the pinned list.
   const answered = [...rows, line("p2", "user", { text: reply })];
   expect(turnView(answered, new Set()).find((row) => row.kind === NEXT_STEP)?.nextStep?.answer).toBe("Yes");
   expect(waitingAsks(turnViewFrom(answered, new Set()))).toEqual([]);
+});
+
+// Leo, 2026-11-17, after clicking "Plugged in" on a pinned ask while a turn ran: "after i click the
+// behaviour is very weird". The card kept both buttons and the queue row behind the turn read
+// "> Claude Code: [physical] Plug your iPhone...": no prompt row settles a card while its answer
+// waits in the queue, and the row showed the prompt's quote of the ask.
+test("a click answers the card in the same frame, and it stays answered while the answer is queued", async () => {
+  resetAnswerClaims();
+  const physical = card(5_000, "[physical] Plug your iPhone into the Mac?\n- Plugged in\n- Not now");
+  let release: () => void = () => undefined;
+  const sent: string[] = [];
+  const container = await render(
+    <PendingAsks
+      asks={[physical]}
+      onAnswer={(text) => (sent.push(text), new Promise<void>((resolve) => (release = resolve)))}
+      onDismiss={() => undefined}
+      asker="Claude Code"
+    />,
+  );
+  await act(async () => named(container, "Plugged in").click());
+  // On its way: the pinned card leaves, header and all, and leaves the hat too.
+  expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(0);
+  expect(container.querySelector(".acpmux-pending-ask")).toBeNull();
+  expect(answeredAsks().has(askKey(physical))).toBe(true);
+  expect(shownAsks([physical], withAnswered(new Set(), answeredAsks()))).toEqual([]);
+  // Sent, and waiting in the queue behind the running turn: still gone.
+  await act(async () => release());
+  expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(0);
+  expect(answeredAsks().has(askKey(physical))).toBe(true);
+  // The queue row reads the answer, not the quote of the ask; any other quoted prompt reads as it is.
+  expect(claimedReply(sent[0]!)).toBe("Plugged in");
+  expect(claimedReply("> some selection\n\nPlugged in")).toBeUndefined();
+});
+
+test("a send that fails brings the card back with its buttons", async () => {
+  resetAnswerClaims();
+  const failing = card(9_000, "[taste] Which colour?\n- Red\n- Blue");
+  const container = await render(
+    <PendingAsks asks={[failing]} onAnswer={() => Promise.reject(new Error("refused"))} onDismiss={() => undefined} />,
+  );
+  await act(async () => named(container, "Red").click());
+  expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(2);
+  expect(answeredAsks().has(askKey(failing))).toBe(false);
 });

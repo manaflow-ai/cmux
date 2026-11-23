@@ -17,6 +17,10 @@ final class MacScreenCardView: MacScreenThemedView {
         var failedDetail: String
         /// The type scale the card was built at (`MacScreenType.sizes`).
         var typeSizes = MacScreenType.sizes
+        /// The viewer look the card's surface is drawn in.
+        var look = MacScreenViewerLook.current
+        /// The session's link is up (read only by a full-pane look, whose connect steps name it).
+        var linkConnected = false
     }
 
     static let width: CGFloat = 340
@@ -26,21 +30,45 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private let model: MacScreenPaneModel
     private let actions: MacScreenChromeActions
-    private let background = MacScreenFill(\.popup, shape: .rounded(Metrics.panelCornerRadius), bordered: true)
+    /// The card's surface: its fill and corners follow the viewer look (``MacScreenViewerStyle``).
+    private var background = MacScreenCardView.makeBackground(MacScreenViewerStyle.current)
+    private var backgroundConstraints: [NSLayoutConstraint] = []
+    private var backgroundLook = MacScreenViewerLook.current
+    private var backgroundQuiet = false
     private let stack = MacScreenStack.make(.vertical, spacing: 12, alignment: .centerX,
                                             insets: NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24))
     private(set) var shown: Shown?
+    /// The shown card is transient and its look draws those quietly (``MacScreenViewerStyle/cardQuietTransient``).
+    private var quiet: Bool { shown.map { $0.look.style.cardQuietTransient && $0.card?.isTransient == true } ?? false }
 
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
         self.actions = actions
         super.init(frame: .zero)
         setAccessibilityElement(false)
+        installBackground(model.viewerLook)
+        render()
+    }
+
+    private static func makeBackground(_ style: MacScreenViewerStyle, quiet: Bool = false) -> MacScreenFill {
+        let background = MacScreenFill(quiet ? \.noFill : style.cardFill, shape: .rounded(style.cardCornerRadius ?? Metrics.panelCornerRadius),
+                                       bordered: style.cardBordered && !quiet)
         background.setAccessibilityElement(true)
         background.setAccessibilityRole(.group)
         background.setAccessibilityIdentifier("macScreen.card")
         background.translatesAutoresizingMaskIntoConstraints = true
         background.autoresizingMask = [.width, .height]
+        return background
+    }
+
+    /// Puts a surface in `look` behind the stack (the first one, and again when the look changes).
+    private func installBackground(_ look: MacScreenViewerLook) {
+        NSLayoutConstraint.deactivate(backgroundConstraints)
+        background.removeFromSuperview()
+        background = Self.makeBackground(look.style, quiet: quiet)
+        backgroundLook = look
+        backgroundQuiet = quiet
+        background.isHidden = shown?.card == nil
         addSubview(background)
         background.addSubview(stack)
         // The card's frame comes from the pane (`fittingSize`): the far edges give way while it is not laid out yet.
@@ -48,14 +76,15 @@ final class MacScreenCardView: MacScreenThemedView {
         let bottom = stack.bottomAnchor.constraint(equalTo: background.bottomAnchor)
         trailing.priority = .init(999)
         bottom.priority = .init(999)
-        NSLayoutConstraint.activate([
+        backgroundConstraints = [
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
-            stack.widthAnchor.constraint(equalToConstant: Self.width),
+            stack.widthAnchor.constraint(equalToConstant: look.style.cardWidth ?? Self.width),
             trailing,
             bottom,
-        ])
-        render()
+        ]
+        NSLayoutConstraint.activate(backgroundConstraints)
+        needsLayout = true
     }
 
     override var isFlipped: Bool { true }
@@ -63,7 +92,7 @@ final class MacScreenCardView: MacScreenThemedView {
     /// The card's size: its width, and the height of what it says at that width (zero with no card).
     override var fittingSize: NSSize {
         guard shown?.card != nil else { return .zero }
-        return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
+        return NSSize(width: shown?.look.style.cardWidth ?? Self.width, height: ceil(stack.fittingSize.height))
     }
 
     override func layout() {
@@ -72,28 +101,79 @@ final class MacScreenCardView: MacScreenThemedView {
     }
 
     private func render() {
-        let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
+        let next = withObservationTracking { () -> Shown in
+            var next = Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook)
+            if next.look.style.cardLayout == .fullPane { next.linkConnected = model.session?.linkConnected ?? false }
+            return next
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
         guard next != shown else { return }
         shown = next
+        let heldKeyboard = paneHoldsKeyboard
+        if next.look != backgroundLook || quiet != backgroundQuiet { installBackground(next.look) }
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         background.isHidden = next.card == nil
-        if let card = next.card { content(card) }
-        paint(stack)
+        if let card = next.card {
+            switch next.look.style.cardLayout {
+            case .standard: content(card)
+            case .fullPane: MacScreenFullPaneState(card: card, shown: next, model: model, actions: actions).build(in: stack)
+            }
+        }
+        paint(background)
+        linkKeys(refocus: heldKeyboard)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
+    }
+
+    /// The button the keyboard lands on while this card shows: its primary button, else its first.
+    private(set) var keyButton: MacScreenButton?
+
+    /// The pane this card sits in holds the keyboard (its screen, or one of this card's buttons).
+    private var paneHoldsKeyboard: Bool {
+        guard let pane = superview, let focused = window?.firstResponder as? NSView else { return false }
+        return focused === pane || focused.isDescendant(of: pane)
+    }
+
+    /// Makes the card's buttons a keyboard loop: Tab and Shift-Tab move between them, Space presses the
+    /// focused one, Return the primary. A pane that held the keyboard moves it to the new card's
+    /// button, or back to the screen once no card shows (a CLI-opened share's chooser).
+    private func linkKeys(refocus: Bool) {
+        let buttons = Self.buttons(in: stack)
+        for (index, button) in buttons.enumerated() {
+            button.takesKeyFocus = true
+            button.nextKeyView = buttons[(index + 1) % buttons.count]
+        }
+        keyButton = buttons.first { $0.role == .primary } ?? buttons.first
+        if refocus { actions.focusScreen() }
+    }
+
+    private static func buttons(in view: NSView) -> [MacScreenButton] {
+        view.subviews.flatMap { subview -> [MacScreenButton] in // visible-only: a card holds a few rows of text and buttons
+            if let button = subview as? MacScreenButton { return [button] }
+            return buttons(in: subview)
+        }
+    }
+
+    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        switch card {
+        case .failed?: model.failedDetail
+        case .hubEnded(.failed)?, .hubRevoked(.failed)?: model.hubFailureDetail ?? ""
+        default: ""
+        }
     }
 
     // MARK: Pieces
 
     private func title(_ text: String) {
-        stack.addArrangedSubview(MacScreenText(text, font: MacScreenType.cardTitle, wraps: true, alignment: .center, width: Self.textWidth))
+        stack.addArrangedSubview(MacScreenText(text, font: quiet ? MacScreenType.body : MacScreenType.cardTitle, ink: quiet ? \.secondary : \.primary,
+                                               wraps: true, alignment: .center, width: Self.textWidth))
     }
 
     private func detail(_ text: String) {
+        guard !quiet else { return }
         stack.addArrangedSubview(MacScreenText(text, font: MacScreenType.body, ink: \.secondary, wraps: true, alignment: .center,
                                                width: Self.textWidth))
     }
@@ -110,9 +190,12 @@ final class MacScreenCardView: MacScreenThemedView {
     private func spinner() {
         let spinner = StatusIndicatorView.spinner()
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        // A quiet card's mark: small and faint, as the terminal's status banner draws it.
+        let side = quiet ? MacScreenCard.quietMarkSide : Self.spinnerSide
+        spinner.alphaValue = quiet ? MacScreenCard.quietMarkAlpha : 1
         NSLayoutConstraint.activate([
-            spinner.widthAnchor.constraint(equalToConstant: Self.spinnerSide),
-            spinner.heightAnchor.constraint(equalToConstant: Self.spinnerSide),
+            spinner.widthAnchor.constraint(equalToConstant: side),
+            spinner.heightAnchor.constraint(equalToConstant: side),
         ])
         spinner.spin(true)
         stack.addArrangedSubview(spinner)
@@ -144,6 +227,8 @@ final class MacScreenCardView: MacScreenThemedView {
     // MARK: Cards
 
     private var name: String { shown?.name ?? model.name }
+    /// A hub end's host reason, when the shown card has one (``failedDetail(_:_:)``).
+    private var hostReason: String? { shown?.failedDetail.isEmpty == false ? shown?.failedDetail : nil }
 
     private func content(_ card: MacScreenCard) {
         switch card {
@@ -161,7 +246,8 @@ final class MacScreenCardView: MacScreenThemedView {
             spinner()
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
         case .failed:
-            // The session's message can quote the signaling URL (with the room id): never shown.
+            // The session's free-form message can quote the signaling URL (with the room id): never
+            // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
             glyph("exclamationmark.triangle", ink: \.attention)
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
             detail(shown?.failedDetail ?? model.failedDetail)
@@ -205,7 +291,7 @@ final class MacScreenCardView: MacScreenThemedView {
             let removed = reason.removesAccess
             glyph(removed ? "lock" : "display", ink: removed ? \.danger : \.secondary)
             title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
@@ -219,7 +305,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubEnded(reason):
             glyph(reason.removesAccess ? "lock" : "display", ink: reason.removesAccess ? \.danger : \.secondary)
             title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })
@@ -244,8 +330,8 @@ final class MacScreenCardView: MacScreenThemedView {
             buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
         case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
             glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", ink: \.attention)
-            title(refusedTitle(refusal))
-            detail(refusedBody(refusal))
+            title(Self.refusedTitle(refusal, host: name))
+            detail(Self.refusedBody(refusal, host: name, platform: model.platform))
             var row: [NSView] = [closeTab()]
             if refusal == .notSignedIn {
                 // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
@@ -268,7 +354,8 @@ final class MacScreenCardView: MacScreenThemedView {
         return button
     }
 
-    private func refusedTitle(_ refusal: MacScreenHubRefusal) -> String {
+    /// The refused card's title for `refusal` from `host`.
+    static func refusedTitle(_ refusal: MacScreenHubRefusal, host name: String) -> String {
         switch refusal {
         case .hostOffline: String(format: L.t("macScreen.hub.offlineTitle", "%@ Is Offline"), name)
         case .notShared: L.t("macScreen.hub.notSharedTitle", "Not Shared")
@@ -278,12 +365,21 @@ final class MacScreenCardView: MacScreenThemedView {
         }
     }
 
-    private func refusedBody(_ refusal: MacScreenHubRefusal) -> String {
+    /// The refused card's text: a known code's own step, else the hub's words when it gave any.
+    /// `platform` is the host's, when the hub lists it: a Linux desktop has no cmux app to open or Settings to change,
+    /// so its offline and not-shared steps name its screen host instead.
+    static func refusedBody(_ refusal: MacScreenHubRefusal, host name: String, platform: DevicePlatform? = nil) -> String {
         switch refusal {
+        case .hostOffline where platform == .linux:
+            L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running.")
         case .hostOffline: L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in.")
+        case .notShared where platform == .linux:
+            String(format: L.t("macScreen.hub.notSharedBodyLinux", "%@ does not share its screen. To share it, run cmux-rd linux-host share on there."), name)
         case .notShared: String(format: L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."), name)
         case .notFound: L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
         case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
+        case let .other(reason?):
+            String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"), reason)
         case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
         }
     }

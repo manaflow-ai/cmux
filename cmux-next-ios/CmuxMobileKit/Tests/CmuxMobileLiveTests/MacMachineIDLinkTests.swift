@@ -60,6 +60,31 @@ import Testing
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
     }
 
+    /// The phone remembers the build it paired by that build's code (steerToInvite writes the pick):
+    /// the focus and the link go to that build, not to the other build of the computer that sorts
+    /// first (2026-11-18, review.sh on a real iPhone: the receipt named the other build, unlinked).
+    @Test func theRememberedBuildIsFocusedOverTheOtherBuild() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        UserDefaults.standard.set("m2", forKey: pick)
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected || store.macConnection["m2"] == .connected }
+        await drain()
+        #expect(live.focusedMacID == "m2")
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(dialer.dialCount("m1") == 0)
+        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m2"])
+    }
+
     /// A Feed answer or notification of the other build names it: its link opens
     /// (the ask is answered on that build), and the focus stays on the listed one.
     @Test func theOtherBuildLinksWhenSomethingNamesIt() async {

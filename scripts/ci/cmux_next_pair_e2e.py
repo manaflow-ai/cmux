@@ -44,8 +44,15 @@ signal, and hostd refuses a dial whose `fromUserId` is not the Mac's owner); a l
 have to fake that stamp, so it would test around the very check this proves. The account is the
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
+
+A step sent with `cmux-ci run --sign-in agent` carries no email or password: it gets the agent
+account's own session instead (CMUX_CI_SIGNIN_FILE, the file scripts/lib/fleet-signin-session.sh
+reads for handoff mode). With no email and password set, both apps start signed in from it: the
+phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopted while it holds no
+session), the Mac from its own token store file, written before its launch. The refresh token is
+never printed, and is in no argv and no artifact.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
+import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, stat, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -104,11 +111,41 @@ def takes_pair_url_env():
     return os.path.exists(src) and '"CMUX_MOBILE_PAIR_URL"' in open(src).read()
 
 
+def signin_session():
+    """The step's own agent session ({email, project, refresh_token}) from `cmux-ci run --sign-in agent`
+    (CMUX_CI_SIGNIN_FILE), with the checks of scripts/lib/fleet-signin-session.sh; None when the step has
+    none. A file that fails them stops the run with the reason, never a value."""
+    path = os.environ.get("CMUX_CI_SIGNIN_FILE", "")
+    if not path:
+        return None
+    try:
+        info = os.lstat(path)
+    except OSError:
+        info = None
+    if info is None or not stat.S_ISREG(info.st_mode):
+        raise SystemExit("the sign-in session file is not a regular file")
+    if stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid():
+        raise SystemExit(f"the sign-in session file must be this user's, mode 0600 "
+                         f"(it is {info.st_uid}, {stat.S_IMODE(info.st_mode):o})")
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        doc = None
+    keys = ("email", "project", "refresh_token")
+    values = {k: str(doc.get(k, "")) for k in keys} if isinstance(doc, dict) else {}
+    if (not values or doc.get("profile") != "agent" or "@" not in values["email"] or not values["project"]
+            or not values["refresh_token"] or any("\n" in v or "\r" in v for v in values.values())):
+        raise SystemExit("the sign-in session file is not an agent session (profile, email, project, refresh_token)")
+    return values
+
+
 def dev_credential():
-    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    """The DEBUG dev account: {email, password} from the environment (`CMUX_UITEST_STACK_EMAIL` /
     `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
     (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
-    under those same names); the source holds no credential."""
+    under those same names), else the step's own agent session ({email, project, refresh_token},
+    signin_session); the source holds no credential."""
     keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
     found = {k: os.environ.get(k, "") for k in keys}
     profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
@@ -117,10 +154,59 @@ def dev_credential():
             k, sep, v = line.rstrip("\n").partition("=")
             if sep and k in keys and not found[k]:
                 found[k] = v
-    if not all(found.values()):
-        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
-                         "(or provide ~/.secrets/cmuxterm-dev.env)")
-    return found[keys[0]], found[keys[1]]
+    if all(found.values()):
+        return {"email": found[keys[0]], "password": found[keys[1]]}
+    session = signin_session()
+    if session:
+        return session
+    raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                     "(or provide ~/.secrets/cmuxterm-dev.env), or send the step with cmux-ci run --sign-in agent")
+
+
+def mac_token_store(app, bundle, exe, env, project, home):
+    """The tagged Mac app's own token store file for `project` (FileStackTokenStore's credentials.json in
+    CloudConfiguration.credentialsDirectory under `home`, the app's FileManager home). The app is signed ad
+    hoc (no_data_protection_keychain) and the rig's keychain holds no item of its bundle, so it restores its
+    session from this file. The folder's namespace is the Cloud selection the app itself reads at launch
+    (its bundled `cmux --json cloud env get`, asked here with the app's own environment and arguments); the
+    folder is under the tag's `cmux-next/<bundle>` or `cmux/<bundle>`, which forget_tag removes."""
+    cli = os.path.join(app, "Contents/Resources/bin/cmux")
+    try:
+        got = subprocess.run([cli, "--json", "cloud", "env", "get", "--cache-first", "--launch-args", json.dumps([exe])],
+                             env=dict(env, CMUX_BUNDLE_ID=bundle), capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, timeout=60)
+        selection = json.loads(got.stdout) if got.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"the Mac app's Cloud selection: {type(error).__name__}") from None
+    if not isinstance(selection, dict):
+        raise SystemExit(f"the Mac app's Cloud selection: cmux cloud env get exited {got.returncode}: "
+                         f"{redact(got.stderr.strip())[-300:]}")
+    if selection.get("bundle_id") != bundle:
+        raise SystemExit("the Mac app's Cloud selection belongs to another bundle")
+    if selection.get("stack_project_id") != project:
+        raise SystemExit("the sign-in session is for another Stack project than the Mac app's Cloud selection "
+                         f"({selection.get('name')!r}): the Mac could not use it")
+    namespace = selection.get("auth_storage_namespace") if selection.get("legacy_storage") else selection.get("auth_namespace")
+    parts = [home, "Library", "Application Support", "cmux-next" if namespace else "cmux", bundle]
+    return os.path.join(*parts, *([namespace] if namespace else []), "credentials.json")
+
+
+def write_mac_session(path, refresh_token):
+    """The session's refresh token in the Mac app's token store file (0600 in a 0700 folder), as the app
+    writes it; the app trades it for an access token at launch."""
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        json.dump({"refreshToken": refresh_token}, f)
+
+
+def mac_session_refreshed(path):
+    """Whether the Mac app has written an access token beside the refresh token it was given (it signed
+    in from the session); reads the file, prints nothing of it."""
+    try:
+        with open(path) as f:
+            return bool(json.load(f).get("accessToken"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def machine_id(bundle_id):
@@ -219,7 +305,8 @@ def main():
     support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Application Support", mac_bundle)
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
-    email, password = dev_credential()
+    account = dev_credential()
+    email = account["email"]
     probe = has_upload_probe()
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
@@ -286,7 +373,12 @@ def main():
         return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
     simctl = ["xcrun", "simctl", "--set", a.sims]
-    phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email, SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=password)
+    if "password" in account:
+        phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email,
+                         SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=account["password"])
+    else:
+        # The step's session (handoff mode's launch): the DEBUG app adopts it while it holds no session.
+        phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN=account["refresh_token"])
 
     def phone_launch():
         """cmux on iPhone on Settings > Devices, signed in to the dev account (DEBUG launch environment)."""
@@ -316,12 +408,20 @@ def main():
             settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
             json.dump(settings, f)
+        # With a session, the explicit file names no account: the app signs in from no file (not even the
+        # account home's ambient ones) and restores the session put in its token store below.
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-            f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
+            if "password" in account:
+                f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={account['password']}\n")
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
         plist = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
         exe = os.path.join(a.mac_app, "Contents/MacOS", plist["CFBundleExecutable"])
+        if "refresh_token" in account:
+            store = mac_token_store(a.mac_app, mac_bundle, exe, env, account["project"],
+                                    pwd.getpwuid(os.getuid()).pw_dir)
+            write_mac_session(store, account["refresh_token"])
+            note("- account: the step's agent session (cmux-ci run --sign-in agent), on the Mac and the phone")
         app_out = Stream([exe], os.path.join(a.out, "mac-app.log"), env=env)
         app = app_out.proc
         streams.append(app_out)
@@ -338,6 +438,10 @@ def main():
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
+        if "refresh_token" in account:
+            # Evidence only (the pairing page's own wait judges the run): a Keychain write would empty the file.
+            refreshed = wait_for(lambda: mac_session_refreshed(store), 30, every=2)
+            note(f"- Mac session: {'an access token from the step session in its token store file' if refreshed else 'no access token in its token store file in 30 s'}")
         pairing_logs = f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next" AND category BEGINSWITH "app.iphone"'
         streams.append(mac_log := Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact",
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))

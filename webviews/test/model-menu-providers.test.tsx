@@ -348,9 +348,8 @@ test("Starred lands an available provider when the running one is unavailable", 
     ["OpenRouter", null],
   ]);
   await act(async () => providers[1]!.click());
-  // The menu stays open; the pick lands as the button closes it.
-  expect(cols()).not.toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  // The pick lands and closes the menu (David Beyer 2026-11-20).
+  expect(cols()).toBeNull();
   expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
 });
 

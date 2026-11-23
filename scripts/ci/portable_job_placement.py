@@ -119,6 +119,17 @@ def fleet_linux(label: str) -> str:
     return label
 
 
+def linux_runner(runner: Mapping[str, Any], label: str, vouched: bool) -> bool:
+    """Whether `runner` is a Linux member of `label`: it says Linux, or (FLEET_LINUX_VOUCHED=1) it says no OS and
+    carries `label` alone. GitHub reports the owned GCP build lane's runners (cmux-gcp-lane-build-x64, registered
+    with that one label) as os "unknown"; the workflow vouches for a label a repository variable already routes
+    Linux builds to (vars.LINUX_RUNNER_DARWIN_CROSS). A runner with any other label, a Mac's included, never counts."""
+    os_name = str(runner.get("os", "")).lower()
+    if os_name == "linux":
+        return True
+    return vouched and os_name in {"", "unknown"} and pool.runner_labels(runner) == {label}
+
+
 def family(label: str) -> str:
     """The owned family (`<class>-xcode-<version>`, namespaced) of any owned label, else ""."""
     match = pool.OWNED_LABEL.fullmatch(label or "")
@@ -206,8 +217,8 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
         # A custom label alone is not proof of Linux: never let a shared Mac
         # carrying the same label receive a credentialed Linux-only control.
-        linux_members = bool(matching) and all(
-            str(runner.get("os", "")).lower() == "linux" for runner in matching)
+        vouched = env.get("FLEET_LINUX_VOUCHED") == "1"
+        linux_members = bool(matching) and all(linux_runner(runner, linux, vouched) for runner in matching)
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
         linux_free = max(0, idle - queued_on(snapshot, linux))
@@ -322,8 +333,7 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             # Read only the validated publication.  Do not instantiate a
             # client: missing queue data must not fall through to an artifact
             # API request and spend the installation budget.
-            runners = [*state["repository_runners"],
-                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            runners = pool.census_runners(state)
             snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
             return runners, snapshot
         except Exception as error:  # noqa: BLE001 - fail open to the overflow route

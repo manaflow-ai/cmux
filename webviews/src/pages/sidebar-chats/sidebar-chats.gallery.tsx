@@ -8,9 +8,9 @@
 import { useEffect, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import { FIXTURE_METRICS, FIXTURE_STRINGS, fixtureBlock, fixtureRows } from "./fixtures";
-import type { SidebarChatsBlock } from "./model";
+import type { SidebarChatsBlock, SidebarChatsSlice } from "./model";
 
-type Props = { block: SidebarChatsBlock; hover?: number };
+type Props = { block: SidebarChatsBlock; hover?: number; slice?: Omit<SidebarChatsSlice, "revision"> };
 
 function SidebarChatsGallery(props: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -18,16 +18,17 @@ function SidebarChatsGallery(props: Props) {
   useEffect(() => {
     const root = host.current;
     if (!root) return;
-    const { block, hover } = JSON.parse(key) as Props;
+    const { block, hover, slice } = JSON.parse(key) as Props;
     let dispose = () => {};
     let live = true;
     void Promise.all([import("./mount"), import("./mockHost")]).then(
       ([{ mountSidebarChats }, { MockSidebarChatsHost }]) => {
         if (!live) return;
-        const chats = mountSidebarChats(root, new MockSidebarChatsHost(block), FIXTURE_STRINGS);
+        const chats = mountSidebarChats(root, new MockSidebarChatsHost(block, slice ?? null), FIXTURE_STRINGS);
         dispose = chats.unmount;
         // Drawn now, not after the mock's stream answers, so the stage's first frame has the rows.
         chats.show(block);
+        if (slice) chats.showSlice({ ...slice, revision: block.revision });
         if (hover !== undefined) root.querySelectorAll(".sc-row")[hover]?.classList.add("sc-gallery-hover");
       },
     );
@@ -69,6 +70,10 @@ export default componentEntry<Props>({
     "many-rows": {
       note: "A second page of Earlier (20 rows of the 20-row page size, then Show More); every fifth harness is unknown.",
       props: { block: fixtureBlock({ rows: fixtureRows(20) }) },
+    },
+    windowed: {
+      note: "1,000 chats with the host's slice (the top 300 px in sight): only the rows in it and one slice height past it mount; spacers keep the block's full height.",
+      props: { block: fixtureBlock({ rows: fixtureRows(1000) }), slice: { top: 0, height: 300 } },
     },
     hover: {
       note: "The pointer over the second row: the sidebar's hover fill (there is no selected state; a click opens the chat).",

@@ -601,6 +601,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         host_build: "test".into(),
         socket,
         claude_translator: false,
+        host_level: 0,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

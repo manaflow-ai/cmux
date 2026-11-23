@@ -16,7 +16,8 @@ import {
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
@@ -40,6 +41,7 @@ import {
 import type { BookmarksSnapshot, BookmarksStore, RowIcon } from "./store";
 import { FolderGlyph, GlobeGlyph } from "./glyphs";
 import type { Bookmark } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** `two-pane` ships: the folder tree beside the list (the tree drops below 480 px and the
  * breadcrumb takes its place). `breadcrumb` and `compact` are gallery alternatives. */
@@ -81,10 +83,10 @@ export function BookmarksPage({
     bar: snap.titles.bar || t("root.bar"),
     other: snap.titles.other || t("root.other"),
   };
-  // A lost host shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // re-reads once the link is back); then the disconnected line.
+  // A lost host keeps the rows it had and says so only once it lasts (a launch, a daemon restart: the
+  // store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
   const focusIndex = snap.focus === undefined ? -1 : rows.findIndex((row) => row.id === snap.focus);
@@ -322,12 +324,9 @@ export function BookmarksPage({
           {snap.notice.message}
         </p>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="bm-empty">
-          <span className="bm-empty-title">{t("page.disconnected")}</span>
-        </output>
-      ) : empty ? (
-        snap.loading ? null : (
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {empty ? (
+        snap.loading || down ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
             {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
@@ -397,7 +396,7 @@ export function BookmarksPage({
           aria-label={t("page.search")}
           aria-controls="bm-list"
           value={snap.text}
-          disabled={down && downLasting}
+          disabled={downLasting}
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
@@ -490,34 +489,39 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
   }, [node, unasked, onShown]);
   return (
     // A row of the multi-select grid: the grid pane takes its keys (Up/Down, Return, Delete).
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
-    <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
-      role="row"
-      tabIndex={focused ? 0 : -1}
-      aria-selected={selected}
-      aria-rowindex={index + 1}
-      data-bookmark={node.id}
-      className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
-      style={style}
-      title={layout === "compact" && node.url ? node.url : undefined}
-      draggable
-      onClick={on.onClick}
-      onDoubleClick={on.onOpen}
-      onContextMenu={on.onMenu}
-      onDragStart={on.onDragStart}
-      onDragEnd={on.onDragEnd}
-      onDragOver={on.onDragOver}
-      onDragLeave={on.onDragLeave}
-      onDrop={on.onDrop}
-    >
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
-      <span className="bm-row-cell" role="gridcell">
-        <BookmarkIcon node={node} icon={icon} />
-        <span className="bm-row-title">{title}</span>
-        {detail ? <span className="bm-row-detail">{detail}</span> : null}
-      </span>
-    </div>
+    // A compact row shows no address: its hover card does.
+    <WithFacts facts={[{ value: layout === "compact" && node.url ? node.url : "", code: true }]}>
+      {(facts) => (
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
+        <div
+          {...facts}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
+          role="row"
+          tabIndex={focused ? 0 : -1}
+          aria-selected={selected}
+          aria-rowindex={index + 1}
+          data-bookmark={node.id}
+          className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
+          style={style}
+          draggable
+          onClick={on.onClick}
+          onDoubleClick={on.onOpen}
+          onContextMenu={on.onMenu}
+          onDragStart={on.onDragStart}
+          onDragEnd={on.onDragEnd}
+          onDragOver={on.onDragOver}
+          onDragLeave={on.onDragLeave}
+          onDrop={on.onDrop}
+        >
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
+          <span className="bm-row-cell" role="gridcell">
+            <BookmarkIcon node={node} icon={icon} />
+            <span className="bm-row-title">{title}</span>
+            {detail ? <span className="bm-row-detail">{detail}</span> : null}
+          </span>
+        </div>
+      )}
+    </WithFacts>
   );
 }
 

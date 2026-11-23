@@ -39,7 +39,7 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges())], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
@@ -72,7 +72,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl)]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps()]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -88,8 +88,9 @@ final class AppsService {
     /// per window). `appID` opens that listing, `tab` a store tab (Discover,
     /// Installed). With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
-    /// does: S22, the App Store never opens a window of its own.
+    /// does: S22, the App Store never opens a window of its own. Nothing while it is hidden (`showsAppStore`).
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
+        guard services.settings?.snapshot.showsAppStore == true else { return }
         pendingRoute = Self.storeRoute(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key

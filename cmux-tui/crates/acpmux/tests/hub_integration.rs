@@ -62,6 +62,8 @@ mod mcp_connect;
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
@@ -136,6 +138,8 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/task_list.rs"]
+mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
@@ -186,6 +190,13 @@ impl TestClient {
             }
         }
     }
+}
+
+/// `text` as another chat reads it when session `sender` sent it: the daemon writes its Sent-by
+/// line under it (`sent_by.rs`), and the receiver keeps it.
+pub(crate) fn signed(hub: &Hub, sender: &str, text: &str) -> String {
+    let who = acpmux::sent_by::of_session(hub, sender).expect("the sender's session");
+    format!("{text}\n\n{}", acpmux::sent_by::line(&who))
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -900,6 +911,22 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    let all = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions": true, "query": "quota broker", "limit": 2
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all["incomplete"], json!([]));
+    assert_eq!(all["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(all["hits"][0]["session"], "finder");
+    assert_eq!(all["hits"][0]["sessionId"], id);
+    assert!(all["hits"][0]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert!(all["hits"][0]["turnTime"].as_str().is_some_and(|time| time.ends_with('Z')));
+    assert_eq!(all["hits"][0]["turnTime"], all["hits"][1]["turnTime"]);
     for params in
         [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
     {
@@ -1032,6 +1059,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop parks it; the person's next prompt goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -1040,7 +1072,11 @@ async fn limit_error_stays_on_the_current_profile() {
         .await
         .unwrap();
     assert_eq!(ok["stopReason"], "end_turn");
-    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
+    // Stop parked the rate-limited chat; the person's prompt takes it back and carries the
+    // continuation's words (`rate_hold.rs`).
+    let preview = hub.session_summary(&session)["preview"].as_str().unwrap_or_default().to_owned();
+    assert!(preview.starts_with("echo: after"), "{preview}");
+    assert!(preview.contains("rate limit"), "{preview}");
 }
 
 #[tokio::test]

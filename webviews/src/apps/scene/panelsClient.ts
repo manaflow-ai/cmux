@@ -5,7 +5,14 @@ import { SceneStore, type SceneOp } from "./store";
 export type AppPanel = { app: string; section: string; title: string; symbol?: string };
 export type MountContext = { session_id: string; cwd?: string; branch?: string; harness?: string };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
-export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
+export type MountSurface =
+  | "pane"
+  | "sidebarSection"
+  | "hoverCard"
+  | "sessionInfoSection"
+  | "chatWidget"
+  | "newTab"
+  | "widget";
 /** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
  * `failed {reason}`, `disconnected {reason}`). */
 export type SceneEvent =
@@ -276,7 +283,7 @@ export class AppPanelsClient {
 let devClient: PageClient | null = null;
 /** The browser dev entry installs its mock before React mounts. Production never selects a mock
  * from a URL, and tests/gallery can inject their own PageClient directly. */
-export function installAppPanelsDevClient(client: PageClient): void {
+export function installAppPanelsDevClient(client: PageClient | null): void {
   devClient = client;
 }
 export function appPanelsDevClient(): PageClient | null {

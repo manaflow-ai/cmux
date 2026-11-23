@@ -477,7 +477,8 @@ extension CloudHandlers {
             guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
                 throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
             }
-            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // This build's index (BuildStatePaths: a DEV build's own), the file `cmux cloud secret` writes.
+            let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment, home: home)
             // Never through a link, never waiting on a FIFO, bounded: the files lane is shared.
             let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
                 (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))
@@ -528,7 +529,7 @@ extension CloudHandlers {
 
     private static var operationUnavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 
     /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's restore or fork waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal, its other changes (``CloudChangeRequest/unasked``) run at once and toast; a person's own run goes as before, `sheet` showing its answer.

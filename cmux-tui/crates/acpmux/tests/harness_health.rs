@@ -26,6 +26,9 @@ mod update_plan;
 #[path = "harness_health/claude_expiry.rs"]
 mod claude_expiry;
 
+#[path = "harness_health/dev_builds.rs"]
+mod dev_builds;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;

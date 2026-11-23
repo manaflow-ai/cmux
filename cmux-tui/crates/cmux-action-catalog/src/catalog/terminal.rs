@@ -420,7 +420,8 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "arrow.up.forward.app",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "inspect", 0).folder("tools")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::APP],
+        // `app`: an editor id (listed, the default first), `finder`, `terminal`, or any app by name, bundle id or path.
+        arguments: &[args::EDITOR],
         targets: &["pane"],
         cli_name: "terminal open-current-directory-in",
         ..Action::DEFAULT

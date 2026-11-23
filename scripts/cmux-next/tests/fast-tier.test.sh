@@ -121,13 +121,15 @@ expect "admission passes a stable entry" 0 "^FAST-TIER ADMISSIBLE ok .*3/3 passe
 registry '{"entries": [
   {"name": "tokens", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "MotionTokenTests", "owner": "op-test"},
   {"name": "intents", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "IntentMappingTests", "owner": "op-test"},
-  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"}]}'
+  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"},
+  {"name": "reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-test"}]}'
 run --dry-run
 expect "dry run builds a Swift package once" 0 "^BUILD swift build --build-tests --package-path Packages/Shared/CmuxHomeRender$"
 if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one build per Swift package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 expect "dry run plans each Swift package's tests once, outside the cap" 0 "^BUILD swift test --skip-build --list-tests --package-path Packages/Shared/CmuxHomeRender$"
 expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens: swift test --skip-build --package-path Packages/Shared/CmuxHomeRender --filter MotionTokenTests$"
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
+expect "dry run builds each cargo package alone, with the features its entry runs with" 0 "^BUILD cargo test --locked --no-run -p cmux-layout-reducer \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
 
 # --kind splits one registry between the Linux cargo job and the Mac Swift job:
@@ -211,12 +213,12 @@ fi
 python3 -I - "$tmp/receipt.json" <<'PY'
 import json, sys
 builds = json.load(open(sys.argv[1]))["builds"]
-assert [b["name"] for b in builds] == ["Pkg", "Pkg test plan", "crate"], builds
+assert [b["name"] for b in builds] == ["Pkg", "Pkg test plan", "crate core"], builds
 assert all(b["status"] == "pass" for b in builds), builds
 assert all(b["seconds"] >= 2.5 for b in builds if b["name"] != "Pkg test plan"), builds
 PY
 FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
-expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate: the tests do not build"
+expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate core: the tests do not build"
 if grep -q "^FAST-TIER PASS" <<<"$out"; then echo "FAIL: entries ran after a failed build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 
 echo "fast-tier.test: ok"

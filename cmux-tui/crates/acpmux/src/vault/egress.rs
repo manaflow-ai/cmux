@@ -16,9 +16,29 @@
 //! - A launch whose environment already names an `HTTPS_PROXY` keeps it:
 //!   its placeholders are then never filled (fail closed), logged once as
 //!   `vault.egress_proxy_conflict`.
+//! - A joined machine's team-mode launch (`joined_model_plane.rs`) gets the
+//!   same proxy settings ([`machine_credential_env`]) with no vault entry, and
+//!   from then on the proxy also serves one built-in entry,
+//!   `CMUX_MACHINE_CREDENTIAL`: the machine credential, toward the hub
+//!   origin's host only.
 //! - The proxy starts on the first spawn that needs it and runs for the
 //!   daemon's life. Each request reads the entries again (at most 2 s old),
 //!   so a revoke, a removed grant or a narrowed host list holds within that.
+//! - Its port outlives the daemon: the port it took is kept in
+//!   `vault-egress/port` and the next daemon binds the same one, a new one
+//!   only when that is taken ([`bind_stable`]). Agent hosts outlive a daemon
+//!   restart (an update every 15 min, a crash), and every agent they run was
+//!   given `HTTPS_PROXY` at its spawn: with a new port each restart, each of
+//!   them reached a closed port (`ECONNREFUSED`) until restarted by hand
+//!   (2026-11-21: 20 chats on one machine `harness_unavailable`). With the
+//!   port kept, the tools such an agent runs (git, curl, gh, Python), which
+//!   read the trust files anew, keep working.
+//! - The CA is still new each daemon (its key lives only in memory), and a
+//!   Node agent reads `NODE_EXTRA_CA_CERTS` once at its start. So every spawn
+//!   also gets [`EPOCH_VAR`], naming this proxy's start; an agent whose env
+//!   names our proxy and another start is restarted between turns, on
+//!   adoption (`hub/stale_host_respawn.rs`) and before an automatic retry
+//!   (`hub/auto_resume.rs`), never in a turn ([`stale_proxy_env`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -32,6 +52,8 @@ use super::Given;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Running {
     pub port: u16,
+    /// This start of the proxy (its CA): what [`EPOCH_VAR`] carries.
+    pub epoch: String,
     /// The CA, plus whatever `NODE_EXTRA_CA_CERTS` named before.
     pub node_ca: PathBuf,
     /// The system bundle (or the inherited `SSL_CERT_FILE`) plus the CA;
@@ -52,6 +74,10 @@ const RETRY_START: Duration = Duration::from_secs(60);
 const POLICY_TTL: Duration = Duration::from_secs(2);
 static POLICY: Mutex<Option<(Instant, Arc<Policy>)>> = Mutex::new(None);
 static CONFLICT_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A launch asked for the machine credential ([`machine_credential_env`]): only then does the
+/// policy hold it.
+static MACHINE_CREDENTIAL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Bundles agents' TLS stacks read when `SSL_CERT_FILE` is unset, first found wins.
 const SYSTEM_BUNDLES: &[&str] = &[
@@ -62,13 +88,57 @@ const SYSTEM_BUNDLES: &[&str] = &[
     "/etc/ssl/cert.pem",
 ];
 
+/// Names the proxy start (and so the CA) a spawn was given ([`Running::epoch`]).
+pub(crate) const EPOCH_VAR: &str = "CMUX_VAULT_EGRESS_EPOCH";
+/// The file, in `vault-egress/`, that keeps the proxy's port for the next daemon.
+const PORT_FILE: &str = "port";
+
 /// The proxy's part of the agent pool's key: a spawn made before the proxy
-/// started (or on another port) is not reused.
+/// started (or on another port, or with another CA) is not reused.
 pub(crate) fn stamp() -> String {
     match &*SLOT.lock().unwrap_or_else(|e| e.into_inner()) {
-        Slot::Up(running) => running.port.to_string(),
+        Slot::Up(running) => format!("{}:{}", running.port, running.epoch),
         _ => "off".to_owned(),
     }
+}
+
+/// The running proxy's start, if it runs in this daemon.
+fn live_epoch() -> Option<String> {
+    match &*SLOT.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Up(running) => Some(running.epoch.clone()),
+        _ => None,
+    }
+}
+
+/// Whether an agent started with `env` was sent through this daemon's proxy
+/// (its `NODE_EXTRA_CA_CERTS` is `node_ca`, ours) by a start of it other than
+/// `live` (None: the proxy has not started in this daemon). Such an agent
+/// reaches a closed port, or a proxy whose CA it does not trust: it needs a
+/// restart. An agent with no proxy, or another one, is never stale; one from
+/// a build before [`EPOCH_VAR`] (ours, no epoch) always is.
+pub(crate) fn stale_proxy_env(
+    env: &[(String, String)],
+    node_ca: &Path,
+    live: Option<&str>,
+) -> bool {
+    let get = |name: &str| env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    let ours = get("NODE_EXTRA_CA_CERTS").is_some_and(|p| Path::new(p) == node_ca)
+        && get("HTTPS_PROXY").is_some_and(|u| u.starts_with("http://127.0.0.1:"));
+    ours && get(EPOCH_VAR) != live
+}
+
+/// [`stale_proxy_env`] for the running process `pid`, judged against this
+/// daemon's proxy; false when its env cannot be read (unknown is not stale).
+#[cfg(unix)]
+pub(crate) fn stale_proxy_pid(pid: u32) -> bool {
+    let Some(env) = crate::agent_host::tree::environ(pid) else { return false };
+    let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
+    stale_proxy_env(&env, &node_ca, live_epoch().as_deref())
+}
+
+#[cfg(not(unix))]
+pub(crate) fn stale_proxy_pid(_pid: u32) -> bool {
+    false
 }
 
 /// What a spawn's env gets from `entries` (see the module docs).
@@ -104,18 +174,34 @@ pub(crate) fn child_env_with(
         }
     }
     let Some(running) = running.filter(|_| any_proxy) else { return out };
-    if inherited("HTTPS_PROXY").is_some() || inherited("https_proxy").is_some() {
-        if !CONFLICT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            tracing::warn!(
-                code = "vault.egress_proxy_conflict",
-                "this launch already has an HTTPS proxy; vault placeholders are not filled"
-            );
+    match proxy_env(running, inherited) {
+        Some(proxy) => out.extend(proxy),
+        None => {
+            if !CONFLICT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                tracing::warn!(
+                    code = "vault.egress_proxy_conflict",
+                    "this launch already has an HTTPS proxy; vault placeholders are not filled"
+                );
+            }
         }
-        return out;
     }
+    out
+}
+
+/// The settings that send a launch through the proxy at `running` and trust its CA; None when
+/// the launch already names an HTTPS proxy (it keeps it).
+fn proxy_env(
+    running: &Running,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> Option<Vec<(String, String)>> {
+    if inherited("HTTPS_PROXY").is_some() || inherited("https_proxy").is_some() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(10);
     let url = format!("http://127.0.0.1:{}", running.port);
     out.push(("HTTPS_PROXY".to_owned(), url.clone()));
     out.push(("https_proxy".to_owned(), url));
+    out.push((EPOCH_VAR.to_owned(), running.epoch.clone()));
     let no_proxy = no_proxy(inherited("NO_PROXY").or_else(|| inherited("no_proxy")));
     out.push(("NO_PROXY".to_owned(), no_proxy.clone()));
     out.push(("no_proxy".to_owned(), no_proxy));
@@ -126,7 +212,24 @@ pub(crate) fn child_env_with(
             out.push((name.to_owned(), bundle.clone()));
         }
     }
-    out
+    Some(out)
+}
+
+/// The proxy settings for a joined machine's team-mode launch (`joined_model_plane.rs`), the
+/// proxy started for it, and the machine credential served from now on. `launch` reads the
+/// launch's own env (its profile). None when the proxy cannot start or the launch already names
+/// an HTTPS proxy: its header would go out unfilled, so the launch keeps own mode.
+pub(crate) fn machine_credential_env(
+    launch: &dyn Fn(&str) -> Option<String>,
+) -> Option<Vec<(String, String)>> {
+    let running = ensure()?;
+    let either = |k: &str| launch(k).filter(|v| !v.is_empty()).or_else(|| inherited(k));
+    let env = proxy_env(&running, &either)?;
+    if !MACHINE_CREDENTIAL.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // The next request reads the policy again, with the credential.
+        *POLICY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+    Some(env)
 }
 
 /// The inherited `NO_PROXY` with loopback added (never the proxy's own
@@ -175,10 +278,10 @@ fn start(home: &Path) -> Result<Running, &'static str> {
         cmux_vault_egress::upstream_tls_from_os().map_err(|_| "vault.egress_no_roots")?;
     let (node_ca, bundle) = write_trust(&home.join("vault-egress"), authority.pem(), &inherited)
         .map_err(|_| "vault.egress_trust_files")?;
-    let listener =
-        std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "vault.egress_bind")?;
+    let listener = bind_stable(&home.join("vault-egress")).map_err(|_| "vault.egress_bind")?;
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();
+    let epoch = new_epoch();
     let config = Arc::new(Config {
         policy: Arc::new(policy_now),
         authority,
@@ -194,7 +297,40 @@ fn start(home: &Path) -> Result<Running, &'static str> {
             tracing::error!(code = "vault.egress_stopped", kind = ?e.kind(), "vault egress proxy stopped");
         }
     });
-    Ok(Running { port, node_ca, bundle })
+    Ok(Running { port, epoch, node_ca, bundle })
+}
+
+/// A loopback listener on the port the last proxy had (`dir/port`), so the
+/// agents an earlier daemon started still reach it; on a new port, written
+/// down, when there is none yet or another process holds it.
+fn bind_stable(dir: &Path) -> std::io::Result<std::net::TcpListener> {
+    let file = dir.join(PORT_FILE);
+    let kept = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u16>().ok());
+    if let Some(port) = kept.filter(|p| *p != 0)
+        && let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port))
+    {
+        return Ok(listener);
+    }
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let port = listener.local_addr()?.port();
+    if kept.is_some() {
+        tracing::warn!(
+            code = "vault.egress_port_moved",
+            from = ?kept,
+            port,
+            "the vault egress proxy's port was taken: agents started before now restart between turns"
+        );
+    }
+    // Not keeping it costs only the next restart's port, never this start.
+    if let Err(e) = replace(&file, &format!("{port}\n")) {
+        tracing::warn!(code = "vault.egress_port_not_kept", kind = ?e.kind(), "vault egress port not kept");
+    }
+    Ok(listener)
+}
+
+/// A name for this proxy start, unique across daemons on this machine.
+fn new_epoch() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 /// Write the trust files agents get, in `dir` (0700; the files hold
@@ -252,19 +388,30 @@ pub(crate) fn policy_now() -> Arc<Policy> {
     {
         return policy.clone();
     }
-    let policy = Arc::new(policy_of(super::entries_now()));
+    let machine = MACHINE_CREDENTIAL
+        .load(std::sync::atomic::Ordering::SeqCst)
+        .then(crate::joined_model_plane::secret_now)
+        .flatten();
+    let policy = Arc::new(policy_with(machine, super::entries_now()));
     *POLICY.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), policy.clone()));
     policy
 }
 
+#[cfg(test)]
 pub(crate) fn policy_of(entries: Vec<Given>) -> Policy {
+    policy_with(None, entries)
+}
+
+/// [`policy_of`] with the built-in `machine` entry first (`joined_model_plane::secret`), so no
+/// vault entry of the same name takes its place toward the hub.
+pub(crate) fn policy_with(machine: Option<Secret>, entries: Vec<Given>) -> Policy {
     Policy::new(
-        entries
+        machine
             .into_iter()
-            .filter_map(|g| {
+            .chain(entries.into_iter().filter_map(|g| {
                 let hosts = g.proxy?.iter().filter_map(|h| HostPattern::parse(h)).collect();
                 Some(Secret::new(g.name, g.value, hosts))
-            })
+            }))
             .collect(),
     )
 }
@@ -285,6 +432,7 @@ mod tests {
     fn running() -> Running {
         Running {
             port: 41234,
+            epoch: "e1".to_owned(),
             node_ca: PathBuf::from("/h/vault-egress/node-extra-ca.pem"),
             bundle: Some(PathBuf::from("/h/vault-egress/ca-bundle.pem")),
         }
@@ -311,7 +459,113 @@ mod tests {
         assert_eq!(get(&env, "NO_PROXY"), Some("localhost,127.0.0.1,::1,.cmux.internal"));
         assert_eq!(get(&env, "NODE_EXTRA_CA_CERTS"), Some("/h/vault-egress/node-extra-ca.pem"));
         assert_eq!(get(&env, "SSL_CERT_FILE"), Some("/h/vault-egress/ca-bundle.pem"));
+        assert_eq!(get(&env, EPOCH_VAR), Some("e1"));
         assert!(!env.iter().any(|(_, v)| v.contains("ghp_secret_value")));
+    }
+
+    #[test]
+    fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = bind_stable(dir.path()).unwrap();
+        let port = first.local_addr().unwrap().port();
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), port.to_string());
+        // The daemon restarts: its listener is gone, the next one takes the same port.
+        drop(first);
+        let second = bind_stable(dir.path()).unwrap();
+        assert_eq!(second.local_addr().unwrap().port(), port);
+        // Another process holds it: a new port, written down for the next start.
+        let third = bind_stable(dir.path()).unwrap();
+        let moved = third.local_addr().unwrap().port();
+        assert_ne!(moved, port);
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), moved.to_string());
+    }
+
+    #[test]
+    fn a_kept_port_file_that_is_not_a_port_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(PORT_FILE), "nope").unwrap();
+        let listener = bind_stable(dir.path()).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), port.to_string());
+    }
+
+    #[test]
+    fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
+        let ca = Path::new("/h/vault-egress/node-extra-ca.pem");
+        let env = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let ours = |epoch: Option<&str>| {
+            let mut e = env(&[
+                ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+                ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+            ]);
+            if let Some(epoch) = epoch {
+                e.push((EPOCH_VAR.to_owned(), epoch.to_owned()));
+            }
+            e
+        };
+        // This start's agent.
+        assert!(!stale_proxy_env(&ours(Some("e2")), ca, Some("e2")));
+        // The incident: an agent the previous daemon started, its proxy gone.
+        assert!(stale_proxy_env(&ours(Some("e1")), ca, Some("e2")));
+        assert!(stale_proxy_env(&ours(Some("e1")), ca, None));
+        // An older build's agent named no start: it is ours, so it is stale.
+        assert!(stale_proxy_env(&ours(None), ca, Some("e2")));
+        // No proxy, or a proxy of the person's own: never ours to restart.
+        assert!(!stale_proxy_env(&env(&[("PATH", "/bin")]), ca, Some("e2")));
+        let corp = env(&[
+            ("HTTPS_PROXY", "http://corp:3128"),
+            ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+        ]);
+        assert!(!stale_proxy_env(&corp, ca, None));
+        let other_ca = env(&[
+            ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+            ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
+        ]);
+        assert!(!stale_proxy_env(&other_ca, ca, None));
+    }
+
+    /// The judgment reads a live process's environment: an agent process started on a gone
+    /// proxy start is stale, one started without our proxy is not.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
+        let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
+        let spawn = |proxied: bool| {
+            let mut cmd = std::process::Command::new("sleep");
+            cmd.arg("30");
+            if proxied {
+                cmd.env("HTTPS_PROXY", "http://127.0.0.1:43007")
+                    .env("NODE_EXTRA_CA_CERTS", &node_ca)
+                    .env(EPOCH_VAR, "an-earlier-daemons-start");
+            } else {
+                cmd.env_remove("HTTPS_PROXY").env_remove("NODE_EXTRA_CA_CERTS");
+            }
+            cmd.spawn().unwrap()
+        };
+        let (mut stale, mut fresh) = (spawn(true), spawn(false));
+        let judged = (stale_proxy_pid(stale.id()), stale_proxy_pid(fresh.id()));
+        for child in [&mut stale, &mut fresh] {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert_eq!(judged, (true, false));
+    }
+
+    #[test]
+    fn a_spawn_carries_the_start_its_stamp_names() {
+        let env = child_env_with(
+            vec![given("T", "s", Some(&["x.example.com"]))],
+            Some(&running()),
+            &|_| None,
+        );
+        let node_ca = running().node_ca;
+        assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
+        assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
     }
 
     #[test]

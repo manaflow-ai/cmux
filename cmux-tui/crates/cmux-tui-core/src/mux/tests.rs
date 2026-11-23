@@ -40,6 +40,7 @@ mod column_update;
 mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;
+mod deleted_bytes;
 mod diagnostics;
 mod disk_budget;
 mod disk_usage_read_cost;
@@ -52,6 +53,8 @@ mod history_agent_fold;
 mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
+#[cfg(unix)]
+mod idle_stop_fence;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
@@ -89,6 +92,7 @@ mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
+mod tab_identity;
 mod tab_update_scoped;
 mod tab_workspace_move;
 mod tabs;

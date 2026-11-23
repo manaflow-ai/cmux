@@ -120,6 +120,18 @@ fn the_tool_list_carries_the_artifact_tools_only_when_offered() {
     assert!(save["description"].as_str().unwrap().contains("artifact_search first"));
 }
 
+/// Each length the calls refuse past is in the schema, so a caller sees it before calling.
+#[test]
+fn the_schemas_carry_the_length_limits_the_calls_enforce() {
+    let tools = definitions();
+    let title = &tools[0]["inputSchema"]["properties"]["title"];
+    assert_eq!(title["maxLength"], MAX_TITLE_CHARS);
+    assert!(title["description"].as_str().unwrap().contains(&format!("at most {MAX_TITLE_CHARS}")));
+    let q = &tools[1]["inputSchema"]["properties"]["q"];
+    assert_eq!(q["maxLength"], MAX_QUERY_CHARS);
+    assert!(q["description"].as_str().unwrap().contains(&format!("at most {MAX_QUERY_CHARS}")));
+}
+
 #[test]
 fn names_paths_and_refs_are_checked() {
     for name in [

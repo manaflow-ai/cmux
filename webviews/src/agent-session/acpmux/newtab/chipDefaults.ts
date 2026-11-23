@@ -63,6 +63,22 @@ export function newTabStart(
 /// `snapshot` with the catalog's default model for its agent when it names none (or only the
 /// agent's own "default"), listed in the agent's session catalog with the catalog's name so the
 /// chip reads it ("Opus 5.5"); otherwise unchanged.
+/// `newTabStart`, kept while its inputs are: the chips take its snapshot, and a new one each render rendered every
+/// chip (and their menus) again on each key in the New Tab field (typing lag, Lawrence 2026-11-19).
+export function useNewTabStart(
+  snapshot: AcpmuxSnapshot,
+  agents: readonly ScreenAgent[],
+  lastAgent: string | undefined,
+  folder: string | undefined,
+  remembered: LastPick | undefined,
+  harnessesListed: boolean,
+): { harness: string | undefined; snapshot: AcpmuxSnapshot } {
+  return useMemo(
+    () => newTabStart(snapshot, agents, lastAgent, folder, remembered, harnessesListed),
+    [snapshot, agents, lastAgent, folder, remembered, harnessesListed],
+  );
+}
+
 export function newTabChipSnapshot(snapshot: AcpmuxSnapshot, catalog: PickerCatalog | undefined): AcpmuxSnapshot {
   const summary = snapshot.summary;
   const harness = summary?.harness;

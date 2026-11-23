@@ -35,7 +35,8 @@ PROJECT_YML = "cmux-next-ios/project.yml"
 BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 # A failing builder backs off instead of building every new head: after the second failure in a row it waits
 # FAILURE_BACKOFF_START, doubling per failure up to FAILURE_BACKOFF_MAX, and the same iOS input as the newest
-# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it.
+# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it, and so does a new
+# commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 
@@ -127,13 +128,16 @@ def failure_backoff(streak: int) -> dt.timedelta:
 
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
          now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
-         since_failure: list[str] | None = None, force: bool = False) -> Decision:
+         since_failure: list[str] | None = None, force: bool = False,
+         builder_sha: str | None = None) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
     changed: files changed from the last uploaded SHA to head; None when unknown.
     since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
     force: a person dispatched the trigger; the failure backoff does not apply.
+    builder_sha: BUILDER_REF's tip, None when unknown. A failure whose run's "builder" (the BUILDER_REF commit it
+    ran) differs holds nothing: the builder moved since, so the next build runs (one try per builder change).
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
@@ -150,7 +154,12 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
+    def on_older_builder(r: dict) -> bool:
+        return bool(builder_sha and r.get("builder") and r["builder"] != builder_sha)
+
     failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
+    if failed and on_older_builder(failed):
+        failed = None
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
         return Decision(False, f"{head[:12]} already failed in run {failed.get('id')}; waiting for a new head", base)
     streak, newest_failure = failure_streak(runs)
@@ -160,13 +169,14 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
             # A dispatch now would start the moment the running build ends, before the plan sees how it ended.
             return Decision(False, f"BLOCKED: the builder is failing (run {run_id}) and a build is still running; "
                                    "the next push after it ends plans again", base)
-        if since_failure is not None and not touches_ios(since_failure, prefixes) \
+        moved = on_older_builder(newest_failure)
+        if not moved and since_failure is not None and not touches_ios(since_failure, prefixes) \
                 and now - failed_at < FAILURE_BACKOFF_MAX:
             return Decision(False, f"BLOCKED: run {run_id} failed on {newest_failure['sha'][:12]} and nothing the app "
                                    f"builds from changed since; it retries after {FAILURE_BACKOFF_MAX} (an infra "
                                    "failure) or on an iOS change", base)
         wait = failure_backoff(streak)
-        if now - failed_at < wait:
+        if not moved and now - failed_at < wait:
             return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
                                    f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
     if last_ok is None:
@@ -247,7 +257,8 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
         m = re.search(r"\b([0-9a-f]{40})\b", r.get("display_title") or "")
         if m:
             runs.append({"id": r["id"], "sha": m.group(1), "status": r["status"],
-                         "conclusion": r.get("conclusion"), "created_at": r["created_at"]})
+                         "conclusion": r.get("conclusion"), "created_at": r["created_at"],
+                         "builder": r.get("head_sha")})
     return runs
 
 
@@ -297,6 +308,15 @@ def _git_has_builder_script(repo: str) -> bool | None:
     return found.stdout.strip() == BUILDER_SCRIPT
 
 
+def builder_tip(repo: str = ".") -> str | None:
+    """BUILDER_REF's tip as _git_has_builder_script fetched it; None when git has not fetched it."""
+    ref = f"refs/ios-internal-upstream/{BUILDER_REF.removeprefix('refs/heads/')}"
+    try:
+        return _git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
 def builder_has_script(repo: str = ".") -> bool:
     """Whether the signing branch carries this layout's testflight-build.sh. Read with git first; the contents API
     is the fallback, which fails open on API errors."""
@@ -333,6 +353,7 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
         _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
         return 0
     ready = builder_has_script(repo)
+    tip = builder_tip(repo)
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
     _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
@@ -340,7 +361,7 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
     since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
                     relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready,
-                    since_failure=since_failure, force=force)
+                    since_failure=since_failure, force=force, builder_sha=tip)
     _write_outputs(decision)
     if decision.reason.startswith("BLOCKED"):
         # An annotation on the decide run; for a failure backoff the builder's own newest run stays red.

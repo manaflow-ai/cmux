@@ -57,5 +57,11 @@
   "appearance.statusIndicator.color": "#7c4dff",
 
   "appearance.titleAreaTone": "subtleTone",
-  "appearance.density": "comfortable"
+  "appearance.density": "comfortable",
+
+  // Paper cards: gently rounded tabs and rows with air between them, solid group headers.
+  "density": {
+    "tokens": { "tabCornerRadius": 6, "verticalTabCornerRadius": 6, "sidebarCornerRadius": 6, "tabGap": 4, "sidebarRowGap": 3, "sidebarWidth": 300 }
+  },
+  "sidebar.groupHeader.background": "solid"
 }

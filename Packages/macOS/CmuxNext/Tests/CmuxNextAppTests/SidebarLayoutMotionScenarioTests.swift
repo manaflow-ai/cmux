@@ -72,12 +72,12 @@ struct SidebarLayoutMotionScenarioTests {
 
         func sample() -> [String: LayoutMotionSample] {
             var samples: [String: LayoutMotionSample] = [:]
-            let visible = sidebar.convert(sidebar.bounds, to: nil)
+            let visible = downward(sidebar.convert(sidebar.bounds, to: nil))
             let order = Dictionary(sidebar.list.displayed.rows.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { first, _ in first })
             let targetIndex = target.flatMap { order[$0] }
             samples["list"] = LayoutMotionSample(label: "list", surface: "sidebar-list", box: visible)
             for (key, view) in sidebar.list.rowViews where !view.isHiddenOrHasHiddenAncestor && view.window != nil {
-                let box = view.convert(view.bounds, to: nil)
+                let box = downward(view.convert(view.bounds, to: nil))
                 guard box.intersects(visible) else { continue }
                 let rowIndex = order[key]
                 let targeted = key == target
@@ -86,11 +86,19 @@ struct SidebarLayoutMotionScenarioTests {
                                                            targeted: targeted, after: after)
                 for (index, badge) in Self.badges(in: view).enumerated() {
                     samples["badge \(key) #\(index)"] = LayoutMotionSample(
-                        label: "badge \(key) #\(index)", surface: "sidebar-badge", box: badge.convert(badge.bounds, to: nil),
+                        label: "badge \(key) #\(index)", surface: "sidebar-badge", box: downward(badge.convert(badge.bounds, to: nil)),
                         targeted: targeted, after: after)
                 }
             }
             return samples
+        }
+
+        /// A window rect in the judge's coordinates. AppKit window coordinates grow upward and the contract's
+        /// (like the pages') grow downward, so a row an expand pushes down must read as a positive `dy`, or the
+        /// judge's "rows after the target move only straight down" rule flags every legitimate expand.
+        func downward(_ rect: CGRect) -> CGRect {
+            let height = window.contentView?.bounds.height ?? window.frame.height
+            return CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
         }
 
         static func badges(in view: NSView) -> [NSView] {

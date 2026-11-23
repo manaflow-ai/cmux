@@ -110,6 +110,7 @@ impl Machine {
             .env_remove("CMUX_VM_ID")
             .env_remove("CMUX_CODEROUTER_URL")
             .env_remove("CMUX_TEST_CLOUD_ETC")
+            .env_remove("CMUX_TEST_NO_FILE_OWNER")
             .stdin(Stdio::null());
         for (key, value) in &self.env {
             command.env(key, value);

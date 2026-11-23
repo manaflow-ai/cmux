@@ -31,7 +31,7 @@ extension ActionRegistry {
         let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
                   machineID: machineID).forEach(menu.addItem)
-        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context, target: target) }
         return menu
     }
 
@@ -120,6 +120,7 @@ extension ActionRegistry {
                 if let label = labels[id] { item.title = label }
                 // Built per click: names the target's change (Pin or Unpin, over the label), says why it is disabled.
                 ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
+                if item.isEnabled { rowSubmenus.attach(to: item, id: descriptor.id, target: target, machineID: machineID) }
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
@@ -153,6 +154,7 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
+                      !ActionTargetVisibility.isHidden(id, invocation: ActionInvocation(target: target, arguments: arguments), in: self),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context, arguments: arguments)
                 else { continue }
                 if let machineID { scope(item, toMachine: machineID) }

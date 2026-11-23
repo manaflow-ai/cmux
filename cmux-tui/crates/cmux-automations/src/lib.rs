@@ -59,12 +59,20 @@ pub use events::{EVENTS, EventKind};
 pub use gate::{
     CONDITION_TIMEOUT_SECONDS, Gate, MAX_EVENT_BYTES, Verdict, clip_event, fired, verdict,
 };
-pub use run::{Run, RunState, event_run_id, manual_run_id, run_id};
+pub use run::{
+    MAX_RETRIES, RETRY_BACKOFF_SECONDS, RETRY_WINDOW_SECONDS, Run, RunState, event_run_id,
+    is_retryable, manual_run_id, retry_run_id, run_id, unread_failures,
+};
 pub use runner::{
     EventOutcome, ExecOutcome, Executor, Job, TickReport, finish, gate_verdict, recover_orphans,
     start_event, start_manual, start_manual_with_event, tick,
 };
-pub use store::{AutomationState, RunnerLock, Store, StoreError, TOMBSTONE_MS};
+pub use store::{
+    AutomationState, RunnerBeat, RunnerHealth, RunnerLock, STALL_SECONDS, Store, StoreError,
+    TOMBSTONE_MS, runner_health,
+};
+/// This machine's name as run records give it (`runner`).
+pub use sys::hostname;
 pub use teleport::{
     Destination, ImportHandoff, ImportSpec, Imported, export_spec, parse_destination,
 };

@@ -21,6 +21,7 @@ import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
+import { trackHeldMenuRelease } from "./pressRelease";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -131,6 +132,8 @@ export function ContextMenu({
   const returnFocus = useRef<HTMLElement | null>(null);
   const popupTarget = useRef<HTMLElement | null>(null);
   const nativeRequest = useRef(0);
+  // Follows the press a right-click opened the menu on, to its release (pressRelease.ts).
+  const heldPress = useRef<(() => void) | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
   const nativePopup = useNativePopup({
@@ -170,6 +173,7 @@ export function ContextMenu({
   );
   useEffect(
     () => () => {
+      heldPress.current?.();
       nativeRequest.current += 1;
       popupTarget.current?.removeAttribute("data-popup-open");
       popupTarget.current = null;
@@ -305,6 +309,21 @@ export function ContextMenu({
     opener?.setAttribute("data-popup-open", "");
     returnFocus.current = opener;
     const at = { x: event.clientX, y: event.clientY };
+    // A Mac sends contextmenu on the press: while it is held, dragging onto a row of the page-drawn
+    // menu and releasing picks it, as in a Mac context menu (Lawrence via Leo, 2026-11-17). When the
+    // App draws the menu, its panel follows the press itself (NativePopupHost).
+    heldPress.current?.();
+    heldPress.current =
+      (event.buttons & 3) !== 0
+        ? trackHeldMenuRelease(
+            event.currentTarget.ownerDocument,
+            event,
+            () => menu.current,
+            () => {
+              if (menu.current) close(true);
+            },
+          )
+        : null;
     if (native && nativePopup.available) {
       setNativeAnchor({
         getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),

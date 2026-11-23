@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the page menu's link, image and selection rows (BrowserHits.xcstrings).
 enum BrowserHitStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "BrowserHits", bundle: .module)
+        String(localized: key, defaultValue: value, table: "BrowserHits", bundle: .module.inAppLanguage)
     }
 
     /// Search Google for “…” (the omnibar's engine).

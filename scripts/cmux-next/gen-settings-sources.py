@@ -882,8 +882,10 @@ def load_page_layout(section_ids):
             fail(src, "section_actions.%s is a list of unique action ids" % section)
     category_ids, group_keys, claimed, legacy_ids = [], set(), set(), []
     for run in data["sidebar_sections"]:
-        if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
-            fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
+        if not {"id", "title", "categories"} <= set(run) <= {"id", "title", "collapsed", "categories"} \
+                or not IDENT.match(run["id"]) or not run["categories"] or not isinstance(run.get("collapsed", False), bool):
+            fail(src, "a sidebar section has id, title (or null), an optional collapsed bool and a non-empty categories list: %r"
+                 % run.get("id"))
         check_text(src, run["id"] + ".title", run["title"], optional=True)
         for category in run["categories"]:
             cid = category.get("id", "")
@@ -1000,6 +1002,9 @@ public nonisolated struct SettingsPageLayout: Sendable {{
         public var title: SettingText?
         /// The categories of the run, in sidebar order.
         public var categories: [CategorySpec]
+        /// The page draws the run closed under its header (More) until a person opens it, and
+        /// opens it while one of its categories is shown: the sidebar's top level stays short.
+        public var collapsed = false
     }}
 
     /// A resolved group card: its rows in display order.
@@ -1054,8 +1059,9 @@ def page_categories_swift(data):
            "    /// The sidebar's sections: what a person looks for together sits together under one small header.",
            "    public static let sidebarSections: [SidebarSection] = ["]
     for run in data["sidebar_sections"]:
-        out.append("        SidebarSection(id: %s, title: %s, categories: %s)," % (
-            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category")))
+        out.append("        SidebarSection(id: %s, title: %s, categories: %s%s)," % (
+            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category"),
+            ", collapsed: true" if run.get("collapsed") else ""))
     out += ["    ]", "", "    private static func section(_ section: SettingsSection) -> SettingText {",
             "        SettingText(key: section.titleKey, text: section.title)", "    }"]
     for run in data["sidebar_sections"]:

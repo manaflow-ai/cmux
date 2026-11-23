@@ -2,9 +2,12 @@
 // schemas/settings/source/labs.json. Do not edit; edit the JSON and rerun.
 
 extension CmuxConfigSnapshot {
-    /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
+    /// `labs.previewFeatures`: Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.liveTree`: Read-only live-tree compiler snapshot in the agent pane. Off by default; only opening or refreshing the popover reads status. Turning it off unmounts the experiment.
+    public nonisolated static let liveTreePath = ["labs", "liveTree"]
+    public nonisolated static let liveTreeDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -17,6 +20,15 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `labs.pauseAgentMachines`: Mac pause/resume experiment (plans/mac-pause-resume/DESIGN.md): new nonpersistent Cloud agent machines opt into the existing 15-minute idle pause and resume when work arrives. Off by default; existing machines and persistent machines are unchanged.
+    public nonisolated static let pauseAgentMachinesPath = ["labs", "pauseAgentMachines"]
+    public nonisolated static let pauseAgentMachinesDefault = false
+    /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
+    public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
+    public nonisolated static let customizeFromTheAppDefault = false
+    /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
+    public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
+    public nonisolated static let agentCustomizationDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -30,10 +42,20 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.previewFeatures", "Show Preview Features"),
-                help: SettingsText.keyed("settings.labs.previewFeatures.help", "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."),
+                help: SettingsText.keyed("settings.labs.previewFeatures.help", "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
-                keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+                keywords: ["labs", "preview", "experimental", "beta", "prototype", "app store", "apps", "extensions"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.liveTreePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.liveTree", "Live Tree"),
+                help: SettingsText.keyed("settings.labs.liveTree.help", "Show live-tree compiler status in the agent pane."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.liveTreeDefault),
+                keywords: ["labs", "live", "tree", "shared", "compile", "lanes", "experiment"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,
@@ -74,6 +96,36 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.pauseAgentMachinesPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.pauseAgentMachines", "Pause Agent Machines"),
+                help: SettingsText.keyed("settings.labs.pauseAgentMachines.help", "Pause a new agent machine after 15 idle minutes; it resumes when work arrives."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.pauseAgentMachinesDefault),
+                keywords: ["labs", "experiment", "pause", "resume", "agent", "machine", "idle", "vm"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.customizeFromTheAppPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.customizeFromTheApp", "Customize From the Window"),
+                help: SettingsText.keyed("settings.labs.customizeFromTheApp.help", "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
+                keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.agentCustomizationPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.agentCustomization", "Claude Code and Codex Customization"),
+                help: SettingsText.keyed("settings.labs.agentCustomization.help", "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
+                keywords: ["labs", "claude", "codex", "mcp", "servers", "skills", "commands", "slash", "customize", "agent", "agents", "config"]
             ),
         ]
     }
