@@ -190,6 +190,9 @@ extension EnvironmentValues {
     /// out at its own size (its long-press menu preview and its drag preview), so a card never
     /// takes its own size for the page's.
     @Entry public var tabsKitCardPageSize: CGSize? = nil
+    /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
+    /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
+    @Entry public var tabsKitOverviewColumns: Int = 2
 }
 
 /// Where and how a tab's live page is shown.

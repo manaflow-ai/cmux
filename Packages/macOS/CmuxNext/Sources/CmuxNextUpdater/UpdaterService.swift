@@ -138,6 +138,9 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
+    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
+    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
+    @ObservationIgnored public var afterimage: RelaunchAfterimage?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -154,7 +157,7 @@ public final class UpdaterService {
     @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
     /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
     @ObservationIgnored var prewarmSkipLogged: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
