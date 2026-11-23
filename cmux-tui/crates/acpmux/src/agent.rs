@@ -419,6 +419,10 @@ fn key(id: &Id) -> String {
 
 /// This side's own error for a request whose agent or connection went: no answer of its agent.
 pub(crate) const AGENT_CLOSED: &str = "agent process closed";
+/// The error of a request to an agent whose host link broke because an entry from it could not
+/// be stored (`ChildAgent::start_reader`), when the store gives no refusal of its own.
+pub(crate) const LINK_UNLOGGED: &str =
+    "the agent's output could not be stored, so its link stopped; send again to reconnect";
 
 /// A request's error once its message was cut (`Fence::cut`) before it was written.
 pub const FENCE_CUT: &str =
@@ -1498,12 +1502,19 @@ impl ChildAgent {
     /// under the same lock, so a late notice of an old link never fails the open requests of the
     /// link that replaced it (review 2 of #26059).
     pub async fn fail_pending_if_unheard(&self) {
+        self.fail_pending_if_unheard_with(AGENT_CLOSED).await;
+    }
+
+    /// [`Self::fail_pending_if_unheard`] with `why` as each request's error: a link that broke
+    /// because an entry could not be stored answers its open requests with the store's refusal
+    /// (`disk.full` on a full disk) at once, rather than leaving them to the client's limit.
+    pub async fn fail_pending_if_unheard_with(&self, why: &str) {
         let mut p = self.pending.lock().await;
         if !self.is_broken() && !self.is_stopped() {
             return;
         }
         for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            let _ = tx.send(Err(RpcError::internal(why.to_owned())));
         }
     }
 
@@ -1924,7 +1935,16 @@ impl ChildAgent {
     ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        {
+            let mut p = self.pending.lock().await;
+            // A link that broke on an entry it could not store (`start_reader`) is marked under
+            // this lock, and its notice answers every request open then: one added after it would
+            // wait for a reattach nothing starts. It is answered now; the next request reattaches.
+            if self.is_broken() {
+                return Err(RpcError::internal(LINK_UNLOGGED));
+            }
+            p.map.insert(key(&Value::from(id)), tx);
+        }
         let mut abandoned = Abandoned {
             pending: self.pending.clone(),
             sink: self.cancel_sink(),
@@ -2576,8 +2596,9 @@ impl ChildAgent {
                 let fresh = h > *hosted.logged.borrow();
                 if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     drop(turn);
-                    // Not stored: never acknowledge it or anything after it.
-                    // Open requests stay open; the next request reattaches.
+                    // Not stored: never acknowledge it or anything after it. The hub answers the
+                    // open requests at the notice below (`Inbound::LinkBroken`), with the store's
+                    // refusal; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                         return;
