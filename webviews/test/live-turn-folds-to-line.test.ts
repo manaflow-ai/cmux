@@ -7,13 +7,7 @@
 // turn's "Worked for" takes when it ends, so the end keeps what the reader chose, in the same place.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import {
-  THINKING,
-  WORKED,
-  WORKING,
-  turnView,
-  workedFoldOfHeader,
-} from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, WORKED, turnHeaderId, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const START = Date.UTC(2026, 10, 22, 9, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -57,12 +51,15 @@ const ended: AcpmuxRow[] = [
   row("s1", "turnSummary", 41, { status: "completed", durationMs: 41_000 }),
 ];
 
+/// The turn's header: "Working for" while it runs, the same row as "Worked for" once it ended.
+const runningHeader = (rows: readonly AcpmuxRow[]) =>
+  rows.find((shown) => shown.kind === WORKED && shown.turnPhase === "running");
 const calls = (rows: readonly AcpmuxRow[]) =>
   rows.flatMap((shown) => (shown.kind === "activity" ? (shown.items ?? []) : [])).map((item) => item.tool?.id);
 
 test("a running turn draws its replies and one live line under a closed Working for", () => {
   const view = turnView(running, new Set(), { now: START + 30_000, working: true, agentFamily: "claude" });
-  const header = view.find((shown) => shown.kind === WORKING);
+  const header = runningHeader(view);
   expect(header).toBeDefined();
   expect(header!.foldOpen).toBe(false);
   // No finished call draws a row of its own; the reply stays in sight.
@@ -76,21 +73,25 @@ test("a running turn draws its replies and one live line under a closed Working 
 
 test("opening the Working for shows every call while the turn runs", () => {
   const closed = turnView(running, new Set(), { now: START + 30_000, working: true, agentFamily: "claude" });
-  const key = workedFoldOfHeader(closed.find((shown) => shown.kind === WORKING)!.id);
-  expect(key).toBe(`${WORKED}-u1`);
+  // The header toggles its own id, the key its "Worked for" opens with.
+  const key = runningHeader(closed)!.id;
+  expect(key).toBe(turnHeaderId("u1"));
   const view = turnView(running, new Set([key]), { now: START + 30_000, working: true, agentFamily: "claude" });
-  expect(view.find((shown) => shown.kind === WORKING)!.foldOpen).toBe(true);
+  expect(runningHeader(view)!.foldOpen).toBe(true);
   expect(calls(view)).toEqual(expect.arrayContaining(["c1", "c2", "c3"]));
 });
 
 test("the turn's end keeps the fold the reader left, where the Working for stood", () => {
   for (const open of [false, true]) {
-    const folds = new Set(open ? [`${WORKED}-u1`] : []);
+    const folds = new Set(open ? [turnHeaderId("u1")] : []);
     const live = turnView(running, folds, { now: START + 30_000, working: true, agentFamily: "claude" });
     const done = turnView(ended, folds, { now: START + 60_000, working: false, agentFamily: "claude" });
-    const header = live.findIndex((shown) => shown.kind === WORKING);
+    const header = live.findIndex((shown) => shown.kind === WORKED && shown.turnPhase === "running");
     const worked = done.findIndex((shown) => shown.kind === WORKED);
+    expect(header).toBeGreaterThanOrEqual(0);
     expect(worked).toBe(header);
+    expect(done[worked]!.id).toBe(live[header]!.id);
+    expect(done[worked]!.turnPhase).not.toBe("running");
     expect(done[worked]!.foldOpen === true).toBe(open);
     // Closed, the work stays out of sight through the end, as it was while the turn ran.
     if (!open) expect(calls(done)).toEqual([]);

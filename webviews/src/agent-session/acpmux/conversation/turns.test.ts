@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, turnView, turnViewFrom } from "./turns";
 
 // These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
 // the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
@@ -43,7 +43,7 @@ test("a completed turn has no live timer row", () => {
     new Set(),
     { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
-  expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
+  expect(shown.some((row) => row.kind === THINKING || row.turnPhase === "running")).toBe(false);
 });
 
 test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
