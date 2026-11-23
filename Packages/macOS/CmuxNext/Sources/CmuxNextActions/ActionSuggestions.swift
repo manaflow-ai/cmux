@@ -66,4 +66,12 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let remoteHosts = "remoteHosts"
     /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
     public static let editors = "editors"
+    /// The browser's downloads, newest first, by download id (titled by file name).
+    public static let browserDownloads = "browserDownloads"
+    /// The focused browser tab's back and forward entries, by goToEntry offset (`-2`, `1`).
+    public static let browserBackForwardEntries = "browserBackForwardEntries"
+    /// The browser toolbar's buttons Show in Toolbar pins, by setting value.
+    public static let browserToolbarButtons = "browserToolbarButtons"
+    /// The pane tab bar's buttons Show in Tab Bar pins, by setting value.
+    public static let tabBarButtons = "tabBarButtons"
 }

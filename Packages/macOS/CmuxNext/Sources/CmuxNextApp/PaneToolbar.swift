@@ -58,8 +58,6 @@ final class PaneToolbar: PaneControlsRefreshing {
     private(set) var kind: Kind?
     private(set) var zoomed = false
     private(set) var pinned: [String] = []
-    /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file.
-    var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
     private var refreshCurrent: (() -> Void)?
 
@@ -89,15 +87,6 @@ final class PaneToolbar: PaneControlsRefreshing {
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] },
                   switchRows: { [weak pane] id in pane.flatMap { pane in pane.tab(StripTabID(id)).map { pane.terminalChatSwitchRows(tab: id, model: $0) } } ?? [] },
                   machineID: { [weak pane] in pane?.daemon.machineID }, view: view ?? PaneToolbarView())
-        writePinned = { [weak services] next in
-            guard let settings = services?.settings else { return }
-            // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
-            Task {
-                do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
         refreshCurrent = { [weak self, weak pane] in
             if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
         }
@@ -260,19 +249,47 @@ final class PaneToolbar: PaneControlsRefreshing {
     private func showInTabBarItem(registry: ActionRegistry) -> NSMenuItem {
         let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
-        let setting = PaneToolbarButtonsSetting(pinned: pinned)
         let available = Set(kind.map(Self.actions) ?? [])
         for id in PaneToolbarButtonsSetting.values where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off
-            let closure = ActionMenuClosure { [weak self] in self?.writePinned(setting.toggling(id)) }
+            let closure = ActionMenuClosure { [weak registry] in
+                _ = registry?.perform(Self.togglePin, invocation: ActionInvocation(arguments: ["button": .string(id)], origin: .user))
+            }
             row.target = closure
             row.representedObject = closure
             submenu.addItem(row)
         }
         item.submenu = submenu
         return item
+    }
+
+    static let togglePin: ActionID = "tabs.toolbar.togglePin"
+
+    /// Show in Tab Bar (`tabs.toolbar.togglePin`): pins or unpins `button` in `tabs.toolbarButtons`;
+    /// every pane follows the file. The palette lists the buttons by title (`tabBarButtons`).
+    static func bindTogglePin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        let previous = registry.argumentSuggestions
+        registry.argumentSuggestions = { [weak registry] source in
+            guard source == ActionSuggestions.tabBarButtons else { return previous?(source) ?? [] }
+            return PaneToolbarButtonsSetting.values.compactMap { id in
+                registry?.descriptor(for: ActionID(rawValue: id)).map { ActionEnumCase(value: id, title: $0.title) }
+            }
+        }
+        registry.bindEffect(togglePin, requires: nil, effect: { [weak registry] invocation in
+            let text = invocation["button"]?.stringValue ?? ""
+            let id = PaneToolbarButtonsSetting.values.first { $0 == text || registry?.descriptor(for: ActionID(rawValue: $0))?.title == text }
+            guard let id, let settings = settings() else { throw ActionFailure.notFound(text) }
+            let next = PaneToolbarButtonsSetting.current(settings).toggling(id)
+            // task-owner: one write; the gesture is the user's (SettingWriter.currentRun)
+            Task {
+                do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            return .done
+        })
     }
 }
 

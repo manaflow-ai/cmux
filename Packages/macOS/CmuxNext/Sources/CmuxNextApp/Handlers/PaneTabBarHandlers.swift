@@ -11,6 +11,7 @@ enum PaneTabBarHandlers {
     static let newTab: ActionID = "newTab.horizontal"
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
+        PaneToolbar.bindTogglePin(into: registry, settings: { [weak services = ctx.services] in services?.settings })
         registry.bind(toggle, invoke: { invocation in
             guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
             if let reason = noToggleReason(controller) { return ctx.refuse(reason) }

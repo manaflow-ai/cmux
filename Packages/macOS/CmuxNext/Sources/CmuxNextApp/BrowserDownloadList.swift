@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBrowser
 import Foundation
 import Observation
@@ -32,6 +33,8 @@ final class BrowserDownloadList {
     /// Each new download and its tab: the browser host reports it to an
     /// agent driving that tab (`download.started`, then `download.finished`).
     var onDownload: ((BrowserDownload, String) -> Void)?
+    /// Runs a download row's action on it (`BrowserDownloadsMenu.bind`).
+    @ObservationIgnored var run: (ActionID, BrowserDownload) -> Void = { _, _ in }
     /// Where ended downloads are kept; nil keeps none.
     @ObservationIgnored var history: BrowserDownloadHistory?
     /// Downloads never kept: an incognito tab's.

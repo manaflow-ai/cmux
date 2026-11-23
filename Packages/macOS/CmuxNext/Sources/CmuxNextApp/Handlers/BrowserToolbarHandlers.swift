@@ -42,6 +42,8 @@ enum BrowserToolbarHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        BrowserDownloadsMenu.bind(into: registry, list: context.services.cache.pageRequests.downloads)
+        bindTogglePin(into: registry, settings: { [weak services = context.services] in services?.settings })
         registry.bind("browser.profile.choose", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
             chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
@@ -105,6 +107,25 @@ enum BrowserToolbarHandlers {
         return true
     }
 
+    /// Show in Toolbar (`browser.toolbar.togglePin`): pins or unpins `button` in cmux.json; the
+    /// palette lists the pinnable buttons by their Show in Toolbar titles (`browserToolbarButtons`).
+    static func bindTogglePin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        let previous = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserToolbarButtons else { return previous?(source) ?? [] }
+            return BrowserToolbarButton.pinnable.map { ActionEnumCase(value: $0.rawValue, title: $0.pinTitle) }
+        }
+        let managed = { settings().map(BrowserToolbarButtonsSetting.isManaged(in:)) ?? true }
+        registry.bindEffect("browser.toolbar.togglePin", requires: nil, unavailable: { managed() ? RefusalStrings.turnedOffByOrganization : nil }, effect: { invocation in
+            let text = invocation["button"]?.stringValue ?? ""
+            guard let button = BrowserToolbarButton.pinnable.first(where: { $0.rawValue == text || $0.pinTitle == text }), let settings = settings() else {
+                throw ActionFailure.notFound(text)
+            }
+            BrowserToolbarButtonsSetting.toggle(button.rawValue, in: settings)
+            return .done
+        })
+    }
+
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
         let target = tabTarget(entry)
         if button == .theme {
@@ -162,6 +183,10 @@ enum BrowserToolbarHandlers {
             }
         }
         let menu = registry.makeBrowserMoreMenu(tabKey: entry.key, buttons: entries, chromium: entry.tab.engineKind == .cef) { buttons?.zoomRow($0) }
-        return buttons?.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings)) ?? menu
+        // Show in Toolbar's rows run `browser.toolbar.togglePin`, the palette's row.
+        let pin = (enabled: settings.map { !BrowserToolbarButtonsSetting.isManaged(in: $0) } ?? false, toggle: { [weak registry] (id: String) in
+            _ = registry?.perform("browser.toolbar.togglePin", invocation: ActionInvocation(arguments: ["button": .string(id)], origin: .user))
+        })
+        return buttons?.addingShowInToolbar(to: menu, pin) ?? menu
     }
 }

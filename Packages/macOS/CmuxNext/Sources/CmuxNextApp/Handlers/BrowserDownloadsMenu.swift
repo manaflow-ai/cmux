@@ -12,34 +12,75 @@ import CmuxNextCompat
 /// row has an icon; the row view themes the menu (`themedMenu()`).
 enum BrowserDownloadsMenu {
     /// The right-click menu of `download`'s row; nil when it offers nothing
-    /// (a failed blob: download).
+    /// (a failed blob: download). Each row runs its `browser.download.*`
+    /// action on that download, so the palette runs the same handler.
     static func actions(_ download: BrowserDownload, list: BrowserDownloadList) -> NSMenu? {
         let submenu = NSMenu(title: download.filename)
         submenu.autoenablesItems = false
-        let file = download.status == .finished ? download.destination : nil
-        if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen, "arrow.up.forward.app") { NSWorkspace.shared.openInBackground(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder, "folder") { NSWorkspace.shared.revealInBackground([file]) })
-        }
-        if download.canPause {
-            let (title, symbol) = download.isPaused ? (BrowserHitStrings.downloadResume, "play.circle") : (BrowserHitStrings.downloadPause, "pause.circle")
-            submenu.addItem(closure(title, symbol) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
-        }
-        if download.canRetry {
-            submenu.addItem(closure(BrowserHitStrings.downloadRetry, "arrow.clockwise") { [weak list, weak download] in
-                if let list, let download { list.retry(download) }
-            })
-        }
-        if download.status == .inProgress {
-            submenu.addItem(closure(BrowserHitStrings.downloadCancel, "xmark.circle") { [weak download] in download?.cancel() })
-        }
-        if let source = download.sourceURL, source.scheme == "http" || source.scheme == "https" {
-            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink, "link") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(source.absoluteString, forType: .string)
-            })
+        for (id, title, symbol) in rows(download) {
+            let target = ActionMenuClosure { [weak list, weak download] in if let download { list?.run(id, download) } }
+            let item = NSMenuItem(title: title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
+            (item.target, item.representedObject, item.image) = (target, target, NSImage.menuSymbol(symbol))
+            submenu.addItem(item)
         }
         return submenu.items.isEmpty ? nil : submenu
+    }
+
+    /// The rows `download` offers now: action, title, symbol.
+    static func rows(_ download: BrowserDownload) -> [(ActionID, String, String)] {
+        var rows: [(ActionID, String, String)] = []
+        if download.status == .finished, download.destination != nil {
+            rows.append(("browser.download.open", BrowserHitStrings.downloadOpen, "arrow.up.forward.app"))
+            rows.append(("browser.download.reveal", BrowserHitStrings.downloadShowInFinder, "folder"))
+        }
+        if download.canPause {
+            rows.append(download.isPaused ? ("browser.download.togglePause", BrowserHitStrings.downloadResume, "play.circle")
+                : ("browser.download.togglePause", BrowserHitStrings.downloadPause, "pause.circle"))
+        }
+        if download.canRetry { rows.append(("browser.download.retry", BrowserHitStrings.downloadRetry, "arrow.clockwise")) }
+        if download.status == .inProgress { rows.append(("browser.download.cancel", BrowserHitStrings.downloadCancel, "xmark.circle")) }
+        if link(download) != nil { rows.append(("browser.download.copyLink", BrowserHitStrings.downloadCopyLink, "link")) }
+        return rows
+    }
+
+    private static func link(_ download: BrowserDownload) -> URL? {
+        download.sourceURL.flatMap { $0.scheme == "http" || $0.scheme == "https" ? $0 : nil }
+    }
+
+    /// Binds the rows' actions on `list`: the `download` argument is a download's id or file
+    /// name (`browserDownloads` lists them, newest first); a row the download does not offer now
+    /// refuses with its status.
+    static func bind(into registry: ActionRegistry, list: BrowserDownloadList) {
+        list.run = { [weak registry] id, download in
+            _ = registry?.perform(id, invocation: ActionInvocation(arguments: ["download": .string(download.id.uuidString)], origin: .user))
+        }
+        let previous = registry.argumentSuggestions
+        registry.argumentSuggestions = { [weak list] source in
+            guard source == ActionSuggestions.browserDownloads else { return previous?(source) ?? [] }
+            return (list?.items ?? []).reversed().map { ActionEnumCase(value: $0.id.uuidString, title: $0.filename) }
+        }
+        let body: [ActionID: (BrowserDownload) -> Void] = [
+            "browser.download.open": { $0.destination.map { NSWorkspace.shared.openInBackground($0) } },
+            "browser.download.reveal": { $0.destination.map { NSWorkspace.shared.revealInBackground([$0]) } },
+            "browser.download.togglePause": { $0.setPaused(!$0.isPaused) },
+            "browser.download.retry": { [weak list] in _ = list?.retry($0) },
+            "browser.download.cancel": { $0.cancel() },
+            "browser.download.copyLink": { download in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link(download)?.absoluteString ?? "", forType: .string)
+            },
+        ]
+        for (id, run) in body {
+            registry.bindEffect(id, requires: nil, effect: { [weak list] invocation in
+                let text = invocation["download"]?.stringValue ?? ""
+                guard let download = list?.items.last(where: { $0.id.uuidString == text || $0.filename == text }) else {
+                    throw ActionFailure.notFound(BrowserHitStrings.downloadsEmpty)
+                }
+                guard rows(download).contains(where: { $0.0 == id }) else { throw ActionFailure(message: status(download)) }
+                run(download)
+                return .done
+            })
+        }
     }
 
     /// The file a finished row drags out and opens: its destination while
@@ -75,10 +116,4 @@ enum BrowserDownloadsMenu {
         }
     }
 
-    private static func closure(_ title: String, _ symbol: String, _ body: @escaping @MainActor () -> Void) -> NSMenuItem {
-        let target = ActionMenuClosure(body)
-        let item = NSMenuItem(title: title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
-        (item.target, item.representedObject, item.image) = (target, target, NSImage.menuSymbol(symbol))
-        return item
-    }
 }

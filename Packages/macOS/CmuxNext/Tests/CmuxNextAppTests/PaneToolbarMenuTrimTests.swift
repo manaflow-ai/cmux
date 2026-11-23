@@ -68,14 +68,14 @@ struct PaneToolbarMenuTrimTests {
     @Test func anInapplicableExistingPinCanStillBeUnpinned() throws {
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry })
-        var written: PaneToolbarButtonsSetting?
-        toolbar.writePinned = { written = $0 }
+        var written: String?
+        registry.bindEffect(PaneToolbar.togglePin) { written = $0["button"]?.stringValue; return .done }
         toolbar.update(target: "browser", kind: .browser, pinned: ["file.open"])
         #expect(toolbar.shownPins().isEmpty)
         let menu = try #require(toolbar.view.moreMenu?())
         let row = try #require(menu.items.last?.submenu?.items.first { $0.title == registry.descriptor(for: "file.open")?.title })
         #expect(row.state == .on)
         _ = row.target?.perform(row.action, with: row)
-        #expect(written?.pinned == [])
+        #expect(written == "file.open")
     }
 }
