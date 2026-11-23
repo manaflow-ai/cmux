@@ -1145,6 +1145,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             "kbdrag=\(keyboardDragging ? 1 : 0)",
         ].joined(separator: " ")
     }
+
+    /// The row the reader is looking at, as drawn this frame: its index path
+    /// and its top on screen (presentation bounds), for the trace's glide
+    /// meter (AgentBottomScrollJumpUITests). The finger owns the transcript
+    /// while `tracking`.
+    func traceAnchor(_ row: IndexPath?) -> (row: IndexPath, top: CGFloat, tracking: Bool, items: Int)? {
+        let items = scrollView.numberOfSections > 0 ? scrollView.numberOfItems(inSection: 0) : 0
+        let boundsY = (scrollView.layer.presentation() ?? scrollView.layer).bounds.origin.y
+        let row = row.flatMap { $0.item < items ? $0 : nil } ?? {
+            let middle = boundsY + scrollView.bounds.height / 2
+            return scrollView.indexPathsForVisibleItems.min {
+                abs((scrollView.layoutAttributesForItem(at: $0)?.frame.midY ?? .infinity) - middle)
+                    < abs((scrollView.layoutAttributesForItem(at: $1)?.frame.midY ?? .infinity) - middle)
+            }
+        }()
+        guard let row, let frame = scrollView.layoutAttributesForItem(at: row)?.frame else { return nil }
+        return (row, frame.minY - boundsY, scrollView.isTracking, items)
+    }
     #endif
 }
 
@@ -1282,8 +1300,79 @@ final class ChatKeyboardTrace {
             return
         }
         guard owner.view.window != nil else { return }
-        let line = String(format: "t=%.4f ", link.targetTimestamp - start) + "mode=\(owner.placement == .owned ? "pushed" : "tab") " + owner.traceLine() + "\n"
+        let t = link.targetTimestamp - start
+        let line = String(format: "t=%.4f ", t) + "mode=\(owner.placement == .owned ? "pushed" : "tab") " + owner.traceLine() + "\n"
         handle?.write(Data(line.utf8))
+        glide.step(owner: owner, t: t)
+        if probe.superview !== owner.view {
+            owner.view.addSubview(probe)
+            probe.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+        }
+        probe.accessibilityValue = glide.summary
+    }
+
+    /// `debug.transcript-glide`: the glide meter's summary, for UI tests.
+    private let probe: UILabel = {
+        let probe = UILabel()
+        probe.isUserInteractionEnabled = false
+        probe.alpha = 0.02
+        probe.isAccessibilityElement = true
+        probe.accessibilityIdentifier = "debug.transcript-glide"
+        probe.accessibilityLabel = "transcript glide probe"
+        return probe
+    }()
+    private var glide = GlideMeter()
+
+    /// What the reader sees while the transcript moves on its own (a fling's
+    /// glide, its bounce, a follow): the row in the middle of the screen, frame
+    /// by frame. A glide changes its speed a little each frame; a frame where
+    /// the speed changes by more than `GlideMeter.jerk` points is a jump
+    /// (Leo, 2026-11-23: at the bottom, a scroll up then down "jumps").
+    struct GlideMeter {
+        static let jerk: CGFloat = 24
+        private var row: IndexPath?
+        private var items = 0
+        private var lastTop: CGFloat?
+        private var lastStep: CGFloat?
+        private(set) var frames = 0
+        private(set) var jumps = 0
+        private(set) var largest: CGFloat = 0
+        private var log: [String] = []
+
+        mutating func step(owner: ChatTranscriptController, t: Double) {
+            guard let anchor = owner.traceAnchor(row) else {
+                row = nil; lastTop = nil; lastStep = nil
+                return
+            }
+            // A new row in the middle, or rows added or removed: start over from it.
+            if anchor.row != row || anchor.items != items || anchor.tracking
+                || anchor.top < -200 || anchor.top > owner.view.bounds.height + 200 {
+                row = anchor.tracking ? nil : anchor.row
+                items = anchor.items
+                lastTop = anchor.tracking ? nil : anchor.top
+                lastStep = nil
+                return
+            }
+            frames += 1
+            if let lastTop {
+                let step = anchor.top - lastTop
+                if let lastStep {
+                    let change = abs(step - lastStep)
+                    largest = max(largest, change)
+                    if change > Self.jerk {
+                        jumps += 1
+                        log.append(String(format: "%.2f:%.0f>%.0f", t, lastStep, step))
+                        if log.count > 8 { log.removeFirst() }
+                    }
+                }
+                lastStep = step
+            }
+            lastTop = anchor.top
+        }
+
+        var summary: String {
+            String(format: "frames=%d jumps=%d largest=%.1f log=%@", frames, jumps, largest, log.isEmpty ? "-" : log.joined(separator: ","))
+        }
     }
 
     static func keyboardTop(in window: UIWindow?) -> CGFloat? {
