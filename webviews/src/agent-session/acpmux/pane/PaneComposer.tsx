@@ -115,6 +115,7 @@ import type { FileSearchSource } from "../fileSearchModel";
 import type { ComposerPlusExtension, CaptureMode } from "../composerPlusRegistry";
 import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
+import { commandPlace } from "../commandPlace";
 
 /// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
 const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
@@ -361,7 +362,7 @@ export type PaneComposerDeps = {
   setUpComputerUse: () => void;
   setComputerUseAsked: React.Dispatch<React.SetStateAction<ComputerUsePlace | undefined>>;
   /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
-  holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace) => boolean;
+  holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean;
 };
 
 /// The pane's composer tree: a subagent pane's SubagentComposer, or (unless reviewing) the bottom
@@ -572,6 +573,13 @@ export function drawPaneComposer({
       : snapshot.summary?.host || machinePeer || snapshot.summary?.peer || startsElsewhere
         ? "machine"
         : "here";
+  // `/side --on cloud …` goes to a Cloud chat whatever this chat is: held as a Cloud send, with the
+  // Cloud notice, never this Mac's setup (commandPlace.ts reads the `--on` the command handler reads).
+  const sendPlace = (text: string): ComputerUsePlace => {
+    const side = /^\/side(?:\s+([\s\S]*))?$/.exec(text.trim());
+    const placed = side ? commandPlace(side[1]) : undefined;
+    return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
+  };
   return readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -925,7 +933,7 @@ export function drawPaneComposer({
             transcriptFollowing={transcriptFollowing}
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
-            holdsSend={(text) => holdsForComputerUseSetup(text, false, computerUsePlace)}
+            holdsSend={(text) => holdsForComputerUseSetup(text, false, sendPlace(text))}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -936,7 +944,7 @@ export function drawPaneComposer({
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
-              if (holdsForComputerUseSetup(text, false, computerUsePlace)) return false;
+              if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
@@ -1295,6 +1303,11 @@ export function drawPaneComposer({
               // queued prompt keeps its old text and the editor keeps the edit (CMUX-682).
               if (edit.op === "update" && holdsForComputerUseSetup(edit.text, false, computerUsePlace))
                 return Promise.resolve(false);
+              // Send Now runs the queued text at once: held as a send is, the row stays queued.
+              if (edit.op === "send_now") {
+                const queued = snapshot.queue.find((entry) => entry.id === promptId)?.prompt;
+                if (queued && holdsForComputerUseSetup(queued, false, computerUsePlace)) return Promise.resolve(false);
+              }
               // A held prompt's text and images change in the pane; nothing else applies to it.
               if (trustHeld.has(promptId)) {
                 trustHeld.edit(promptId, edit);
@@ -1317,6 +1330,8 @@ export function drawPaneComposer({
                 opensSideSessions && !isSideSession && snapshot.sessionId
                   ? async (promptId, prompt) => {
                       const sessionId = snapshot.sessionId!;
+                      // A side chat on this Mac runs the text as a send: held before the row leaves the queue.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace)) return false;
                       // A row still waiting for the chat to take it leaves here; one with images stays,
                       // as a side chat asks the text alone.
                       const local = startingSends.rows.find((row) => row.id === promptId);

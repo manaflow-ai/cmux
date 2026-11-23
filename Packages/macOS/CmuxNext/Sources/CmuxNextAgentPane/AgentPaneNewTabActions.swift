@@ -180,7 +180,7 @@ public final class AgentPaneNewTabActions {
         running = nil
         counts.actionsRead += reading.actionsRead
         let key = readKey?.changes == changed.load(ordering: .relaxed) ? readKey : nil
-        let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
+        let actions = entries.filter { AgentPaneOmnibar.Action.pageMayRun($0.id.rawValue) }.map(AgentPaneOmnibar.Action.init(paletteEntry:))
         // A request from now to the hand-over joins this list (`list(wanted:_:)`): it is not read again.
         pending = true
         if let last, last.actions == actions {
@@ -219,6 +219,13 @@ public final class AgentPaneNewTabActions {
 }
 
 extension AgentPaneOmnibar.Action {
+    /// Whether a New Tab page may list the palette action `id` (``AgentPaneOmnibar/actions``) and run it (`app.action`):
+    /// never a Computer Use action (Set Up, Restart, the two grants, Stop, Focus, the saved approvals, cmux Remote's
+    /// restart). `app.action` runs a listed row as the person's own pick with no gesture, and those turn Computer Use on,
+    /// start a grant or restart its helper. Set Up keeps its own gesture-gated route (`action.run`,
+    /// ``AgentPaneModel/setupActions``). By id, so a new Computer Use action is left out with no edit.
+    public static func pageMayRun(_ id: String) -> Bool { !id.lowercased().contains("computeruse") }
+
     /// A Commands palette row as the bar lists it.
     public init(paletteEntry entry: PaletteCommandEntry) {
         self.init(id: entry.id.rawValue, title: entry.title, detail: entry.section, keywords: entry.keywords,

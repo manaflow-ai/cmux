@@ -312,9 +312,8 @@ final class ComputerUseSetup {
                     if phase == .failed { restartAfterGrantIfArmed() }
                     return
                 case .noAnswer, .hostPhase:
-                    // A host that answered before keeps its rows until a read succeeds.
                     let hasRetry = attempt + 1 < Self.maximumRetries
-                    if phase != .ready || result == .hostPhase(.starting) { settle(hasRetry ? .starting : .failed, running: nil) }
+                    settle(hasRetry ? .starting : .failed, running: nil) // ends an earlier answer: a host that keeps its pid but stops answering is not ready
                     // The read budget ran out after a drop: the helper macOS quit for the grant
                     // (or a copy it reopened that does not answer) is restarted once.
                     guard hasRetry else { return restartAfterGrantIfArmed() }

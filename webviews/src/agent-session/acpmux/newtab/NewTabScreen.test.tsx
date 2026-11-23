@@ -931,11 +931,12 @@ test("Return or Cmd-Return on a prompt that names @computer-use is held on its o
 test("Escape then Return on a plugin prompt never runs it as a command or a search", async () => {
   const shell: string[] = [];
   const searched: string[] = [];
+  const asks: unknown[][] = [];
   await act(async () => {
     root!.render(
       <NewTabScreen
         snapshot={noChat()}
-        onAsk={() => {}}
+        onAsk={(...args) => void asks.push(args)}
         onOpen={() => {}}
         onSearch={(text) => void searched.push(text)}
         onShell={(command) => void shell.push(command)}
@@ -950,6 +951,8 @@ test("Escape then Return on a plugin prompt never runs it as a command or a sear
   await press(field, "Enter");
   expect(shell).toEqual([]);
   expect(searched).toEqual([]);
+  // Return asked the agent with the prompt (doing nothing would also pass the two checks above).
+  expect(asks.map((ask) => ask[1])).toEqual(["ls @browser-use"]);
 });
 
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
@@ -2477,4 +2480,52 @@ test("a Minimal page reads only the changed chat when another chat changes", asy
   await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(next)} />));
   // A pass over the list reads thousands; the page's own lists read the one changed chat.
   expect(reads).toBeLessThan(400);
+});
+
+// CMUX-682: a screenshot still being read makes Return wait for it; the Computer Use hold comes first,
+// on Return's own key press, so a slow read can never outlast the gesture that opens setup.
+test("Return holds @computer-use before it waits for a screenshot still being read", async () => {
+  const asks: unknown[][] = [];
+  const held: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        holdsSend={(text) => {
+          held.push(text);
+          return text.includes("@computer-use");
+        }}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const field = await typePrompt("open Notes with @computer-use ");
+  // A screenshot whose bytes never come in this test: its chip stays "being read".
+  class Slow extends dom!.window.File {
+    override arrayBuffer(): Promise<ArrayBuffer> {
+      return new Promise(() => {});
+    }
+  }
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  const paste = new dom!.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [new Slow([new Uint8Array(64)], "shot.png", { type: "image/png" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  await act(async () => void editor.dispatchEvent(paste));
+  await press(field, "Enter");
+  // Asked once, on this Return (the text holds the screenshot's place too), and nothing asked the agent.
+  expect(held).toHaveLength(1);
+  expect(held[0]).toStartWith("open Notes with @computer-use");
+  expect(asks).toEqual([]);
+  expect(promptValue()).toContain("@computer-use");
 });

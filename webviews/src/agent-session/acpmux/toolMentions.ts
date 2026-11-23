@@ -105,25 +105,14 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
 }
 
-/// `text` with its code blanked (line breaks kept), as CommonMark reads it: fenced blocks (a line of 3+
-/// backticks or tildes, also inside a blockquote or a list item, closed by a line of the same mark at
-/// least as long, or the end), then inline code spans (slashCommands.ts codeSpans, `` ` `` runs too).
-/// One pass each, whatever the draft's size.
+/// `text` with its code blanked (line breaks kept), as CommonMark reads it: fenced blocks (`fenceLines`),
+/// then inline code spans (slashCommands.ts codeSpans, `` ` `` runs too). One pass each, whatever the
+/// draft's size.
 function withoutCode(text: string): string {
   const lines = text.split("\n");
-  let fence: { mark: string; length: number } | undefined;
+  const code = fenceLines();
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
-    // A blockquote's `>` marks and a list item's indent come before the fence's own mark.
-    const run = /^(?:[ \t]*>)*[ \t]*(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      lines[index] = " ".repeat(line.length);
-      if (run && run[1]![0] === fence.mark && run[1]!.length >= fence.length && !line.slice(run[0].length).trim())
-        fence = undefined;
-    } else if (run && !(run[1]![0] === "`" && line.slice(run[0].length).includes("`"))) {
-      fence = { mark: run[1]![0]!, length: run[1]!.length };
-      lines[index] = " ".repeat(line.length);
-    }
+    if (code(lines[index]!)) lines[index] = lines[index]!.replace(/[^\n]/g, " ");
   }
   const fenced = lines.join("\n");
   const spans = codeSpans(fenced);
@@ -136,6 +125,153 @@ function withoutCode(text: string): string {
   }
   out.push(fenced.slice(at));
   return out.join("");
+}
+
+/// The fenced code blocks of a text, line by line, as CommonMark reads them inside its containers
+/// (acpmux's tool_mentions.rs `Fences` keeps the same rules). A block quote (`>`) holds a line that
+/// carries its marker; a list item (`-`, `*`, `+`, `1.`, `1)`) holds a blank line and one indented to
+/// its content. A fence opened in a container ends with it: lazy continuation is only for a paragraph,
+/// so `> ~~~` then a line without `>` is prose again. Inside its container, a fence closes at a line of
+/// its mark at least as long, indented at most three spaces. Tabs count to the next multiple of four
+/// columns. The reader it returns says, for each next line, whether it is a fenced block's.
+function fenceLines(): (line: string) => boolean {
+  // The open containers, outermost first: undefined a block quote, a number a list item whose content
+  // starts that many columns into its parent's.
+  const open: (number | undefined)[] = [];
+  let fence: { mark: string; length: number } | undefined;
+  // The last line was paragraph text, which a lazy line continues.
+  let paragraph = false;
+  return (line) => {
+    const [matched, rest] = matchOpen(open, expandTabs(line));
+    if (fence) {
+      if (matched === open.length) {
+        if (closes(rest, fence.mark, fence.length)) fence = undefined;
+        return true;
+      }
+      // Its container ended, so the fence did too.
+      fence = undefined;
+      paragraph = false;
+    }
+    if (matched < open.length) {
+      if (paragraph && !blank(rest) && !startsBlock(rest)) return false;
+      open.length = matched;
+    }
+    const after = openNew(open, rest);
+    const opened = opens(after);
+    if (opened) {
+      fence = opened;
+      paragraph = false;
+      return true;
+    }
+    paragraph = !blank(after);
+    return false;
+  };
+}
+
+/// `line` with each tab as the spaces to the next multiple of four columns.
+function expandTabs(line: string): string {
+  if (!line.includes("\t")) return line;
+  let out = "";
+  let column = 0;
+  for (const ch of line) {
+    if (ch === "\t") {
+      const n = 4 - (column % 4);
+      out += " ".repeat(n);
+      column += n;
+    } else {
+      out += ch;
+      column += 1;
+    }
+  }
+  return out;
+}
+
+/// Whether `s` holds only spaces (and a line's `\r`).
+function blank(s: string): boolean {
+  return /^[ \r]*$/.test(s);
+}
+
+function spaces(s: string): number {
+  return /^ */.exec(s)![0].length;
+}
+
+/// How many of `open` `line` continues, and the rest of it after their markers and indents.
+function matchOpen(open: readonly (number | undefined)[], line: string): [number, string] {
+  let rest = line;
+  for (let index = 0; index < open.length; index++) {
+    const indent = open[index];
+    if (indent === undefined) {
+      const n = spaces(rest);
+      if (n > 3 || rest[n] !== ">") return [index, rest];
+      rest = rest.slice(n + 1);
+      if (rest.startsWith(" ")) rest = rest.slice(1);
+    } else {
+      if (blank(rest)) continue;
+      if (spaces(rest) < indent) return [index, rest];
+      rest = rest.slice(indent);
+    }
+  }
+  return [open.length, rest];
+}
+
+/// The length of the list marker `s` starts with (`-`, `*`, `+`, or 1 to 9 digits then `.` or `)`),
+/// when a space or the line's end follows it.
+function listMarker(s: string): number | undefined {
+  const marker = /^(?:[-*+]|[0-9]{1,9}[.)])/.exec(s);
+  if (!marker) return undefined;
+  const after = s.slice(marker[0].length);
+  return blank(after) || after.startsWith(" ") ? marker[0].length : undefined;
+}
+
+/// Opens the block quotes and list items `rest` starts with, and gives what follows them.
+function openNew(open: (number | undefined)[], rest: string): string {
+  for (;;) {
+    const n = spaces(rest);
+    if (n > 3) return rest;
+    const after = rest.slice(n);
+    if (after.startsWith(">")) {
+      open.push(undefined);
+      rest = after.slice(1);
+      if (rest.startsWith(" ")) rest = rest.slice(1);
+      continue;
+    }
+    const marker = listMarker(after);
+    if (marker === undefined) return rest;
+    const content = after.slice(marker);
+    if (blank(content)) {
+      open.push(n + marker + 1);
+      return content;
+    }
+    // Five or more spaces after the marker start indented code: the content is one in.
+    const gap = spaces(content) >= 5 ? 1 : spaces(content);
+    open.push(n + marker + gap);
+    rest = content.slice(gap);
+  }
+}
+
+/// The fence `rest` opens: at most three spaces, then 3+ backticks or tildes, as its mark and length
+/// (a backtick fence's info has no backtick).
+function opens(rest: string): { mark: string; length: number } | undefined {
+  const run = /^ {0,3}(`{3,}|~{3,})/.exec(rest);
+  if (!run) return undefined;
+  const mark = run[1]![0]!;
+  if (mark === "`" && rest.slice(run[0].length).includes("`")) return undefined;
+  return { mark, length: run[1]!.length };
+}
+
+/// Whether `rest` closes the fence of `mark` and `length`.
+function closes(rest: string, mark: string, length: number): boolean {
+  const run = /^ {0,3}(`+|~+)/.exec(rest);
+  return !!run && run[1]![0] === mark && run[1]!.length >= length && blank(rest.slice(run[0].length));
+}
+
+/// Whether `rest` starts a block, so it is no lazy line of a paragraph: a block quote, a list item, a
+/// fence or a heading.
+function startsBlock(rest: string): boolean {
+  const n = spaces(rest);
+  if (n > 3) return false;
+  const after = rest.slice(n);
+  return after.startsWith(">") || listMarker(after) !== undefined || !!opens(rest) || /^#{1,6}(?: |\r?$)/.test(after);
 }
 
 const NOTES: Record<ToolMentionId, string> = {

@@ -11318,12 +11318,12 @@ export class AcpmuxDirectClient {
     // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
     try {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
-      const hold = this.sendHold?.(text);
-      // Its own code, not `transport.*`: the bubble says this reason (not refused or disabled, not set
-      // up, a chat off this Mac), which no transport code's fixed words could.
-      if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
       const answer = await untilHostAnswers(
         () => {
+          // Asked before every try, a reconnect's too: Computer Use can stop while the host is away.
+          // Its own code, not `transport.*`: never retried, and the bubble says this reason.
+          const hold = this.sendHold?.(text);
+          if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
           if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
           // The perf watch's new-chat span: the first prompt since the handshake (perfReporter.ts).
@@ -12325,6 +12325,9 @@ export class AcpmuxDirectClient {
     const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
     const carried = sendable.length ? fitPromptBudget(text, sendable, {}, promptBudgetFor(this.socket)) : sendable;
     const ticket = gesture ? await gesture.ticket : undefined;
+    // Asked again after the ticket wait (a `/side` prompt after its fork and the native open).
+    const hold = this.sendHold?.(text);
+    if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
         sessionId,

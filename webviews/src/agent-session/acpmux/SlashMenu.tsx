@@ -128,7 +128,8 @@ export function SlashMenu({
       listRef={list}
       shellRef={escape}
       items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
+      // The text a row writes too: an extension's `/browser-use` and the built-in Browser Use row share a name.
+      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}:${match.command.insert ?? ""}`}
       textValue={(match) => match.command.label ?? shownName(match.command)}
       label={t(COMPOSER_LABELS.commands)}
       autoFocus={false}

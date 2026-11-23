@@ -214,7 +214,9 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
-        guard showsForInput else { return }
+        // The page window's own pane, not only a pane at its place: in a paint hold a new view lies at alpha 0 over the
+        // one that still shows, with its Chromium page at the same rect, and must not take the outgoing page's input.
+        guard showsForInput, let window, Self.chromiumAgentPane(under: eventWindow, in: window) === self else { return }
         if !model.hostTouch.marked { model.hostTouch.mark(by: event) }
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }

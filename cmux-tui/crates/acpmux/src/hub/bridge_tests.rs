@@ -193,6 +193,91 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+/// A prompt with a context block (the `@` tools' note, `tool_mentions.rs`) to a watched desktop
+/// chat: the app gets the note, the chat's transcript shows only the person's words.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_bridged_prompts_context_reaches_the_app_but_never_the_transcript() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("context");
+    let transcript = config.join("sid-ctx.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let pong = |_: usize| {
+        json!({"type": "assistant", "message": {"role": "assistant",
+            "stop_reason": "end_turn", "content": [{"type": "text", "text": "PONG"}]}})
+    };
+    let (_, got) = fake_claude_answering(&config, "sid-ctx", transcript.clone(), pong);
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-ctx".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let mut blocks = vec![json!({"type": "text", "text": "open the docs with @browser-use"})];
+    crate::tool_mentions::add_note(&mut blocks);
+    assert_eq!(blocks.len(), 2, "the note is a context block");
+    let opts = PromptOptions { prompt_id: Some("p-ctx".into()), ..Default::default() };
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+
+    let sent = got.lock().unwrap()[0].clone();
+    assert!(sent.starts_with("open the docs with @browser-use"), "{sent}");
+    assert!(sent.contains(crate::tool_mentions::TAG), "the app gets the note: {sent}");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+    assert_eq!(user.msg["text"], "open the docs with @browser-use");
+    let started = events.iter().find(|e| e.kind == "turn_started").expect("the turn starts");
+    assert_eq!(started.msg["prompt"], "open the docs with @browser-use");
+    assert!(
+        !events.iter().any(|e| e.msg.to_string().contains("cmux-tools-context")),
+        "no record shows the note"
+    );
+}
+
+#[test]
+fn the_visible_text_leaves_out_every_context_block() {
+    let blocks = [
+        json!({"type": "text", "text": "one"}),
+        json!({"type": "text", "text": "<cmux-tools-context>n</cmux-tools-context>", "_meta": {"acpmux": {"context": true}}}),
+        json!({"type": "text", "text": "two"}),
+    ];
+    assert_eq!(visible_text(&blocks), "one\n\ntwo");
+    assert!(text_of(&blocks).unwrap().contains("cmux-tools-context"), "the app still gets it");
+}
+
 /// A peer's outbox sends an open delivery again under its own prompt id on every link of the
 /// peer (`open_delivery.rs`) and relies on the target to answer a resend with the first outcome.
 /// A daemon that restarted since the delivery (or kept so many newer ones that it let it go) has

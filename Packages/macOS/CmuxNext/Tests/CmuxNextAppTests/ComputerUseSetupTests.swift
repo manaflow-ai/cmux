@@ -106,6 +106,24 @@ struct ComputerUseSetupTests {
         #expect(!setup.stepPermissions.helperFailed)
     }
 
+    /// Review round 2 of #48024: a helper that answered, kept its pid and then stops answering is not ready any more
+    /// (the pane would send `@computer-use` to it): its first failed read clears the answer, and the read budget's end
+    /// shows failed with Restart.
+    @Test func aReadyHelperThatStopsAnsweringIsNotReadyThenFails() async {
+        let reader = Reader()
+        await reader.answer()
+        let setup = make(InputBox(), reader)
+        setup.start()
+        await wait(setup, for: .ready)
+        await reader.setResult(.noAnswer)
+        setup.recheck()
+        await wait(setup, for: .failed)
+        #expect(await reader.count == 1 + ComputerUseSetup.maximumRetries)
+        #expect(setup.permissions == .none, "the old grants stayed after the host stopped answering")
+        #expect(setup.pageJSON["accessibility"] == .null)
+        #expect(setup.stepPermissions.helperFailed)
+    }
+
     @Test func restartShowsProgressThenReadsTheRestartedHelper() async throws {
         let reader = Reader()
         let box = InputBox()

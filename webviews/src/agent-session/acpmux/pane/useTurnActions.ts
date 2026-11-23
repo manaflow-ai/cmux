@@ -98,6 +98,9 @@ export interface TurnRowsShownDeps {
 /// What `turnActionsFrom` reads of AcpmuxPane: the values its `turnActions` memo closes over.
 export interface TurnActionsDeps {
   showCall: (toolCallId: string, startedAt?: number) => boolean;
+  /// True: a failed turn's Retry of `prompt` is held (`@computer-use` while Computer Use is not ready,
+  /// CMUX-682); the chat already said why, or the click opened setup.
+  holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
@@ -304,6 +307,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
 export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
   const {
     showCall,
+    holdsRetry,
     restartChat,
     queuedMessageActionsRef,
     stableBranches,
@@ -433,6 +437,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             // to another chat): say so on the card. Settling as sent left a Retry that did nothing
             // (cmux#34369).
             if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
+            // The footer's Retry sends the turn's prompt again (acpmux rebuilds it): held as a send is.
+            if (prompt && holdsRetry?.(prompt)) return Promise.resolve("retry.failed" as const);
             return retryFailedPrompt({
               sessionId: owner,
               rowId,

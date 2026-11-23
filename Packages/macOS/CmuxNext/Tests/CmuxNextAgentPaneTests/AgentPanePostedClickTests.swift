@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextTestSupport
 import Foundation
@@ -171,6 +172,65 @@ struct AgentPanePostedClickTests {
         event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
         view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
         #expect(!gestures.consumeQuestionReturn(keypad), "new posted page input left the keypad proof usable")
+    }
+
+    /// Review round 2 of #48024: in a paint hold a new view lies at alpha 0 over the view that still shows, and both
+    /// Chromium pages sit at the same rect. A click or key in the shown page's window is that pane's gesture only: the
+    /// new view records none, so a deferred request from its page cannot spend the outgoing page's input.
+    @Test func overlappingChromiumPagesCreditOnlyThePaneWhosePageShows() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let paneWindow = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        paneWindow.isReleasedWhenClosed = false
+        let root = NSView(frame: frame)
+        paneWindow.contentView = root
+        let make = { try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
+                                                chromium: FakeChromiumHosting())) }
+        let outgoing = try make(), incoming = try make()
+        let hold = NSView(frame: frame)
+        hold.alphaValue = 0
+        outgoing.frame = frame
+        incoming.frame = hold.bounds
+        root.addSubview(outgoing)
+        root.addSubview(hold, positioned: .above, relativeTo: outgoing)
+        hold.addSubview(incoming)
+        var pageWindows: [NSWindow] = []
+        defer {
+            outgoing.close(); incoming.close()
+            for window in pageWindows { window.close() }
+            paneWindow.close()
+        }
+        root.layoutSubtreeIfNeeded()
+        let deadline = Date().addingTimeInterval(5)
+        while !(outgoing.debugShowsChromium && incoming.debugShowsChromium), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(outgoing.debugShowsChromium && incoming.debugShowsChromium, "setup: a page never showed in Chromium")
+        // Each Chromium page draws in its own child window of the pane's window, both at the same rect.
+        for view in [outgoing, incoming] {
+            let content = try #require(view.chromiumPage?.contentView)
+            let page = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            page.isReleasedWhenClosed = false
+            paneWindow.addChildWindow(page, ordered: .above)
+            content.removeFromSuperview()
+            page.contentView = content
+            pageWindows.append(page)
+        }
+        PageWebView.syncChromiumVisibility(in: root)
+        try #require(outgoing.page?.chromiumShows == true, "setup: the outgoing page does not show")
+        try #require(incoming.page?.chromiumShows != true, "setup: the held page shows")
+        let shown = pageWindows[0]
+
+        incoming.judge(try Self.click(in: shown, source: 0), eventWindow: shown)
+        #expect(!incoming.model.transport.gestures.isAvailable, "the held view recorded the shown page's click")
+        outgoing.judge(try Self.click(in: shown, source: 0), eventWindow: shown)
+        #expect(outgoing.model.transport.gestures.consume(), "the shown page's own click did not count")
+
+        let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        key.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let returnKey = try #require(NSEvent(cgEvent: key))
+        incoming.judge(returnKey, eventWindow: shown)
+        #expect(!incoming.model.transport.gestures.isAvailable, "the held view recorded the shown page's Return")
+        outgoing.judge(returnKey, eventWindow: shown)
+        #expect(outgoing.model.transport.gestures.consume(), "the shown page's own Return did not count")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's

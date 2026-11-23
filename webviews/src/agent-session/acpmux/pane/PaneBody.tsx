@@ -280,7 +280,12 @@ export type PaneBodyDeps = NewTabShown &
     /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
     toolCommands: readonly SlashCommand[];
     /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
-    holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace) => boolean;
+    holdsForComputerUseSetup: (
+      text: string,
+      toast?: boolean,
+      place?: ComputerUsePlace,
+      opensSetup?: boolean,
+    ) => boolean;
     newTabFixError: string | undefined;
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
@@ -832,7 +837,15 @@ export function drawPaneBody({
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
                   // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
-                  holdsSend={(text, place) => holdsForComputerUseSetup(text, true, place)}
+                  // A page whose chats start on another machine (an inherited remote workspace: the client starts
+                  // them on the first send) is that machine's, whatever the screen's own pick says.
+                  holdsSend={(text, place) =>
+                    holdsForComputerUseSetup(
+                      text,
+                      true,
+                      place === "here" && directClient.current?.startsOnSend ? "machine" : place,
+                    )
+                  }
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -992,9 +1005,9 @@ export function drawPaneBody({
                     commandSession
                       ? {
                           ...newTabSnapshot,
-                          commands: withExtensionCommands(
-                            withToolCommands(pendingCommands ?? [], toolCommands),
-                            extensionCommands,
+                          commands: withToolCommands(
+                            withExtensionCommands(pendingCommands ?? [], extensionCommands),
+                            toolCommands,
                           ),
                         }
                       : newTabSnapshot
@@ -1045,7 +1058,8 @@ export function drawPaneBody({
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
-                      holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine"),
+                      // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
+                      holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
                       // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
                       // or another start advances the marker and fences every late completion.
                       // Harness starts may reconnect their client while the queued prompt waits;
@@ -1114,6 +1128,9 @@ export function drawPaneBody({
             />
           ) : showNewTab ? (
             <NewTabPage
+              holdsSend={(text) =>
+                holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here")
+              }
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
               importError={importError}
@@ -1139,8 +1156,9 @@ export function drawPaneBody({
                 callNative,
                 whenHandshaken,
                 startChat: chatFromNewTab,
+                // After the page's own hold on Return (NewTabPage `holdsSend`) and its wait for files: holds and says why.
                 holdsSend: (text) =>
-                  holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here"),
+                  holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false),
               })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
