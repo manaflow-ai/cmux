@@ -676,6 +676,13 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // The same for the hub's gate opening (`mesh_gate.rs`): a relay send that failed
+        // waits behind it with every other one, and they all go when one probe gets through.
+        let opened = hub.mesh.gate().opened();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
+        // This attempt asked the team hub (or its gate kept it from asking).
+        let mut relayed = false;
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -730,6 +737,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         } else if delivery.relay_post.is_some() {
             // The hub may hold it already: only the relay tries it again. With the relay off here
             // it may still deliver it (the target's daemon reads it), so it is never sent twice.
+            relayed = true;
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
                 let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
                 let why = format!(
@@ -768,6 +776,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
+                    relayed = true;
                     match relay_attempt(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
@@ -920,15 +929,24 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // keeps its bounded schedule: another peer's reconnects must not use it up. A
                 // message's wait never runs past its day; an intent's delays are never cut, so an
                 // intent older than a day after a restart does not spend its retries at once.
-                let sleep =
-                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() || !wake_on_ready {
-                    sleep.await;
-                } else {
-                    tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                    }
+                //
+                // A send the hub's shut gate holds waits for the gate, not its own schedule: until
+                // the gate lets its next probe go (with a little jitter, so the queue does not
+                // race for it) or the hub takes any post, whichever comes first. Twenty sends
+                // refused in one window go together once it opens, in their order (`waits_behind`),
+                // rather than one per window as each own back-off ran out (RFD 0049 R1).
+                let own = retry_sleep(&delivery, secs, crate::store::now_ms());
+                let behind_gate = relayed && hub.mesh.gate().shut();
+                let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
+                    Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
+                    None => own,
+                };
+                let sleep = tokio::time::sleep(wait);
+                let on_ready = !delivery.projection_only() && wake_on_ready;
+                tokio::select! {
+                    () = sleep => {}
+                    () = ready, if on_ready => {}
+                    () = opened, if behind_gate => {}
                 }
             }
         }
@@ -1124,6 +1142,16 @@ fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
     }
     let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
     delay.min(Duration::from_millis(left))
+}
+
+/// The most a send behind the hub's gate adds to the gate's reopening, spread by `jitter`
+/// (0..1) so the queue's wakes do not all land on the same instant.
+const GATE_JITTER: Duration = Duration::from_millis(250);
+
+/// How long a send behind the hub's shut gate sleeps: until `reopens_at`, plus its jitter.
+fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
+    let left = reopens_at.saturating_duration_since(tokio::time::Instant::now());
+    left + GATE_JITTER.mul_f64(jitter.clamp(0.0, 1.0))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
