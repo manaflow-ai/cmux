@@ -1582,7 +1582,7 @@ mod redeliver_tests {
             .collect()
     }
 
-    /// A delivery its peer took and no copy ever proved (the prompt id cosmic-gray sent 38
+    /// A delivery its peer took and no copy ever proved (the prompt id a loaded host sent 38
     /// times, 2026-11-23) meets links that come back every 3 minutes for its whole 30 days open:
     /// each link's redelivery reaches it (`redeliver_all`) and claims a resend as `redeliver_one`
     /// does. It is sent at most `MAX_RESENDS` times in all, the first at once, and 8 times in its

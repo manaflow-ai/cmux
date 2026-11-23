@@ -153,7 +153,7 @@ pub struct Delivery {
     /// (`open_delivery::resend_due`), so a delivery open for its whole 30 days is sent again at
     /// most `open_delivery::MAX_RESENDS` times however often its peer's link comes back. Before
     /// them, a link that came back every few minutes under load sent the same prompt id again on
-    /// every one (cosmic-gray, 2026-11-23: one prompt sent 38 times, 102,825 sends in 3 h).
+    /// every one (2026-11-23, on a loaded host: one prompt sent 38 times, 102,825 sends in 3 h).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub resends: u32,
     #[serde(default, skip_serializing_if = "is_zero")]

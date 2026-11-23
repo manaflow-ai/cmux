@@ -702,8 +702,8 @@ pub(crate) const MAX_RESENDS: u32 = 16;
 /// wait sends it. A machine that kept it answers a resend with its first outcome, and one that
 /// lost it with its disk still gets it on the next resend past the wait; the backoff only stops
 /// a peer whose link comes back every few minutes under load from taking the same prompt id
-/// once per link (cosmic-gray,
-/// 2026-11-23: 38 sends of one prompt id, 102,825 cross-host sends in 3 h, 78% of them resends).
+/// once per link (2026-11-23, on a loaded host: 38 sends of one prompt id, 102,825 cross-host
+/// sends in 3 h, 78% of them resends).
 pub(crate) fn resend_due(d: &Delivery, now: u64) -> bool {
     match d.resends {
         0 => true,
