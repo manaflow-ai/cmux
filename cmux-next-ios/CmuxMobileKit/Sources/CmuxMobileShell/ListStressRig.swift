@@ -3,6 +3,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -115,6 +116,16 @@ final class ListStressRig: NSObject {
             await openTerminals()
         case "chat", "diff", "artifacts":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
+            if screen == "chat", let path = settings.events {
+                // A heavy coordinator's records (coord-sim) instead of the mock agent's replayed turns.
+                let url = URL(fileURLWithPath: path)
+                let history = settings.eventsHistory
+                let mock = AgentSessionDirectory.shared.makeSource
+                AgentSessionDirectory.shared.makeSource = { summary in
+                    summary.id == "t-codex-stress"
+                        ? CoordSimReplaySource(summary: summary, url: url, history: history) : mock(summary)
+                }
+            }
             store.requestOpen(tabID: "t-codex-stress", in: ws.id)
             var opened = ws
             // Codex: no waiting question on open, so the transcript is the replayed history.
