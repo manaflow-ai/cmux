@@ -324,10 +324,16 @@ public final class LiveCoordinator {
                     self?.chatSessionChanged(id: summary.id, macID: summary.macID)
                 }
             }
-            let session = owner?.tree?.agentTabs[summary.id]?.session
+            // A tab this phone just bound opens on its chat before the tree lists the bind (which then changes nothing).
+            let listed = owner?.tree?.agentTabs[summary.id]?.session
+            if listed != nil { self.boundHere[key] = nil }
+            let session = listed ?? self.boundHere[key]
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
-                return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
+                // The first send starts the chat in this tab, on the tab's own Mac.
+                let macName: String? = owner?.name ?? self.link.target?.name
+                let start: UnboundAgentSource.Start? = owner.map { self.unboundStart($0, summary: summary, key: key) }
+                return UnboundAgentSource(summary: summary, macName: macName, start: start)
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
@@ -340,6 +346,29 @@ public final class LiveCoordinator {
         // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
         if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
+    }
+
+    /// A tab this phone just bound to the chat it started (its first send), until the Mac's tree
+    /// lists the bind: its chat opens on that session meanwhile. Gone with the tab's store.
+    @ObservationIgnored var boundHere: [String: String] = [:]
+
+    /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
+    /// rebuilt on `session` now (its store reads the session's source), and the message goes as
+    /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
+        { [weak self, weak owner] (text: String, attachments: [AgentAttachment]) async throws in
+            guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
+            let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
+            self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
+        }
+    }
+
+    private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
+                           summary: AgentSessionSummary, key: String) {
+        boundHere[key] = session
+        sourcedSessions[key] = nil
+        AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
+        AgentSessionDirectory.shared.store(for: summary).send(prompt: text, attachments: attachments)
     }
 
     /// A tab's new chat source: a loading one keeps the earlier loading source's held prompts; a
@@ -685,7 +714,7 @@ public final class LiveCoordinator {
             // Macs (0.10.0), so a Mac new to the list is the caller's.
             let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
-                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID, quietMs: mac.quietMs)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -735,7 +764,7 @@ public final class LiveCoordinator {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
         retarget()
         steerToInvite()
         scheduleSnapshotSave()
@@ -953,7 +982,7 @@ public final class LiveCoordinator {
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
             return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
-                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId)
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId, quietMs: mac.quietMs)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }
@@ -1130,6 +1159,15 @@ public final class LiveCoordinator {
         await incidents.signOut()
     }
 
+    /// Warms the next dial (signaling socket, ICE servers) without dialing or
+    /// touching a live link. Cheap and idempotent: call it as early as the app
+    /// knows it will need the Mac (scene about to enter the foreground, a push
+    /// woke the app), so the dial that follows skips those round trips.
+    public func prewarmLinks() {
+        guard let teamID = registeredTeamID else { return }
+        idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+    }
+
     /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
         let away = backgroundedAt.map { ContinuousClock.now - $0 }
@@ -1137,16 +1175,14 @@ public final class LiveCoordinator {
         foreground(after: away)
     }
 
-    /// `away` is how long iOS kept the app away; nil (no background seen) redials every link.
+    /// `away` is how long iOS kept the app away; nil (no background seen) redials every link, a connected one kept beside the redial.
     func foreground(after away: Duration?) {
         isBackgrounded = false
         incidents.appActive(true)
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
-        if let teamID = registeredTeamID {
-            idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
-        }
+        prewarmLinks()
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
@@ -1245,43 +1281,64 @@ final class PendingAgentSource: AgentSessionSource {
 }
 
 /// An agent tab with no acpmux session yet: a new chat on the Mac that has
-/// not had its first message. The Mac starts a chat's session from its own
-/// first send (the daemon starts only `registry:` tabs), so the phone says so;
-/// once the Mac binds the session the coordinator rebuilds the store live.
+/// not had its first message. It shows as a new chat, and its first send starts
+/// the chat from the phone, in this tab (``LiveWorkspaceCreationBackend/startUnboundChat``;
+/// Leo, 2026-11-18: "you should be able to just start the chat right there");
+/// once the tab is bound the coordinator rebuilds the store live on its session.
 @MainActor
 final class UnboundAgentSource: AgentSessionSource {
+    /// Starts the tab's chat and sends it the first message (through the bound chat, which then shows);
+    /// nil when the phone cannot (no link to the tab's Mac). Throws, with nothing sent, when the chat did not start.
+    typealias Start = @MainActor (_ text: String, _ attachments: [AgentAttachment]) async throws -> Void
+
     let summary: AgentSessionSummary
     let macName: String
+    private let start: Start?
+    /// A start is running: a second send waits for it rather than starting another chat.
+    private var starting = false
 
-    init(summary: AgentSessionSummary, macName: String?) {
+    init(summary: AgentSessionSummary, macName: String?, start: Start? = nil) {
         self.summary = summary
         self.macName = macName ?? summary.macName
+        self.start = start
     }
 
-    static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
+    /// Why a send could not start the chat, with no link to the tab's Mac.
+    static func notConnected(mac: String) -> String {
+        "Connect to \(mac) to start this chat."
     }
 
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
     func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
-        continuation.yield(.clientError(Self.notStarted(agent: summary.agentName, mac: macName)))
         continuations.append(continuation)
         return stream
     }
 
-    /// A prompt can't start the chat from the phone: say why again, and give the prompt back to
-    /// the composer (one held while the chat loaded comes here once the tree says it is unbound).
+    /// The first message starts the chat; a start that fails hands the draft back here with why
+    /// (once bound, the chat on screen is the session's, which hands back a failed send itself).
     func send(_ intent: AgentClientIntent) {
-        let message = Self.notStarted(agent: summary.agentName, mac: macName)
-        let event: AgentSessionEvent
-        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
-            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: message)
-        } else {
-            event = .clientError(message)
+        guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { return }
+        let notSent = { [weak self] (reason: String) in
+            for continuation in self?.continuations ?? [] {
+                continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
+            }
         }
-        for continuation in continuations { continuation.yield(event) }
+        guard let start else { return notSent(Self.notConnected(mac: macName)) }
+        guard !starting else { return notSent("\(summary.agentName) is still starting. Send again in a moment.") }
+        starting = true
+        for continuation in continuations { continuation.yield(.historyLoading(true)) }
+        // task-owner: one start; the bound chat replaces this one on screen
+        Task { [weak self] in
+            do {
+                try await start(text, attachments)
+            } catch {
+                notSent((error as? WorkspaceCreationError)?.message ?? String(describing: error))
+                for continuation in self?.continuations ?? [] { continuation.yield(.historyLoading(false)) }
+            }
+            self?.starting = false
+        }
     }
 
     var artifactSource: any ArtifactSource {
