@@ -594,7 +594,10 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "cmux-auto-session",
  "cmux-follow-cam",
+ "cmux-mobile-auto",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -604,6 +607,7 @@ dependencies = [
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
