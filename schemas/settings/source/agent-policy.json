@@ -458,6 +458,7 @@
         "notifications.sources.cli.dismissal",
         "notifications.delivery.permissionRequest",
         "notifications.delivery.question",
+        "notifications.delivery.blocked",
         "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
@@ -1075,6 +1076,14 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
       ]
     },
     {
