@@ -58,6 +58,12 @@ OWN_SUPERSESSION = {
     # instead would read as a red run on the pull request.
     "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
 }
+
+# Workflows only main runs (schedule, push to main): this branch's copy never runs, the
+# pre-push gate refuses changing it here without a main twin, and main has no bun-install.sh yet.
+MAIN_RUN_ONLY = {
+    "iroh-v2-production-drift.yml": "schedule and push to main run main's copy",
+}
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
 
@@ -251,6 +257,8 @@ def main() -> int:
             failures.append(f"{name} no longer needs its OWN_SUPERSESSION entry; remove it")
 
     for path, workflow in workflows.items():
+        if path.name in MAIN_RUN_ONLY:
+            continue
         for hit in bare_bun_installs(workflow):
             failures.append(
                 f"{path.relative_to(ROOT)}:{hit} runs a bare bun install, which waits "
