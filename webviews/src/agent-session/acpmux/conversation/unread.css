@@ -69,6 +69,62 @@
   color: var(--unread-accent-text);
   font-weight: var(--weight-emphasis);
 }
+/* The tag keeps to its one row at every width (Leo, 2026-11-22: "the new and whatever line should
+   be on the same line like always, and at ultra tightness the new can shrink well and fade i
+   suppose"). Its two forms, "157 new messages" and "New", stack in one cell at the line's end, so
+   the tag's place never moves and a width change cross-fades between them instead of swapping
+   text, wrapping it or pushing it over the Worked for words. The mark's box is the row's width, a
+   size container, and the steps below read it:
+   - roomy: the count's words;
+   - tight (the words would reach the Worked for line's own words): "New";
+   - ultra tight: "New" shrinks toward the line's end and fades, then is gone, the lit rule alone
+     still saying where the new part starts. */
+.cv-since__menu {
+  container: cv-since / inline-size;
+}
+.cv-since:not([data-look="pill"]) .cv-since__tag {
+  display: inline-grid;
+  justify-items: end;
+  align-items: center;
+  flex: none;
+  transform-origin: right center;
+}
+.cv-since__tag-words,
+.cv-since__tag-new {
+  grid-area: 1 / 1;
+  transform-origin: right center;
+}
+.cv-since__tag[data-words] .cv-since__tag-new {
+  opacity: 0;
+  scale: 0.9;
+}
+@container cv-since (max-width: 360px) {
+  .cv-since__tag[data-words] .cv-since__tag-words {
+    opacity: 0;
+    scale: 0.9;
+  }
+  .cv-since__tag[data-words] .cv-since__tag-new {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@container cv-since (max-width: 220px) {
+  .cv-since__tag {
+    opacity: 0.6;
+    scale: 0.85;
+  }
+}
+@container cv-since (max-width: 150px) {
+  .cv-since__tag {
+    opacity: 0;
+    scale: 0.7;
+  }
+}
+/* Coming and dissipating, the tag grows from and shrinks toward the line's end as it fades, with
+   the rule (compositor only). */
+.cv-since:not([data-shown]) .cv-since__tag {
+  scale: 0.9;
+}
 /* The count ("157 new messages"; Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do
    somthing like this in the gui somehow"): muted caption words in tabular figures, so a count that
    grows by a digit only widens the words. They lie in the mark's overlay like the rule: no height. */
@@ -154,13 +210,23 @@
       opacity var(--agent-motion-calm) var(--agent-ease-out),
       scale var(--agent-motion-calm) var(--agent-ease-out);
   }
+  /* The tag and its two forms ride the same step: a resize across a width step cross-fades the
+     words and "New" in place, and ultra tight "New" shrinks and fades instead of popping. */
+  .cv-since__tag,
+  .cv-since__tag-words,
+  .cv-since__tag-new {
+    transition:
+      opacity var(--agent-motion-calm) var(--agent-ease-out),
+      scale var(--agent-motion-calm) var(--agent-ease-out);
+  }
   /* B's lit Worked for divider fades to the accent and back to the plain rule on the same step. */
   .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
     transition: background-color var(--agent-motion-calm) var(--agent-ease-out);
   }
 }
 /* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.cv-since__line, .cv-since__rule) {
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.cv-since__line, .cv-since__rule, .cv-since__tag, .cv-since__tag-words, .cv-since__tag-new) {
   transition: none;
 }
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
