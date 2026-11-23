@@ -81,7 +81,11 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.start { [weak self] event in self?.innerEvent(event) }
     }
 
-    public func send(_ bytes: Data) { inner.send(bytes) }
+    public func send(_ bytes: Data) {
+        // A key shows the app's live screen first: what it answers draws there.
+        returnToLiveScreen()
+        inner.send(bytes)
+    }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
     public func stop() { inner.stop() }
     public func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
@@ -146,6 +150,32 @@ public final class TerminalProjectingSession: TerminalSession {
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
     }
+
+    // MARK: Held rows (Leo, 2026-11-23: "if the data was sent through... why
+    // cant you simply scroll through the depiction that was already given?")
+
+    /// Rust decides: within the rows the app scrolled off, the phone paints
+    /// them (nothing is sent); past them, for an app that asked for the
+    /// mouse, or with nothing held, the wheel goes to the Mac as before.
+    public func panHeldRows(_ rows: Double) -> Double {
+        let step = projection.altPan(rows: rows)
+        if !step.paint.isEmpty { handler?(.output(step.paint)) }
+        return step.forwardRows
+    }
+
+    public func returnToLiveScreen() {
+        let live = projection.altReturnLive()
+        if !live.isEmpty { handler?(.output(live)) }
+    }
+
+    /// Rows held for a pan over the alternate screen, and their bytes (tests, the bench).
+    public var heldRows: (rows: Int, bytes: Int) {
+        let held = projection.held()
+        return (Int(clamping: held.rows), Int(clamping: held.bytes))
+    }
+
+    /// How many held rows back the screen shows the app (0: live).
+    public var heldRowsBack: Int { Int(projection.altRowsBack()) }
 
     private var lastOlderLoad: CFAbsoluteTime?
     /// A ``loadOlderHistory()`` re-wrap is promised and not sent yet.
