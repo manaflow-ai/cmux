@@ -438,9 +438,9 @@ public struct AgentChatScreen: View {
                 Button("Session Info", systemImage: "info.circle") { surface.parityRoute = .sessionInfo }
                 Button("Copy…", systemImage: "doc.on.doc") { surface.showCopyChoices = true }
                 Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
-                    .disabled(store.turns.isEmpty)
+                    .disabled(!store.hasTurns)
                 Button("Jump to Turn…", systemImage: "arrow.up.arrow.down") { surface.openTurnNavigator() }
-                    .disabled(store.turns.isEmpty)
+                    .disabled(!store.hasTurns)
                 Button("Text and Width…", systemImage: "textformat.size") { surface.showDisplaySettings = true }
                 if !store.modes.isEmpty {
                     Section("Mode") {
