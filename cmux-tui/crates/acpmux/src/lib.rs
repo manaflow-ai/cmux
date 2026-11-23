@@ -42,6 +42,7 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
