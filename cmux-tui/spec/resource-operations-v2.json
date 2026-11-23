@@ -15744,7 +15744,8 @@
                 "ghostty",
                 "base16",
                 "iterm2",
-                "windows-terminal"
+                "windows-terminal",
+                "vscode"
               ]
             }
           },
@@ -15769,7 +15770,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -15868,7 +15870,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -42351,11 +42354,12 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
-            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
+            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object with a colors object of dotted keys or tokenColors vscode, another JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
           },
           "to": {
             "required": false,
@@ -42367,7 +42371,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42427,7 +42432,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42528,7 +42534,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
