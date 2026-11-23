@@ -2371,8 +2371,8 @@ async fn create_sends_labels() {
         .and(path("/v1/vms"))
         .and(authorized())
         .and(body_json(json!({
-            "displayName": "fs-agent-lane-1",
-            "labels": { "fleet": "freestyle-lanes", "slot": "fs-agent-lane-1" },
+            "displayName": "agent-lane-1",
+            "labels": { "fleet": "agent-lanes", "slot": "agent-lane-1" },
         })))
         .respond_with(ResponseTemplate::new(201).set_body_json(vm("starting")))
         .expect(1)
@@ -2382,11 +2382,11 @@ async fn create_sends_labels() {
         "--json",
         "create",
         "--name",
-        "fs-agent-lane-1",
+        "agent-lane-1",
         "--label",
-        "fleet=freestyle-lanes",
+        "fleet=agent-lanes",
         "--label",
-        "slot=fs-agent-lane-1",
+        "slot=agent-lane-1",
     ];
     let out = cli(&server, &args).await;
     assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
