@@ -298,6 +298,9 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+/// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod transfer_service;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;

@@ -34,6 +34,9 @@
 //!   app's, a unix socket), so another of the person's machines opens a workspace there; only
 //!   while the person on that machine granted "control for my other machines signed in to this
 //!   account" ([`SessionGate`], `session_service.rs`), refused by default.
+//!   [`CircuitService::TransferSource`] reads the pages of a chat this machine is moving to the
+//!   dialer (`hub/transfer_pull.rs`), only for a move whose target is the dialer's proven key
+//!   ([`TransferGate`], `transfer_service.rs`).
 //!
 //! The node key in two protocols. `node.wg.key` is WireGuard's static key and this carrier's
 //! Noise XX static key. The acpmux owner allows that reuse on these conditions, and they bind
@@ -152,6 +155,25 @@ pub enum CircuitService {
     /// person granted "control for my other machines signed in to this account" on this machine
     /// ([`MachineCallGate`]); refused by default.
     MachineCall,
+    /// The pages of a chat this machine is moving to the dialer (`hub/transfer_pull.rs`):
+    /// length-prefixed JSON requests `read` and `renew`, served by [`TransferGate`] for a move
+    /// whose target is the dialer's Noise-proven key. Hello `{"service":"acpmux-transfer"}`.
+    /// Never the WebSocket listener, so it has no connection origin.
+    TransferSource,
+}
+
+/// The service name a hello gives [`CircuitService::TransferSource`].
+pub const TRANSFER_SERVICE: &str = "acpmux-transfer";
+
+/// Whether this machine lets a circuit read the pages of its moves
+/// ([`CircuitService::TransferSource`]), and the server of its requests.
+#[async_trait]
+pub trait TransferGate: Send + Sync + 'static {
+    /// Whether the machine whose hub `daemonId` is `from` may open one at all (the Noise
+    /// handshake proved `from`). Each request is held to its move again.
+    async fn admit(&self, from: &str) -> Result<(), ServiceRefusal>;
+    /// Serves the circuit's requests on `io` until it closes.
+    async fn serve(&self, from: String, io: tokio::io::DuplexStream);
 }
 
 /// The service name a hello gives [`CircuitService::MachineCall`].
@@ -170,7 +192,8 @@ pub enum CircuitLane {
 impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
-            CircuitService::CmuxTui { .. } => Self::Bulk,
+            // A move's pages are bulk bytes, as a port pipe's are.
+            CircuitService::CmuxTui { .. } | CircuitService::TransferSource => Self::Bulk,
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
             | CircuitService::MachineCall => Self::Cheap,
@@ -253,6 +276,7 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
+        CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -284,6 +308,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(MACHINE_CALL_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::MachineCall)
+        }
+        (Some(TRANSFER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::TransferSource)
         }
         _ => Err(unknown()),
     })
@@ -477,6 +504,8 @@ pub struct HubCarrier {
     session: RwLock<Option<Arc<dyn SessionGate>>>,
     /// Who may have this machine run calls for them; None refuses every such circuit.
     machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
+    /// Whether a circuit may read the pages of a move this machine began; none refuses it.
+    transfer: RwLock<Option<Arc<dyn TransferGate>>>,
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
     /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
     serve_reason: RwLock<Option<OfflineReason>>,
@@ -517,6 +546,7 @@ impl HubCarrier {
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
+            transfer: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -549,6 +579,7 @@ impl HubCarrier {
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
+            transfer: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -644,6 +675,15 @@ impl HubCarrier {
 
     fn machine_call_gate(&self) -> Option<Arc<dyn MachineCallGate>> {
         self.machine_call.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let circuits read the pages of this machine's moves as `gate` decides.
+    pub fn set_transfer_gate(&self, gate: Arc<dyn TransferGate>) {
+        *self.transfer.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn transfer_gate(&self) -> Option<Arc<dyn TransferGate>> {
+        self.transfer.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
@@ -1275,6 +1315,30 @@ impl Incoming {
         }
     }
 
+    /// This machine's end of a move's page circuit from `from`, served by the transfer gate
+    /// until either end closes, or why it may not have one.
+    async fn transfer(
+        &self,
+        from: Option<String>,
+    ) -> Result<tokio::io::DuplexStream, ServiceRefusal> {
+        match (self.carrier.transfer_gate(), from) {
+            (Some(gate), Some(from)) => {
+                gate.admit(&from).await?;
+                let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+                tokio::spawn(async move { gate.serve(from, theirs).await });
+                Ok(ours)
+            }
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine serves no move pages to its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        }
+    }
+
     /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
     /// admits.
     async fn admit_session(
@@ -1404,6 +1468,41 @@ impl RelayIncoming for Incoming {
             pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
+        if named_service(&first) == Some(Ok(CircuitService::TransferSource)) {
+            // A move's pages: served in process, never through the WebSocket listener.
+            drop(listener);
+            let admitted = match (self.carrier.transfer_gate(), from.as_deref()) {
+                (Some(gate), Some(from)) => gate.admit(from).await.map(|()| gate),
+                (None, _) => Err(ServiceRefusal::new(
+                    "service.off",
+                    "this machine serves no move pages to its other machines",
+                )),
+                (Some(_), None) => Err(ServiceRefusal::new(
+                    "service.unknown_machine",
+                    "the circuit's machine key is not one this machine admitted",
+                )),
+            };
+            let gate = match admitted {
+                Ok(gate) => gate,
+                Err(refusal) => {
+                    tracing::info!("hub carrier: a transfer circuit was refused: {refusal}");
+                    let _ = link.send(service_answer(&Err(refusal))).await;
+                    let _ = link.close().await;
+                    return;
+                }
+            };
+            if link.send(service_answer(&Ok(()))).await.is_err() {
+                let _ = link.close().await;
+                return;
+            }
+            self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
+            let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+            let from = from.unwrap_or_default();
+            // Both end together: the link's end shuts `ours`, which ends the server's reads, and
+            // the server's end drops `theirs`, which ends the pump's.
+            tokio::join!(gate.serve(from, theirs), pump(Box::new(link), ours, &self.carrier.stats));
+            return;
+        }
         let Some(mut local) = listener else {
             let _ = link.close().await;
             return;
@@ -1415,9 +1514,11 @@ impl RelayIncoming for Incoming {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
                     // Served above; never reaches a TCP target.
-                    Ok(CircuitService::CmuxTuiSession | CircuitService::MachineCall) => {
-                        Err(ServiceRefusal::new("service.unknown", "no such service"))
-                    }
+                    Ok(
+                        CircuitService::CmuxTuiSession
+                        | CircuitService::MachineCall
+                        | CircuitService::TransferSource,
+                    ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
                 match reached {
@@ -1823,6 +1924,11 @@ pub async fn start_configured(
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
     // Off under the same grant: this machine runs Computer Use calls for those machines.
     carrier.set_machine_call_gate(Arc::new(crate::machine_call_service::ConfiguredGate::new(hub)));
+    // A move's pages, only to the machine its move names (`hub/transfer_pull.rs`); and this
+    // machine's own way to the source of a move it pulls. A move needs `move` in
+    // `meshRelay.controlFrom` on the target, off by default.
+    carrier.set_transfer_gate(Arc::new(crate::transfer_service::ConfiguredTransferGate::new(hub)));
+    hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
