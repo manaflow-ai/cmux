@@ -25,7 +25,6 @@ sha1 = "0.10"
 # The id check on every byte a peer, the controller SSD or R2 sends: SHA-1 that detects the known
 # collision attacks (the algorithm git itself ships), so a crafted collision is refused (hq RFD 0008).
 sha1collisiondetection = { version = "0.3", default-features = false }
-serde_json.workspace = true
 sha2.workspace = true
 zstd.workspace = true
 # O_NOFOLLOW for the way back (layer.rs), on the Mac too.
