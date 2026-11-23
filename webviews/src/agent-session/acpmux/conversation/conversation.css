@@ -778,7 +778,10 @@
 }
 /* A sent prompt's way to the agent (PromptDelivery.tsx): while it is on its way, its footer's time
    slot says so (a clock and one sentence) and the footer stays shown; once it lands the slot is its
-   time again, in the same place, so nothing moves. A failed prompt's card and Details below. */
+   time again, in the same place, so nothing moves. The row keeps a sent row's anchor at the bubble's
+   right edge, so Copy and the buttons after it never move with the words (Leo, 2026-11-17: "stop
+   making the copy button move with the text ... why was it not just at the right edge"). A failed
+   prompt's card and Details below. */
 .cv-user__bubble {
   position: relative;
 }
@@ -9080,28 +9083,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .acpmux-queued-video-time {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-/* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is
-   misaligned"). The row hangs under the bubble out of flow, anchored right; with a bubble the body
-   becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
-   anchored right and as wide as its words when they are wider than the bubble's text. */
-.cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
-  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
-  --cv-bubble-pad-inline: calc(var(--cv-user-bubble-pad-inline, 4) * var(--grid-base) * var(--cv-bubble-scale));
-  display: block;
-  position: relative;
-  align-self: var(--cv-user-align, flex-end);
-  max-width: var(--cv-user-bubble-share, 70%);
-}
-.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
-  max-width: none;
-}
-.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
-  right: calc(-1 * var(--cv-action-inset));
-  width: max-content;
-  min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
-  justify-content: flex-start;
 }
 
 /* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full

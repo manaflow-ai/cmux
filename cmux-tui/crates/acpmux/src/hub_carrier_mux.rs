@@ -354,6 +354,12 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
+                Ok((local, serving)) => {
+                    tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                }
+                Err(refusal) => refuse(refusal).await,
+            },
             // The acpmux listener keeps its own circuits (it sends no hello).
             Ok(CircuitService::Acpmux) => {
                 refuse(ServiceRefusal::new("service.unknown", "no such service")).await

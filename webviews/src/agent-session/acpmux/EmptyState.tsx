@@ -1,9 +1,7 @@
-import { FolderIcon } from "./NewTabPage";
-import { ProjectChooser, type Project } from "./ProjectChooser";
-import { useT } from "./i18n";
-import { EMPTY_STATE_LABELS } from "./emptyStateModel";
+import type { Project } from "./ProjectChooser";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
-/// The hero's project picker (cx-9g0w): the chat's folder choices and what a pick does.
+/// A new chat's folder choices and what a pick does (cx-9g0w). The composer's folder chip draws them;
+/// the chat view's empty state names no folder and asks nothing.
 export type EmptyStateProjects = {
   projects: Project[];
   /// The chat's project folder; none in no project (the agent-home folder).
@@ -16,54 +14,20 @@ export type EmptyStateProjects = {
   onNoProject?(): void;
 };
 
-/// A new chat's hero, centered in place of the empty transcript and kept quiet:
-/// a small prompt glyph and one line naming the session's project. With `picker` the project's
-/// name is a picker (ChatGPT style): a pick moves the new chat to that folder. With `tour`, a folder no chat has
-/// used yet offers a repo tour under the question (repoTour/TourOffer.tsx).
-export function EmptyState({
-  project,
-  picker,
-  tour,
-}: {
-  project?: string;
-  picker?: EmptyStateProjects;
-  tour?: TourOfferActions;
-}) {
-  const t = useT();
-  const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
-  const chooser = picker && (
-    <ProjectChooser
-      projects={picker.projects}
-      current={picker.current}
-      currentPeer={picker.currentPeer}
-      noProject={picker.noProject}
-      {...(project ? { currentLabel: project } : {})}
-      icon={<FolderIcon />}
-      onPick={picker.onPick}
-      onBrowse={picker.onBrowse}
-      onNoProject={picker.onNoProject}
-      side="bottom"
-      inline
-    />
-  );
+/// The chat view with no turns yet: the plain new chat, the one and only built-in. It is the same
+/// screen on every path that reaches it (a new chat, a connect, a reconnect, a host error, a failed
+/// start, a harness switch): nothing in the pane says "What should we build" or lists other chats
+/// (Leo, 2026-11-22: "we wanted the plain one didnt we? without the chatter intro"). That builder
+/// screen is an opt-in look in examples/looks/codex/send-parity, never a fallback here. With `tour`,
+/// a folder no chat has used yet offers a repo tour (repoTour/TourOffer.tsx).
+export function EmptyState({ tour }: { tour?: TourOfferActions }) {
   return (
-    <div className="acpmux-empty">
-      <div className="acpmux-empty-title-anchor">
-        <h2 className="acpmux-empty-title">
-          {project ? (
-            <>
-              {before}
-              {chooser ?? <span className="acpmux-empty-project">{project}</span>}
-              {after}
-            </>
-          ) : (
-            t(EMPTY_STATE_LABELS.prompt)
-          )}
-        </h2>
-        {project && tour && <TourOffer {...tour} />}
-      </div>
-      {/* No project yet: the picker sits under the question, so a folder can still be chosen. */}
-      {!project && chooser && <div className="acpmux-empty-choose">{chooser}</div>}
+    <div className="acpmux-empty" data-plain-new-chat="">
+      {tour && (
+        <div className="acpmux-empty-title-anchor">
+          <TourOffer {...tour} />
+        </div>
+      )}
     </div>
   );
 }
