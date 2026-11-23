@@ -621,7 +621,7 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
 }
 
 /// The names an inbox thread's newest sender goes by, newest message first: its relayed
-/// `HOST/NAME`, its shown name, then the name in the thread key (`from:NAME[/pr:N]`,
+/// `HOST/NAME`, its shown name (`from`), then the name in the thread key (`from:NAME[/pr:N]`,
 /// `declared:NAME`). `thread` is `_acpmux/inbox_thread`'s answer.
 fn thread_sender_names(thread_key: &str, thread: &Value) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
@@ -638,7 +638,9 @@ fn thread_sender_names(thread_key: &str, thread: &Value) -> Vec<String> {
         if let (Some(machine), Some(session)) = (machine, session) {
             add(Some(&format!("{machine}/{session}")));
         }
-        add(m.get("fromName").and_then(Value::as_str));
+        // `from` is the shown sender (`hub/inbox.rs` `shown_sender`): a relayed `HOST/NAME`, a
+        // declared label or the session's name.
+        add(m.get("from").and_then(Value::as_str));
     }
     let key = thread_key.strip_prefix("from:").or_else(|| thread_key.strip_prefix("declared:"));
     add(key.map(|k| k.rsplit_once("/pr:").map_or(k, |(name, _)| name)));

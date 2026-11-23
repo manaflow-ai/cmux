@@ -1346,8 +1346,8 @@ async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by
 #[test]
 fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
     let thread = json!({"messages": [
-        {"fromName": "codex-a", "sender": {"relay": {"machine": "mac-1", "session": "codex-a"}}},
-        {"fromName": "codex-a"}
+        {"from": "codex-a", "sender": {"relay": {"machine": "mac-1", "session": "codex-a"}}},
+        {"from": "codex-a"}
     ]});
     assert_eq!(thread_sender_names("from:codex-a/pr:7", &thread), ["mac-1/codex-a", "codex-a"]);
     assert_eq!(thread_sender_names("declared:claude-b", &Value::Null), ["claude-b"]);
