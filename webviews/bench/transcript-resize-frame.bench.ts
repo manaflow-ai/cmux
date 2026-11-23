@@ -31,6 +31,7 @@ import { perfRow, TARGET_MS } from "./perfRow";
 const args = benchPositionals();
 const TURNS = (args[0] ?? "100,1500").split(",").map(Number);
 const ROUNDS = Number(args[1] ?? 3);
+const FIXTURE = args[2];
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
   throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
@@ -96,7 +97,22 @@ try {
     await gotoBenchPage(page, served);
     await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
-    const seeded = await page.evaluate(`window.__debug.seedRows(${turns})`);
+    const seeded = await page.evaluate(`window.__debug.seedRows(${turns}, ${JSON.stringify(FIXTURE)})`);
+    if (FIXTURE === "worked-resize") {
+      await page.evaluate(() =>
+        (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked(true),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const controls = await page.evaluate(() =>
+        Math.max(
+          0,
+          ...[...document.querySelectorAll<HTMLElement>(".cv-worked[aria-controls]")].map(
+            (row) => row.getAttribute("aria-controls")?.split(" ").length ?? 0,
+          ),
+        ),
+      );
+      console.log(`transcript-resize-frame turns=${turns} worked_controls=${controls}`);
+    }
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
     for (const shape of cases) {
       const drag = async (): Promise<Drag> =>
