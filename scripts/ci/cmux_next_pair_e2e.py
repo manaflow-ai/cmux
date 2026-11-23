@@ -81,8 +81,10 @@ def redact(text):
 def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
-    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
-    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+    sources = ("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePairingPageProvider.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")  # before the move
+    paths = [os.path.join(ROOT, src) for src in sources]
+    return any(os.path.exists(path) and 'reply["qr"]' in open(path).read() for path in paths)
 
 
 def has_upload_probe():
