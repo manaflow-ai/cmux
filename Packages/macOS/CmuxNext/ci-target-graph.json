@@ -279,7 +279,6 @@
         "CmuxNextAgentUpdates",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
-        "CmuxNextAppTry",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -441,7 +440,6 @@
         "CmuxNextApp",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
-        "CmuxNextAppTry",
         "CmuxNextApps",
         "CmuxNextBrowserCore",
         "CmuxNextBrowserHistory",
@@ -2479,17 +2477,6 @@
       ],
       "packages": [],
       "reads": []
-    },
-    "CmuxNextAppTry": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppTry",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDesign"
-      ],
-      "packages": []
     }
   }
 }
