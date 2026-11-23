@@ -527,6 +527,23 @@
         {"rotate": 1}
       ]
     },
+    "domain:backdrop_placement": {
+      "accept": [
+        {},
+        {"munch-scream": "fit"},
+        {"file:/Users/Shared/Harbor.png": "fill 0.2 0.8 1.5", "desktop": "center 0.5 0"}
+      ],
+      "refuse": [
+        "fit",
+        [],
+        {"munch-scream": "cover"},
+        {"munch-scream": "fill 2 0"},
+        {"munch-scream": "fill 0.5"},
+        {"munch-scream": "fill 0.5 0.5 9"},
+        {"": "fit"},
+        {"munch-scream": 1}
+      ]
+    },
     "domain:backdrop_recents": {
       "accept": [
         [],
