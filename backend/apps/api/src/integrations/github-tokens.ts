@@ -100,7 +100,7 @@ type Row = { token_id: string; principal: string; install: string | null; team: 
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
-/** Token bucket per principal; the wait in seconds when empty, else null. */
+/** Token bucket per key (a principal, or a joined machine's minter); the wait in seconds when empty, else null. */
 const take = (buckets: LedgerHost["buckets"], key: string, now: number): number | null => {
   const b = buckets.get(key) ?? { tokens: MINT_RATE.burst, at: now }
   const tokens = Math.min(MINT_RATE.burst, b.tokens + ((now - b.at) / 1000) * MINT_RATE.per_second)
@@ -432,7 +432,9 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     }
     if ("ok" in again) return again
   }
-  const wait = take(h.buckets, pk, now)
+  // A joined machine's bucket is its minter's in this team (this ConnectionDO is the team's): N machines one person
+  // joined share one rate, never N. Every other principal keeps its own.
+  const wait = take(h.buckets, p.install_kind === JOINED_MACHINE_KIND ? `joined-user:${p.user}` : pk, now)
   if (wait !== null) return fail(429, "rate_limited", `too many new GitHub tokens for this caller; try again in ${wait} s`, wait)
   let res: Response
   try {
