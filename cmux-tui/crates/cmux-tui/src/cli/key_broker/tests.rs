@@ -15,6 +15,8 @@ struct FakeCloudflare {
     calls: RefCell<Vec<Call>>,
     bucket_exists: bool,
     fail_first_bucket_read: RefCell<bool>,
+    /// Keys minted so far: the first is `key-id`, the next `key-id2`, and so on.
+    keys_minted: RefCell<u32>,
 }
 
 impl FakeCloudflare {
@@ -23,6 +25,7 @@ impl FakeCloudflare {
             calls: RefCell::new(Vec::new()),
             bucket_exists,
             fail_first_bucket_read: RefCell::new(true),
+            keys_minted: RefCell::new(0),
         }
     }
     fn paths(&self) -> Vec<String> {
@@ -51,7 +54,13 @@ impl Http for FakeCloudflare {
             ])),
             ("POST", p) if p == tokens => {
                 let name = body.unwrap()["name"].as_str().unwrap();
-                let id = if name.contains("set up") { "setup-id" } else { "key-id" };
+                let id = if name.contains("set up") {
+                    "setup-id".to_owned()
+                } else {
+                    let mut minted = self.keys_minted.borrow_mut();
+                    *minted += 1;
+                    if *minted == 1 { "key-id".to_owned() } else { format!("key-id{minted}") }
+                };
                 ok(json!({"id": id, "value": format!("{id}-value")}))
             }
             ("DELETE", p) if p.starts_with(&tokens) => ok(json!({})),
@@ -331,10 +340,121 @@ fn revoke_deletes_at_the_provider_and_ls_shows_it() {
 }
 
 #[test]
+fn rotate_mints_the_same_scope_stores_it_under_the_same_names_then_revokes_the_old_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = connected(&dir);
+    let http = FakeCloudflare::new(true);
+    let vault = local::tests::MemoryVault::default();
+    let Command::MintR2(mint) = parse(&words(
+        "mint cloudflare-r2 --bucket handoff --rw --ttl 30d \
+         --store gh-secret:a/b@ci:R2 --store keychain:a/b:R2 --store keychain:ALL --store vault:R2",
+    ))
+    .unwrap() else {
+        panic!()
+    };
+    let first = FakeSinks::default();
+    run(Command::MintR2(mint), &paths, &http, &first, &vault).unwrap();
+
+    assert_eq!(
+        parse(&words("rotate abc")).unwrap(),
+        Command::Rotate { id: "abc".into(), ttl: None }
+    );
+    assert_eq!(
+        parse(&words("rotate abc --ttl 7d")).unwrap(),
+        Command::Rotate { id: "abc".into(), ttl: Some(Duration::from_secs(7 * 86_400)) }
+    );
+
+    let calls_before = http.calls.borrow().len();
+    let second = FakeSinks::default();
+    let rotated =
+        run(Command::Rotate { id: "key-id".into(), ttl: None }, &paths, &http, &second, &vault)
+            .unwrap();
+    assert_eq!(rotated["rotated"], "key-id");
+    assert_eq!(rotated["revoked"], true);
+    assert_eq!(rotated["minted"]["id"], "key-id2");
+
+    // The same scope: one bucket-scoped token with the same access, no bucket setup, the old
+    // key's lifetime; then the old key deleted at the provider, after the new one is stored.
+    let calls = http.calls.borrow()[calls_before..].to_vec();
+    let minted: Vec<&Call> =
+        calls.iter().filter(|(m, p, ..)| m == "POST" && p.ends_with("/tokens")).collect();
+    assert_eq!(minted.len(), 1, "{calls:?}");
+    let body = minted[0].3.as_ref().unwrap();
+    assert_eq!(
+        body["policies"][0]["resources"],
+        json!({format!("com.cloudflare.edge.r2.bucket.{ACCOUNT}_default_handoff"): "*"})
+    );
+    assert_eq!(body["policies"][0]["permission_groups"], json!([{"id": "g-write"}]));
+    assert!(!calls.iter().any(|(_, p, ..)| p.contains("/r2/buckets")));
+    assert_eq!(
+        calls.last().map(|(m, p, ..)| format!("{m} {p}")).unwrap(),
+        format!("DELETE /accounts/{ACCOUNT}/tokens/key-id")
+    );
+
+    // The same names, every store, now holding the new key.
+    let names = |sinks: &FakeSinks| {
+        sinks.put.borrow().iter().map(|(store, name, _)| store.place(name)).collect::<Vec<_>>()
+    };
+    assert_eq!(names(&second), names(&first));
+    assert_eq!(names(&second).len(), 8);
+    assert!(
+        second
+            .put
+            .borrow()
+            .iter()
+            .any(|(_, name, value)| name == "R2_ACCESS_KEY_ID" && value == "key-id2")
+    );
+
+    let listed = run(Command::Ls, &paths, &http, &FakeSinks::default(), &vault).unwrap();
+    let keys = listed["keys"].as_array().unwrap();
+    assert_eq!(keys[0]["id"], "key-id");
+    assert_eq!(keys[0]["state"], "revoked");
+    assert_eq!(keys[0]["rotated_to"], "key-id2");
+    assert_eq!(keys[1]["id"], "key-id2");
+    assert_eq!(keys[1]["state"], "live");
+    assert_eq!(keys[1]["rotated_from"], "key-id");
+    assert_eq!(keys[1]["stores"], keys[0]["stores"]);
+    assert_eq!(keys[1]["access"], "rw");
+    let life = |k: &Value| {
+        k["expires_at_s"].as_u64().unwrap()
+            - parse_rfc3339(k["created_at"].as_str().unwrap()).unwrap()
+    };
+    assert_eq!(life(&keys[1]), 30 * 86_400);
+
+    let missing =
+        run(Command::Rotate { id: "nope".into(), ttl: None }, &paths, &http, &second, &vault);
+    assert!(missing.unwrap_err().contains("no minted key nope"));
+}
+
+#[test]
+fn a_store_label_names_its_store_again() {
+    for spec in
+        ["gh-secret:a/b:R2", "gh-secret:a/b@ci:R2", "keychain:R2", "keychain:a/b:R2", "vault:R2"]
+    {
+        let store = Store::parse(spec).unwrap();
+        assert_eq!(
+            Store::from_label(&store.label("ACCESS_KEY_ID"), "ACCESS_KEY_ID"),
+            Some(store.clone()),
+            "{spec}"
+        );
+        assert_eq!(
+            Store::from_label(&store.label("SECRET_ACCESS_KEY"), "ACCESS_KEY_ID"),
+            None,
+            "{spec}"
+        );
+    }
+}
+
+#[test]
 fn times_are_rfc3339_utc() {
     assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339(1_794_700_800), "2026-11-15T00:00:00Z");
     assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+    for secs in [0, 951_782_400, 1_794_700_800, 1_794_745_199, 4_102_444_800] {
+        assert_eq!(parse_rfc3339(&rfc3339(secs)), Some(secs));
+    }
+    assert_eq!(parse_rfc3339("2026-11-15 00:00:00Z"), None);
+    assert_eq!(parse_rfc3339("2026-13-15T00:00:00Z"), None);
 }
 
 #[test]
