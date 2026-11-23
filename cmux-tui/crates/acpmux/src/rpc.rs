@@ -917,6 +917,10 @@ pub mod method {
     /// Ctrl-B: move a chat's running work to the background, `{sessionId,
     /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
     pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Every process and lock acpmux owns on this machine, `{callerSession?}` -> what `acpmux ps
+    /// --json` prints (`cli/process_census.rs`, `server/processes.rs`). Read-only; this machine's
+    /// clients only.
+    pub const MUX_PROCESS_CENSUS: &str = "_acpmux/process/census";
     /// Background tasks the daemon owns (`hub/bg_tasks.rs`): start one for a chat, list a
     /// chat's, read one's output, stop one.
     pub const MUX_BG_START: &str = "_acpmux/bg/start";
@@ -976,6 +980,19 @@ pub mod method {
     /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
     /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
     pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Adds a machine this computer reaches by key-only ssh through the hub join
+    /// (`server/machine_join_ssh.rs`, `cli/ssh_join.rs`): `{host, name?, accessToken, hub?,
+    /// joinId?, confirmed?}` -> `{ok, joinId, host, machine?, platform?, seconds, failure?}`, with
+    /// [`MUX_MACHINE_JOIN_PROGRESS`] while it runs. A host that is not a tailnet node
+    /// this person owns needs `confirmed: true` (else `needs_confirmation`). Local socket and the
+    /// person only.
+    pub const MUX_MACHINE_JOIN_SSH: &str = "_acpmux/machine_join_ssh";
+    /// One step of a [`MUX_MACHINE_JOIN_SSH`]: `{joinId, host, step, state, detail, seconds}`.
+    pub const MUX_MACHINE_JOIN_PROGRESS: &str = "_acpmux/machine_join_progress";
+    /// The machines this computer reaches and has not added (its tailnet, `~/.ssh/config`): `{}`
+    /// -> `{candidates: [{name, address, os, found, online, mine}], tailnet?}`. Local socket and
+    /// the person only.
+    pub const MUX_MACHINE_CANDIDATES: &str = "_acpmux/machine_candidates";
     /// Signing out leaves the hub only when signing in joined this machine for the account signing
     /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
     pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
@@ -1027,6 +1044,9 @@ pub mod method {
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// A chat's row change as only what changed, to a connection that asked for it
+    /// (`server/session_patch.rs`).
+    pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
     /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
     /// `send_remote_batch`).
     pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";

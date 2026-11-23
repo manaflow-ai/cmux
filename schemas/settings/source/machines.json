@@ -312,7 +312,7 @@
               "note": "OpenAI's reference loop: no wait."
             }
           ],
-          "default": "adaptive",
+          "default": "openai",
           "swift_enum": {
             "name": "ComputerUseSettle"
           },
