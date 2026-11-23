@@ -605,7 +605,7 @@ class TransportTests(unittest.TestCase):
         # only a spacing while `_last_write` came from the same clock as `now`. A stamp from
         # ahead of that clock -- a test that froze the clock, a reader of another process's
         # number -- turns a 1 s spacing into hours. A spacing waits at most itself.
-        publisher._last_write = publisher._monotonic() + 15000
+        publisher._last_write = time.monotonic() + 15000  # the stamp, not the clock, comes from elsewhere
         self.addCleanup(setattr, publisher, "_last_write", None)
         paused = []
         with patch.object(publisher, "_pause", side_effect=paused.append):
