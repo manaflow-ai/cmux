@@ -1315,18 +1315,17 @@ impl Incoming {
         }
     }
 
-    /// This machine's end of a move's page circuit from `from`, served by the transfer gate
-    /// until either end closes, or why it may not have one.
+    /// This machine's end of a move's page circuit from `from` and the transfer gate's serving
+    /// of the other end (the caller runs it beside the stream), or why it may not have one.
     async fn transfer(
         &self,
         from: Option<String>,
-    ) -> Result<tokio::io::DuplexStream, ServiceRefusal> {
+    ) -> Result<(HubStream, impl Future<Output = ()> + Send + use<>), ServiceRefusal> {
         match (self.carrier.transfer_gate(), from) {
             (Some(gate), Some(from)) => {
                 gate.admit(&from).await?;
                 let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
-                tokio::spawn(async move { gate.serve(from, theirs).await });
-                Ok(ours)
+                Ok((ours, async move { gate.serve(from, theirs).await }))
             }
             (None, _) => Err(ServiceRefusal::new(
                 "service.off",
