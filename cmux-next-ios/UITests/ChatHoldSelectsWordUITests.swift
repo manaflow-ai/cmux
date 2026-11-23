@@ -6,7 +6,7 @@ import XCTest
 /// context-menu preview of the block.
 ///
 /// The native rows (every row at standard text sizes). The SwiftUI rows (accessibility text sizes)
-/// still lift into a context menu: a follow-up.
+/// are SwiftUIHoldSelectsTextUITests (lane/ios-long-press-select-other).
 final class ChatHoldSelectsWordUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -28,7 +28,7 @@ final class ChatHoldSelectsWordUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars.buttons["More"].firstMatch.waitForExistence(timeout: 30),
                       "the pushed agent chat opens\n\(app.debugDescription)")
-        // The newest answer's first paragraph (as ChatSelectTextUITests finds it).
+        // The newest answer's first paragraph.
         let paragraph = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "The transport switch holds up")).firstMatch
         let window = app.windows.firstMatch
