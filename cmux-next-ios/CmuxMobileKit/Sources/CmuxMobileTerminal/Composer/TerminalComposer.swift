@@ -25,6 +25,7 @@ struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
+    private let voice = AgentVoiceLauncher.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
