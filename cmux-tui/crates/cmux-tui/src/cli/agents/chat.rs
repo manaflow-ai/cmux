@@ -1085,6 +1085,46 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
+        })
+    }
+
     /// One page of the session's events after `after_seq`.
     pub(in crate::cli) fn events(
         session: &str,

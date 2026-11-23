@@ -6,7 +6,10 @@ use serde_json::{Value, json};
 use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
-use super::{Drive, account, drive, drive_words, here_of, move_words, pause_words, plan_of, takes};
+use super::{
+    Drive, account, cached_plan, drive, drive_words, here_of, move_words, pause_words, plan_of,
+    takes, tool_event,
+};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -77,7 +80,7 @@ fn off_the_cloud_start_has_todays_words_and_on_the_chat_here_has_the_starts_sett
 fn the_driver_is_spawned_with_its_session_and_machine_and_moves_without_interrupt() {
     let global = GlobalArgs { socket: Some("/s".into()), ..GlobalArgs::default() };
     assert_eq!(
-        drive_words(&global, "chat-1", "new"),
+        drive_words(&global, "chat-1", "new", 12),
         words(&[
             "--socket",
             "/s",
@@ -86,7 +89,9 @@ fn the_driver_is_spawned_with_its_session_and_machine_and_moves_without_interrup
             "--session",
             "chat-1",
             "--machine",
-            "new"
+            "new",
+            "--gate-ms",
+            "12"
         ])
     );
     let moved = move_words("chat-1", "m1");
@@ -227,4 +232,46 @@ fn a_chat_closed_or_a_deadline_passed_while_booting_pauses_the_machine_once_it_c
     let state = drive(&mut driver);
     assert!(state.stopped);
     assert!(!driver.did.iter().any(|did| did == "move"));
+}
+
+#[test]
+fn a_cached_plan_decides_the_start_only_while_it_grants_it_and_is_fresh() {
+    let now = 10 * 24 * 60 * 60 * 1000;
+    let cache = |plan: &str, read_at: u64| json!({"plan": plan, "read_at_ms": read_at});
+    assert_eq!(cached_plan(&cache("team", now - 1000), now).as_deref(), Some("team"));
+    // A plan that does not grant it is read again: one just bought counts at once.
+    assert_eq!(cached_plan(&cache("go", now - 1000), now), None);
+    // Older than a week, or from the future: read again.
+    assert_eq!(cached_plan(&cache("pro", now - 8 * 24 * 60 * 60 * 1000), now), None);
+    assert_eq!(cached_plan(&cache("pro", now + 1000), now), None);
+    assert_eq!(cached_plan(&json!({"plan": "pro"}), now), None);
+}
+
+#[test]
+fn a_session_update_is_a_tool_start_or_end_once_per_call() {
+    let mut open = std::collections::BTreeSet::new();
+    let call = |kind: &str, id: &str, status: &str| json!({"sessionId": "s", "update": {"sessionUpdate": kind, "toolCallId": id, "status": status}});
+    assert_eq!(tool_event(&call("tool_call", "a", "pending"), &mut open), Some(Event::ToolStarted));
+    assert_eq!(tool_event(&call("tool_call", "a", "in_progress"), &mut open), None);
+    assert_eq!(tool_event(&call("tool_call_update", "a", "in_progress"), &mut open), None);
+    assert_eq!(tool_event(&call("tool_call_update", "b", "completed"), &mut open), None);
+    assert_eq!(
+        tool_event(&call("tool_call_update", "a", "completed"), &mut open),
+        Some(Event::ToolEnded)
+    );
+    assert_eq!(tool_event(&call("tool_call_update", "a", "failed"), &mut open), None);
+    let text = json!({"update": {"sessionUpdate": "agent_message_chunk"}});
+    assert_eq!(tool_event(&text, &mut open), None);
+}
+
+#[test]
+fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready() {
+    let mut driver = fake(vec![Event::ToolStarted, Event::MachineReady, Event::ToolEnded]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud), (Home::Cloud, Cloud::Live));
+    // Not under the tool: the move runs only after it ended.
+    assert_eq!(
+        driver.did,
+        ["create", "show booting", "show ready", "show moving", "move", "show live"]
+    );
 }
