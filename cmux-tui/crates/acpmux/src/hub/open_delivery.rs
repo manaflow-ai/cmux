@@ -685,6 +685,50 @@ pub(crate) fn step_after_restore(
     }
 }
 
+/// The wait after an open delivery's first resend before a link's redelivery may send it again;
+/// each later wait is twice the one before ([`resend_due`]).
+pub(crate) const RESEND_FIRST_MS: u64 = 60_000;
+
+/// The most times a link's redelivery sends one open delivery again. With the waits doubling
+/// from [`RESEND_FIRST_MS`], the last one goes about 23 days after the first, inside
+/// `outbox::OPEN_ON_PEER_FOR_MS`: a delivery open its whole 30 days costs at most this many
+/// resends (about log2 of its open time in minutes), not one per link its peer makes.
+pub(crate) const MAX_RESENDS: u32 = 16;
+
+/// Whether a link's redelivery may send open delivery `d` again at `now`: the first resend goes
+/// at once, each later one only once twice the previous wait has passed since the last one
+/// (1 min, 2, 4, ...), and none after [`MAX_RESENDS`]. One it holds back stays open, exactly as
+/// before: its proof may still release it, its lapse still fails it, and a later link past the
+/// wait sends it. A machine that kept it answers a resend with its first outcome, and one that
+/// lost it with its disk still gets it on the next resend past the wait; the backoff only stops
+/// a peer whose link comes back every few minutes under load from taking the same prompt id
+/// once per link (cosmic-gray,
+/// 2026-11-23: 38 sends of one prompt id, 102,825 cross-host sends in 3 h, 78% of them resends).
+pub(crate) fn resend_due(d: &Delivery, now: u64) -> bool {
+    match d.resends {
+        0 => true,
+        n if n >= MAX_RESENDS => false,
+        n => now >= d.resent_at.saturating_add(RESEND_FIRST_MS << (n - 1).min(40)),
+    }
+}
+
+/// Records a resend of open delivery `d` at `now` ([`resend_due`]).
+pub(crate) fn note_resend(d: &mut Delivery, now: u64) {
+    d.resends = d.resends.saturating_add(1);
+    d.resent_at = now;
+}
+
+/// Claims a resend of `d`, the outbox's own record, at `now`: true, and recorded, when it is
+/// still open on its peer and [`resend_due`]. Claimed on the record before the resend goes, so
+/// two links' redeliveries of one peer that reach it together send it once.
+pub(crate) fn claim_resend(d: &mut Delivery, now: u64) -> bool {
+    let due = d.open_on_peer && resend_due(d, now);
+    if due {
+        note_resend(d, now);
+    }
+    due
+}
+
 /// What a [`Step::Check`] found: every record of the proof held (by seq, time and kind, as
 /// `journal_restore` compares them), another history there, or nothing read (it waits).
 pub(crate) fn checked(held: Option<bool>) -> Step {
