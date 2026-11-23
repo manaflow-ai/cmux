@@ -82,6 +82,8 @@ import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/fr
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
+import { transition, type MotionList } from "./conversation/motionOwner";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
@@ -1111,6 +1113,9 @@ function TranscriptView({
   };
   const followRef = useRef(follow);
   followRef.current = follow;
+  // The layout watcher's streaming read (conversation/layoutWatch.ts): a growing last row is no move.
+  const workingRef = useRef(working);
+  workingRef.current = working;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   const pacedScroll = (frame: ScrollFrame) => {
@@ -5819,6 +5824,37 @@ function TranscriptView({
     const node = ref.current;
     if (!node) return;
     const intent = userScrollIntent(node);
+    // The motion model's watcher (docs/design/transcript-motion-model.md): warn-only, flags a move no
+    // transition declared; on with perf, `cmux.layoutWatch`, or a dev build.
+    const stopLayoutWatch = layoutWatchWanted(acpmuxPerf.enabled)
+      ? startLayoutWatch(node, {
+          streaming: () => workingRef.current,
+          lastRowId: () => rowsRef.current.at(-1)?.id,
+          onFlag: () => acpmuxPerf.render("layout.unexplained_shifts"),
+          overlay: true,
+        })
+      : undefined;
+    // The list the motion owner drives (conversation/motionOwner.ts). The fold hold still keeps the
+    // line on its pixel, so a fold's transition only declares its move; the anchored list takes the
+    // scroll write over at step 10.
+    const motionList: MotionList = {
+      offsetOf: (rowId) => {
+        const row = node.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        return row ? row.getBoundingClientRect().top - node.getBoundingClientRect().top : undefined;
+      },
+      scrollBy: () => {},
+      rowsAfter: (rowId) => {
+        const ids = rowsRef.current.map((row) => row.id);
+        const at = ids.indexOf(rowId);
+        return at < 0 ? [] : ids.slice(at + 1);
+      },
+      settle: () => {},
+    };
+    const declareFold = (line: Element | null | undefined) => {
+      const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+      if (rowId)
+        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+    };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
@@ -6158,6 +6194,7 @@ function TranscriptView({
       });
       const bottom = beginBottomStackFold(toggle, line, wasAtEnd);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
+      declareFold(line);
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined, undefined, toggle);
       holdTop.current = node?.scrollTop;
       pressed = undefined;
@@ -6201,6 +6238,7 @@ function TranscriptView({
       const toggle = sameClick ? clicked! : header;
       const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header, wasAtEnd);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
+      if (!sameClick) declareFold(header);
       foldAnchor.current = clickFold(header, foldAnchor.current, undefined, toggle);
       holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
@@ -6291,6 +6329,7 @@ function TranscriptView({
       removeWheel?.();
       gutterRelease.current = undefined;
       gutter?.remove();
+      stopLayoutWatch?.();
     };
   }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
