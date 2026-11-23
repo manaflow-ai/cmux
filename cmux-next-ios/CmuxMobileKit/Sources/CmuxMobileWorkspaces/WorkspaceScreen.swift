@@ -84,6 +84,8 @@ public struct WorkspaceScreen: View {
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
                 overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
             }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
@@ -384,6 +386,9 @@ struct WorkspaceGridHeader: View {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()
+                // The pane filter, beside TabsKit's More (drawn by the grid at the trailing edge).
+                PaneFilterControl(setting: source.paneFilter, result: source.paneFilterResult)
+                Color.clear.frame(width: metrics.overviewTopControl + 8, height: 1)
             }
         }
         .padding(.horizontal, 20)
@@ -394,6 +399,9 @@ struct WorkspaceGridHeader: View {
         guard let workspace = source.workspace else { return "" }
         let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
         let count = workspace.tabs.count
+        // Filtered: "3 of 7 tabs", so the hidden ones are never a surprise.
+        let shown = source.tabs.count
+        if shown < count { return "\(mac) · \(shown) of \(count) tabs" }
         return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
     }
 }

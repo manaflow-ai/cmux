@@ -30,8 +30,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     var selectedTabID: String?
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
+    /// Read from every listed tab, not the overview's filtered `tabs`: a tab the filter hides can
+    /// still be the one on screen (it opened from a notification or Search).
     public var activeTabID: String? {
-        if let selectedTabID, tabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
+        flushStale()
+        if let selectedTabID, listedTabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
         return openingTabID
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
@@ -175,11 +178,51 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// and the next read rebuilds it, so code that changes the store and
     /// reads the tabs in the same turn sees the change; otherwise the
     /// rebuild runs on the next turn.
+    ///
+    /// The overview's pane filter (`PaneFilterSetting`, Rust's `pane_filter_apply`) applies here, so
+    /// the grid, its zoom, the toolbar's swipe between tabs and Close All all see the same tabs.
+    /// The tab on screen always shows. Every listed tab stays reachable from Search and the Panes page.
     public var tabs: [TabsKitTab] {
+        flushStale()
+        return shownTabs().tabs
+    }
+    /// Every tab the workspace lists, before the pane filter.
+    var allTabs: [TabsKitTab] {
         flushStale()
         return listedTabs
     }
-    private var listedTabs: [TabsKitTab] = []
+    /// What the pane filter hides now (the header's "3 of 7").
+    public var paneFilterResult: PaneFilterResult {
+        flushStale()
+        return shownTabs().result
+    }
+    private var listedTabs: [TabsKitTab] = [] {
+        didSet { listVersion &+= 1 }
+    }
+    /// The pane filter's choice (shared by every workspace; tests pass their own).
+    @ObservationIgnored var paneFilter = PaneFilterSetting.shared
+    @ObservationIgnored private var listVersion = 0
+    @ObservationIgnored private var shown: (key: ShownKey, tabs: [TabsKitTab], result: PaneFilterResult)?
+    private struct ShownKey: Equatable {
+        var listVersion: Int
+        var active: String?
+        var filter: PaneFilter
+    }
+
+    /// The filtered list, rebuilt only when the list, the tab on screen or the filter changes:
+    /// one linear pass, so its cost per pane stays constant however many the Mac has.
+    private func shownTabs() -> (tabs: [TabsKitTab], result: PaneFilterResult) {
+        let filter = paneFilter.filter
+        let active = activeTabID
+        let key = ShownKey(listVersion: listVersion, active: active, filter: filter)
+        if let shown, shown.key == key { return (shown.tabs, shown.result) }
+        let kinds = listedTabs.map { PaneKind(entries[$0.id]?.tab.kind) }
+        let activeIndex = active.flatMap { id in listedTabs.firstIndex { $0.id == id } }.map(UInt32.init)
+        let result = paneFilterApply(kinds: kinds, active: activeIndex, filter: filter)
+        let tabs = result.filtering ? result.shown.map { listedTabs[Int($0)] } : listedTabs
+        shown = (key, tabs, result)
+        return (tabs, result)
+    }
     /// The workspace's list changed since the last `refreshTabs()` (set synchronously by
     /// the observation, before the rebuild task runs).
     @ObservationIgnored private var listStale = false
@@ -321,7 +364,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
         if isScreenSharingTabListed { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
-        if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
 
@@ -1142,12 +1184,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let rasterizer = AgentCardRasterizer()
     /// A grid card's width over the page's (TabsKit's two-column card, or a
     /// lone tab's larger card): the resolution an agent card's picture is drawn at.
+    /// TabsKit's own geometry decides it (`TabsKitOverviewGeometry`), from the tabs the grid
+    /// shows (after the pane filter) and its column count: a fixed two-column guess drew an
+    /// unfolded screen's three- and four-column cards, and a lone card wider than 300 pt
+    /// would be capped, at the wrong resolution.
     var cardScale: CGFloat {
         let w = max(1, pageWidth)
-        return isSingleTab ? (w * 2 / 3).rounded() / w : ((w - 48) / 2).rounded(.down) / w
+        let shown = tabs
+        let pins = pinnedTabIDs
+        let pinned = pins.isEmpty ? 0 : (shown.firstIndex { !pins.contains($0.id) } ?? shown.count)
+        return TabsKitOverviewGeometry.cardWidth(pageWidth: w, columns: overviewColumns, cards: shown.count, pinned: pinned) / w
     }
-    /// One tab listed (TabsKit draws its card larger).
-    private(set) var isSingleTab = false
+    /// The grid's columns (the page's `overview_columns`, set by `WorkspaceScreen`).
+    var overviewColumns = 2
     @ObservationIgnored private var gridShown = false
     @ObservationIgnored private var gridScrolling = false
     /// Cards follow their chats only while the grid rests (settled and still,
@@ -1572,10 +1621,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
     /// tab it lands on); a refusal puts it back.
+    /// The grid lists only the tabs the pane filter shows: a drop on its slot `index` takes the
+    /// Mac position of the shown tab there (after the last shown tab past the end).
+    func workspaceIndex(forGridIndex index: Int, in workspace: Workspace) -> Int {
+        let shown = tabs
+        guard shown.count != listedTabs.count else { return index }
+        let anchor = shown.indices.contains(index) ? shown[index].id : shown.last?.id
+        return anchor.flatMap { id in workspace.tabs.firstIndex { $0.id == id } } ?? index
+    }
+
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
         // The Screen Sharing tab lists after the Mac's tabs: a drop on its slot is the Mac's last.
         guard let workspace, !workspace.tabs.isEmpty else { return }
-        let index = min(index, workspace.tabs.count - 1)
+        let index = min(workspaceIndex(forGridIndex: index, in: workspace), workspace.tabs.count - 1)
         guard let creator, let tab = workspaceTab(id),
               let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
               workspace.tabs.indices.contains(index) else { return }
