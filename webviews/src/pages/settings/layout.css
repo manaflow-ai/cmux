@@ -1303,7 +1303,6 @@
   background: none;
   color: inherit;
   font: inherit;
-  cursor: pointer;
 }
 
 .checklist-toggle-all svg {
@@ -1368,7 +1367,6 @@
   color: var(--text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
 }
 
 .checklist-empty,
@@ -1393,7 +1391,6 @@
   background: none;
   color: var(--text);
   font: inherit;
-  cursor: pointer;
 }
 
 .checklist-chip {

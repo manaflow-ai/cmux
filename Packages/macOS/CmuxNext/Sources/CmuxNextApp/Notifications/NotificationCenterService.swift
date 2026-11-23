@@ -23,7 +23,9 @@ import CmuxNextFocus
 @Observable
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
-    var preferences = NotificationPreferences()
+    var preferences = NotificationPreferences() {
+        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle) }
+    }
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
     typealias HighlightKey = NotificationOwnerKey
 
@@ -516,14 +518,7 @@ final class NotificationCenterService {
         guard let services else { return }
         let store = services.daemon.store
         let located = notification.surface.flatMap { locate(surface: $0, in: store) }
-        arrive(notification, located: located, workspace: located == nil ? Self.workspace(of: notification, in: store) : nil)
-    }
-
-    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when
-    /// it is in `store`.
-    static func workspace(of notification: DaemonNotification, in store: DaemonStore) -> WorkspaceModel? {
-        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
-        return store.workspace(resourceID: id)
+        arrive(notification, located: located, workspace: located == nil ? store.workspace(namedBy: notification) : nil)
     }
 
     /// One arrival on `located` (nil: its tab is not in the store). `workspace`: the workspace a
@@ -652,6 +647,8 @@ final class NotificationCenterService {
                  owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
+        if let kind = desktop.announce(notification, decision: decision, appActive: services?.appActiveSource() ?? false, paneIsViewed: isViewed(located.tab.id),
+                                       name: services?.windows.isIncognito(workspace: located.workspace.id) == true ? nil : shownName(of: located.tab)) { note("announced \(kind) tab=\(located.tab.id)") }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }

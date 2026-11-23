@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxMobileRealtime
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -326,6 +327,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
+                    .accessibilityIdentifier("settings.terminalFitToPhone")
+            } footer: {
+                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
             } footer: {
@@ -362,9 +369,11 @@ struct TerminalPage: View {
 
 struct ComposerPage: View {
     let settings: SettingsStore
+    let voice: VoiceCallPreferences
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var voice = voice
         List {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
@@ -379,6 +388,27 @@ struct ComposerPage: View {
             } footer: {
                 // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
                 Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
+            }
+            // Off by default (Leo, 2026-11-22: "im hiding this by default"): voice mode
+            // runs on the user's own OpenAI key, so it shows only for people who turn it on.
+            Section {
+                Picker(selection: $voice.composerVoice) {
+                    ForEach(ComposerVoicePlacement.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingsLabel("Voice Button", symbol: "waveform")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.voiceButton")
+                if voice.composerVoice != .off {
+                    NavigationLink(value: SettingsRoute.chiefCalls) {
+                        SettingsLabel("OpenAI API Key", symbol: "key")
+                    }
+                    .accessibilityIdentifier("settings.composer.voiceKey")
+                }
+            } header: {
+                Text("Voice Mode")
+            } footer: {
+                Text("Adds a button that starts voice mode: the agent’s replies are read aloud and what you say is sent. It uses your own OpenAI API key. To dictate into the field, use the keyboard’s microphone.")
             }
         }
         .settingsPage("Composer")
