@@ -101,6 +101,8 @@ async function chat(summary: Partial<Summary>): Promise<Snapshot> {
     protocolVersion: 1,
     rows: [],
     sessions: [],
+    link: "connected" as const,
+    emitReason: "test",
     connection: "test",
     isWorking: false,
     queue: [],
