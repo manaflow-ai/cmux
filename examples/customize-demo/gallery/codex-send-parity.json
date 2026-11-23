@@ -1,0 +1,13 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-codex-send-parity",
+  "description": "Opt-in. A sent prompt has no entrance animation. The chat leaves an empty room under the new turn (two thirds of the visible height, or the visible height less 240 px, whichever is smaller) and scrolls to it on a 0.5 s spring with no bounce, so the prompt sits near the top with space for the reply. The room shrinks as the reply grows and goes when you scroll it out of view; any wheel, touch, click or key stops the scroll. Reduce Motion jumps there at once. Remove it and today's send comes back.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/codex-send-parity",
+    "name": "Reference send",
+    "source": "looks/codex/send-parity"
+  }
+}
