@@ -33,8 +33,8 @@ public struct SentryRegexPattern: Sendable {
         self.regex = try! NSRegularExpression(pattern: pattern, options: options)
         self.required = requires.map { group in
             group.map { literal in
-                precondition(!literal.isEmpty && literal.utf8.allSatisfy { $0 < 0x80 && !($0 >= 0x41 && $0 <= 0x5A) },
-                             "SentryRegexPattern: a required literal is empty, non-ASCII or uppercase: \(literal)")
+                assert(!literal.isEmpty && literal.utf8.allSatisfy { $0 < 0x80 && !($0 >= 0x41 && $0 <= 0x5A) },
+                       "SentryRegexPattern: a required literal is empty, non-ASCII or uppercase: \(literal)")
                 return Array(literal.utf8)
             }
         }
