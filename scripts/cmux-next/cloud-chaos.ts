@@ -449,7 +449,7 @@ export class ChatClient {
   private ready: Promise<void>;
   private readyNow!: () => void;
 
-  constructor(private ctx: Pick<ChaosContext, "cmux" | "machine" | "team" | "env" | "log" | "tag" | "credentials">, makeDial: (onLine: (m: any) => void, onDial: () => void) => DialLike = (onLine, onDial) => new ClientDial(ctx, onLine, onDial)) {
+  constructor(private ctx: ChaosContext, makeDial: (onLine: (m: any) => void, onDial: () => void) => DialLike = (onLine, onDial) => new ClientDial(ctx, onLine, onDial)) {
     this.ready = new Promise((r) => (this.readyNow = r));
     this.dial = makeDial((m) => this.onLine(m), () => this.onDial());
   }

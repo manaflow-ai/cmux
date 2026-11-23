@@ -1,86 +1,183 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupOwnerMachine, openNativeChat } from "./share-two-accounts-owner.ts";
+import { cleanupOwnerMachine, machineExec, measured } from "./share-two-accounts-owner.ts";
 
+type Frame = Record<string, any>;
 const room = "https://share-staging.cmux.dev";
-const origin = "https://cloud-api-staging.cmux.dev";
-const shareId = "fake-room-id";
-const url = room + "/g/" + shareId + "#synthetic-secret";
-const token = "synthetic-owner-token";
+const issuer = "https://cloud-api-staging.cmux.dev";
+const script = new URL("./share-two-accounts-wire.py", import.meta.url);
 
-function fixture(config: unknown = { room, owner_api: origin }) {
-  const frames: Record<string, any>[] = [];
-  let push!: (msg: unknown) => void;
-  let stopped = false;
-  const replies: Record<string, unknown> = {
-    identify: { registry_id: "here" },
-    "create-workspace": { workspace: 9 }, "new-conversation-tab": { surface: 8 },
-    "agent-session-start": { session: "session" }, "agent-session-attach": { events: [] },
-    "agent-session-share-room": config, "agent-session-share-create": { share_id: shareId, url },
-    "agent-session-prompt": {}, "agent-session-share-revoke": {},
-  };
-  const open = () => openNativeChat({ tag: "share-999-1", cmux: "unused", machine: "machine", env: {} }, token, (line, ready) => {
-    push = line;
-    return {
-      dials: 1, start: ready, stop: () => { stopped = true; },
-      request: async frame => {
-        frames.push(frame);
-        if (!(String(frame.cmd) in replies)) throw new Error("Unexpected frame " + frame.cmd);
-        return { ok: true, data: replies[String(frame.cmd)] };
-      },
-    };
-  }, 45);
-  return { open, frames, push: (msg: unknown) => push(msg), stopped: () => stopped };
-}
-
-test("the native owner starts and attaches one chat, creates a staging Talk link, and sends prompts and revoke directly", async () => {
-  const f = fixture();
-  const owner = await f.open();
+test("the work-user setup starts an isolated staging owner using the existing machine acpmux socket", async () => {
+  const root = mkdtempSync(join(tmpdir(), "share-start-")), home = join(root, "home"), remote = join(root, "share-7-1");
+  const acp = join(home, ".acpmux/acpmux.sock"), binary = join(home, ".cmux/bin/cmux-tui");
+  mkdirSync(join(home, ".acpmux"), { recursive: true });
+  mkdirSync(join(home, ".cmux/bin"), { recursive: true });
+  mkdirSync(remote);
+  copyFileSync(script, join(remote, "wire.py"));
+  const acpmux = createServer();
+  // The test binary lives in this fixture. It exits when we connect, or in five seconds.
+  writeFileSync(binary, `#!/usr/bin/env python3
+import json, os, pathlib, socket, sys
+sock = pathlib.Path(sys.argv[-1])
+env = os.environ
+(sock.parent / "startup.json").write_text(json.dumps([sys.argv[1:], os.getcwd(), env["HOME"], env["ACPMUX_SOCKET"], env["CMUX_TUI_STATE_DIR"], env["CMUX_SHARE_ROOM_URL"]]))
+with socket.socket(socket.AF_UNIX) as s:
+    s.bind(str(sock))
+    s.listen(1)
+    s.settimeout(5)
+    with s.accept()[0]: pass
+`, { mode: 0o700 });
   try {
-    expect(owner.url).toBe(url);
-    expect(f.frames.map(x => x.cmd)).toEqual(["identify", "create-workspace", "new-conversation-tab",
-      "agent-session-start", "agent-session-attach", "agent-session-share-room", "agent-session-share-create"]);
-    expect(f.frames[3]).toMatchObject({ surface: 8, vm_kind: "owner", harness: "opencode" });
-    expect(f.frames.at(-1)).toMatchObject({ surface: 8, session: "session", owner_token: token, role: "talk", signed_in_role: "talk" });
-    expect(JSON.stringify(f.frames.slice(0, -1))).not.toContain(token);
-    const before = performance.now();
-    expect(await owner.prompt("marker")).toBeGreaterThanOrEqual(before);
-    expect(await owner.revoke()).toBeLessThanOrEqual(performance.now());
-    expect(f.frames.at(-2)).toMatchObject({ cmd: "agent-session-prompt", surface: 8, text: "marker" });
-    expect(f.frames.at(-1)).toMatchObject({ cmd: "agent-session-share-revoke", share_id: shareId });
-  } finally { owner.close(); }
-  expect(f.stopped()).toBe(true);
+    await new Promise<void>((res, rej) => acpmux.once("error", rej).listen(acp, res));
+    const child = Bun.spawn(["python3", "-I", join(remote, "wire.py"), "setup"], {
+      cwd: home, env: { HOME: home, PATH: process.env.PATH }, stdout: "pipe", stderr: "pipe",
+    });
+    const out = await new Response(child.stdout).json();
+    // CI and the lane run as a work user. A root test runner must exercise the refusal.
+    if (process.getuid?.() === 0) {
+      expect(out.error).toBe("expected_work_user_in_own_home");
+      expect(await child.exited).toBe(1);
+      return;
+    }
+    expect(out.ok).toBe(true);
+    expect(await child.exited).toBe(0);
+    const ownerSock = join(remote, "owner.sock");
+    expect(JSON.parse(readFileSync(join(remote, "startup.json"), "utf8"))).toEqual([
+      ["--headless", "--session", "share-7-1", "--socket", ownerSock], home, remote, acp, join(remote, "state"), room,
+    ]);
+    await new Promise<void>((res, rej) => { const s = connect(ownerSock, () => { s.end(); res(); }); s.once("error", rej); });
+  } finally { acpmux.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test("missing or mismatched staging room stops the dial before any share token leaves the runner", async () => {
-  for (const config of [{ room: null }, { room, owner_api: "https://cloud-api.cmux.dev" }, { room: "https://share.cmux.dev", owner_api: origin }]) {
-    const f = fixture(config);
-    await expect(f.open()).rejects.toThrow("did not report the staging share room and staging owner API");
-    expect(JSON.stringify(f.frames)).not.toContain(token);
-    expect(f.stopped()).toBe(true);
-  }
-});
-
-test("owner delivery requires a guest's held queue record with the exact marker on the attached surface", async () => {
-  const f = fixture(), owner = await f.open();
-  const msg = { promptId: "g-1", text: "guest words", awaitingOwner: true };
-  const event = (surface: number, fields: typeof msg) => f.push({
-    event: "agent-session-record", surface, record: { kind: "queued", seq: 3, msg: fields },
+async function machine(request: Frame, reply: (frame: Frame, push: (value: Frame) => void) => Frame, expire = false) {
+  const dir = mkdtempSync(join(tmpdir(), "share-rpc-"));
+  copyFileSync(script, join(dir, "wire.py"));
+  let child: ReturnType<typeof Bun.spawn> | undefined, peer: Socket | undefined;
+  const server = createServer(sock => {
+    peer = sock;
+    let buffered = "";
+    const push = (frame: Frame) => sock.write(JSON.stringify(frame) + "\n");
+    sock.on("data", data => {
+      buffered += data;
+      for (let i = buffered.indexOf("\n"); i >= 0; i = buffered.indexOf("\n")) {
+        const frame = JSON.parse(buffered.slice(0, i));
+        buffered = buffered.slice(i + 1);
+        push({ ok: true, id: frame.id, data: reply(frame, push) });
+        if (expire) child!.kill("SIGALRM");
+      }
+    });
+    sock.on("error", () => {});
   });
   try {
-    const none = owner.waitGuest(msg.text);
-    event(9, msg);
-    event(8, { ...msg, promptId: "owner-1" });
-    event(8, { ...msg, awaitingOwner: false });
-    event(8, { ...msg, text: "guest words 2" });
-    await expect(none).rejects.toThrow("did not receive the held Talk message within 45 ms");
-    const matched = owner.waitGuest(msg.text);
-    const started = performance.now();
-    event(8, msg);
-    expect(await matched).toBeGreaterThanOrEqual(started);
-  } finally { owner.close(); }
+    await new Promise<void>((res, rej) => server.once("error", rej).listen(join(dir, "owner.sock"), res));
+    const running = Bun.spawn(["python3", "-I", join(dir, "wire.py")], {
+      stdin: new Blob([JSON.stringify(request)]), stdout: "pipe", stderr: "pipe",
+    });
+    child = running;
+    const stdout = await new Response(running.stdout).text();
+    return { result: JSON.parse(stdout), stdout, code: await running.exited };
+  } finally {
+    peer?.destroy(); server.close(); child?.kill(); rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the MachineGuest exec sends private stdin separately and exposes only explicit receipt codes", async () => {
+  const { Api } = await import("./cloud-journey.ts");
+  const api = new Api(issuer), original = globalThis.fetch;
+  const secret = "synthetic-private-input", cmd = "exec python3 -I /tmp/share-7-1/wire.py";
+  let reply = { exitCode: 0, stdout: '{"ok":true}', stderr: "" };
+  globalThis.fetch = (async (url, init) => {
+    expect(String(url)).toBe(issuer + "/v1/cloud/machines/owned/exec");
+    expect(JSON.parse(init!.body as string)).toEqual({
+      command: cmd, stdinBase64: Buffer.from(secret).toString("base64"), timeoutMs: 155000,
+    });
+    return Response.json(reply);
+  }) as typeof fetch;
+  try {
+    expect(await machineExec(api, "owned", cmd, secret, 155000)).toEqual({ ok: true });
+    reply = { exitCode: 1, stdout: '{"error":"share.room_refused"}', stderr: secret };
+    await expect(machineExec(api, "owned", cmd, secret, 155000)).rejects.toThrow(/^Staging work-user exec: share\.room_refused$/);
+    reply = { exitCode: 1, stdout: secret, stderr: secret };
+    await expect(machineExec(api, "owned", cmd, secret, 155000)).rejects.toThrow(/^Staging work-user exec returned no receipt$/);
+  } finally { globalThis.fetch = original; }
+});
+
+test("room and issuer are checked before a Talk link is created for the started chat; the link is concealed in exec output", async () => {
+  const token = "synthetic-owner-token", url = room + "/g/synthetic-room#synthetic-secret", pad = randomBytes(1024);
+  const request = { operation: "open", token, link_pad: pad.toString("base64") };
+  const replies: Frame = {
+    "agent-session-share-room": { room, owner_api: issuer }, "identify": { registry_id: "here" },
+    "create-workspace": { workspace: 9 }, "new-conversation-tab": { surface: 8 },
+    "agent-session-start": { session: "session" }, "agent-session-share-create": { share_id: "synthetic-room", url },
+  };
+  const frames: Frame[] = [];
+  const out = await machine(request, f => { frames.push(f); return replies[f.cmd]; });
+  expect(out.code).toBe(0);
+  expect(frames.at(-2)).toMatchObject({ cmd: "agent-session-start", surface: 8, vm_kind: "owner" });
+  expect(frames.at(-1)).toMatchObject({ cmd: "agent-session-share-create", session: "session", surface: 8, signed_in_role: "talk", owner_token: token });
+  expect(JSON.stringify(frames.slice(0, -1))).not.toContain(token);
+  expect(out.stdout).not.toContain(token);
+  expect(out.stdout).not.toContain("synthetic-secret");
+  const clear = Buffer.from(out.result.sealed_link, "base64");
+  for (let i = 0; i < clear.length; i++) clear[i] ^= pad[i];
+  expect(clear.toString()).toBe(url);
+  const wrong = await machine(request, f => {
+    expect(f.cmd).toBe("agent-session-share-room"); return { room, owner_api: "https://cloud-api.cmux.dev" };
+  });
+  expect(wrong.result.error).toBe("private_owner_did_not_select_staging_room_and_issuer");
+  expect(wrong.code).toBe(1);
+});
+
+test("owner prompts attach to their surface; the owner revokes the same share", async () => {
+  const frames: Frame[] = [];
+  const trace = (frame: Frame) => { frames.push(frame); return {}; };
+  expect((await machine({ operation: "prompt", surface: 7, text: "marker" }, trace)).code).toBe(0);
+  expect((await machine({ operation: "revoke", share_id: "room-7" }, trace)).code).toBe(0);
+  expect(frames.map(f => f.cmd)).toEqual(["agent-session-attach", "agent-session-prompt", "agent-session-share-revoke"]);
+  expect(frames[1]).toMatchObject({ surface: 7, text: "marker" });
+  expect(frames[2].share_id).toBe("room-7");
+});
+
+test("an exact held guest record on the right surface counts on the live push and the initial attach page", async () => {
+  const held = { kind: "queued", msg: { promptId: "g-1", awaitingOwner: true, text: "guest words" } };
+  const request = { operation: "wait_guest", surface: 1, text: "guest words" };
+  for (const via of ["page", "before reply", "after reply"]) {
+    const out = await machine(request, (_frame, push) => {
+      const frame = { event: "agent-session-record", surface: 1, record: held };
+      if (via === "before reply") push(frame);
+      if (via === "after reply") setTimeout(() => push(frame), 10);
+      return { events: via === "page" ? [held] : [] };
+    });
+    expect(out.result.ok).toBe(true);
+  }
+  const unrelated = [ { ...held, msg: { ...held.msg, promptId: "owner-1" } },
+    { ...held, msg: { ...held.msg, awaitingOwner: false } }, { ...held, msg: { ...held.msg, text: "guest words 2" } } ];
+  const out = await machine(request, () => ({ events: unrelated }), true);
+  expect(out.code).toBe(1);
+  expect(out.result.error).toBe("owner_socket_timed_out");
+});
+
+test("the warm carrier reads a bounded receipt from the owner process and propagates a refusal", async () => {
+  const frames: Frame[] = [];
+  const dial = { request: async (frame: Frame, timeoutMs?: number) => {
+    expect(timeoutMs).toBe(8000);
+    frames.push(frame);
+    return { ok: true, data: frame.cmd === "shell-run" ? { run: "run" } : { output: '{"ok":true}\n', next: 12 } };
+  } };
+  const action = { operation: "prompt" as const, surface: 8, text: "marker" };
+  const lower = performance.now();
+  const times = await measured(dial, "/tmp/share-123-1", action);
+  expect(times.sent).toBeGreaterThanOrEqual(lower);
+  expect(times.observed).toBeGreaterThanOrEqual(times.sent);
+  expect(frames.map(f => f.cmd)).toEqual(["shell-run", "shell-read"]);
+  expect(frames[1].wait_ms).toBe(5000);
+  expect(JSON.parse(Buffer.from(frames[0].command.split(" ")[2], "base64").toString("utf8"))).toEqual(action);
+  const refused = { request: async () => ({ ok: true, data: { refused: "folder_missing" } }) };
+  await expect(measured(refused, "/tmp/share-123-1", action)).rejects.toThrow("Start owner prompt: folder_missing");
 });
 
 test("cleanup checks every machine page, confirms deletion and revocation, and scopes both to the exact run attempt", async () => {

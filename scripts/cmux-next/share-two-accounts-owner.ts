@@ -1,13 +1,12 @@
-// The owner uses the normal signed Native carrier to a run-owned staging Cloud machine.
-import { randomUUID } from "node:crypto";
-import { EventEmitter } from "node:events";
-import { constants, accessSync, mkdirSync, rmSync } from "node:fs";
+// A run-owned staging machine hosts the real chat and its staging-configured owner.
+import { randomBytes } from "node:crypto";
+import { constants, accessSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ChatClient, ClientDial, type DialLike } from "./cloud-chaos.ts";
+import { ClientDial, type DialLike } from "./cloud-chaos.ts";
 import { stagingLink } from "./share-two-accounts-guest.ts";
 import { Api, CHAT_START_SIZE, http, listAllMachines, resolveBackend, waitMachine } from "./cloud-journey.ts";
 
-const ROOMS = ["https://share-staging.cmux.dev", "https://cmux-platform-staging.debussy.workers.dev"];
+const wire = new URL("./share-two-accounts-wire.py", import.meta.url);
 const ORIGIN = resolveBackend("staging").api;
 
 // Cloud/journal errors can include request bodies or raw terminal output. Only our own fixed
@@ -90,68 +89,48 @@ function response(raw: any, operation: string) {
   return data;
 }
 
-type NativeContext = ConstructorParameters<typeof ClientDial>[0] & { tag: string };
-type MakeDial = (onLine: (msg: any) => void, onDial: () => void) => DialLike;
+// MachineGuest.exec runs as the uid-1000 work user from their own HOME. Its stdin is
+// separate from the command and output capture. Only a static error code may leave it.
+export async function machineExec(api: Pick<Api, "raw">, machine: string, command: string, input: string, timeoutMs: number) {
+  const r = await api.raw("POST", "/v1/cloud/machines/" + machine + "/exec", {
+    command, stdinBase64: Buffer.from(input).toString("base64"), timeoutMs,
+  }, timeoutMs + 15_000);
+  if (r.status !== 200 || r.body?.ok === false)
+    throw new OwnerError("Staging work-user exec returned HTTP " + r.status);
+  const value = r.body;
+  let receipt;
+  try { receipt = JSON.parse(value.stdout); } catch { throw new OwnerError("Staging work-user exec returned no receipt"); }
+  if (value.exitCode !== 0 || receipt.error)
+    throw new OwnerError("Staging work-user exec: " + codeOf(receipt.error));
+  return receipt;
+}
 
-export async function openNativeChat(ctx: NativeContext, ownerToken: string,
-  makeDial: MakeDial = (line, connected) => new ClientDial(ctx, line, connected), guestTimeoutMs = 20_000) {
-  const records = new EventEmitter();
-  const chat = new ChatClient(ctx, (onLine, onDial) => makeDial(msg => {
-    // Arrival time is the job clock, on the owner's attached surface.
-    if (msg?.event === "agent-session-record" && msg.surface === chat.surface)
-      records.emit("record", msg.record, performance.now());
-    onLine(msg);
-  }, onDial));
-  const request = async (cmd: string, fields: Record<string, unknown> = {}) =>
-    response(await chat.dial.request({ cmd, ...fields }, 30_000), cmd);
-  try {
-    // The staging Cloud matrix's OpenCode Zen chat starts without a provider login.
-    await step("Open and attach staging owner chat", () => chat.open("opencode"));
-    const config = await request("agent-session-share-room");
-    if (!ROOMS.includes(config?.room) || config.owner_api !== ORIGIN)
-      throw new OwnerError("The Cloud machine's daemon did not report the staging share room and staging owner API");
-    const share = await request("agent-session-share-create", {
-      session: chat.session, surface: chat.surface, role: "talk", signed_in_role: "talk",
-      ttl_secs: 900, owner_token: ownerToken,
-    });
-    const url = stagingLink(share?.url);
-    if (typeof share.share_id !== "string" || url.pathname !== "/g/" + share.share_id)
-      throw new OwnerError("Staging daemon returned a link for a different share");
-    return {
-      url: url.href,
-      prompt: (text: string) => step("Send owner prompt", async () => {
-        const sent = performance.now();
-        await request("agent-session-prompt", { surface: chat.surface, text, prompt_id: randomUUID() });
-        return sent;
-      }),
-      waitGuest(text: string): Promise<number> {
-        return new Promise((resolve, reject) => {
-          const match = (record: any, received: number) => {
-            const msg = record?.msg;
-            if (record?.kind !== "queued" || msg?.awaitingOwner !== true ||
-                !String(msg.promptId).startsWith("g-") || msg.text !== text) return;
-            clearTimeout(timer);
-            records.off("record", match);
-            resolve(received);
-          };
-          const timer = setTimeout(() => {
-            records.off("record", match);
-            reject(new OwnerError("Owner chat did not receive the held Talk message within " + guestTimeoutMs + " ms"));
-          }, guestTimeoutMs);
-          records.on("record", match);
-        });
-      },
-      revoke: () => step("Revoke Talk link", async () => {
-        const sent = performance.now();
-        await request("agent-session-share-revoke", { share_id: share.share_id });
-        return sent;
-      }),
-      close: () => chat.stop(),
-    };
-  } catch (error) {
-    chat.stop();
-    throw error;
+type Action = { operation: "prompt" | "wait_guest"; surface: number; text: string } | { operation: "revoke"; share_id: string };
+
+// A measured shell-run contains only a synthetic chat marker or a room id. The runner
+// timestamps the send on the warm carrier; the long-poll receives the matching owner event.
+export async function measured(dial: Pick<DialLike, "request">, remote: string, action: Action) {
+  const data = Buffer.from(JSON.stringify(action)).toString("base64");
+  const command = "printf %s " + data + " | base64 -d | python3 -I " + remote + "/wire.py";
+  const sent = performance.now();
+  const run = response(await dial.request({ cmd: "shell-run", command, cwd: remote }, 8000), "Start owner " + action.operation).run;
+  if (!run) throw new OwnerError("Owner request returned no run");
+  const deadline = sent + 35_000;
+  let after = 0, output = "";
+  while (performance.now() < deadline) {
+    const read = response(await dial.request({ cmd: "shell-read", run, after, wait_ms: 5000 }, 8000), "Read owner " + action.operation);
+    const observed = performance.now();
+    output += read.output;
+    if (read.truncated || output.length > 512) throw new OwnerError("Unexpected owner command output");
+    if (output.includes("\n") || read.exit) {
+      let receipt;
+      try { receipt = JSON.parse(output); } catch { throw new OwnerError("Owner " + action.operation + " ended without a receipt"); }
+      if (receipt.ok !== true) throw new OwnerError("Owner " + action.operation + ": " + codeOf(receipt.error));
+      return { sent, observed };
+    }
+    after = read.next;
   }
+  throw new OwnerError("Timed out waiting for owner " + action.operation);
 }
 
 export async function openOwner({ stackToken, tag, cmux }: { stackToken: string; tag: string; cmux: string }) {
@@ -165,20 +144,56 @@ export async function openOwner({ stackToken, tag, cmux }: { stackToken: string;
   const row = await step("Wait for owner's staging machine", () => waitMachine(api, machine, m => m.status === "running" && !!m.host, 300_000));
   if (typeof row.creator !== "string" || !row.creator) throw new OwnerError("Staging machine returned no creator");
   const install = await step("Register temporary staging owner install", () => installToken(api, tag, name, row.creator));
-  const chat = await step("Connect owner and share staging chat", async () => {
-    accessSync(cmux, constants.X_OK);
-    mkdirSync(local, { mode: 0o700 });
-    return openNativeChat({
-      cmux, machine, tag,
-      env: { PATH: process.env.PATH, HOME: local, CMUX_TUI_STATE_DIR: local, CMUX_CLOUD_API_URL: ORIGIN, CMUX_CLOUD_ACCESS_TOKEN: stackToken },
-    }, install.token);
-  });
-  return {
-    ...chat,
-    close: async () => {
-      chat.close();
-      try { await clean(api, tag, [machine], [install.id]); }
-      finally { rmSync(local, { force: true, recursive: true }); }
-    },
-  };
+  const remote = "/tmp/" + tag;
+  // A separate uid-1000 owner uses the real image binary and existing acpmux. Only this
+  // process selects the staging room; the machine's managed session host stays on its configuration.
+  await step("Start isolated staging owner", () => machineExec(api, machine, [
+    "set -eu", "umask 077", "mkdir -m 700 " + remote,
+    "cat > " + remote + "/wire.py", "exec python3 -I " + remote + "/wire.py setup",
+  ].join("\n"), readFileSync(wire, "utf8"), 35_000));
+  accessSync(cmux, constants.X_OK);
+  mkdirSync(local, { mode: 0o700 });
+  let connected!: () => void;
+  const ready = new Promise<void>(resolve => { connected = resolve; });
+  const dial = new ClientDial({
+    cmux, machine,
+    env: { PATH: process.env.PATH, HOME: local, CMUX_TUI_STATE_DIR: local, CMUX_CLOUD_API_URL: ORIGIN, CMUX_CLOUD_ACCESS_TOKEN: stackToken },
+  }, () => {}, connected);
+  try {
+    dial.start();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([ready, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new OwnerError("Owner carrier did not connect within 90 seconds")), 90_000); })]);
+    } finally { clearTimeout(timer); }
+    const pad = randomBytes(1024);
+    const share = await step("Start real owner chat and create a staging Talk link", () => machineExec(api, machine,
+      "exec python3 -I " + remote + "/wire.py", JSON.stringify({
+        operation: "open", token: install.token, link_pad: pad.toString("base64"),
+      }), 155_000));
+    const link = Buffer.from(share.sealed_link ?? "", "base64");
+    if (!link.length || link.length > pad.length || !Number.isSafeInteger(share.surface))
+      throw new OwnerError("Missing private staging chat or link");
+    for (let i = 0; i < link.length; i++) link[i] ^= pad[i];
+    const url = stagingLink(link.toString("utf8"));
+    if (url.pathname !== "/g/" + share.share_id) throw new OwnerError("Staging daemon returned a link for a different share");
+    let revokeRequested = false;
+    const revoke = () => step("Revoke Talk link", async () => {
+      revokeRequested = true;
+      return (await measured(dial, remote, { operation: "revoke", share_id: share.share_id })).sent;
+    });
+    return {
+      url: url.href,
+      prompt: (text: string) => step("Send owner prompt", async () => (await measured(dial, remote, { operation: "prompt", surface: share.surface, text })).sent),
+      waitGuest: (text: string) => step("Receive the held Talk message", async () => (await measured(dial, remote, { operation: "wait_guest", surface: share.surface, text })).observed),
+      revoke,
+      close: async () => {
+        try { if (!revokeRequested) await revoke(); }
+        finally {
+          dial.stop();
+          try { await clean(api, tag, [machine], [install.id]); }
+          finally { rmSync(local, { force: true, recursive: true }); }
+        }
+      },
+    };
+  } catch (error) { dial.stop(); throw error; }
 }

@@ -299,9 +299,10 @@ jobs:
       name: ${{ inputs.flow == 'share-two-accounts' && 'cmux-next-vm-image-dev' || 'cmux-next-cloud-journey' }}
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.flow == 'share-two-accounts' && 120 || 60 }}
     steps:
       - name: Checkout cmux
+        if: inputs.flow != 'share-two-accounts'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -309,9 +310,13 @@ jobs:
             scripts/cmux-next
             scripts/gallery-matrix
             tests/fixtures/model-stub
-            ${{ inputs.flow == 'share-two-accounts' && 'cmux-tui/crates/cmux-tui-core/src/server' || '' }}
-            ${{ inputs.flow == 'share-two-accounts' && '.github/actions/setup-cmux-tui-rust' || '' }}
-            ${{ inputs.flow == 'share-two-accounts' && '.github/actions/runner-cargo-home' || '' }}
+
+      - name: Checkout the Linux owner client and its build dependencies
+        if: inputs.flow == 'share-two-accounts'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -348,36 +353,57 @@ jobs:
           [ -s "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-      - name: Set up Rust for the shared latency calculation
+      - name: Install Linux cmux-tui build dependencies
+        if: inputs.flow == 'share-two-accounts'
+        timeout-minutes: 8
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
         if: inputs.flow == 'share-two-accounts'
         uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Prepare the Linux sharing driver
+      - name: Resolve Ghostty Zig version
         if: inputs.flow == 'share-two-accounts'
-        timeout-minutes: 6
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: inputs.flow == 'share-two-accounts'
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: inputs.flow == 'share-two-accounts'
+        uses: ./.github/actions/zig-global-cache
+      - name: Build the Linux cmux CLI
+        if: inputs.flow == 'share-two-accounts'
+        id: build-cmux-tui
+        timeout-minutes: 65
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x target/debug/cmux-tui
+          echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
+
+      - name: Build the shared latency reporter
+        if: inputs.flow == 'share-two-accounts'
+        timeout-minutes: 2
         run: |
           set -euo pipefail
-          # The published NEXT Linux client opens the native owner dial. Workers and agents
-          # run on staging. The reporter uses the same calculations as the fake-room tests.
-          tools="$RUNNER_TEMP/share-tools-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mkdir -p "$tools"
-          case "$(uname -m)" in
-            x86_64) package=cmux-tui-linux-x64 ;;
-            aarch64) package=cmux-tui-linux-arm64 ;;
-            *) echo "::error::No cmux NEXT Linux client for $(uname -m)"; exit 1 ;;
-          esac
-          npm install --prefix "$tools" --ignore-scripts --no-audit --no-fund "$package@next"
-          cli="$tools/node_modules/$package/bin/cmux-tui"
-          test -x "$cli"
-          "$cli" --version
-          rustc --edition 2021 scripts/cmux-next/share-latency-report.rs -o "$tools/share-latency-report"
-          echo "CMUX_BIN=$cli" >> "$GITHUB_ENV"
-          echo "SHARE_LATENCY_REPORT=$tools/share-latency-report" >> "$GITHUB_ENV"
+          reporter="$RUNNER_TEMP/share-latency-report-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rustc --edition 2021 scripts/cmux-next/share-latency-report.rs -o "$reporter"
+          echo "SHARE_LATENCY_REPORT=$reporter" >> "$GITHUB_ENV"
 
       - name: Measure two-account sharing
         if: inputs.flow == 'share-two-accounts'
         timeout-minutes: 28
         env:
+          CMUX_BIN: ${{ steps.build-cmux-tui.outputs.path }}
           OWNER_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           OWNER_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           GUEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}
