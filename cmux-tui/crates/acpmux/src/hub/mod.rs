@@ -8,6 +8,7 @@
 mod claim_check;
 mod control_asks;
 
+mod account_usage;
 mod activity;
 mod app_exit;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
@@ -194,6 +195,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+mod cold_segments;
 pub(crate) mod history_delete;
 pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
@@ -1134,6 +1136,13 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
+    /// (`cold_segments.rs`).
+    pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
+    #[cfg(test)]
+    pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -1623,6 +1632,10 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_sealed: Default::default(),
+            cold_sealed_wake: Arc::new(Notify::new()),
+            #[cfg(test)]
+            cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
             chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
