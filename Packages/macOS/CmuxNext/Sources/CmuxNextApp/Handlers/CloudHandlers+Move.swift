@@ -170,10 +170,9 @@ extension CloudHandlers {
 
 /// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`.
 /// Not read yet (no Swift source for them): the queue (0), the branch (nil) and the dirty file count (0).
-@MainActor
-enum CloudPlaceCargo {
-    static func read(tab: TabModel, session: String, services: AppServices) -> CloudPlaceFlows.Cargo {
-        var cargo = CloudPlaceFlows.Cargo()
+extension CloudPlaceFlows.Cargo {
+    @MainActor static func read(tab: TabModel, session: String, services: AppServices) -> CloudPlaceFlows.Cargo {
+        var cargo = Self()
         if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working }
         // Move to Cloud and Bring Back Local freeze the chat and carry a running turn to where it lands (``CloudMove``'s agent move).
         cargo.continuesTurn = true
@@ -185,7 +184,7 @@ enum CloudPlaceCargo {
 
 /// The app's side of the chat place controls (``CloudPlaceDriver``): its chats, how it runs a move, what its ledger knows.
 @MainActor
-final class CloudPlaceApp: CloudPlaceHost {
+private final class CloudPlaceApp: CloudPlaceHost {
     static let set: ActionID = "chatPlace.set"
     static let cancel: ActionID = "chatMove.cancel"
     static let retry: ActionID = "chatMove.retry"
