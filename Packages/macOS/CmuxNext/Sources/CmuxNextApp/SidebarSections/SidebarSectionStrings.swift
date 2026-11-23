@@ -29,6 +29,11 @@ enum SidebarSectionStrings {
         String(localized: "sidebarSections.priority.noSuchChat", defaultValue: "that chat is no longer in the Priority view",
                table: "SidebarSections", bundle: .module.inAppLanguage)
     }
+    /// An archived chat's Undo toast (toasts v2): `Archived “<title>”`.
+    static func archivedChat(_ title: String) -> String {
+        String(format: String(localized: "sidebarSections.priority.archivedToast", defaultValue: "Archived “%@”",
+                              table: "SidebarSections", bundle: .module), title)
+    }
     static var noSuchSection: String {
         String(localized: "sidebarSections.noSuchSection", defaultValue: "no such sidebar section", table: "SidebarSections", bundle: .module.inAppLanguage)
     }

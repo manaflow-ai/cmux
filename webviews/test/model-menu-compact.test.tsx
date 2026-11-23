@@ -360,9 +360,8 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   await click(levels().find((level) => nameOf(level) === "High")!);
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
-  // A click applies at once and closes the menu (David Beyer 2026-11-20); opened again, it checks High.
-  expect(cols()).toBeNull();
-  await open();
+  // A click applies at once and the menu stays open on the new level.
+  expect(cols()).not.toBeNull();
   expect(levels().find((level) => level.getAttribute("aria-checked") === "true")?.textContent).toContain("High");
 });
 
@@ -647,15 +646,15 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
 
 // A row never takes the keyboard (the slash menu's pattern): the search field keeps it while a
 // click picks a model and while a filter replaces the rows. The pick has landed once the menu closes.
-test("a click picks a model and closes the menu; the search field keeps the keyboard as typing replaces the rows", async () => {
+test("the search field keeps the keyboard as a click picks a model and typing replaces the rows", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const row = modelRows(cols()!)[1]!;
   const name = nameOf(row);
   await click(row);
-  // A click lands the model and closes the menu (David Beyer 2026-11-20).
-  expect(cols()).toBeNull();
-  await open();
+  // A click keeps the menu open and checks the picked row.
+  expect(cols()).not.toBeNull();
+  expect(row.getAttribute("aria-selected")).toBe("true");
   expect(doc().activeElement).toBe(field());
   await typeIn("ha");
   await settle();

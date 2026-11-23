@@ -61,27 +61,19 @@ class TreeAuditTests(unittest.TestCase):
 
     def test_the_two_collisions_of_2026_11_16_merge_without_a_person(self):
         """cmux#44368 (acpmux-schema.json, the acpmux protocol codegen) and cmux#44453 (policy.json,
-        AcpmuxPaneMethods+Params.swift, the protocol types) each hand-resolved these."""
+        AcpmuxPaneMethods+Params.swift, the protocol types) each hand-resolved these. The acpmux
+        protocol's TypeScript types are build output now (not in git), so they cannot collide."""
         attributes = generated_merge.merge_attributes(ROOT, [
             "cmux-tui/crates/acpmux/docs/acpmux-schema.json",
             "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
             "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
-            "webviews/src/agent-session/acpmux/protocol/generated/methods.ts",
-            "webviews/src/agent-session/acpmux/protocol/generated/types.ts",
         ])
         self.assertEqual(attributes["cmux-tui/crates/acpmux/docs/acpmux-schema.json"], "cmux-insertions-v1")
         self.assertEqual(attributes["cmux-tui/crates/acpmux/spec/acpmux-protocol.json"], "cmux-insertions-v1")
         self.assertEqual(attributes["cmux-tui/crates/cmux-agent-pane-policy/policy.json"], "cmux-insertions-v1")
         self.assertEqual(attributes["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift"],
                          "cmux-insertions-v1")
-        for path in ("webviews/src/agent-session/acpmux/protocol/generated/methods.ts",
-                     "webviews/src/agent-session/acpmux/protocol/generated/types.ts"):
-            self.assertEqual(attributes[path], "cmux-generated-v1", path)
-        catalog = generated_merge.Catalog(ROOT)
-        commands, _ = generated_merge.plan(
-            generated_merge.families_of(catalog, ["webviews/src/agent-session/acpmux/protocol/generated/types.ts"]))
-        self.assertIn(("bun", "webviews/scripts/acpmux-protocol-codegen.ts"), commands)
 
     def test_every_here_command_names_a_tracked_script(self):
         tracked = set(generated_merge.tracked(ROOT))
