@@ -112,6 +112,8 @@ mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
 #[cfg(unix)]
+mod signal_sources;
+#[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
 pub(crate) mod storage;
