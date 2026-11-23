@@ -64,6 +64,7 @@
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
         "sidebar.settleFinished",
+        "sidebar.showAutomaticSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -136,6 +137,13 @@
       "why": "The menu bar item; looks only, ends no work.",
       "keys": [
         "app.showMenuBarIcon"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
       ]
     },
     {
@@ -270,7 +278,8 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -299,6 +308,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
@@ -1033,6 +1043,14 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
+      "keys": [
+        "worktrees.autoCleanup",
+        "worktrees.cleanBuildCaches"
       ]
     },
     {

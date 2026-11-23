@@ -650,8 +650,9 @@ pub(crate) async fn ls_via(
     match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
-            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
-            let far = crate::cli::send_relay::relay_rows(true).await;
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does: by the far budget, else
+            // the last good listing's rows, marked stale (`cli/ls_far.rs`).
+            let far = crate::cli::ls_far::relay_rows().await;
             if !far.is_empty()
                 && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
             {
