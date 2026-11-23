@@ -556,6 +556,13 @@ async fn a_brain_turn_runs_from_the_chiefs_own_brain_home() {
         "{env}"
     );
     assert_eq!(env["MUX_HOME"], mux.display().to_string(), "{env}");
+    // Its own gateway rendezvous, never the user's own Hermes gateway (optchat-chief runs the
+    // gateway on the same dir).
+    assert_eq!(
+        env["HERMES_GATEWAY_LOCK_DIR"],
+        mux.join("optchat/brains/hermes/gateway-locks").display().to_string(),
+        "{env}"
+    );
     assert!(env.get("CLAUDE_CODE_DISABLE_CLAUDE_MDS").is_none(), "{env}");
     // No key of the person's reaches the brain: its models go through the Chief's gateway.
     assert_eq!(env["OPENROUTER_API_KEY"], "", "{env}");

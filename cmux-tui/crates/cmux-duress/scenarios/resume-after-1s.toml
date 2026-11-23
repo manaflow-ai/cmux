@@ -1,0 +1,45 @@
+name = "resume-after-1s"
+summary = "background the app for 1 s mid-stream, then resume: time and frames to caught up"
+sources = [
+  "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift (#44739): oneWayLatency 40 ms (line 195), a resume budget of at most 3 serial round trips (line 572)",
+  "the 1 s background is the reported case; no background-duration constant exists in the reconnect tests",
+]
+# heavy's 2048 kbit/s stream: 1 s in the background holds about 256 KB, a 64 KiB-a-frame backlog.
+spec = "heavy,stream_seconds=12,chat_records=0"
+headless = true
+
+# The reconnect tests' link: 40 ms each way.
+[link]
+name = "resume-rtt80"
+version = 1
+down_kbit = 20000
+up_kbit = 5000
+rtt_ms = 80
+jitter_ms = 0
+source = "ReconnectChainTimingTests.swift oneWayLatency 40 ms"
+
+[[event]]
+kind = "pause"
+at_ms = 5000
+ms = 1000
+
+[[check]]
+metric = "resume_catch_up_ms"
+max = 250
+
+[[check]]
+metric = "resume_catch_up_frames"
+max = 8
+
+[[check]]
+metric = "unfinished_marks"
+max = 0
+
+[[check]]
+metric = "frame_ms"
+stat = "p95"
+max = 16.7
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's reconnect chain (socket resume, attach, replay) against its 3-round-trip budget; headless covers the backlog's catch-up in frames"
