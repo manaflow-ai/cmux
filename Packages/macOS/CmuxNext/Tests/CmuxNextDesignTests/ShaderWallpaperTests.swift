@@ -131,6 +131,21 @@ import Testing
         #expect(!h.shader.moves, "a window no one can see keeps drawing")
     }
 
+    @Test func aWarmMacHalvesTheFrameRateAndASeriousOneHoldsTheFrame() {
+        let h = make(.shader(.aurora))
+        defer { h.close() }
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.framesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+        h.shader.thermalOverride = .fair
+        #expect(h.shader.framesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(BackdropShaderView.warmFramesPerSecond * 2 == BackdropShaderView.maximumFramesPerSecond)
+        #expect(h.shader.moves || h.backdrop.shaderView.metalLayer.device == nil, "a warm Mac stops the wallpaper instead of slowing it")
+        h.shader.thermalOverride = .serious
+        #expect(!h.shader.moves, "a serious thermal state keeps a living wallpaper drawing")
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.framesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+    }
+
     @Test func thePointerIsEasedAndItsSpeedBecomesEnergyThatFades() {
         let h = make(.shader(.field))
         defer { h.close() }
