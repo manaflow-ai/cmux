@@ -1,6 +1,7 @@
 //! Who an unnamed prompt is from, judged by what the daemon checked or the CLI declared, never
 //! by its text: the proven person (`person_admitted`), the owner's terminal (`owner_terminal`),
-//! the app's own pane before it proved the person (`app_pane_unproven`), else no one for sure.
+//! the app's own pane before it proved the person (`app_pane_unproven`), the owner's own browser
+//! device (`owner_web_device`), else no one for sure.
 
 use super::super::Conn;
 use super::super::conn_auth::ConnAuth;
@@ -104,6 +105,36 @@ pub(super) fn app_pane_unproven(conn: &Conn, params: &Value) -> bool {
         && !claims_a_sender(params)
 }
 
+/// Whether an unnamed prompt is from the owner's own browser: a browser launch link
+/// (`ConnAuth::BrowserApp`) whose connection then presented an enrolled device the hub named as
+/// this daemon's owner (`web_device.rs` `hello`, `verify_owner`; renewed, and the socket ends
+/// for a refusal or another owner). Recorded as the person's prompt, as [`owner_terminal`]'s is.
+///
+/// Before this, a person who signed in from a browser on another device and sent to their own
+/// chat saw their own message drawn as "Unverified sender" (Leo, 2026-11-12: "STOP CALLING ME
+/// F***ING UNVERIFIED F***ING SENDER"). A listener-token socket holding a device no owner check
+/// read stays `unverified`. As with `owner_terminal`, it lifts no protected hold
+/// (`PromptOptions::unproven_owner`), is never an authenticated person and is never forwarded to
+/// a peer as the person's; a prompt that names a sender stays that sender's.
+pub(super) fn owner_web_device(conn: &Conn, params: &Value) -> bool {
+    owner_web_device_by(conn.origin, conn.auth, conn.proof(), params)
+        && !conn.is_trigger()
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+}
+
+fn owner_web_device_by(
+    origin: super::super::Origin,
+    auth: ConnAuth,
+    proof: ConnAuth,
+    params: &Value,
+) -> bool {
+    origin == super::super::Origin::Web
+        && auth == ConnAuth::BrowserApp
+        && proof == ConnAuth::WebDevice
+        && !claims_a_sender(params)
+}
+
 /// Whether a prompt names a sender, a harness or a relay of its own (`_meta.acpmux`): an agent's
 /// or a relay's then, never the person's.
 fn claims_a_sender(params: &Value) -> bool {
@@ -118,4 +149,47 @@ fn claims_a_sender(params: &Value) -> bool {
         .iter()
         .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::Origin;
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_the_owners_verified_browser_device_is_the_persons() {
+        let plain = json!({"prompt": []});
+        let web = |auth, proof| owner_web_device_by(Origin::Web, auth, proof, &plain);
+        assert!(web(ConnAuth::BrowserApp, ConnAuth::WebDevice));
+        // A launch link that presented no device yet, or a listener token whose device no
+        // owner check read, is not.
+        assert!(!web(ConnAuth::BrowserApp, ConnAuth::BrowserApp));
+        assert!(!web(ConnAuth::ListenerToken, ConnAuth::WebDevice));
+        assert!(!web(ConnAuth::ListenerToken, ConnAuth::ListenerToken));
+        for origin in [Origin::Local, Origin::LocalApp, Origin::Peer] {
+            assert!(!owner_web_device_by(
+                origin,
+                ConnAuth::BrowserApp,
+                ConnAuth::WebDevice,
+                &plain
+            ));
+        }
+    }
+
+    #[test]
+    fn a_browser_prompt_naming_a_sender_stays_that_senders() {
+        for claim in ["fromAgent", "fromRelay", "via", "fromHarness"] {
+            let params = json!({"_meta": {"acpmux": {claim: "someone"}}});
+            assert!(
+                !owner_web_device_by(
+                    Origin::Web,
+                    ConnAuth::BrowserApp,
+                    ConnAuth::WebDevice,
+                    &params
+                ),
+                "{claim}"
+            );
+        }
+    }
 }

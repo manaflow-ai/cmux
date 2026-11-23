@@ -15,7 +15,7 @@ mod mailbox;
 pub(super) mod person_stop;
 mod prompt_sender;
 pub(super) use prompt_sender::person_admitted;
-use prompt_sender::{app_pane_unproven, owner_terminal};
+use prompt_sender::{app_pane_unproven, owner_terminal, owner_web_device};
 mod presets;
 mod queued;
 mod session_open;
@@ -2094,13 +2094,16 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
-            // The owner's own terminal send, or the app's own pane before it proved the person,
-            // claiming no agent, harness or relay: the person's prompt again, though it proves no
-            // person (`owner_terminal`, `app_pane_unproven`, the trust boundary).
+            // The owner's own terminal send, the app's own pane before it proved the person, or
+            // the owner's own signed-in browser device, claiming no agent, harness or relay: the
+            // person's prompt again, though it proves no person (`owner_terminal`,
+            // `app_pane_unproven`, `owner_web_device`, the trust boundary).
             let unproven_owner = provenance.is_none()
                 && !person_admitted(conn, &params)
                 && declared.is_none()
-                && (owner_terminal(conn, &params) || app_pane_unproven(conn, &params));
+                && (owner_terminal(conn, &params)
+                    || app_pane_unproven(conn, &params)
+                    || owner_web_device(conn, &params));
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
                 None if unproven_owner || person_admitted(conn, &params) => None,
