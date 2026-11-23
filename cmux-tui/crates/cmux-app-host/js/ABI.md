@@ -52,6 +52,17 @@ opens the file chooser for this draft. Unavailable actions stay hidden. The
 daemon lists buttons from enabled, visible apps in app-id and manifest order,
 taking the first occurrence of each action. A manifest reload updates open panes.
 
+## Composer chips
+
+A manifest can offer context chips in the agent chat composer with
+`implements["cmux.composer.chip/1"]`:
+`{"options":{"chips":[{"id":"branch","label":"Branch","insert":"Work on the current git branch."}]}}`.
+A chip shows its `label` (`detail` is its tooltip); a click adds `insert` to the
+draft. The daemon lists chips in `apps.composer.list` (`chips`, each with its
+`app` and `extension`) from enabled, visible apps in app-id and manifest order,
+at most 24, dropping one whose insert text an earlier chip already writes. A
+manifest save updates the list; a chip that breaks the interface refuses the save.
+
 ## Palette actions run by the host
 When the user runs a palette row (Return, click, Cmd-Return), the host runs the row's `ActionRef` itself with origin `user`; no app code runs unless the ref is one of the app's own commands. Before it runs a ref, the host checks:
 - the ref id is an op or action the app's grants cover, or one of the app's own commands (`app:<this app id>#<command>`); for `action.run` it checks the inner action id the same way; a ref to another app's command is refused (the user can run that app's scope or command directly);
