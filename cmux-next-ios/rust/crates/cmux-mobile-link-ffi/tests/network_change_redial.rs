@@ -109,6 +109,8 @@ impl SocketAddr4 {
 struct PhonePath {
     url: String,
     generation: Arc<AtomicU64>,
+    /// TCP connections the phone opened on this path (signaling sockets, HTTP).
+    accepts: Arc<AtomicU64>,
 }
 
 impl PhonePath {
@@ -118,10 +120,13 @@ impl PhonePath {
         let url = format!("http://{}", listener.local_addr().unwrap());
         let generation = Arc::new(AtomicU64::new(0));
         let shared = Arc::clone(&generation);
+        let accepts = Arc::new(AtomicU64::new(0));
+        let accepted = Arc::clone(&accepts);
         tokio::spawn(async move {
             let mut connection = 0u64;
             while let Ok((phone, _)) = listener.accept().await {
                 connection += 1;
+                accepted.fetch_add(1, Ordering::SeqCst);
                 let born = shared.load(Ordering::SeqCst);
                 let Ok(service) = TcpStream::connect(&target).await else { continue };
                 let (phone_read, phone_write) = phone.into_split();
@@ -132,7 +137,7 @@ impl PhonePath {
                 tokio::spawn(pump(service_read, phone_write, born, Arc::clone(&shared), profile.clone(), b));
             }
         });
-        Self { url, generation }
+        Self { url, generation, accepts }
     }
 
     fn cut(&self) {
@@ -248,11 +253,14 @@ async fn network_change_to_redial() {
         let mac_id = uuid::Uuid::new_v4().to_string();
         let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
         let mac_links = Arc::new(Mutex::new(Vec::<cmux_mobile_link::Link>::new()));
+        let mac_sessions = Arc::new(AtomicU64::new(0));
         {
             let mac_links = Arc::clone(&mac_links);
+            let mac_sessions = Arc::clone(&mac_sessions);
             let stun = stun_for_mac;
             tokio::spawn(async move {
                 while let Some(session) = mac.next_session().await {
+                    mac_sessions.fetch_add(1, Ordering::SeqCst);
                     let events = SessionEvents {
                         backend: mac.events(),
                         session_id: session.first.session_id.clone(),
@@ -274,6 +282,7 @@ async fn network_change_to_redial() {
         let pool = WarmPool::new();
         let (mut calls, mut opens, mut roams, mut roams_alone, mut failed) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0);
+        let (mut readies, mut got_old, mut redial_opened) = (Vec::new(), 0, 0);
         let mut ran = 0;
         while calls.len() < samples && ran < samples * 3 {
             ran += 1;
@@ -295,11 +304,29 @@ async fn network_change_to_redial() {
                 continue;
             };
             let _ = pool.prewarm(path.url.clone(), "user:alice".into(), "team".into(), pool_id.clone()).await;
+            let (_, _, old) = pool
+                .dial_socket(path.url.clone(), "user:alice".into(), "team".into(), pool_id.clone())
+                .await
+                .expect("the pooled socket");
             path.cut();
             let started = Instant::now();
-            let marks =
-                pool.network_changed(path.url.clone(), "user:alice".into(), "team".into(), pool_id).await;
+            let marks = pool
+                .network_changed(path.url.clone(), "user:alice".into(), "team".into(), pool_id.clone())
+                .await;
             let call = ms(started.elapsed());
+            // The redial `send(.networkChanged)` starts when the call returns: the time until its
+            // dial has a signaling socket (the dial's `pooled_or_open`, the same code).
+            let redial =
+                pool.dial_socket(path.url.clone(), "user:alice".into(), "team".into(), pool_id).await;
+            let ready = ms(started.elapsed());
+            let (redial_marks, redial_reused, socket) = redial.expect("the redial's signaling socket");
+            if socket == old {
+                got_old += 1;
+            }
+            if !redial_reused {
+                redial_opened += 1;
+            }
+            readies.push(ready);
             let open =
                 marks.iter().find(|mark| mark.name == "signaling:signaling_open").map(|mark| mark.millis);
             // The phone's roam on its own (a second one on the same session).
@@ -308,8 +335,13 @@ async fn network_change_to_redial() {
             assert!(roamed.is_some(), "the phone's session is not live");
             let alone = ms(started.elapsed());
             println!(
-                "REDIAL_SAMPLE profile={name} call_ms={call:.1} signaling_open_ms={open:?} roam_alone_ms={alone:.1} marks={:?}",
-                marks.iter().map(|mark| format!("{}={:.0}", mark.name, mark.millis)).collect::<Vec<_>>()
+                "REDIAL_SAMPLE profile={name} call_ms={call:.1} redial_ready_ms={ready:.1} redial_reused={redial_reused} redial_old_socket={} signaling_open_ms={open:?} roam_alone_ms={alone:.1} marks={:?} redial_marks={:?}",
+                socket == old,
+                marks.iter().map(|mark| format!("{}={:.0}", mark.name, mark.millis)).collect::<Vec<_>>(),
+                redial_marks
+                    .iter()
+                    .map(|mark| format!("{}={:.0}", mark.name, mark.millis))
+                    .collect::<Vec<_>>()
             );
             calls.push(call);
             if let Some(open) = open {
@@ -331,6 +363,18 @@ async fn network_change_to_redial() {
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
+        // A steady link: the pooled socket, no network change, for as long as the redials above
+        // waited in all; then one dial on it. Every TCP connect or Mac session here is extra.
+        let steady_id = uuid::Uuid::new_v4().to_string();
+        let _ = pool.prewarm(path.url.clone(), "user:alice".into(), "team".into(), steady_id.clone()).await;
+        let (accepts, sessions) = (path.accepts.load(Ordering::SeqCst), mac_sessions.load(Ordering::SeqCst));
+        tokio::time::sleep(Duration::from_secs_f64(readies.iter().sum::<f64>() / 1000.0)).await;
+        let (_, steady_reused, _) = pool
+            .dial_socket(path.url.clone(), "user:alice".into(), "team".into(), steady_id)
+            .await
+            .expect("the steady socket");
+        let steady_connects = path.accepts.load(Ordering::SeqCst) - accepts;
+        let steady_sessions = mac_sessions.load(Ordering::SeqCst) - sessions;
         let (delivered, dropped) = shaped_counts();
         let (call50, call95) = stats(&calls);
         let line = |label: &str, values: &[f64]| {
@@ -341,13 +385,15 @@ async fn network_change_to_redial() {
             format!("{label}: n={} p50={p50:.0} p95={p95:.0}", values.len())
         };
         println!(
-            "REDIAL_SUMMARY profile={name} n={} setup_failed={failed} settle_ms={SETTLE_MS} | rust_call p50={call50:.0} p95={call95:.0} | {} | {} | {} | total(settle+call) p50={:.0} p95={:.0} | send=assumed<1ms | udp delivered={delivered} dropped={dropped}",
+            "REDIAL_SUMMARY profile={name} n={} setup_failed={failed} settle_ms={SETTLE_MS} | rust_call p50={call50:.0} p95={call95:.0} | {} | redial_got_old_socket={got_old} redial_opened_own={redial_opened} | {} | {} | {} | total(settle+call) p50={:.0} p95={:.0} | send=assumed<1ms | steady: {:.0} ms, tcp_connects={steady_connects} mac_sessions={steady_sessions} dial_reused={steady_reused} | udp delivered={delivered} dropped={dropped}",
             calls.len(),
+            line("redial_ready(call start to redial socket)", &readies),
             line("signaling_open", &opens),
             line("roam_in_call(roam_gathered, slowest session)", &roams),
             line("roam_alone", &roams_alone),
             call50 + SETTLE_MS,
             call95 + SETTLE_MS,
+            readies.iter().sum::<f64>(),
         );
     }
     set_link_profile(None, 0);

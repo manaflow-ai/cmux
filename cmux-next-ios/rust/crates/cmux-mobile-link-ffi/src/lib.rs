@@ -1053,6 +1053,27 @@ impl WarmPool {
         on_runtime(async move { network_changed_on(&pool, base_url, token, team_id, device_id).await }).await
     }
 
+    /// Measurement support: the signaling step of a dial on this pool (`dial`'s
+    /// `pooled_or_open`), without the dial. Returns the steps, whether the socket was a pooled
+    /// one, and the socket's identity (its address while it lives), so a test can tell
+    /// whether a redial got the new socket or the old one.
+    pub async fn dial_socket(
+        &self,
+        base_url: String,
+        token: String,
+        team_id: String,
+        device_id: String,
+    ) -> Result<(Vec<TimingMark>, bool, usize), CmuxMobileError> {
+        let pool = Arc::clone(&self.0);
+        on_runtime(async move {
+            let timeline = Timeline::new();
+            let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
+            let (socket, reused) = pool.pooled_or_open(&key, &token, &timeline).await?;
+            Ok((timing_marks(&timeline), reused, Arc::as_ptr(&socket) as usize))
+        })
+        .await
+    }
+
     /// `reset_warm_state` on this pool.
     pub async fn reset(&self) {
         let pool = Arc::clone(&self.0);
