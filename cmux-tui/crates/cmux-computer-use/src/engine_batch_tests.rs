@@ -136,7 +136,9 @@ fn every_step_reports_its_own_outcome_and_changes() {
         let s = step(&out, i);
         assert_eq!(s["step"], i, "{}", out.body);
         assert_eq!(s["status"], "done", "{}", out.body);
-        assert!(s["outcome"].is_string() && s["outcome_reason"].is_string(), "{}", out.body);
+        assert!(s["outcome"].is_string(), "{}", out.body);
+        // A confirmed step needs no reason (its outcome says it); others have one.
+        assert!(s["outcome"] == "confirmed" || s["outcome_reason"].is_string(), "{}", out.body);
         assert!(s["changes"].is_string(), "{}", out.body);
         assert!(s.get("state").is_none() && s.get("expect").is_none(), "{}", out.body);
     }

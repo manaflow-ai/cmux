@@ -849,27 +849,35 @@ impl Engine {
                 let saved = self.sessions.saved();
                 let windows = self.windows()?;
                 let names = self.app_names();
-                let list: Vec<Value> = windows
+                let mut list = Vec::new();
+                // Denied windows cannot be used: one entry per app and reason,
+                // with a count, instead of each window in full.
+                let mut denied: Vec<(TargetApp, &'static str, u64)> = Vec::new();
+                for w in windows
                     .into_iter()
                     .filter(|w| filter.is_none_or(|f| w.app_id.eq_ignore_ascii_case(f)))
-                    .map(|w| {
-                        let t = self.target_of(&w, &names);
-                        let blocked = self.blocked(&config, &saved, &t);
-                        let mut v = serde_json::to_value(&w).unwrap_or(Value::Null);
-                        set_key(&mut v, "window_id", json!(w.id));
-                        if let Some(o) = v.as_object_mut() {
-                            o.remove("id");
+                {
+                    let t = self.target_of(&w, &names);
+                    if let Some(r) = self.blocked(&config, &saved, &t) {
+                        match denied.iter_mut().find(|(a, c, _)| a.id == t.id && *c == r.code()) {
+                            Some(entry) => entry.2 += 1,
+                            None => denied.push((t, r.code(), 1)),
                         }
-                        set_key(&mut v, "app_name", json!(t.name));
-                        if let Some(r) = blocked {
-                            set_key(&mut v, "title", json!(""));
-                            set_key(&mut v, "denied", json!(true));
-                            set_key(&mut v, "denied_reason", json!(r.code()));
-                        }
-                        v
-                    })
-                    .collect();
-                Ok((ToolOutput::ok(json!({"windows": list})), None))
+                        continue;
+                    }
+                    list.push(window_entry(&w, &t.name));
+                }
+                let mut body = json!({"windows": list});
+                if !denied.is_empty() {
+                    let denied: Vec<Value> = denied
+                        .into_iter()
+                        .map(|(a, code, n)| {
+                            json!({"app_name": a.name, "app_id": a.id, "windows": n, "reason": code})
+                        })
+                        .collect();
+                    set_key(&mut body, "denied", json!(denied));
+                }
+                Ok((ToolOutput::ok(body), None))
             }
             // Not focus-guarded on purpose (Access::Discover): asking for a
             // permission shows the OS prompt or opens System Settings in front,
@@ -2218,6 +2226,33 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
         "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
+}
+
+/// One usable window in list_windows: `window_id`, `app_id`, `app_name`,
+/// `title`, `frame` (whole points without a `.0`), `pid`, and `focused`,
+/// `minimized` or `on_screen` only when they differ from the usual (`false`,
+/// `false`, `true`).
+fn window_entry(w: &Window, app_name: &str) -> Value {
+    let point = |p: f64| if p.fract() == 0.0 && p.abs() < 1e9 { json!(p as i64) } else { json!(p) };
+    let f = &w.frame;
+    let mut v = json!({
+        "window_id": w.id,
+        "app_id": w.app_id,
+        "app_name": app_name,
+        "title": w.title,
+        "frame": {"x": point(f.x), "y": point(f.y), "width": point(f.width), "height": point(f.height)},
+        "pid": w.pid,
+    });
+    if w.focused {
+        set_key(&mut v, "focused", json!(true));
+    }
+    if w.minimized {
+        set_key(&mut v, "minimized", json!(true));
+    }
+    if !w.on_screen {
+        set_key(&mut v, "on_screen", json!(false));
+    }
+    v
 }
 
 /// The record written before the outcome is decided: as [`retry_record`],

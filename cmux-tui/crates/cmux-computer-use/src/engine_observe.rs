@@ -434,19 +434,21 @@ impl Engine {
                                 "No change since your last look.".into()
                             });
                         }
+                        // Effects outside the window are the outcome's
+                        // (its reason names what was not read).
                         None => {
                             let elements = if truncated {
                                 format!(
-                                    "No change in the part of window {window_id} this look read; past the element limit it is unknown (get_ui_tree with a larger max_nodes reads further)"
+                                    "No change in the part of window {window_id} read (element limit; a larger max_nodes reads further)"
                                 )
                             } else {
-                                format!("No change in window {window_id}'s elements since your last look")
+                                format!("No change in window {window_id}'s elements")
                             };
                             let pixels = match pixels {
-                                Pixels::Changed => ", but its pixels changed (see the screenshot): something the tree does not describe moved, such as scrolled or drawn content. Effects outside this window (another app, a file, the clipboard) are not seen here.",
-                                Pixels::Same => ", and its pixels look the same as in your last screenshot of it. Effects outside this window (another app, a file, the clipboard) are not seen here.",
-                                Pixels::Unknown => "; whether its pixels changed is unknown (no earlier screenshot of it to compare). Effects outside this window (another app, a file, the clipboard) are not seen here.",
-                                Pixels::NotRead => " (full: true shows the whole tree). Effects outside this window are not seen here.",
+                                Pixels::Changed => "; its pixels changed (see the screenshot): scrolled or drawn content the tree does not describe.",
+                                Pixels::Same => "; its pixels look the same.",
+                                Pixels::Unknown => "; whether its pixels changed is unknown (no earlier screenshot of it).",
+                                Pixels::NotRead => " (full: true shows the whole tree).",
                             };
                             parts.push(format!("{elements}{pixels}"));
                         }
