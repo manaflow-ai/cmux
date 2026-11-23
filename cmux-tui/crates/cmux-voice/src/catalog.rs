@@ -109,7 +109,7 @@ pub const PROVIDERS: &[Provider] = &[
     },
     Provider {
         id: "localServer",
-        label: "Local server (OpenAI-style)",
+        label: "Local Server",
         kind: Kind::Local,
         wire: Wire::OpenaiTranscriptions,
         key: KeyUse::Optional,
@@ -119,7 +119,7 @@ pub const PROVIDERS: &[Provider] = &[
     },
     Provider {
         id: "whisperCpp",
-        label: "whisper.cpp server",
+        label: "whisper.cpp Server",
         kind: Kind::Local,
         wire: Wire::WhisperCppInference,
         key: KeyUse::None,
@@ -129,7 +129,7 @@ pub const PROVIDERS: &[Provider] = &[
     },
     Provider {
         id: "custom",
-        label: "Custom (OpenAI-style)",
+        label: "Custom Endpoint",
         kind: Kind::Cloud,
         wire: Wire::OpenaiTranscriptions,
         key: KeyUse::Optional,
@@ -180,13 +180,13 @@ mod tests {
                 {"id": "groq", "label": "Groq", "kind": "cloud", "wire": "openaiTranscriptions",
                  "key": "required", "defaultUrl": "https://api.groq.com/openai/v1",
                  "defaultModel": "whisper-large-v3-turbo"},
-                {"id": "localServer", "label": "Local server (OpenAI-style)", "kind": "local",
+                {"id": "localServer", "label": "Local Server", "kind": "local",
                  "wire": "openaiTranscriptions", "key": "optional",
                  "defaultUrl": "http://127.0.0.1:8000/v1", "defaultModel": ""},
-                {"id": "whisperCpp", "label": "whisper.cpp server", "kind": "local",
+                {"id": "whisperCpp", "label": "whisper.cpp Server", "kind": "local",
                  "wire": "whisperCppInference", "key": "none",
                  "defaultUrl": "http://127.0.0.1:8080", "defaultModel": ""},
-                {"id": "custom", "label": "Custom (OpenAI-style)", "kind": "cloud",
+                {"id": "custom", "label": "Custom Endpoint", "kind": "cloud",
                  "wire": "openaiTranscriptions", "key": "optional", "defaultUrl": "",
                  "defaultModel": ""},
             ])

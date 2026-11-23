@@ -43,7 +43,7 @@ export const MOCK_DICTATION_PROVIDERS: DictationProvider[] = [
   },
   {
     id: "whisperCpp",
-    label: "whisper.cpp",
+    label: "whisper.cpp Server",
     kind: "local",
     wire: "whisperCppInference",
     key: "none",
@@ -52,7 +52,7 @@ export const MOCK_DICTATION_PROVIDERS: DictationProvider[] = [
   },
   {
     id: "custom",
-    label: "Custom",
+    label: "Custom Endpoint",
     kind: "cloud",
     wire: "openaiTranscriptions",
     key: "optional",
