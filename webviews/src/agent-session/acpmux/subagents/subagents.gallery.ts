@@ -9,8 +9,8 @@
 // closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that
 // subagent's own view (the child view): its rows from the top as a chat's, nested groups included,
 // with no line naming its parent (Leo, 2026-11-22), and a corner × to close it. A pane the app
-// opened on a subagent shows it with its own composer (SubagentComposer.tsx): "Message <subagent>",
-// and a line naming the chat that passes the message on, where the chat's composer would be.
+// opened on a subagent shows it with the chat's own Composer relayed to the subagent (Composer.tsx
+// `relay`): "Message <subagent>".
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
@@ -243,7 +243,6 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
     "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
-    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -469,7 +468,7 @@ export default agentPaneEntry({
       },
     },
     "own-pane": {
-      note: 'A pane the app opened on a subagent (a subagent: reveal): its view and a composer of its own, "Message Test coverage", never "Read only"; the line under it names the chat that passes the message on, as a subagent has no session of its own.',
+      note: 'A pane the app opened on a subagent (a subagent: reveal): its view and the chat\'s Composer relayed to it, "Message Test coverage", never "Read only": no Stop, queue, model or mode chips, + menu or line under the box.',
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
@@ -478,15 +477,15 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () =>
             ctx.document.querySelector(".acpmux-view-corner") &&
-            ctx.document.querySelector(".acpmux-subagent-composer"),
+            ctx.document.querySelector('.acpmux-composer[data-cmux-component="Composer"]'),
         );
         if (ctx.document.querySelector(".cv-subagent-corner__close"))
           throw new Error("a subagent's own pane drew the in-place ×; its tab closes it");
-        if (ctx.document.querySelector(".acpmux-composer:not(.acpmux-subagent-composer)"))
-          throw new Error("a subagent's own pane drew the chat's composer");
+        if (ctx.document.querySelectorAll(".acpmux-composer").length !== 1)
+          throw new Error("a subagent's own pane drew more than one composer");
         if (ctx.document.body.textContent?.includes("Read only"))
           throw new Error("a subagent's own pane says Read only");
-        const field = ctx.document.querySelector(".acpmux-subagent-composer [aria-label]");
+        const field = ctx.document.querySelector('.acpmux-composer [role="combobox"][aria-label]');
         if (field?.getAttribute("aria-label") !== "Message Test coverage")
           throw new Error(`the subagent's composer names ${field?.getAttribute("aria-label")}`);
       },
