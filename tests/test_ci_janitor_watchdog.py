@@ -156,15 +156,17 @@ class WatchdogStepTests(unittest.TestCase):
         [create] = self.issue_writes("create")
         self.assertIn("no routing token was minted", self.body_of(create))
 
-    def test_a_hosted_sweep_label_reads_no_roster_and_names_the_variable(self) -> None:
-        # Since cmux#47877 the sweep runs on GitHub-hosted ubuntu-24.04 by default. No self-hosted runner
-        # carries that label, so a roster read would always say starved; the alert names the variable instead.
-        done = self.run_step(label="ubuntu-24.04", repo_runners=[runner(1)])
+    def test_a_jit_sweep_label_reads_no_roster_and_names_the_variable(self) -> None:
+        # The sweep runs on the one-job repair VM cmux-gcp-repair-jit-x64 by default (GitHub-hosted Ubuntu starts
+        # nothing in manaflow-ai). A JIT label has no standing roster: the scaler mints a VM per queued job, so an
+        # idle roster read would always say starved; the alert names the variable instead.
+        done = self.run_step(label="cmux-gcp-repair-jit-x64", repo_runners=[runner(1)])
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertEqual([call for call in self.calls() if call["args"][:1] == ["api"] and "runner" in call["args"][1]], [])
         [create] = self.issue_writes("create")
         body = self.body_of(create)
-        self.assertIn("Runner label starved: ubuntu-24.04", create)
+        self.assertIn("Runner label starved: cmux-gcp-repair-jit-x64", create)
+        self.assertIn("one-job JIT label", body)
         self.assertIn("CI_QUEUE_JANITOR_ON_FLEET=1", body)
         self.assertNotIn("roster", body)
 
