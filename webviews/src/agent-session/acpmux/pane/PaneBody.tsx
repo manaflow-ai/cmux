@@ -26,8 +26,7 @@ import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import { HistoryScreen } from "../newtab/HistoryScreen";
-import { InComposerSlot, NewTabAppPage } from "../newtab/NewTabAppPage";
-import type { SceneComposerSlot } from "../../../apps/scene/SceneRenderer";
+import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -37,14 +36,11 @@ import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
-import { EmptyState, type EmptyStateProjects } from "../EmptyState";
+import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
 import { TourStartContext } from "../repoTour/TourBlock";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
-import { answerFromHome } from "../homeInboxModel";
-import { HomeLists } from "../HomeLists";
-import { AgentDotGrid } from "../dotGrid/AgentDotGrid";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
@@ -202,8 +198,6 @@ export type PaneBodyDeps = NewTabShown &
     setToastTop: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>;
     harnessesOpen: boolean;
     newTabApp: string | undefined;
-    newTabComposer: SceneComposerSlot | null;
-    setNewTabComposer: (slot: SceneComposerSlot | null) => void;
     setNewTab: React.Dispatch<React.SetStateAction<NewTabHost | undefined>>;
     folderAskView: React.JSX.Element | null;
     newTabGeneration: number;
@@ -384,7 +378,6 @@ export type PaneBodyDeps = NewTabShown &
     githubRepository: string | undefined;
     sandboxView: SandboxRun | undefined;
     sandboxHoldsChat: boolean;
-    heroPicker: EmptyStateProjects | undefined;
     tourOffer: TourOfferActions | undefined;
     chatTones: Map<string, number> | undefined;
     chatAgentNames: ReadonlyMap<string, string>;
@@ -401,7 +394,6 @@ export type PaneBodyDeps = NewTabShown &
     paneToasts: NoticeQueue;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
-    dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
     composer: false | React.JSX.Element;
@@ -493,8 +485,6 @@ export function drawPaneBody({
   harnessesOpen,
   newTab,
   newTabApp,
-  newTabComposer,
-  setNewTabComposer,
   setNewTab,
   folderAskView,
   newTabGeneration,
@@ -653,7 +643,6 @@ export function drawPaneBody({
   cloudStartShown,
   sandboxView,
   sandboxHoldsChat,
-  heroPicker,
   tourOffer,
   chatTones,
   chatAgentNames,
@@ -670,7 +659,6 @@ export function drawPaneBody({
   paneToasts,
   toastTop,
   asks,
-  dotGridArm,
   hostLine,
   forkPendingLine,
   composer,
@@ -701,9 +689,6 @@ export function drawPaneBody({
   closeWorkflowSideTab,
   showWorkflowAgent,
 }: PaneBodyDeps) {
-  const newTabAppShown = !!newTabApp && !harnessesOpen;
-  // The app page's Composer node, while that page shows: cmux's own composer is drawn into it.
-  const newTabComposerSlot = newTabAppShown ? newTabComposer : null;
   return !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
@@ -802,47 +787,47 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabAppShown ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
-              onComposer={setNewTabComposer}
-              // `.opens(...)`: the paths cmux's own page takes for a recent card and a Recently Closed row.
-              onOpen={(target) =>
-                "chat" in target
-                  ? void callNative("chats.open", { key: target.chat }).catch(() => undefined)
-                  : void callNative("tab.jump", { target: "closed", id: target.closed }).catch(() => undefined)
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
               }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
-          ) : null}
-          {newTabAppShown && !newTabComposerSlot ? null : showNewTab &&
-            (newTabAppShown || (!newTab.history && shownTemplate(newTab) !== "classic")) ? (
-            // An app's page draws cmux's own composer at its Composer node (a portal into the scene).
-            <InComposerSlot slot={newTabComposerSlot}>
+          )}
+          {showNewTab && folderAskView}
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+            <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  // `tabs.newTabApp`: the extension draws in a slot over cmux's composer, never in its
+                  // place; whatever it does, the composer, its focus and its input-ready report stay
+                  // the page's own (Leo 2026-11-16, newtab/NewTabAppSlot.tsx).
+                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
+                  {...(newTab.app
+                    ? {
+                        above: newTabApp ? (
+                          <NewTabAppSlot
+                            key={`${newTabGeneration}:${newTabApp}`}
+                            app={newTabApp}
+                            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                            onOpen={(target) =>
+                              "chat" in target
+                                ? void callNative("chats.open", { key: target.chat }).catch(() => undefined)
+                                : void callNative("tab.jump", { target: "closed", id: target.closed }).catch(
+                                    () => undefined,
+                                  )
+                            }
+                          />
+                        ) : null,
+                      }
+                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -991,16 +976,7 @@ export function drawPaneBody({
                   startNotice={trustQuestion}
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
-                  template={newTabComposerSlot ? "minimal" : screenTemplate(shownTemplate(newTab))}
-                  {...(newTabComposerSlot
-                    ? {
-                        embedded: {
-                          prompt: newTabComposerSlot.prompt,
-                          ...(newTabComposerSlot.placeholder ? { placeholder: newTabComposerSlot.placeholder } : {}),
-                          ...(newTabComposerSlot.cwd ? { cwd: newTabComposerSlot.cwd } : {}),
-                        },
-                      }
-                    : {})}
+                  template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
@@ -1097,7 +1073,7 @@ export function drawPaneBody({
                 />
               </Activity>
               {harnessesOpen && harnessesPage}
-            </InComposerSlot>
+            </>
           ) : harnessesOpen ? (
             harnessesPage
           ) : contextOpen && !showNewTab ? (
@@ -1526,9 +1502,7 @@ export function drawPaneBody({
                   />
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
-                    project={projectName(composerSnapshot.summary?.cwd)}
-                    picker={heroPicker}
-                    tour={tourOffer}
+                    {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
@@ -1573,33 +1547,6 @@ export function drawPaneBody({
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
-                {/* Between the hero and the docked composer. */}
-                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
-                      Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
-                  <div className="acpmux-home-area">
-                    {dotGridArm !== "off" && (
-                      <AgentDotGrid
-                        sessions={snapshot.sessions}
-                        currentId={snapshot.sessionId}
-                        onSelect={selectSession}
-                        size={dotGridArm === "compact" ? "compact" : "regular"}
-                      />
-                    )}
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine

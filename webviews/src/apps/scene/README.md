@@ -46,13 +46,9 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   `title`, `symbol`, `disabled`, `destructive`, `children` or `divider`.
 - TextField supports `text`, `placeholder`, `autofocus` and handler-presence props, and
   `font`, `weight`, `italic` and `monospaced` as a Text does.
-- `opens` (`{chat}` or `{closed}`, the DSL's `.opens(...)`) is a tap the host runs: a New Tab page
-  (NewTabAppPage `onOpen`) opens that chat or reopens that closed item in its own tab, through cmux's
+- `opens` (`{chat}` or `{closed}`, the DSL's `.opens(...)`) is a tap the host runs: the New Tab slot
+  (NewTabAppSlot `onOpen`) opens that chat or reopens that closed item in its own tab, through cmux's
   own card and Recently Closed paths; with no host `open`, the node's `onTap` runs.
-- Composer (`prompt`, `placeholder`, `cwd`) is where a New Tab page app (cmux.newtab/1) shows
-  cmux's own composer: NewTabAppPage gives SceneRenderer a `SceneHostContext` whose `composer`
-  receives the node's element, and App.tsx portals NewTabScreen (embedded) into it. Hosts that
-  give no composer draw nothing for it.
 - Icon `harness:<id>` draws that agent's own mark (shared/AgentMark).
 - Icon pack names an app may use as is (the full list is `agent-session/acpmux/icons/cmuxIcons.json`):
   status `status.running`, `status.needsinput`, `status.success`, `status.failure`, `status.warning`,

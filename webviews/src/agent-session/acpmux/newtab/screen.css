@@ -1354,22 +1354,6 @@
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
 
-/* Inside a New Tab app's scene (the Composer node, NewTabScreen `embedded`): the composer and its
-   create row in the app's own flow. The app lays the page out, so no page padding, scroller or room. */
-.nt-screen[data-embedded] {
-  flex: none;
-  overflow: visible;
-  padding: 0;
-  --nt-screen-inset: 0px;
-}
-.nt-screen[data-embedded][data-minimal] {
-  padding-top: 0;
-}
-/* The `>` an app asks for (Composer({ prompt: true })), as the Console template draws it. */
-.nt-screen[data-prompt-glyph] .nt-field {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
 /* The home-card-glow experiment (homeCardGlow.experiment.ts; ChatCards sets `data-glow` and each
    card's `--nt-card-tint`, the chat's own color). One card shell for every chat: a radial glow in
    its tint from the top corner and a tinted hairline under the meta row; hover or focus brightens
@@ -1387,11 +1371,12 @@
   --nt-glow-divider: 50%;
 }
 /* A light page has less dark around the glow to carry it: a little more color, the same reach. */
-:root.light .nt-cards[data-glow] {
-  --nt-glow-mix: 16%;
+/* `data-theme` is what the app sets on the root (shared/theme.ts); it has no `light` class. */
+:root[data-theme="light"] .nt-cards[data-glow] {
+  --nt-glow-mix: 28%;
 }
-:root.light .nt-cards[data-glow="vivid"] {
-  --nt-glow-mix: 30%;
+:root[data-theme="light"] .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 52%;
 }
 .nt-cards[data-glow] .nt-card {
   position: relative;

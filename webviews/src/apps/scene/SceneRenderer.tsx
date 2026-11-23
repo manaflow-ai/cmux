@@ -38,17 +38,10 @@ import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
-/** Where a `Composer` node sits and what it asks for: the embedding host draws cmux's own New Tab
- * composer into `element` (a portal), so an app's New Tab page places the real field. */
-export type SceneComposerSlot = { element: HTMLElement; prompt: boolean; placeholder?: string; cwd?: string };
-/** What the embedding host draws into an app's scene. A New Tab page (NewTabAppPage) gives
- * `composer`; every other host gives none, and a `Composer` node draws nothing there. */
 /** A host-handled tap (`.opens(...)`): a recent chat by its chat key, or a Recently Closed item. */
 export type SceneOpenTarget = { chat: string } | { closed: string };
-/** What the embedding host draws into an app's scene, and the taps it runs itself. A New Tab page
- * (NewTabAppPage) gives `composer` and `open`; every other host gives none: a `Composer` node draws
- * nothing there, and an `.opens(...)` node runs its own `onTap`. */
-export type SceneHost = { composer?(slot: SceneComposerSlot | null): void; open?(target: SceneOpenTarget): void };
+/** The embedding host handles `.opens(...)` taps where it has cmux's native path. */
+export type SceneHost = { open?(target: SceneOpenTarget): void };
 
 /** A node's `opens` prop, when it names one chat or one closed item. */
 export function sceneOpenTarget(value: unknown): SceneOpenTarget | undefined {
@@ -65,6 +58,8 @@ export type SceneAssetResolver = (bundlePath: string) => string | undefined;
 type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+/** False where a scene shares the page with a field of cmux's own (the New Tab slot): its `autofocus` is ignored. */
+const AutofocusContext = createContext(true);
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -139,32 +134,12 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
-/** `Composer`: a placeholder the host fills with cmux's own New Tab composer (the project and
- * agent chips, attachments, slash commands and the start flow), at the node's place. `prompt` puts
- * the Console's `>` before a monospace field; `cwd` moves the folder the next chat starts in;
- * `placeholder` replaces the field's hint. Without a host that gives one (the sidebar, a pane, the
- * native renderers) it draws nothing. */
-function SceneComposer({ node }: { node: SceneNode }) {
-  const host = useContext(SceneHostContext);
-  const [element, setElement] = useState<HTMLDivElement | null>(null);
-  const prompt = node.props.prompt === true;
-  const placeholder = sceneText(node.props.placeholder) || undefined;
-  const cwd = sceneText(node.props.cwd) || undefined;
-  const give = host?.composer;
-  useEffect(() => {
-    if (!give || !element) return;
-    give({ element, prompt, ...(placeholder ? { placeholder } : {}), ...(cwd ? { cwd } : {}) });
-    return () => give(null);
-  }, [give, element, prompt, placeholder, cwd]);
-  if (!give) return null;
-  return <div ref={setElement} className="cmux-app-scene-composer-slot" />;
-}
-
 function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
-  const autofocus = node.props.autofocus === true;
+  const autofocusAllowed = useContext(AutofocusContext);
+  const autofocus = autofocusAllowed && node.props.autofocus === true;
   useEffect(() => {
     if (autofocus) input.current?.focus();
   }, [autofocus]);
@@ -417,8 +392,6 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     }
     case "TextField":
       return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
-    case "Composer":
-      return <SceneComposer node={node} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":
@@ -606,22 +579,27 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  autofocus = true,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** False: the scene's fields never take focus on their own; a click still focuses them. */
+  autofocus?: boolean;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneAppeared key={generation} store={store} generation={generation}>
-            <SceneNodeView id={root} store={store} dispatch={dispatch} />
-          </SceneAppeared>
-        </div>
-      ) : null}
+      <AutofocusContext.Provider value={autofocus}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneAppeared key={generation} store={store} generation={generation}>
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </SceneAppeared>
+          </div>
+        ) : null}
+      </AutofocusContext.Provider>
     </AssetContext.Provider>
   );
 }

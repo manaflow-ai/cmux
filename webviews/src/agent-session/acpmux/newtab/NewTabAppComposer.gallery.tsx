@@ -1,16 +1,11 @@
 // l10n-allow-file: gallery fixtures (a look's sample scene), not shipped UI.
-// A New Tab page app (cmux.newtab/1) whose scene places cmux's own composer with a `Composer` node:
-// NewTabAppPage hosts the slot and NewTabScreen (embedded) is drawn into it, as App.tsx does.
-import { useState } from "react";
-import { createPortal } from "react-dom";
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
-import type { SceneComposerSlot } from "../../../apps/scene/SceneRenderer";
 import type { SceneOp } from "../../../apps/scene/store";
-import { NewTabAppPage } from "./NewTabAppPage";
+import { NewTabAppSlot } from "./NewTabAppSlot";
 import { NewTabScreen } from "./NewTabScreen";
 
 type Look = "cards" | "console" | "no-slot";
@@ -64,23 +59,21 @@ function scene(look: Look): SceneOp[] {
   if (look === "console")
     return [
       { op: "create", id: "root", type: "VStack", props: { spacing: 16, padding: 24 } },
-      { op: "create", id: "composer", type: "Composer", props: { prompt: true, placeholder: "What should we do?" } },
       { op: "create", id: "head", type: "Text", props: { text: "recent", monospaced: true, color: "secondary" } },
       ...row("r1", "claude", "fix the upload retry", "2m"),
       ...row("r2", "codex", "release notes for 0.9", "1h"),
       ...row("r3", "claude", "flaky e2e on login", "3h"),
-      { op: "children", id: "root", children: ["composer", "head", "r1", "r2", "r3"] },
+      { op: "children", id: "root", children: ["head", "r1", "r2", "r3"] },
       { op: "root", id: "root" },
     ];
   return [
     { op: "create", id: "root", type: "VStack", props: { spacing: 16, padding: 24 } },
-    { op: "create", id: "composer", type: "Composer", props: { cwd: CWD } },
     { op: "create", id: "cards", type: "HStack", props: { spacing: 12, alignment: "top" } },
     ...card("c1", "claude", "Fix the upload retry", "Done: retries now back off and the test passes.", "2m"),
     ...card("c2", "codex", "Release notes for 0.9", "Drafted the notes; waiting on the changelog.", "1h"),
     ...card("c3", "claude", "Flaky e2e on login", "Found the race in the session cookie.", "3h"),
     { op: "children", id: "cards", children: ["c1", "c2", "c3"] },
-    { op: "children", id: "root", children: ["composer", "cards"] },
+    { op: "children", id: "root", children: ["cards"] },
     { op: "root", id: "root" },
   ];
 }
@@ -102,31 +95,24 @@ function lookHost(look: Look): PageClient {
 }
 
 function LookPage({ look = "cards" }: { look?: Look }) {
-  const [client] = useState(() => lookHost(look));
-  const [slot, setSlot] = useState<SceneComposerSlot | null>(null);
+  const client = useMemo(() => lookHost(look), [look]);
   return (
-    // In the agent pane shell, as the app draws it: its tokens give the composer its surface.
+    // In the agent pane shell, the app scene occupies the room above cmux's own composer.
     <div className="acpmux-shell" style={{ flexDirection: "column" }}>
-      <NewTabAppPage
-        app={`local/${look}-look`}
-        client={client}
-        onUnavailable={() => undefined}
-        // The no-slot look: a host that gives no composer (the sidebar's), so the node draws nothing.
-        {...(look === "no-slot" ? {} : { onComposer: setSlot })}
+      <NewTabScreen
+        {...screen}
+        template="minimal"
+        above={
+          look === "no-slot" ? undefined : (
+            <NewTabAppSlot
+              app={`local/${look}-look`}
+              cwd={CWD}
+              client={client}
+              onUnavailable={() => undefined}
+            />
+          )
+        }
       />
-      {slot &&
-        createPortal(
-          <NewTabScreen
-            {...screen}
-            template="minimal"
-            embedded={{
-              prompt: slot.prompt,
-              ...(slot.placeholder ? { placeholder: slot.placeholder } : {}),
-              ...(slot.cwd ? { cwd: slot.cwd } : {}),
-            }}
-          />,
-          slot.element,
-        )}
     </div>
   );
 }
@@ -136,7 +122,7 @@ const drawn: Play = async (ctx) => {
 };
 const composed: Play = async (ctx) => {
   await drawn(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".cmux-app-scene-composer-slot .nt-field") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-app-slot-body[data-status=ready]") !== null);
 };
 
 export default componentEntry<{ look?: Look }>({
@@ -146,8 +132,7 @@ export default componentEntry<{ look?: Look }>({
   height: 560,
   pane: true,
   covers: [
-    "agent-session/acpmux/newtab/NewTabAppPage.tsx",
-    "apps/scene/SceneRenderer.tsx#SceneComposer",
+    "agent-session/acpmux/newtab/NewTabAppSlot.tsx",
     "apps/scene/SceneSymbol.tsx#SceneSymbol",
   ],
   load: async () => LookPage,
@@ -156,22 +141,22 @@ export default componentEntry<{ look?: Look }>({
       import("../styles.css"),
       import("../composerStates.css"),
       import("./screen.css"),
-      import("./appPage.css"),
+      import("./appSlot.css"),
       import("../../../apps/scene/scene.css"),
     ]),
   variants: {
     cards: {
-      note: "A cards look: cmux's own composer (project and agent chips) at the Composer node, three chat cards with each agent's mark under it.",
+      note: "A cards look: cmux's own composer stays below the slot, with three chat cards and each agent's mark.",
       props: { look: "cards" },
       play: composed,
     },
     console: {
-      note: "A console look: Composer({ prompt: true }) draws the `>` before a monospace field; the rows are monospace Text with harness marks.",
+      note: "A console look: cmux's own composer stays below the slot; the rows are monospace Text with harness marks.",
       props: { look: "console" },
       play: composed,
     },
     "no-slot": {
-      note: "A host that gives no composer: the Composer node draws nothing and the rest of the scene shows.",
+      note: "A page with no selected app keeps cmux's own composer and draws no extension scene.",
       props: { look: "no-slot" },
       play: drawn,
     },

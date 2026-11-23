@@ -444,13 +444,6 @@
   }
 }
 
-/* A Composer node's place (SceneRenderer SceneComposer): cmux's own New Tab composer is drawn in it. */
-.cmux-app-scene-composer-slot {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  min-width: 0;
-}
 /* `Icon("harness:<id>")`: the agent's mark, centered in the symbol's box. */
 .cmux-app-scene-harness {
   display: inline-flex;

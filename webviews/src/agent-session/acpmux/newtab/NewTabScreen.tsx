@@ -33,9 +33,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
+  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -304,11 +304,6 @@ type Props = NewTabScreenActions & {
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
-  /// Drawn inside a New Tab app's scene (cmux.newtab/1's `Composer` node): the composer and its
-  /// create row alone, in the flow of the app's layout, with no room over it. `prompt` puts the
-  /// Console's `>` before a monospace field; `cwd` (changed by the app, e.g. an environment row)
-  /// moves the folder the next chat starts in; `placeholder` replaces the field's hint.
-  embedded?: { prompt?: boolean; placeholder?: string; cwd?: string };
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
@@ -360,6 +355,9 @@ type Props = NewTabScreenActions & {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
+  /// What draws over the composer: an extension's slot (NewTabAppSlot.tsx, `tabs.newTabApp`). It sits
+  /// in its own room (screen.css `.nt-above-room`) and can never replace or cover the composer.
+  above?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -441,10 +439,7 @@ export function NewTabScreen(props: Props) {
   const minimal = template === "minimal";
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
   // at the foot, the environment and suggestions cards over it.
-  const embedded = props.embedded !== undefined;
-  const stage = sections.stage && !embedded;
-  /// The Console's `>` before the field: its template's, or an embedding app's `prompt`.
-  const promptGlyph = sections.prompt || props.embedded?.prompt === true;
+  const stage = sections.stage;
   const [carried] = useState(() => props.takeDraft?.());
   /// Return or Send was refused because the agent is signed out (first-run findings row 5: they did
   /// nothing, with no word why). The note over the field then leads with what to do first.
@@ -479,22 +474,12 @@ export function NewTabScreen(props: Props) {
   const [profilePick, setProfilePick] = useState<{ url: string; text: string }>();
   /// A dictation session runs: Send ends it and sends (submit).
   const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
-  const embedCwd = props.embedded?.cwd;
-  const [seeded, setProject] = useState(embedCwd ?? (props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined));
+  const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
-  // An embedding app moved the start folder (its environment row): the composer starts there, as a pick.
-  const seededEmbed = useRef(embedCwd);
-  useEffect(() => {
-    if (!embedCwd || seededEmbed.current === embedCwd) return;
-    seededEmbed.current = embedCwd;
-    setProject(embedCwd);
-    setPicked(true);
-    setNone(false);
-  }, [embedCwd]);
   const [fixing, setFixing] = useState(false);
   useEffect(() => {
     if (props.fixError) setFixing(false);
@@ -1703,9 +1688,7 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setCaret(input.plainText().length);
   };
-  const placeholder = profilePick
-    ? nt("profile.placeholder", { site: shortHost(profilePick.url) })
-    : (props.embedded?.placeholder ?? nt("placeholder"));
+  const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
   const keyDown = (event: KeyboardEvent) => {
@@ -2496,8 +2479,8 @@ export function NewTabScreen(props: Props) {
             {split && attachmentPicker}
             {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
               none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
-            <div className="nt-field-slot" data-glyph-column={promptGlyph || undefined}>
-              {(shell || promptGlyph) && (
+            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
+              {(shell || sections.prompt) && (
                 <span
                   className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
                   aria-hidden="true"
@@ -2690,8 +2673,6 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
       data-layout={stage ? "stage" : undefined}
       data-minimal={minimal || undefined}
-      data-embedded={embedded || undefined}
-      data-prompt-glyph={promptGlyph || undefined}
     >
       {stage ? (
         <>
@@ -2702,6 +2683,7 @@ export function NewTabScreen(props: Props) {
             {stageCards}
             {playerAndLists}
           </div>
+          {props.above !== undefined && <div className="nt-above-room">{props.above}</div>}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2709,8 +2691,13 @@ export function NewTabScreen(props: Props) {
       ) : (
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
-                where it always sat (screen.css .nt-composer-room). */}
-          {minimal && !embedded && <div className="nt-composer-room" />}
+                where it always sat (screen.css .nt-composer-room). Something over the composer (an
+                extension's slot) takes that room instead, and keeps it after the slot gives up. */}
+          {props.above !== undefined ? (
+            <div className="nt-above-room">{props.above}</div>
+          ) : (
+            minimal && <div className="nt-composer-room" />
+          )}
           {composerCard}
           {props.notice}
           {environmentPanel}
