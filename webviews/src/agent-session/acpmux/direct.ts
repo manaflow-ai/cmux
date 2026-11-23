@@ -2505,6 +2505,15 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       );
   }
 
+  /// Whether the turn acpmux says it runs is one the agent runs on its own (`background_turn`): the
+  /// one it names, or one still open (its summary may name the turn by acpmux's own id). That turn's
+  /// rows draw in its own line; reopening the prompt's ended turn for it drew an empty typing row
+  /// and a second footer under that turn's own, and the next prompt went under them. A prompt sent
+  /// meanwhile opens its turn from its own record.
+  runsBackground(turnId: string | undefined): boolean {
+    return this.backgroundSpans.some((span) => span.id === turnId || span.to === undefined);
+  }
+
   /// The background turns still open at `seq`: started before it, with no ended record heard.
   openBackgroundsBefore(seq: number): string[] {
     return this.backgroundSpans.filter((span) => span.to === undefined && span.from < seq).map((span) => span.id);
@@ -12398,6 +12407,7 @@ export class AcpmuxDirectClient {
     const turn = hostTurn(this.summary);
     if (state !== "runs" || !turn) return;
     if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
+    if (!this.turnOpen && this.rows.runsBackground(turn.turnId)) return;
     if (!this.turnOpen) {
       this.turnOpen = true;
       this.turnEndSeen = false;
