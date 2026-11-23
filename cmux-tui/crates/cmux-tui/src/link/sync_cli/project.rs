@@ -20,7 +20,7 @@
 //!
 //! What the agent writes lands in the mount's upper layer on the machine and stays there until
 //! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
-//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! keeps a base for it here as it projects ([`keep_base`], kept across a redial), each file named by its size and mtime
 //! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
 //! changed since is a conflict. `project back` plans the same from the upper layer and its
 //! whiteouts ([`super::project_back`]).
@@ -528,10 +528,11 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    // Bring Back's base, kept here while the machine mounts the folder.
-    let (dialed, kept) = std::thread::scope(|scope| {
-        let kept = scope.spawn(|| keep_base(&folder, &at, &listed));
-        (dial(&socket, &name, &at, &encoded, None), kept.join())
+    // Bring Back's base, made here while the machine mounts the folder, unless one is kept.
+    let kept_already = super::base::kept(&folder, &at);
+    let (dialed, made) = std::thread::scope(|scope| {
+        let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
+        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -539,10 +540,13 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     }
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
-    match kept {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("cmux link project: no base for Bring Back: {error:#}"),
-        Err(_) => eprintln!("cmux link project: no base for Bring Back: its thread panicked"),
+    let kept = match made {
+        None => Ok(()),
+        Some(Ok(made)) => made.and_then(|base| keep_base(&folder, &at, &base)),
+        Some(Err(_)) => Err(anyhow::anyhow!("its thread panicked")),
+    };
+    if let Err(error) = kept {
+        eprintln!("cmux link project: no base for Bring Back: {error:#}");
     }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("listed_ms".into(), json!(listed_ms));
@@ -909,11 +913,24 @@ pub(super) fn stand_in_matches(sha256: &str, meta: &std::fs::Metadata) -> bool {
     meta.is_file() && sha256 == stand_in(meta.len(), mtime_ns(meta))
 }
 
-/// Keeps Bring Back's base for `folder` projected at `at`: the files as [`list`] found them (by
-/// [`stand_in`], their revision the one the machine's `fs-v1` gives a file of that size and mtime,
-/// which the projection reports for every file it did not change), the symlinks, and in git the
-/// branch and staged changes. `cmux link sync pull` merges against it as against a push's record.
-fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
+/// Keeps `base` as Bring Back's base for `folder` projected at `at`, unless one is kept already.
+/// That one stays whether the machine attaches to its old mount or mounts this newer listing: the
+/// mount's upper layer survives either way, with the record a Bring Back since left there, and
+/// that record matches the kept base, not this listing. Replacing it made every Bring Back after
+/// the server restarted a `sync_base_mismatch`. With no Bring Back yet, the older base still
+/// merges: what changed here since reads the same on both sides.
+fn keep_base(folder: &Path, at: &str, base: &super::Manifest) -> anyhow::Result<()> {
+    if super::base::kept(folder, at) {
+        return Ok(());
+    }
+    super::base::save(folder, at, base)
+}
+
+/// Bring Back's base for `folder` as [`list`] found it: the files by [`stand_in`] (their
+/// revision the one the machine's `fs-v1` gives a file of that size and mtime, which the
+/// projection reports for every file it did not change), the symlinks, and in git the branch and
+/// staged changes. `cmux link sync pull` merges against it as against a push's record.
+fn base_of_listing(folder: &Path, listed: &Listed) -> anyhow::Result<super::Manifest> {
     let manifest = &listed.manifest;
     let mut files = BTreeMap::new();
     for index in 0..u32::try_from(manifest.len()).unwrap_or(u32::MAX) {
@@ -932,15 +949,14 @@ fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
     }
     let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
     let repos = super::git_back::nested_bases(folder, files.keys());
-    let base = super::Manifest {
+    Ok(super::Manifest {
         version: 1,
         files,
         git,
         links: listed.links.clone(),
         projected: true,
         repos,
-    };
-    super::base::save(folder, at, &base)
+    })
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
