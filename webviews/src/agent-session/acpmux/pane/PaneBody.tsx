@@ -27,7 +27,7 @@ import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTa
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import { HistoryScreen } from "../newtab/HistoryScreen";
 import { InComposerSlot, NewTabAppPage } from "../newtab/NewTabAppPage";
-import type { SceneComposerSlot } from "../../apps/scene/SceneRenderer";
+import type { SceneComposerSlot } from "../../../apps/scene/SceneRenderer";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
