@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCloud
 import CoreGraphics
 import Dispatch
+import CmuxNextCompat
 import Foundation
 import IOKit.ps
 
@@ -107,7 +108,7 @@ public final class CloudAutoSignals {
         diskRead = true
         // task-owner: one read of the home volume; it records the answer and ends.
         Task {
-            let free = await Task.detached { try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage }.value
+            let free = await Task.detached(priority: .utility) { try? FileManager.default.homeDirectoryForCurrentUser.blockingResourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage }.value
             diskFree = free.map { UInt64(max(0, $0)) }
             diskRead = false
         }
