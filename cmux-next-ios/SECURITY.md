@@ -597,6 +597,21 @@ the Mac.
 - **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
+- **Starting an unbound agent tab's chat** (ask-76b8e41001; Leo, 2026-11-18: "you should be able
+  to just start the chat right there"): a New Agent Chat tab the Mac made that nobody wrote in has
+  no session. Its first send on the phone starts the session over `acpmux` (`session/new`, the same
+  start and guard as the phone's New Agent Chat above), then binds the tab to it with
+  `bind-conversation-tab-session`, which is new on the allowlist. The phone starts only a tab
+  recorded for this Mac (`install:` host, or none); a tab whose chat another machine starts is
+  refused on the phone. `unbound_bind_refusal` narrows the command:
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It records which acpmux session an existing agent tab shows. The phone may send only `surface` (a number), `session` (a short identifier, as above) and `expected_session`, which must be `null`. Any other field is refused, `harness` included: the daemon changes a bound tab's harness when the named session is the tab's own, whatever `expected_session` says, so a phone could relabel a live chat. Without it, binding a tab's own session changes nothing, and the tab keeps the agent the Mac recorded. |
+| Mutates or destroys objects the session does not own? | Only a tab with no chat yet. `expected_session: null` is the daemon's compare-and-swap, so a tab that has a session (the Mac or another phone started one first) refuses with `conversation_tab.session_conflict`, and a phone never takes a chat away from a tab. The daemon also refuses a tab whose chat another machine starts (`machine:` host). |
+| Reads local state the remote should not see? | No new read. The tab then shows a session the phone can already attach to over `acpmux`, the same reach as `new-conversation-tab`'s `agent_session.session`. |
+
+  Tests: `a_phone_binds_only_an_unbound_agent_tab` (policy).
 
 ## `daemon`: terminal agents in the Feed
 
@@ -728,6 +743,53 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   question screen in the same terminal could receive the keys; they are still
   only the person's chosen option numbers and printable text, into a terminal
   the person already types into from the phone.
+
+### Answering a terminal agent's approval from the phone (`feat-cmux-next-terminal-feed-content`)
+
+A terminal-hosted Claude Code permission prompt ("Do you want to proceed?") is
+answered from its Feed card with **Allow once** or **Deny**, the same way a
+question is: by typing on that terminal's approval screen. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the approval comes from: the agent hook reads Claude Code's
+  `PermissionRequest` tool input before redaction and sends `{harness, tool,
+  command?, target?, description?}` beside the journal event
+  (`live_approval`); the daemon keeps it in memory only, on the
+  notification's `list-notifications` row, while the agent is blocked on it
+  (never the journal, the ledger, the database or a log). While the daemon
+  cannot be reached, the hook's private per-agent queue (`hook-spool/`,
+  owner-only, deleted once the daemon answers) holds the request line with it,
+  as it already does for `live_prompt`, `live_reply` and `live_question`. It leaves when the
+  agent works, idles or ends (`an_approval_leaves_the_ledger_row_once_the_agent_moves_on`).
+  Only Claude Code's (`claude`, `claude-code`) and never for AskUserQuestion
+  (its own card) or ExitPlanMode (a plan review keeps "Answer in Terminal").
+- What is typed: one key. Allow once is `1` (Claude Code's "1. Yes"); Deny is
+  Escape (its "No" / "Esc to cancel"). A lasting grant ("Yes, and don't ask
+  again", "switch to auto mode") is never offered from a phone, as for agent
+  chats (`ACPPermissionRequest.phoneOptions`).
+- Which approval: right before typing, the phone makes its own
+  `list-notifications` request for this answer (never its last read, nor a
+  coalesced read that may not run) and goes on only while this very row still
+  carries this very approval (the agent still blocked on it). A failed read
+  types nothing.
+- Where it is typed: only while `read-screen` shows Claude Code's approval
+  dialog at the bottom of the screen: from the last horizontal rule above
+  "Do you want to" down to "Esc to cancel" as the last line, with "1. Yes" as
+  the row under the question. A command must show in full above the question
+  (spaces and line breaks ignored, so a wrapped command still matches; the
+  first 400 characters of a longer one); a file's name must be in the question
+  ("Do you want to create todo.txt?"). The transcript above the dialog never
+  counts, so a stale card can never answer a newer approval, even one whose
+  command starts the same way. An approval the dialog cannot be told by (no
+  command and no file: an MCP tool, a URL) gets no buttons and keeps "Answer
+  in Terminal". A terminal that moved on gets nothing, and the card says so.
+- Who: the paired owner's phone only, over its approved link (the same
+  admission as the terminal keyboard and the Feed reply).
+- Residual: as for questions, the screen check reads text, so an agent that
+  draws a lookalike approval screen in the same terminal could receive the
+  `1`; it is still one key into a terminal the person already types into
+  from the phone.
 
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 
@@ -1037,6 +1099,37 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   reaches the app, a refused key is closed `denied`, channels opened
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
+
+## `pair-requests`: another paired device answers a waiting pairing
+
+Leo, 2026-11-22: "ok surely we dont need to be bottled this hard by a click. and esp on a single
+machine." A probe phone of the person's own account should pair without a gesture on the Mac. The
+person's devices that this Mac already paired can now answer it (`src/pair_requests.rs`):
+
+- `{"action":"list"}` returns the requests hostd holds open in `auth` now (id, name, kind, the
+  16-hex fingerprint of the approval key, or the identity key for a machine, and how long each has
+  waited). `{"action":"answer","deviceId","fingerprint","allow"}` answers one.
+- **Same account only.** The link reaches hostd only through the team hub's admission
+  (`host::admitted`: `fromUserId` is the Mac's own user), so a device of another account never gets
+  a link to open it on, and a probe of another account never reaches `auth` to wait.
+- **Only a device already paired with this Mac.** The service sits behind the pairing gate like
+  every other: a Stack token alone (audit B2) or a device still waiting opens nothing (`unpaired`).
+  A machine needs the Control grant (`peer::need_for`). A device never answers its own request
+  (`forbidden`).
+- **Named, not guessed.** The answer names the device id and at least 8 hex of the fingerprint
+  the Mac's prompt shows (`fingerprint_mismatch` otherwise), and only a request hostd waits on now
+  can be answered: with none, `no_waiting_request`. Other keys under the same id are another request.
+- **The app still decides.** hostd emits `pair_answer` with the keys; the app answers only its own
+  waiting prompt with the same keys, only while the answering device is still on its paired list,
+  through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
+  The answer is recorded in Activity.
+- Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
+  and nothing approves with account credentials alone.
+
+Tests: `pair_requests::tests` (paired device approves, unpaired refused, nothing waiting, other keys
+and self answers, deny forwarded, machines named by identity key, Control needed) and
+`tests/host.rs` `a_paired_device_of_the_same_account_approves_a_waiting_request` (end to end over a
+link, including another account's dial refused).
 
 ## Parity round 2: Codex, model proxies, Restart Shell, the Mac's last pick (`feat-cnx-ios-parity2`)
 

@@ -10,7 +10,7 @@ import Foundation
 ///     "search": "https://example.com/search?q=%s",
 ///     "suggest": "https://example.com/suggest?q=%s"   // optional, OpenSearch JSON
 ///   },
-///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true,
+///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 6, "calculator": true,
 ///                "showFullURLs": false,         // the whole address, scheme and www. included
 ///                // the bar's look (cx-gkz5):
 ///                "glass": "off",                // transparent, regular, clear

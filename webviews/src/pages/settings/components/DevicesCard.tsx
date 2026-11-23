@@ -24,6 +24,7 @@ import type {
   DevicesState,
   DevicesTone,
 } from "../ops";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export function DevicesCard() {
   const store = useStore();
@@ -326,9 +327,13 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           {device.fingerprint && (
             <div className="row-help" data-device-fingerprint="">
               {labels.fingerprint}{" "}
-              <code className="font-mono selectable" title={device.fingerprintFull ?? undefined}>
-                {device.fingerprint}
-              </code>
+              <WithFacts facts={[{ value: device.fingerprintFull ?? "", code: true }]}>
+                {(facts) => (
+                  <code {...facts} className="font-mono selectable">
+                    {device.fingerprint}
+                  </code>
+                )}
+              </WithFacts>
               {device.fingerprintFull && (
                 <>
                   {" "}
@@ -467,7 +472,9 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
 
 function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["sharing"]>; labels: DevicesLabels }) {
   const [error, run] = useRun();
+  const [agentsError, runAgents] = useRun();
   const titleId = useId();
+  const agentsTitleId = useId();
   return (
     <section className="group" data-devices-group="sharing">
       <h3 className="group-title">{labels.sharingSection}</h3>
@@ -490,6 +497,26 @@ function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["
             </div>
           </div>
           <RunError error={error} />
+        </div>
+        {/* The account's standing permission: one click here is the person's consent (the hub audits it). */}
+        <div className="row" data-devices-agents="">
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title" id={agentsTitleId}>
+                {labels.agentsToggle}
+              </div>
+              <div className="row-help">{labels.agentsDetail}</div>
+            </div>
+            <div className="row-control">
+              <Switch
+                checked={sharing.agentsMayShare}
+                disabled={sharing.busy}
+                labelId={agentsTitleId}
+                onToggle={(on) => void runAgents({ action: "setAgentsMayShare", on })}
+              />
+            </div>
+          </div>
+          <RunError error={agentsError} />
         </div>
         {sharing.on &&
           sharing.permissions.map((permission) => (
@@ -920,16 +947,10 @@ function HistoryGroup({ state }: { state: DevicesState }) {
                       {row.eventText}
                     </span>
                   </td>
-                  <td className="devices-wrap" title={row.device}>
-                    {row.device}
-                  </td>
-                  <td className="devices-wrap" title={row.host}>
-                    {row.host}
-                  </td>
+                  <td className="devices-wrap">{row.device}</td>
+                  <td className="devices-wrap">{row.host}</td>
                   <td>{row.scope}</td>
-                  <td className="devices-wrap devices-detail" title={row.detail}>
-                    {row.detail}
-                  </td>
+                  <td className="devices-wrap devices-detail">{row.detail}</td>
                   <td className="devices-nowrap">{row.duration}</td>
                 </tr>
               ))}

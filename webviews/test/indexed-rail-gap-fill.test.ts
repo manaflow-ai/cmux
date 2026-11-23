@@ -5,6 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { connectClient, FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
 
 const SESSION = "indexed-gap";
@@ -34,13 +35,15 @@ test("a distant rail jump fills every turn between its target and the held tail"
     generation: internal.selectionGeneration,
     tries: 1,
     retryAt: 0,
-    rows: prompts.map((event): AcpmuxRow => ({
-      id: `user-${event.seq}`,
-      version: 1,
-      at: event.at,
-      kind: "user",
-      text: "p",
-    })),
+    heads: PromptHeads.fromRows(
+      prompts.map((event): AcpmuxRow => ({
+        id: `user-${event.seq}`,
+        version: 1,
+        at: event.at,
+        kind: "user",
+        text: "p",
+      })),
+    ),
   };
   const target = prompts[Math.floor(prompts.length / 10)]!.seq;
 
@@ -119,4 +122,57 @@ test("dropping the held history drops the gaps still queued to fill", async () =
   expect(internal.indexedGaps).toEqual([]);
   expect(internal.indexedPages.size).toBe(0);
   client.close();
+});
+
+// Leo 2026-11-22: "clicking along the scroll rail sometimes delayed/didn't load". A local daemon answers a gap page in
+// about a millisecond, so the fill's reads, merges and redraws ran back to back and the jump that started it painted
+// its target only after them (0.5 s for a prompt 1,300 back in a 1,500-turn chat, bench/chat-fast-scroll.bench.ts).
+// Each read now waits for a painted frame: none before the first frames, at most one per frame after.
+test("a gap fill reads at most one page per painted frame and none before the jump paints", async () => {
+  clock = new VirtualClock().install();
+  const events = logFor(SESSION, "small", { turns: 300 }).events;
+  const daemon = new FakeDaemon();
+  daemon.add(
+    { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock.now },
+    [...events],
+  );
+  const { client } = await connectClient(daemon, SESSION, clock);
+  const internal = client as any;
+  const scope = globalThis as any;
+  const saved = { raf: scope.requestAnimationFrame, caf: scope.cancelAnimationFrame };
+  let frames: Array<(at: number) => void> = [];
+  scope.requestAnimationFrame = (run: (at: number) => void) => frames.push(run);
+  scope.cancelAnimationFrame = () => {};
+  const paint = async () => {
+    const due = frames;
+    frames = [];
+    for (const run of due) run(clock!.now);
+    await clock!.advance(1);
+  };
+  try {
+    const typed = internal.typed.bind(internal);
+    let reads = 0;
+    internal.typed = (method: string, params: any, ...rest: unknown[]) => {
+      if (method === "_acpmux/events" && params?.beforeSeq === undefined) reads += 1;
+      return typed(method, params, ...rest);
+    };
+    internal.indexedGaps = [{ after: 0, before: internal.firstSeq }];
+    internal.startIndexedGapFill();
+    // Time passes but no frame paints: the fill must not read.
+    await clock.advance(1_000);
+    expect(reads).toBe(0);
+    let frame = 0;
+    while (internal.indexedGaps.length > 0 && frame < 2_000) {
+      const before = reads;
+      await paint();
+      frame += 1;
+      expect(reads - before).toBeLessThanOrEqual(1);
+    }
+    expect(internal.indexedGaps).toEqual([]);
+    expect(reads).toBeGreaterThan(1);
+  } finally {
+    scope.requestAnimationFrame = saved.raf;
+    scope.cancelAnimationFrame = saved.caf;
+    client.close();
+  }
 });

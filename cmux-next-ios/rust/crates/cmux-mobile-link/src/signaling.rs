@@ -339,7 +339,19 @@ struct Shared {
     /// session-less `bad_request` error frame instead of `pong`: that answer is the ping's, never a
     /// refusal of a dial in flight, so the reader swallows one such error per ping it sent.
     pings_unanswered: std::sync::atomic::AtomicU32,
+    /// When the last `link_stat` went out ([`SignalingClient::send_link_stat`]). A Worker older
+    /// than the frame answers it with a session-less `bad_request "unknown frame type"`, which
+    /// would fail every dial in flight on this socket: the reader swallows that answer within
+    /// [`LINK_STAT_ANSWER_WITHIN`] of a stat and stops sending stats on this socket.
+    link_stat_sent: Mutex<Option<std::time::Instant>>,
+    /// An older Worker refused `link_stat`: none is sent on this socket again.
+    link_stat_refused: std::sync::atomic::AtomicBool,
 }
+
+/// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
+pub const LINK_STAT_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(30);
+/// The message an older Worker refuses a frame type it does not know with.
+const UNKNOWN_FRAME_TYPE: &str = "unknown frame type";
 
 /// A connected signaling socket. Clone to share.
 #[derive(Clone)]
@@ -447,6 +459,8 @@ impl SignalingClient {
             mailbox: mailbox_tx,
             closed: Mutex::new(None),
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
+            link_stat_sent: Mutex::new(None),
+            link_stat_refused: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
         tokio::spawn(async move { out.write_out(sink).await });
@@ -646,6 +660,22 @@ impl SignalingClient {
         self.shared.out.push_signal(Signal::Text(text))
     }
 
+    /// Send one `link_stat` frame (PROTOCOL.md "Link stats"), already serialized. Refused (no
+    /// send) once this socket's Worker said it does not know the frame ([`Self::sends_link_stats`]).
+    pub fn send_link_stat(&self, text: String) -> Result<(), SignalingError> {
+        if !self.sends_link_stats() {
+            return Err(SignalingError::Closed);
+        }
+        *self.shared.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(std::time::Instant::now());
+        self.shared.out.push_signal(Signal::Text(text))
+    }
+
+    /// Whether this socket still sends `link_stat`: false once an older Worker refused one.
+    pub fn sends_link_stats(&self) -> bool {
+        !self.shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Close the socket. Sessions see `Disconnected`.
     pub fn close(&self) {
         self.shared.out.close();
@@ -692,8 +722,31 @@ impl Shared {
         }
     }
 
+    /// Whether `text` is an older Worker's refusal of the `link_stat` this socket just sent: a
+    /// session-less `bad_request "unknown frame type"` within [`LINK_STAT_ANSWER_WITHIN`] of it.
+    /// It stops this socket's stats; it never reaches a dial (it would fail every dial in flight).
+    fn answers_link_stat(&self, text: &str) -> bool {
+        if !text.contains(UNKNOWN_FRAME_TYPE) {
+            return false;
+        }
+        let sent = *self.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        if sent.is_none_or(|at| at.elapsed() >= LINK_STAT_ANSWER_WITHIN) {
+            return false;
+        }
+        match serde_json::from_str::<SignalMessage>(text) {
+            Ok(SignalMessage::Error { code, message, session_id: None })
+                if code == "bad_request" && message == UNKNOWN_FRAME_TYPE =>
+            {
+                self.link_stat_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+                tracing::debug!("this Worker does not take link_stat; not sending it on this socket");
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn dispatch_text(&self, text: &str, incoming: &mpsc::UnboundedSender<IncomingSession>) {
-        if self.answers_app_ping(text) {
+        if self.answers_link_stat(text) || self.answers_app_ping(text) {
             return;
         }
         let message = match serde_json::from_str::<SignalMessage>(text) {
@@ -771,6 +824,8 @@ mod tests {
             mailbox,
             closed: Mutex::new(None),
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
+            link_stat_sent: Mutex::new(None),
+            link_stat_refused: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }
@@ -801,6 +856,38 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn an_older_workers_refusal_of_link_stat_stops_stats_and_fails_no_dial() {
+        let (shared, mut events) = shared_for_test();
+        let (incoming, _in_rx) = mpsc::unbounded_channel();
+        let refusal = r#"{"type":"error","code":"bad_request","message":"unknown frame type"}"#;
+        // No stat sent: the same frame is a real session-less error.
+        shared.dispatch_text(refusal, &incoming);
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        assert!(!shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed));
+        // A stat just went out: its refusal is swallowed and stops stats on this socket.
+        *shared.link_stat_sent.lock().unwrap() = Some(std::time::Instant::now());
+        // An outstanding app ping does not take the stat's refusal for its own answer.
+        shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(refusal, &incoming);
+        assert!(events.try_recv().is_err());
+        assert!(shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(shared.pings_unanswered.load(std::sync::atomic::Ordering::Relaxed), 1);
+        // Another bad_request is not the stat's refusal.
+        shared.pings_unanswered.store(0, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"to must be a deviceId"}"#,
+            &incoming,
+        );
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        // A refusal that names a session is never the stat's.
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"unknown frame type","sessionId":"s1"}"#,
+            &incoming,
+        );
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
+    }
 
     #[test]
     fn mailbox_frames_match_the_contract() {
