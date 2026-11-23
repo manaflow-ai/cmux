@@ -92,8 +92,8 @@ bun scripts/chat-sim.ts --capture <chat> --report "why did it collapse"     # th
 bun scripts/chat-sim.ts --capture cosmic-gray/<name> --window "22:05Z-22:11Z" --out /tmp
 ```
 
-`<chat>` is a session folder, an id or name under `~/.acpmux/sessions`, or anything `acpmux session export`
-resolves (a `HOST/NAME` on a peer). The window is read on his clock (America/Los_Angeles; `--tz` changes it)
+`<chat>` is a session folder, an id or name under `~/.acpmux/sessions`, a `HOST/NAME` on a peer (below), or
+anything else `acpmux session export` resolves. The window is read on his clock (America/Los_Angeles; `--tz` changes it)
 unless it says `Z` or is ISO: `2:05PM`, `2:05 pm nov 22`, `14:05`, `22:05Z`, `A to B`, `A-B`, `A..B`. One time
 is the `--minutes` (6) before it. `--report TEXT` takes the window ending at his last prompt holding TEXT.
 The records kept reach back to the start of the turn running when the window opened (`--no-lead` keeps only
@@ -106,6 +106,21 @@ reads one page; and from halfway, as a reconnect. It prints each read's violatio
 `--show` (5) with the time on his clock they happened. A capture takes well under a second, then
 `--replay FIXTURE --trace FILE` is the loop to develop against.
 
+### Capture from another host
+
+`--capture HOST/NAME` reads a chat on a peer over the mesh hub, so a lane VM captures a chat on another
+machine without running anything there. The hub does not carry `acpmux session export`, so it reads
+`acpmux session history HOST/NAME --json` (one summary per turn: its prompt's seq and time) to find the turn
+running when the window opened, then `acpmux session tail HOST/NAME --json --since SEQ` from that turn's
+prompt, stopping at the first record past the window. The records go through the same range, sanitize and
+replay as a local capture. `--report TEXT` matches the start of a prompt (the history cuts prompts short).
+Each acpmux read is bounded (`--timeout S`; 120 s for the history, 600 s for the tail); a hub error prints
+one line and exits 2, with no retry. A host the hub lists only via relay fails every read until
+cmux#48249: capture on that host instead.
+
+The tail is the cost: about 33 KB/s over the hub (2026-11-23, a lane VM reading a peer Mac: 1517 records,
+0.97 MB, 29 s), so a window late in a long turn reads the whole turn up to it.
+
 ## Keep it current
 
 ```sh
@@ -117,7 +132,10 @@ string in `src/agent-session`) that recent chats on the machine sent and that no
 scenario plays, with how many chats sent each and the newest. It then names the `--minutes` (10) span of
 one chat holding the most of them, as a `--capture` command to run. `--all-kinds` lists the kinds the pane
 does not read too. It exits 1 while any kind is missing. Run it after a protocol change and capture what it
-names.
+names. `--json` prints the same answer as one object.
+
+It also runs on its own: a fleet timer runs `--drift --days 1 --json` over a session host's chats every 6
+hours, from `feat-cmux-next` as merged, and keeps each answer with the kinds new since the pass before.
 
 ## Sweep every chat on a machine
 
