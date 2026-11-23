@@ -84,6 +84,8 @@ export interface PopupActionInput {
   disabled?: boolean;
   disabledReason?: string;
   keepOpen?: boolean;
+  /** The row's work is running (`NativePopupRow.loading`, drawn with `experiments.menuRowStates`). */
+  loading?: boolean;
 }
 export function actionRow(input: PopupActionInput): PopupRow {
   return { kind: "action", ...input };

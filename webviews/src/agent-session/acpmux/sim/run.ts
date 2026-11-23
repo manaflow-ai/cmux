@@ -12,7 +12,8 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
-import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { acpmuxSendCall } from "../conversation/acpmuxSends";
+import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -31,6 +32,12 @@ export type RowProbe = {
   opens?: boolean;
   /** The opening row is another agent's line (a notice or message), not the person's prompt. */
   received?: boolean;
+  /** Another agent's message the turn received after its opening row (`received`), or a send to one (`sent`): an
+   *  activity row, which stands `toolGap` (ST-02). */
+  message?: "received" | "sent";
+  /** The gap a tool row would stand in this row's place, under the same drawn row (transcriptGrid.ts transcriptGap
+   *  over MARK_STEP). Set on `message` rows. */
+  toolGap?: number;
   /** The row is the turn's header ("Working for" / "Worked for"), or, before it has one, its first row under the prompt. */
   head?: boolean;
   text?: string;
@@ -124,6 +131,11 @@ const foldOf = (row: AcpmuxRow): string => {
   return "";
 };
 const opensTurn = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind !== "hidden";
+/// A tool run whose every call sends another agent a message (`acpmux send`): its "Sent to" line.
+const isSendRow = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool) &&
+  (row.items ?? []).every((item) => !item.tool || acpmuxSendCall(item.tool) !== undefined);
 const isHeader = (row: AcpmuxRow) => row.kind === "worked" || (row.kind === "working" && row.below !== true);
 const textOf = (row: AcpmuxRow) => (typeof row.text === "string" ? row.text.slice(0, 80) : undefined);
 
@@ -177,7 +189,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const drawnHeights = new Map<string, number>();
   // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
   // step reads as a fold change, and the turn view then shapes every turn again (no reuse).
-  const folds = new Set<string>();
+  let folds = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let shaped = 0;
@@ -203,7 +215,8 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         workingSince = undefined;
       }
       client.seekReplay(step.seq);
-    }
+    } else if ("open" in step.reader) folds = new Set([...folds, step.reader.open]); // App.tsx sets a new `folds`
+
     const snap = snapshot;
     if (!snap) {
       current = undefined;
@@ -261,6 +274,21 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
+      // Another agent's line under a row of its own turn (a message steered in mid-turn, or the message that opened a
+      // finished turn drawn under that turn's "Worked for"), or a send: an activity row (ST-02).
+      const message =
+        row.kind === "user" && (row.incoming || row.received) && prevDrawn?.turn === own
+          ? "received"
+          : isSendRow(row)
+            ? "sent"
+            : undefined;
+      if (message) {
+        probe.message = message;
+        let aboveAt = at - 1;
+        while (aboveAt >= 0 && layout.heights[aboveAt] === 0) aboveAt -= 1;
+        if (aboveAt >= 0 && layout.marks)
+          probe.toolGap = transcriptGap(layout.marks[aboveAt]!, MARK_STEP) * (layout.scale ?? 1);
+      }
       // The turn's head: its header line, or the first row under its opening row.
       if (!headAt.has(own) && ((prevDrawn?.opens && prevDrawn.turn === own) || isHeader(row))) {
         probe.head = true;
@@ -494,8 +522,11 @@ export async function runSimulationAsync(
   return sim.result();
 }
 
-/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
+/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads, nor a
+/// message steered into the running turn.
 function isTurnPrompt(event: EventRecord): boolean {
+  // A message steered into the running turn (`steer: true`) joins that turn (direct.ts startsTurn).
+  if (event.msg?.steer === true) return false;
   const kind = event.msg?._meta?.provenance?.kind;
   return kind !== "inbox_notice" && kind !== "agent_digest";
 }
@@ -511,5 +542,6 @@ export function summarize(result: SimResult): string {
   for (const fold of result.folds)
     if (fold.verdict === "sibling") sibling.set(fold.kind, (sibling.get(fold.kind) ?? 0) + 1);
   const siblings = [...sibling].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
+  // l10n-allow: simulator report for a terminal, not shipped UI
   return `${result.scenario}: ${result.steps} steps, ${result.rows} rows drawn (${result.recordRows} before folding), ${Math.round(result.virtualMs / 1000)} s simulated in ${result.wallMs} ms; violations ${rules}; mid-turn sibling folds ${siblings}`;
 }
