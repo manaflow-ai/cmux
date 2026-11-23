@@ -96,7 +96,8 @@ def main() -> int:
             surface,
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
-            int(scale.rstrip("x") or 0),
+            # A scale is a size (1x, 10x) or, in the bytes-per-minute bench, an app name (ios, macos).
+            (0, int(scale[:-1]), "") if scale[:-1].isdigit() and scale.endswith("x") else (1, 0, scale),
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
