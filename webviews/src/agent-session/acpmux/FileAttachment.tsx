@@ -4,7 +4,7 @@ import { FileDoc, Folder } from "./conversation/icons";
 import type { AttachmentSource } from "./attachments";
 import { SourceBadge } from "./composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./composer/sourceBadgeModel";
-import { fileSizeLabel } from "./fileAttachmentModel";
+import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 
 export type FileAttachmentInfo = {
   name: string;
@@ -37,7 +37,7 @@ export function FileAttachment({
   const tailLength = Math.max(8, type.length + 1);
   const tail = chars.length > tailLength + 8 ? chars.slice(-tailLength).join("") : "";
   const head = tail ? chars.slice(0, -tailLength).join("") : file.name;
-  const size = folder ? undefined : fileSizeLabel(file.size, language);
+  const size = folder ? undefined : fileSizeLabel(shownFileSize(file), language);
   const from = useSourceLabel(file.source);
   return (
     <span
