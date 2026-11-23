@@ -348,6 +348,15 @@ import CmuxNextDesignTokens
             swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
             swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
             swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
+            // SwiftUI content that sets no ink of its own (Chief 2026-11-23): it draws the ink its host gives, the
+            // bookmark bubble's labels and title, a toggle's label and a button's label on every ground.
+            swiftUI("SwiftUI Text", Text("Bookmark added")),
+            swiftUI("SwiftUI Text (secondary)", Text("Folder").foregroundStyle(.secondary)),
+            swiftUI("SwiftUI Toggle", Toggle("Show bookmarks bar", isOn: .constant(false)).toggleStyle(.checkbox)),
+            swiftUI("SwiftUI Button (cmuxPressFill, label's own ink)", Button("Reveal") {}.buttonStyle(.cmuxPressFill)),
+            // cmux draws its pickers with ThemedPicker (above as ThemedPopUpButton); SwiftUI's own is AppKit's bezel.
+            swiftUI("system bezel: SwiftUI Picker", Picker("Folder", selection: .constant(0)) { Text("Bookmarks Bar").tag(0) }
+                .labelsHidden().pickerStyle(.menu), reference: true),
         ]
     }
 
