@@ -388,6 +388,13 @@ export function reportHostGlass(
         if (live) mark(element, "0");
         continue;
       }
+      // A restyled tooltip or hover card (experiments.hoverLook) paints its own glass every frame, not
+      // only when it mounts: no App glass under it, or the two draw a double glass.
+      if (pageDrawsHover(element)) {
+        firstShown.delete(element);
+        if (live) mark(element, "0");
+        continue;
+      }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
       const surface = applies && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
       if (surface && surfaces.length >= HOST_GLASS_MAX) {
