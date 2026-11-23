@@ -168,6 +168,10 @@
   on a running row's edge, removed when it stops running or leaves the screen. It puts status words on rows, which
   design/sidebar.md otherwise forbids; that rule stands for the default. `SidebarAgentPillTests`; gallery
   `sidebar.agent-badges`.
+  2026-11-22 (lane/taste-agent-badges-clip2): an agent chat's Done pill now shows. Lanes never report success
+  and `agentChip` never says done, so rows carry `agentDone` (the Priority view's done: idle, unread, not marked
+  read) for the pill alone; the chip and the blue dot are unchanged. Tour `agent-badges` records
+  Running, Needs approval and Done. `SidebarRowStatusTests.aFinishedUnseenChatMarksItsRowDoneForThePill`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
