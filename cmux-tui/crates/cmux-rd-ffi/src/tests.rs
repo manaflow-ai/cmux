@@ -393,7 +393,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("session_ffi.rs"),
         include_str!("upstream_ffi.rs"),
         include_str!("bulk_ffi.rs"),
-        include_str!("clipboard_ffi.rs")
+        include_str!("clipboard_ffi.rs"),
+        include_str!("record_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -421,6 +422,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
         ("CMUX_RD_ERR_FULL", CMUX_RD_ERR_FULL),
         ("CMUX_RD_ERR_TOO_LARGE", CMUX_RD_ERR_TOO_LARGE),
+        ("CMUX_RD_ERR_IO", CMUX_RD_ERR_IO),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }

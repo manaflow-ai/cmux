@@ -92,6 +92,23 @@ export default agentPaneEntry({
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("We :sm")) throw new Error(`Esc changed the text: ${promptText(ctx)}`);
     }),
+    "escape-retype": variant(
+      "Play: Esc on `:smi`, then Backspace and `i` again: the list is back, its first row highlighted.",
+      async (ctx) => {
+        await typeToMenu(ctx, "Hey :smi");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
+        // Backspace as the editor takes it (a synthetic key event deletes nothing).
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- the DOM's own edit path for a contenteditable.
+        ctx.document.execCommand("delete", false);
+        await ctx.waitFor(() => promptText(ctx).endsWith(":sm"));
+        await ctx.type("i");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
+        const prompt = ctx.document.querySelector(PROMPT)!;
+        if (prompt.getAttribute("aria-activedescendant") !== "acpmux-emoji-0")
+          throw new Error(`no row highlighted after typing back: ${prompt.getAttribute("aria-activedescendant")}`);
+      },
+    ),
     "type-past": variant("Play: typing on past `:pl` (a space) closes the menu and keeps the text.", async (ctx) => {
       await typeToMenu(ctx, "aw :pl");
       await ctx.type(" ok");

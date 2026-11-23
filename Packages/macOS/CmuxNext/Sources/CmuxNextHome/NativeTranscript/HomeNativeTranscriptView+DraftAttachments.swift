@@ -6,6 +6,13 @@ extension HomeNativeTranscriptView {
     /// The content hashes of the draft's attachments, in the order they arrived.
     public var draftAttachmentHashes: [String] { transcript.draftAttachments.map(\.ref.hash) }
 
+    /// The draft's attachment hashes, in order, each time they change: a chip added or removed, or
+    /// the draft sent. One listener: the last one set.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { transcript.onDraftAttachmentsChange }
+        set { transcript.onDraftAttachmentsChange = newValue }
+    }
+
     /// Takes these attachments out of the draft; a hash the draft does not hold is ignored.
     public func removeDraftAttachments(_ hashes: [String]) {
         for hash in hashes { transcript.removeDraftAttachment(hash) }

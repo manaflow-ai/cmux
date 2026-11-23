@@ -79,14 +79,17 @@ class SigningOnCmux15Test(unittest.TestCase):
                 context.update({"github.event_name": "push", "github.ref": "refs/heads/nightly-next",
                                 "github.ref_name": "nightly-next", "vars.CI_NIGHTLY_MINI": "",
                                 "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice((LABEL, "", *DRIFTED)), "github.run_attempt": 1})
-                outputs = [ref for ref in context if ref.endswith((".outputs.sign_owned", ".outputs.sign_owned_pool"))]
+                outputs = [ref for ref in context if ref.endswith((".outputs.sign_owned", ".outputs.sign_owned_pool",
+                                                                   ".outputs.pin"))]
                 for ref in context:
                     if ref.endswith(".outputs.attempt"):
                         context[ref] = 1
                 # The pick's pin wins: it names only the signer's runners.
+                # nightly-next-one's signer pick (note-33) prints the same shape of pin.
                 for ref in outputs:
-                    context[ref] = PIN if ref.endswith(".outputs.sign_owned") else LABEL
-                expected = json.loads(PIN) if any(ref.endswith(".outputs.sign_owned") for ref in outputs) else LABEL
+                    context[ref] = PIN if ref.endswith((".outputs.sign_owned", ".outputs.pin")) else LABEL
+                expected = (json.loads(PIN) if any(ref.endswith((".outputs.sign_owned", ".outputs.pin")) for ref in outputs)
+                            else LABEL)
                 with self.subTest(job=name, picked=True):
                     self.assertEqual(route(name, context), expected)
                 # No pick: the signer's label.
@@ -149,8 +152,8 @@ class SigningOnCmux15Test(unittest.TestCase):
             for _ in range(400):
                 context = never_blacksmith.sample(source, rng)
                 for ref in context:
-                    if ref.endswith(".outputs.sign_owned"):
-                        context[ref] = rng.choice((PIN, ""))
+                    if ref.endswith((".outputs.sign_owned", ".outputs.pin")):
+                        context[ref] = rng.choice((PIN, PIN.replace("cmux15", "ultra1"), '["glaeda-trusted-next-signing"]', ""))
                     elif ref.endswith(".outputs.sign_owned_pool"):
                         context[ref] = rng.choice((LABEL, ""))
                 # A stale or drifted variable must not choose the label: both may hold a shared one.
@@ -170,9 +173,29 @@ class SigningOnCmux15Test(unittest.TestCase):
                 labels = value if isinstance(value, list) else [value]
                 with self.subTest(job=name, context=context):
                     self.assertTrue(labels)
+                    self.assertEqual(labels[0], LABEL, "a pin always starts with the literal signer label")
                     for label in labels:
                         self.assertFalse(shared.match(str(label)), label)
-                        self.assertTrue(label == LABEL or str(label).startswith("glaeda-runner-cmux15-"), label)
+                        # A signer runner: cmux15's, or ultra1's (nightly-next-one's second signer, note-33).
+                        self.assertTrue(label == LABEL or str(label).startswith(("glaeda-runner-cmux15-",
+                                                                                  "glaeda-runner-ultra1-")), label)
+
+    def test_nightly_next_one_takes_the_signer_pick_on_its_attempt(self) -> None:
+        """One build per signer Mac (docs/ci/nightly-workflow-notes.md#note-33): the pick's pin (the signer label plus
+        one signer runner) on the attempt that made it; no pick, the label-only fallback or an older attempt's pick:
+        the signer label alone."""
+        source = manaflow_route("nightly-next-one")
+        pick = "needs.pick-nightly-next-signer.outputs"
+        ultra1 = '["glaeda-trusted-next-signing","glaeda-runner-ultra1-glaeda"]'
+        base = {"github.repository_owner": "manaflow-ai", "vars.CI_NIGHTLY_MINI": "", "github.run_attempt": 1}
+        for pin, attempt, want in ((ultra1, 1, json.loads(ultra1)), ("", "", LABEL), ('["glaeda-trusted-next-signing"]', 1,
+                                   [LABEL]), (ultra1, 2, LABEL)):
+            context = {**base, f"{pick}.pin": pin, f"{pick}.attempt": attempt}
+            if attempt == 2:
+                context.update({f"{pick}.attempt": 1, "github.run_attempt": 2})
+            with self.subTest(pin=pin, attempt=attempt):
+                self.assertEqual(evaluate(parse_expression(source.strip().removeprefix("${{").removesuffix("}}").strip()),
+                                          context), want)
 
     def test_promote_keeps_its_earlier_route(self) -> None:
         self.assertEqual(manaflow_route("promote-nightly-next").strip(),

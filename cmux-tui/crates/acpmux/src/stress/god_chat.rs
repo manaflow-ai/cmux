@@ -54,6 +54,20 @@ fn process_read() -> u64 {
     io_field(&text, "rchar").unwrap()
 }
 
+/// Resident anonymous and file-backed bytes of this process (`/proc/self/status` `RssAnon`,
+/// `RssFile`): what a loaded chat holds in memory, apart from the log pages it maps.
+fn rss_split() -> (f64, f64) {
+    let text = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let kb = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+            .unwrap_or(0.0)
+            * 1024.0
+    };
+    (kb("RssAnon:"), kb("RssFile:"))
+}
+
 fn process_written() -> u64 {
     let text = std::fs::read_to_string("/proc/self/io").unwrap();
     io_field(&text, "wchar").unwrap()
@@ -243,6 +257,10 @@ struct Costs {
     delta_written: f64,
     delta_us: f64,
     rss_per_delta: f64,
+    /// Resident bytes the restarted daemon holds once the chat is open, over the process before
+    /// the restart: anonymous (heap) and file-backed (mapped log pages).
+    loaded_anon: f64,
+    loaded_file: f64,
     /// Readers (all but the stalled watcher) that missed a delta, and the fewest one got.
     short_readers: usize,
     least_seen: u64,
@@ -258,12 +276,19 @@ fn costs(bytes: u64) -> Costs {
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let costs = runtime.block_on(async {
         // Restart: the store opened again and the daemon's hub over it, its restore included.
+        let (anon_before, file_before) = rss_split();
         let (read, wall) = (process_read(), Instant::now());
         let cfg = config();
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+        let store = crate::store::open(&cfg.store, home.path()).unwrap();
+        let store_open_read = (process_read() - read) as f64;
+        let hub = Hub::new(cfg.clone(), store);
         let restart_read = (process_read() - read) as f64;
         let restart_ms = wall.elapsed().as_secs_f64() * 1e3;
         let restart_after_read = settle().await as f64;
+        eprintln!(
+            "STRESS god chat split: store open read={store_open_read:.0} B; hub read={:.0} B",
+            restart_read - store_open_read
+        );
         let session =
             hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
         assert_eq!(session.meta().last_seq, last_seq, "the restart sees the whole log");
@@ -278,6 +303,9 @@ fn costs(bytes: u64) -> Costs {
         let open_read = (process_read() - read) as f64;
         let open_ms = wall.elapsed().as_secs_f64() * 1e3;
         assert!(page["events"].as_array().is_some_and(|e| !e.is_empty()), "the open shows a page");
+        let (anon_open, file_open) = rss_split();
+        let loaded_anon = (anon_open - anon_before).max(0.0);
+        let loaded_file = (file_open - file_before).max(0.0);
         watchers.push((tx, rx));
         for _ in 1..WATCHERS {
             let (tx, mut rx) = connect(&hub).await;
@@ -372,6 +400,8 @@ fn costs(bytes: u64) -> Costs {
             delta_written,
             delta_us,
             rss_per_delta,
+            loaded_anon,
+            loaded_file,
             short_readers,
             least_seen,
             stalled_held,
@@ -380,13 +410,37 @@ fn costs(bytes: u64) -> Costs {
     });
     // The hub's tasks end with its runtime, before the next size is measured.
     runtime.shutdown_timeout(Duration::from_secs(5));
+    // A second restart over the same home once the first hub and its runtime are gone (they
+    // hold the event journal): whether the start read repeats on every start or is paid once.
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.block_on(async {
+        let read = process_read();
+        let cfg = config();
+        match crate::store::open(&cfg.store, home.path()) {
+            Ok(store) => {
+                let wall = Instant::now();
+                let again = Hub::new(cfg.clone(), store);
+                eprintln!(
+                    "STRESS god chat second restart: read={:.0} B in {:.1} ms",
+                    (process_read() - read) as f64,
+                    wall.elapsed().as_secs_f64() * 1e3
+                );
+                drop(again);
+            }
+            Err(error) => {
+                eprintln!("STRESS god chat second restart: the store did not open: {error}")
+            }
+        }
+    });
+    runtime.shutdown_timeout(Duration::from_secs(5));
     costs
 }
 
 fn print(size: &str, c: &Costs) {
     eprintln!(
         "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
-         in the background; open read={:.0} B reply={:.0} B in {:.1} ms; per delta to \
+         in the background; open read={:.0} B reply={:.0} B in {:.1} ms; loaded rss anon={:.0} B file={:.0} B; per delta to \
          {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B; \
          {} readers short (fewest {} of {DELTAS}); the stalled one held {} lines, told it lagged: {}",
         c.log_mb,
@@ -396,6 +450,8 @@ fn print(size: &str, c: &Costs) {
         c.open_read,
         c.open_reply,
         c.open_ms,
+        c.loaded_anon,
+        c.loaded_file,
         c.delta_read,
         c.delta_written,
         c.delta_us,
@@ -408,7 +464,7 @@ fn print(size: &str, c: &Costs) {
 }
 
 /// In a process of its own: bytes read and memory are counted for the whole process. Manual,
-/// as `update_cost_bench` is: CI runs no new perf test (root CLAUDE.md).
+/// as `update_cost_bench` is (kept out of CI under the 2026-10-23 no-new-CI rule, since lifted).
 #[test]
 #[ignore = "manual god-chat stress: cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture"]
 fn a_god_chat_restarts_opens_and_streams_as_a_small_one_does() {

@@ -3,6 +3,7 @@
 // thinking-tool-swap-stills.test.ts draws it for review, thinking-tool-swap-frames.test.ts holds it to
 // its bounds.
 import type { Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 export const SWAP_PAGE = "/test/browser/send-stream-motion.html";
 
@@ -87,7 +88,7 @@ export function swapFrameGate() {
 }
 
 /// Reads one frame (runs in the page).
-export function readSwapFrame(): SwapFrame {
+export function readSwapFrame(rowSelector: string): SwapFrame {
   const box = (rect: DOMRect | Box): Box => ({
     top: Math.round(rect.top * 100) / 100,
     bottom: Math.round(rect.bottom * 100) / 100,
@@ -127,7 +128,7 @@ export function readSwapFrame(): SwapFrame {
     return { box: drawn, ink: value, text: text.slice(0, 40) };
   };
   const rows: SwapFrame["rows"] = [];
-  const turn = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].filter((row) => {
+  const turn = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].filter((row) => {
     const id = row.dataset.rowId!;
     return id.startsWith("live-") && row !== liveRow;
   });
@@ -235,7 +236,7 @@ export async function recordSwap(
   let landed = -1;
   for (let index = 0; index < 400 && (landed < 0 || index - landed <= 48); index += 1) {
     if (index > 0) await page.evaluate(() => (window as unknown as { __advance: () => Promise<void> }).__advance());
-    const frame = await page.evaluate(readSwapFrame);
+    const frame = await page.evaluate(readSwapFrame, TRANSCRIPT_ROW);
     if (landed < 0 && frame.phase === "land") landed = index;
     frames.push(frame);
     await each?.(frame, index, landed);

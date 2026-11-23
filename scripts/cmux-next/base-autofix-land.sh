@@ -59,6 +59,10 @@ main() {
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
   unset TOKEN
+  # The Swift rewrites' pull request only: the push token may lack pull-requests (its mint asks for
+  # contents alone, cmux-next-base-autofix.yml). Unset: the push token.
+  pr_token="${PR_TOKEN:-$token}"
+  unset PR_TOKEN
   # Global, and removed on EXIT: set -e ends the script without returning from main.
   work="$(mktemp -d)"
   trap 'rm -rf "${work:-}"' EXIT
@@ -135,6 +139,9 @@ main() {
       "$@"
     fi
   }
+  with_pr_token() { # <gh command...>: the pull-request token for this one command only
+    if [[ -n "$pr_token" ]]; then GH_TOKEN="$pr_token" "$@"; else "$@"; fi
+  }
   propose_sources() { # <base> <paths>: the rewrite as a commit on <base>, pushed to SOURCES_BRANCH, with its pull request
     local on="$1" paths="$2" path entry tree commit previous number path_list
     local idx="$work/sources-index"
@@ -173,10 +180,10 @@ main() {
       echo "::warning title=Base autofix Swift rewrites::open the pull request for $sources_branch into $branch by hand"
       return 0
     fi
-    number="$(with_token gh pr list --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" --state open \
+    number="$(with_pr_token gh pr list --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" --state open \
       --json number --jq '.[0].number // empty' 2>/dev/null || true)"
     [[ -z "$number" ]] || { echo "Its pull request #$number compiles the new head."; return 0; }
-    if ! with_token gh pr create --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" \
+    if ! with_pr_token gh pr create --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" \
       --title "chore(next): base autofix Swift rewrites" \
       --body "The base autofix rewrote these Swift files (the namespace lint's safe rewrites) and could not compile them, so they wait here for this pull request's CI instead of landing on $branch (8f33d7030473 broke the Release compile that way). Made by ${RUN_URL:-the base autofix}; a newer run replaces the head.
 
