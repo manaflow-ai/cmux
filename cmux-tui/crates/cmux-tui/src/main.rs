@@ -912,11 +912,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 let value = args
                     .next()
                     .ok_or_else(|| "--freeing-idle-seconds needs a value".to_string())?;
-                let seconds = value
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|seconds| *seconds > 0)
-                    .ok_or_else(|| "--freeing-idle-seconds must be a positive integer".to_string())?;
+                let seconds =
+                    value.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        "--freeing-idle-seconds must be a positive integer".to_string()
+                    })?;
                 if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
                     return Err("--freeing-idle-seconds may be supplied only once".into());
                 }

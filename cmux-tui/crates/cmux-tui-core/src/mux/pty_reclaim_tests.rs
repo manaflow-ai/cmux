@@ -24,10 +24,7 @@ fn idle(surface: u64, since_ms: u64) -> ReclaimCandidate {
     }
 }
 
-fn with(
-    mut candidate: ReclaimCandidate,
-    change: impl FnOnce(&mut ParkFacts),
-) -> ReclaimCandidate {
+fn with(mut candidate: ReclaimCandidate, change: impl FnOnce(&mut ParkFacts)) -> ReclaimCandidate {
     change(&mut candidate.facts);
     candidate
 }
