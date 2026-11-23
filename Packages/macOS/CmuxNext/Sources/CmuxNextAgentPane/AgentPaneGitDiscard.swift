@@ -175,40 +175,40 @@ public nonisolated struct AgentPaneGitDiscard: Equatable, Sendable {
 extension AgentPaneGitDiscard {
     /// `git.discard` or `git.discardHunk` whose params break its contract.
     public nonisolated static var invalidMessage: String {
-        String(localized: "agentPane.error.gitDiscardInvalid", defaultValue: "The app refused the revert request.", bundle: .module)
+        String(localized: "agentPane.error.gitDiscardInvalid", defaultValue: "The app refused the revert request.", bundle: .localizedModule)
     }
 
     /// Revert hunk in Uncommitted on a file with staged changes.
     nonisolated static var stagedHunkMessage: String {
         String(localized: "agentPane.error.gitDiscardStagedHunk",
-               defaultValue: "This file has staged changes. Revert the change in Unstaged, or revert the whole file.", bundle: .module)
+               defaultValue: "This file has staged changes. Revert the change in Unstaged, or revert the whole file.", bundle: .localizedModule)
     }
 
     /// An untracked file whose folder resolves outside the repository.
     nonisolated static var outsideMessage: String {
-        String(localized: "agentPane.error.gitDiscardOutside", defaultValue: "That file is outside the repository.", bundle: .module)
+        String(localized: "agentPane.error.gitDiscardOutside", defaultValue: "That file is outside the repository.", bundle: .localizedModule)
     }
 
     /// A revert that names a submodule.
     nonisolated static var submoduleMessage: String {
         String(localized: "agentPane.error.gitDiscardSubmodule",
-               defaultValue: "Submodules aren't reverted here. Revert them in their own folder.", bundle: .module)
+               defaultValue: "Submodules aren't reverted here. Revert them in their own folder.", bundle: .localizedModule)
     }
 
     /// A hunk revert that would create or delete the file.
     nonisolated static var wholeFileMessage: String {
         String(localized: "agentPane.error.gitDiscardWholeFile",
-               defaultValue: "This change adds or removes the whole file. Revert the file instead.", bundle: .module)
+               defaultValue: "This change adds or removes the whole file. Revert the file instead.", bundle: .localizedModule)
     }
 
     /// Undo after the file changed since the revert.
     nonisolated static var undoChangedMessage: String {
         String(localized: "agentPane.error.gitDiscardUndoChanged",
-               defaultValue: "The file changed after the revert, so Undo can't put the change back.", bundle: .module)
+               defaultValue: "The file changed after the revert, so Undo can't put the change back.", bundle: .localizedModule)
     }
 
     /// A revert that stopped part way: the files it did not revert.
     nonisolated static var notRevertedMessage: String {
-        String(localized: "agentPane.error.gitDiscardNotReverted", defaultValue: "Not reverted: %@", bundle: .module)
+        String(localized: "agentPane.error.gitDiscardNotReverted", defaultValue: "Not reverted: %@", bundle: .localizedModule)
     }
 }

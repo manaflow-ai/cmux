@@ -38,11 +38,27 @@ first_frame_ms (`first_window_frame_committed`), main_ms (`main_start`), input_m
 interaction), split at `main` into premain_ms (the system's part: a new copy's policy check, dyld) and ours_ms (main
 to the key taken), accepted_ms (terminal: the first key the app wrote toward the pty), and spawn_to_start_ms (the harness's
 exec to the process start; a Dock click's own delta is not measured here). Keys are paced KEY_EVERY_S apart, so
-a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round also carries `stages`: the launch's startup stages from its marks
+(premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
+first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
+Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
 Exit 0 when every round measured its front.
 
+--launch-delay-ms N is the bench's positive control (launch-tti.sh control=N): each measured launch gets
+CMUX_NEXT_LAUNCH_TEST_DELAY_MS=N, so the app waits N ms before it makes any window; launch_tti_control.py compares
+that run with a baseline one and fails the bench when its numbers did not move by about N.
+
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
-process to hold the PostEvent grant; a run without it says `post_access: false` and measures no input.
+process to hold the PostEvent grant (CGPreflightPostEventAccess). A runner without it (`post_access: false`) types in
+the app instead (`input: in_app`, every round row and the TTI line say which path ran, `posted` or `in_app`): the
+launch has CMUX_NEXT_LAUNCH_TYPE_PROBE=1, so the app itself types one key into its key window at its first window
+frame (LaunchTypeProbe, the probe scripts/measure/launch-ready.swift's `type` mode uses), and the terminal's
+interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `terminal_echo` (input_ms): the same
+process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
+probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
+`window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
+round. The chat composer posts no input mark in any build yet (`no_mark`), so on either path a chat round measures
+nothing and the row is the terminal's.
 """
 from __future__ import annotations
 
@@ -53,6 +69,7 @@ import json
 import mmap
 import os
 import plistlib
+import select
 import shutil
 import subprocess
 import sys
@@ -63,6 +80,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import relaunch_restore_check as rr  # noqa: E402  (its probe set, seed and launch, shared with L5)
+import launch_stages  # noqa: E402  (the per-stage startup spans the app's launch-times.jsonl rows carry)
 
 KEY_EVERY_S = 0.04
 KEY_X = 7  # kVK_ANSI_X
@@ -75,8 +93,15 @@ DEFAULT_PLAN = ("cold_install:chat,cold_install:terminal,cold_after_update:chat,
 PRERUN_S = 60.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
+TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
+LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
+PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
+# LaunchTypeProbe found no key window at the first frame and took the front itself, as a Dock launch would: the app
+# was not active (a background runner's launch), or it was and no window was key. The round's `probe_focus` names it.
+PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_key")
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
-              CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo")
+              CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
+              PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT)
 
 
 def log(message: str) -> None:
@@ -183,6 +208,58 @@ def terminal_reading(rows: list[dict], start_ns: int | None) -> dict:
     return out
 
 
+def input_path(post_access: bool, chosen: str = "auto") -> str:
+    """`posted` when this process may post keys (the harness types), else `in_app` (the app's LaunchTypeProbe types);
+    --input posted or in_app picks one whatever the grant (posted without it fails every round, as before)."""
+    if chosen in ("posted", "in_app"):
+        return chosen
+    return "posted" if post_access else "in_app"
+
+
+def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0) -> dict:
+    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path,
+    and with `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
+    out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
+    if path == "in_app":
+        out[TYPE_PROBE_VARIABLE] = "1"
+    if delay_ms > 0:
+        out[LAUNCH_DELAY_VARIABLE] = str(delay_ms)
+    return out
+
+
+def in_app_terminal_reading(marks: dict) -> dict:
+    """{accepted_ms, input_ms} from the launch marks on the in_app path: the key LaunchTypeProbe typed left the app for
+    the restored terminal's pty (terminal_input_accepted) and its echo came back (terminal_echo); ms since process
+    start, as launch-ready.swift's type mode reads them."""
+    return {"accepted_ms": marks.get("terminal_input_accepted"), "input_ms": marks.get("terminal_echo")}
+
+
+def probe_focus(marks: dict) -> str | None:
+    """How the in-app key found its window (pure): `key` (a window was key at the first frame), `app_inactive` or
+    `window_not_key` (the probe took the front, PROBE_TOOK_FRONT), `none` (no window could take keys); None when the
+    probe did not run."""
+    took = next((m for m in PROBE_TOOK_FRONT if m in marks), None)
+    if took:
+        return took.removeprefix("terminal.probe_")
+    if PROBE_NO_KEY_WINDOW in marks:
+        return "none"
+    return "key" if PROBE_TYPED in marks else None
+
+
+def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
+    """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
+    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    out = []
+    if path == "posted" and not row.get("post_access", True):
+        out.append("this process may not post keys (CGPreflightPostEventAccess false)")
+    if row.get("input_ms") is None and not row.get("no_mark"):
+        if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
+            out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
+        else:
+            out.append(f"the {which} took no key within {settle:.0f} s ({path})")
+    return out
+
+
 def bundle_has_input_mark(app: Path) -> bool:
     """Whether any page script the app ships posts the composer's input mark (INPUT_MARK_MESSAGE): read once per run,
     so a chat round on a build without it is `no_mark` and a slow composer on a build with it is a failure."""
@@ -248,9 +325,16 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path) -> None:
-    shutil.rmtree(app)
-    subprocess.run(["ditto", str(pristine), str(app)], check=True, timeout=600)
+def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+    """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
+    which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
+    path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
+    every file, cmuxterm-hq run 44723138688, 2026-11-20), so a re-copy in place failed every cold round."""
+    new = app.parent.parent / f"app-cold-{n}" / app.name
+    new.parent.mkdir(parents=True, exist_ok=False)
+    subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
+    shutil.rmtree(app, ignore_errors=True)
+    return new
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -341,32 +425,35 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     if not shown:
         quit_app(inst, process)
         return None, "the prerun's window never showed"
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the prerun stays up `seconds` after its window shows, on purpose
     rr.wait(lambda: rr.call(inst.sock, "system.ping", timeout=2).get("error") is None, 10, 0.25)
     return None, quit_app(inst, process)
 
 
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
-    """One quit and measured launch; returns (row, the new process)."""
+    """One quit and measured launch; returns (row, the new process, the app it ran: a cold round's is a new copy)."""
+    path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
-                 "post_access": keys.access}
+                 "post_access": keys.access, "input": path}
     failures = row.setdefault("failures", [])
     put = rr.put_front(inst, which, made)
     if put:
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-        return row, process
+        return row, process, app
     why = quit_app(inst, process)
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            fresh_copy(app, pristine)
+            app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-            return row, process
+            return row, process, app
+        # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
+        inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
         if kind == "cold_after_update":
             row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
@@ -376,8 +463,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
     spawned = uptime_ns()
-    process, fd, _ = rr.launch(app, {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}, out / "app-tti.log")
+    process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
     start_ns = process_start_uptime_ns(process.pid)
+    if path == "in_app":
+        activate(process.pid)  # the app types into its key window at its first frame: ask for the front from the start
     row["pid"] = process.pid
     row["spawn_to_start_ms"] = round((start_ns - spawned) / 1e6, 1) if start_ns else None
     marks: dict = {}
@@ -393,7 +482,11 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
         if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
             break
-        if which == "terminal":
+        if which == "terminal" and path == "in_app":
+            term = in_app_terminal_reading(marks)
+            if term["input_ms"] is not None or PROBE_NO_KEY_WINDOW in marks:
+                break
+        elif which == "terminal":
             term = terminal_reading(probe_rows(probe), start_ns)
             if term["input_ms"] is not None:
                 break
@@ -403,16 +496,28 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         # A terminal key that reached the pty: stop typing so its echo closes the sample (a later key would close it
         # unfinished), and post again only if no echo comes within a second.
         holding = which == "terminal" and term["accepted_ms"] is not None and time.monotonic() - last_post < 1.0
-        if keys.cg is not None and not holding:
+        if path == "posted" and keys.cg is not None and not holding:
             keys.post(process.pid)
             posted += 1
             last_post = time.monotonic()
         time.sleep(KEY_EVERY_S)
-    time.sleep(0.2)
+    # Marks written as the loop ended: read until the pipe stays quiet for 0.2 s (or ends), at most 2 s.
+    drain_end = time.monotonic() + 2.0
+    while time.monotonic() < drain_end:
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            break
+        before = (len(buf), len(marks))
+        read_marks(fd, buf, marks)
+        if (len(buf), len(marks)) == before:
+            break  # readable with nothing new: the writer closed the pipe
     read_marks(fd, buf, marks)
     os.close(fd)
     if which == "terminal":
-        term = terminal_reading(probe_rows(probe), start_ns)
+        term = in_app_terminal_reading(marks) if path == "in_app" else terminal_reading(probe_rows(probe), start_ns)
     row["keys_posted"] = posted
     row["main_ms"] = marks.get("main_start")
     row["first_frame_ms"] = marks.get("first_window_frame_committed")
@@ -423,15 +528,15 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     else:
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
+    if path == "in_app":
+        row["probe_focus"] = probe_focus(marks)
     row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
-    if not keys.access:
-        failures.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
-        failures.append(f"the {which} took no key within {args.settle:.0f} s")
+    failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-    return row, process
+    return row, process, app
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -462,7 +567,7 @@ def check(args) -> int:
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
         for n, (kind, which) in enumerate(args.plan, 1):
-            row, process = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -496,14 +601,19 @@ def check(args) -> int:
             got = [r["input_ms"] for r in result["rounds"] if r.get("kind") == kind and r.get("front") == which
                    and isinstance(r.get("input_ms"), (int, float))]
             summary[f"{kind}_{which}_ms"] = max(got) if got else None
+    # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
+    result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
+                        for which in FRONTS}
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
-    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access)
+    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access, launch_delay_ms=args.launch_delay_ms,
+                  input=input_path(keys.access, args.input))
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    print("TTI " + json.dumps({k: result.get(k) for k in ("verdict", "post_access", "seed", "seed_error", *summary)}),
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", *summary)
+    print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
 
@@ -531,6 +641,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
                                                              "cold_after_update, warm or warm60, FRONT chat or terminal")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
+    parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
+                        help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "
+                             "LaunchTypeProbe at its first frame), auto (posted when the grant is held)")
+    parser.add_argument("--launch-delay-ms", type=int, default=0,
+                        help="the positive control: each measured launch waits this long before its first window "
+                             "(CMUX_NEXT_LAUNCH_TEST_DELAY_MS; the app clamps it to 5000)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)

@@ -176,6 +176,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, toPane: pane, in: workspace)
     }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTab(tab, toPane: pane, before: anchor, in: workspace)
+    }
     public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
         try await backend(workspace.macID).setSplitRatio(split, to: ratio, in: workspace)
     }

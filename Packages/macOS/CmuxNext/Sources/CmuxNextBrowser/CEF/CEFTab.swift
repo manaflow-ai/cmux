@@ -40,6 +40,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var webAuthnRefused = false
     /// Passkey hand-offs whose trigger runs now (``handOverWebAuthn(during:)``): their click is the person's.
     @ObservationIgnored var webAuthnHandOvers = 0
+    /// An agent acted in the page (``markAgentDriven()``) since the person last took it (their input or a hand-off):
+    /// its WebAuthn is refused then. An agent's reads (``markAgentReading()``) leave it as it is.
+    @ObservationIgnored var webAuthnAgentActs = false
     /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
     public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
@@ -269,6 +272,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
+    /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
+    @ObservationIgnored public private(set) var browserEndedForQuit = false
     @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -281,6 +287,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The pane host of a background tab an agent drives from a window of its own (`CEFPaneHost+AgentHosts`):
     /// the tab goes back there when its pane shows it.
     @ObservationIgnored weak var homeHost: CEFPaneHost?
+    /// The App pane that shows this tab next (`willShow(inPane:)`): its view joins that pane's Chromium window when it appears.
+    @ObservationIgnored var shownPane: BrowserPaneID?
+    /// The host this tab left for a pane host whose window it waits for (`CEFPaneHost.move`): it goes back there if the fork cannot move it in.
+    @ObservationIgnored weak var regroupedFrom: CEFPaneHost?
     /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
     @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
@@ -501,6 +511,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
+        // Set before the relay ends: a cmux page reads it in its end (`CEFPageChromiumPage`).
+        if !closesTab { browserEndedForQuit = true }
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -522,6 +534,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             // Stays when the fork cannot move it home or its pane's window is gone: shown from its own window.
             host.returnHome(self)
         }
+        // A pane's web tabs share its Chromium window: the ones it does not show are Chromium background tabs.
+        if !parked, let shownPane { host.regroup(self, into: shownPane) }
         // A tab that could not move out went home: presenting it there would take the pane's page window.
         if parked, host.visibleTab != nil, host.visibleTab !== self, !host.holdsOwnTab { return }
         host.present(self, in: view)
@@ -565,6 +579,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
+
+    /// The App shows this tab in its pane `pane` next (before it binds the tab's page there): the tab joins that
+    /// pane's Chromium window when its view appears (`CEFPaneHost.regroup`), so the pane's other tabs are background tabs.
+    public func willShow(inPane pane: BrowserPaneID) { shownPane = pane }
 
     func contentDidDisappear() {
         host.conceal(self)
@@ -718,6 +736,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        // A page view syncs its visibility when it is parked or taken back (`PageWebView.setChromiumVisibility`): its
+        // page window leaves the window while the view lies outside it (`CEFLayerHosting.isParkedAway`).
+        if host.visibleTab === self { host.hostView.layerHosting.placementChanged() }
         guard visible == isOccluded else { return }
         isOccluded = !visible
         // A hidden cmux page gets cheaper 10 s later: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).

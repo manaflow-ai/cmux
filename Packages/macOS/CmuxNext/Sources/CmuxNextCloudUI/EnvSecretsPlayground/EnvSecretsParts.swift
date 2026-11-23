@@ -1,165 +1,151 @@
 #if DEBUG
+import AppKit
 import CmuxNextDesign
-import SwiftUI
 
-// DEBUG ONLY (Environment Secrets Playground): the small parts the three directions share. They are
-// tiny one-purpose views, kept in one prototype file on purpose (the playground is deleted after the
-// pick, as the prototype workflow asks).
+// DEBUG ONLY (Environment Secrets Playground): the small parts the three directions share, as AppKit
+// views made by pure functions (each part is stateless: it is rebuilt when the model changes). Kept in
+// one prototype file on purpose: the playground is deleted after the pick.
 
-/// The semantic colors every direction draws in; they follow light and dark.
+/// The semantic colours every direction draws in; they follow light and dark.
 struct EnvInk {
-    static let text = Color(nsColor: .labelColor)
-    static let secondary = Color(nsColor: .secondaryLabelColor)
-    static let tertiary = Color(nsColor: .tertiaryLabelColor)
-    static let line = Color(nsColor: .separatorColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
-    static let canvas = Color(nsColor: .windowBackgroundColor)
-    static let fill = Color(nsColor: .quaternaryLabelColor).opacity(0.5)
-    static let warning = Color(nsColor: .systemOrange)
-    static let danger = Color(nsColor: .systemRed)
-    static let good = Color(nsColor: .systemGreen)
-    static let mono = Font.system(size: TypeScale.detail, design: .monospaced)
-    static let monoStrong = Font.system(size: TypeScale.detail, weight: .semibold, design: .monospaced)
+    static let text = NSColor.labelColor
+    static let secondary = NSColor.secondaryLabelColor
+    static let tertiary = NSColor.tertiaryLabelColor
+    static let line = NSColor.separatorColor
+    static let surface = NSColor.controlBackgroundColor  // glass-opaque-allow: a DEBUG mock of a settings page's cards, not an overlay
+    static let canvas = NSColor.windowBackgroundColor  // glass-opaque-allow: the DEBUG playground window's own page background, not an overlay
+    static let fill = envAlpha(NSColor.quaternaryLabelColor, 0.5)
+    static let warning = NSColor.systemOrange
+    static let danger = NSColor.systemRed
+    static let good = NSColor.systemGreen
 }
 
-/// A row type's tag: its symbol and short name in its tint.
-struct EnvKindBadge: View {
-    let kind: EnvSecretsKind
-    var long = false
-
-    var body: some View {
-        Label(long ? kind.title : kind.short, systemImage: kind.symbol)
-            .labelStyle(.titleAndIcon)
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(kind == .variable ? EnvInk.secondary : kind.tint)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(kind.tint.opacity(kind == .variable ? 0.10 : 0.14)))
-            .fixedSize()
+/// `color` with its own alpha multiplied by `factor`, resolved per look (as SwiftUI's `.opacity` does;
+/// `withAlphaComponent` replaces the alpha instead, which makes a translucent system colour too strong).
+func envAlpha(_ color: NSColor, _ factor: CGFloat) -> NSColor {
+    NSColor(name: nil) { appearance in
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance { resolved = color.usingColorSpace(.sRGB) ?? color }
+        return resolved.withAlphaComponent(resolved.alphaComponent * factor)
     }
+}
+
+/// A row type's tag: its symbol and short name (or full title when `long`) in its tint, on a capsule.
+func envKindBadge(_ kind: EnvSecretsKind, long: Bool = false) -> NSView {
+    let ink = kind == .variable ? EnvInk.secondary : kind.tint
+    let label = envIconLabel(long ? kind.title : kind.short, symbol: kind.symbol, size: TypeScale.caption, weight: .semibold, color: ink)
+    return EnvBox(label, padding: NSEdgeInsets(top: 2, left: 7, bottom: 2, right: 7),
+                  fill: envAlpha(kind.tint, kind == .variable ? 0.10 : 0.14), corner: .capsule)
 }
 
 /// A host the secret may go to, in monospace; `added` marks one waiting for approval, `removed` one struck out.
-struct EnvHostChip: View {
-    let host: String
-    var added = false
-    var removed = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if added { Image(systemName: "plus").font(.system(size: TypeScale.caption, weight: .semibold)) }  // plus-button-allow: a prototype glyph inside a DEBUG playground
-            Text(host).font(.system(size: TypeScale.caption, design: .monospaced)).strikethrough(removed)
-        }
-        .foregroundStyle(added ? EnvInk.warning : removed ? EnvInk.tertiary : EnvInk.text)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(added ? EnvInk.warning.opacity(0.12) : EnvInk.fill))
-        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .strokeBorder(added ? EnvInk.warning.opacity(0.5) : .clear, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-        .fixedSize()
-    }
+func envHostChip(_ host: String, added: Bool = false, removed: Bool = false) -> NSView {
+    let ink = added ? EnvInk.warning : removed ? EnvInk.tertiary : EnvInk.text
+    var parts: [NSView] = []
+    if added { parts.append(envSymbol("plus", size: TypeScale.caption, weight: .semibold, color: ink)) }  // plus-button-allow: a prototype glyph inside a DEBUG playground
+    parts.append(envLabel(host, size: TypeScale.caption, color: ink, mono: true, strike: removed))
+    return EnvBox(envH(parts, spacing: 4), padding: NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6),
+                  fill: added ? envAlpha(EnvInk.warning, 0.12) : EnvInk.fill,
+                  border: added ? envAlpha(EnvInk.warning, 0.5) : nil, corner: .radius(4), dash: added ? [3, 2] : nil)
 }
 
-/// A one-line callout: an icon, a sentence, in the tone's color.
-struct EnvNote: View {
-    enum Tone { case info, warning, danger }
-    let tone: Tone
-    let text: String
+/// How strong a one-line callout is.
+enum EnvNoteTone { case info, warning, danger }
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: symbol).foregroundStyle(color)
-            Text(text).foregroundStyle(tone == .info ? EnvInk.secondary : EnvInk.text)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .font(.system(size: TypeScale.detail))
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(color.opacity(tone == .info ? 0.06 : 0.10)))
+/// A callout the full width it is given: an icon and a wrapping sentence, in the tone's colour.
+func envNote(_ tone: EnvNoteTone, _ text: String) -> NSView {
+    let (symbol, color): (String, NSColor) = switch tone {
+    case .info: ("info.circle", EnvInk.secondary)
+    case .warning: ("exclamationmark.triangle.fill", EnvInk.warning)
+    case .danger: ("xmark.octagon.fill", EnvInk.danger)
     }
-
-    private var symbol: String {
-        switch tone {
-        case .info: "info.circle"
-        case .warning: "exclamationmark.triangle.fill"
-        case .danger: "xmark.octagon.fill"
-        }
-    }
-
-    private var color: Color {
-        switch tone {
-        case .info: EnvInk.secondary
-        case .warning: EnvInk.warning
-        case .danger: EnvInk.danger
-        }
-    }
+    let row = envH([envSymbol(symbol, color: color),
+                    envLabel(text, color: tone == .info ? EnvInk.secondary : EnvInk.text, wraps: true)],
+                   spacing: 6, align: .firstBaseline)
+    return EnvBox(row, padding: envPad(h: 10, v: 7), fill: envAlpha(color, tone == .info ? 0.06 : 0.10), corner: .radius(6))
 }
 
-/// A scope tag (Team, Personal, Chat).
-struct EnvScopeTag: View {
-    let scope: EnvSecretsEntry.Scope
-    var strong = false
-
-    var body: some View {
-        Label(scope.title, systemImage: scope.symbol)
-            .font(.system(size: TypeScale.caption, weight: strong ? .semibold : .regular))
-            .foregroundStyle(strong ? EnvInk.text : EnvInk.secondary)
-            .fixedSize()
-    }
+/// A scope tag (Team, Personal, Chat); `strong` draws it in the text colour and semibold.
+func envScopeTag(_ scope: EnvSecretsEntry.Scope, strong: Bool = false) -> NSView {
+    envIconLabel(scope.title, symbol: scope.symbol, size: TypeScale.caption, weight: strong ? .semibold : .regular,
+                 color: strong ? EnvInk.text : EnvInk.secondary)
 }
 
 /// "Set by NAME · DATE", the write-only line under a saved secret.
-struct EnvProvenance: View {
-    let entry: EnvSecretsEntry
+func envProvenance(_ entry: EnvSecretsEntry) -> NSView {
+    envLabel("Set by \(entry.setBy) · \(entry.setAt)\(entry.version > 1 ? " · version \(entry.version)" : "")",
+             size: TypeScale.caption, color: EnvInk.secondary, digits: true)
+}
 
-    var body: some View {
-        Text("Set by \(entry.setBy) · \(entry.setAt)\(entry.version > 1 ? " · version \(entry.version)" : "")")
-            .font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.secondary)
-            .monospacedDigit()
+/// The type menu of a review row, drawn as a borderless menu: the type's symbol and short name in the text
+/// colour, then a small chevron; a click lists the four types.
+func envKindMenu(_ model: EnvSecretsPlaygroundModel, _ entry: EnvSecretsEntry, reload: @escaping @MainActor () -> Void) -> NSView {
+    let kind = model.kind(of: entry)
+    let content = envH([envIconLabel(kind.short, symbol: kind.symbol, size: TypeScale.body, color: EnvInk.text),
+                        envSymbol("chevron.down", size: TypeScale.caption, weight: .semibold, color: EnvInk.text)], spacing: 3)
+    return EnvClickArea(content) { area in
+        let menu = NSMenu()
+        for kind in EnvSecretsKind.allCases {  // visible-only: the four row types
+            menu.addItem(EnvMenuAction.item(kind.title, symbol: kind.symbol) { model.setKind(kind, for: entry); reload() })
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: area.bounds.height + 2), in: area)
     }
 }
 
-/// The type menu of a review row: picks any of the four types.
-struct EnvKindMenu: View {
-    let model: EnvSecretsPlaygroundModel
-    let entry: EnvSecretsEntry
-
-    var body: some View {
-        Menu {
-            ForEach(EnvSecretsKind.allCases) { kind in
-                Button { model.setKind(kind, for: entry) } label: { Label(kind.title, systemImage: kind.symbol) }
-            }
-        } label: {
-            EnvKindBadge(kind: model.kind(of: entry))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
-        .fixedSize()
+/// The history table of a secret: time, result, chat or person, host, detail.
+func envAuditTable(_ events: [EnvSecretsAuditEvent]) -> NSView {
+    let titles = ["Time", "Result", "Chat or person", "Host", ""].map {
+        envLabel($0, size: TypeScale.caption, weight: .semibold, color: EnvInk.tertiary) as NSView?
     }
+    let rows: [[NSView?]] = events.map { event in  // visible-only: a fixed sample history of 7 lines
+        [envLabel(event.time, color: EnvInk.secondary, digits: true),
+         envIconLabel(event.outcome.title, symbol: event.outcome.symbol, color: event.outcome.tint),
+         envLabel(event.who),
+         envLabel(event.host, size: TypeScale.caption, color: EnvInk.secondary, mono: true),
+         envLabel(event.detail, color: EnvInk.secondary)]
+    }
+    let grid = envGrid([titles])
+    envGridDivider(grid)
+    for row in rows { grid.addRow(with: row.map { $0 ?? NSGridCell.emptyContentView }) }
+    return grid
 }
 
-/// The history table of a secret: time, who, host, result.
-struct EnvAuditTable: View {
-    let events: [EnvSecretsAuditEvent]
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
-            GridRow {
-                ForEach(["Time", "Result", "Chat or person", "Host", ""], id: \.self) { title in  // visible-only: fixed sample list of at most 4 items
-                    Text(title).font(.system(size: TypeScale.caption, weight: .semibold)).foregroundStyle(EnvInk.tertiary)
-                }
-            }
-            Divider().gridCellUnsizedAxes(.horizontal)
-            ForEach(events) { event in
-                GridRow {
-                    Text(event.time).monospacedDigit().foregroundStyle(EnvInk.secondary)
-                    Label(event.outcome.title, systemImage: event.outcome.symbol).foregroundStyle(event.outcome.tint)
-                    Text(event.who).lineLimit(1)
-                    Text(event.host).font(.system(size: TypeScale.caption, design: .monospaced)).foregroundStyle(EnvInk.secondary)
-                    Text(event.detail).foregroundStyle(EnvInk.secondary)
-                }
-                .font(.system(size: TypeScale.detail))
-            }
-        }
+/// The agent request card's "where to keep it" choice (``EnvRequestScopeChoice``), the same in every direction:
+/// one radio row per scope, the picked one filled with the accent colour.
+func envRequestScopePicker(_ model: EnvSecretsPlaygroundModel, reload: @escaping @MainActor () -> Void) -> NSView {
+    let rows: [NSView] = model.requestScopeChoices.map { choice in  // visible-only: the three scopes
+        let picked = choice.scope == model.requestScope
+        var tag: [NSView] = [envScopeTag(choice.scope, strong: picked)]
+        if choice.needsAdminTouchID { tag.append(envSymbol("touchid", size: TypeScale.caption, color: EnvInk.warning)) }
+        let tagRow = envH(tag, spacing: 6)
+        // A stack has no intrinsic width, so hugging does not hold it: pull it to its content's width.
+        let narrow = tagRow.widthAnchor.constraint(equalToConstant: 0)
+        narrow.priority = .init(2)
+        narrow.isActive = true
+        let text = envV([tagRow, envLabel(choice.note, size: TypeScale.caption, color: EnvInk.secondary)], spacing: 1)
+        return EnvClickArea(envRadioRow(picked: picked, title: tagRow, text: text)) { model.requestScope = choice.scope; reload() }
     }
+    return envV(rows, spacing: 6, fill: true)
+}
+
+/// A radio choice: the circle (filled in the accent colour when `picked`) centred on `title`, the one-line
+/// first row of `text`, then `text` (the title over its note), as SwiftUI centres a radio on its label.
+func envRadioRow(picked: Bool, title: NSView, text: NSView, size: CGFloat = TypeScale.detail) -> NSView {
+    let radio = envSymbol(picked ? "largecircle.fill.circle" : "circle", size: size, color: picked ? .controlAccentColor : EnvInk.tertiary)
+    let row = NSView()
+    row.translatesAutoresizingMaskIntoConstraints = false
+    radio.translatesAutoresizingMaskIntoConstraints = false
+    text.translatesAutoresizingMaskIntoConstraints = false
+    row.addSubview(radio)
+    row.addSubview(text)
+    NSLayoutConstraint.activate([
+        radio.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+        radio.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+        radio.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor),
+        text.leadingAnchor.constraint(equalTo: radio.trailingAnchor, constant: 8),
+        text.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+        text.topAnchor.constraint(equalTo: row.topAnchor), text.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+    ])
+    return row
 }
 #endif

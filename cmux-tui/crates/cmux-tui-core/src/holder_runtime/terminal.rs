@@ -1,7 +1,7 @@
 //! One terminal on the holder, and the local-runtime launch the daemon
 //! parses it on.
 
-use std::io::{self, Write};
+use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 
@@ -283,7 +283,7 @@ pub(crate) fn holder_local_launch(
     cwd: Option<String>,
 ) -> anyhow::Result<LocalLaunch> {
     let master = cmux_pty::adopt_master(terminal.custody.try_clone()?)?;
-    let writer = Box::new(WaitingWriter {
+    let writer = Box::new(crate::pty_write::WaitingWriter {
         inner: master.take_writer()?,
         master: terminal.custody.try_clone()?,
     });
@@ -298,6 +298,7 @@ pub(crate) fn holder_local_launch(
             replay.is_empty() || terminal.service.snapshot(terminal.chan, base, &replay)
         }),
         terminal_id: crate::terminal_host::TerminalId::from_bytes(terminal.id).to_hex(),
+        waited: false,
     };
     Ok(LocalLaunch {
         master,
@@ -336,65 +337,6 @@ fn terminal_end(end: SinkEnd) -> TerminalEnd {
         SinkEnd::Lost => TerminalEnd::host_lost("holder-lost"),
         // Detached for a daemon shutdown: never recorded (exit_state).
         SinkEnd::Detached => TerminalEnd::host_lost("holder-detached"),
-    }
-}
-
-/// The surface's input writer on the custody master. The holder reads that
-/// master non-blocking, and `O_NONBLOCK` belongs to the open file
-/// description every dup shares, so a write the PTY's input queue (about 1
-/// KiB on macOS) cannot take returns `WouldBlock`. This writer then waits
-/// for room, as a write on a blocking master does: a paste or a burst of
-/// mouse reports is never cut.
-struct WaitingWriter {
-    inner: Box<dyn Write + Send>,
-    /// A dup of the master to wait on.
-    master: OwnedFd,
-}
-
-impl Write for WaitingWriter {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.inner.write(buffer) {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        loop {
-            match self.inner.flush() {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
-    }
-}
-
-/// Block until the master takes input again. A master whose terminal ended
-/// is an error rather than a wait that never ends.
-fn wait_writable(master: std::os::fd::RawFd) -> io::Result<()> {
-    loop {
-        let mut poll_fd = libc::pollfd { fd: master, events: libc::POLLOUT, revents: 0 };
-        // SAFETY: polls one live pollfd; -1 waits like a blocking write.
-        let ready = unsafe { libc::poll(&mut poll_fd, 1, -1) };
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error);
-        }
-        if poll_fd.revents & libc::POLLOUT == 0
-            && poll_fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
-        {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed"));
-        }
-        return Ok(());
     }
 }
 

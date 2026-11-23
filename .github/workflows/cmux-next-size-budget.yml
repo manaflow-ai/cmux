@@ -19,58 +19,10 @@ name: cmux-next size budget
 # from the pull request's merge commit, as every pull_request workflow is; a change to it shows in
 # the diff under review.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "!docs/**/*.png"
-      - "!docs/**/*.jpg"
-      - "!docs/**/*.gif"
-      - "!docs/**/*.webp"
-      - "!plans/**/*.png"
-      - "!plans/**/*.jpg"
-      - "!plans/**/*.gif"
-      - "!plans/**/*.webp"
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/SKILL.md"
-      - ".github/**"
-      - "**/skills/**"
-      - "**/references/**"
-      - "**/templates/**"
-      - "**/Resources/**"
-      - "**/fixtures/**"
-      - "**/testdata/**"
-      - "**/test/**"
-      - "**/tests/**"
-      - "CHANGELOG.md"
-      - "THIRD_PARTY_LICENSES.md"
-      - "release-notes/**"
-      - "docs/agent-hooks.md"
-      - "docs/chief-setup-prompts.md"
-      - "docs/configuration.md"
-      - "docs/ci/node-product-cache-maintenance.md"
-      - "plans/cmux-next/actions.md"
-      - "docs/mdm/managed-preferences.md"
-      - "docs/ci/health-report.md"
-      - "docs/privacy.md"
-      - "**/notices/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
-      - "cmux-tui/README.md"
-      - "docs/remote-agents-and-cloud.md"
-      - "docs/cmux-next/customize-recipes.md"
-      - "cmux-tui/crates/acpmux/README.md"
-      - "cmux-tui/crates/acpmux/docs/**"
-      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
-      - "cmux-tui/crates/cmux-extension-sdk/README.md"
-      - "cmux-tui/vendor/terminput-crossterm/README.md"
-      - "mux/packages/brain/conformance/README.md"
-    # docs-only paths: END
-  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
-  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  # Started only by pr-router.yml (one router per push, RFD 0023), which lists the changed files once and
+  # calls this workflow when the change touches an input it measures (scripts/ci/pr_router.json
+  # `affects`). Its check runs report as `cmux-next size budget / ...`; when the router does not start it,
+  # one skipped `cmux-next size budget` check reports instead.
   workflow_call:
 
 permissions: {}
@@ -84,12 +36,16 @@ concurrency:
   group: cmux-next-size-budget-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   plan:
     name: cmux-next size budget (plan)
     # An edit that adds, changes or removes no `size:` line changes nothing measured.
     if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -130,7 +86,7 @@ jobs:
     name: cmux-next size budget (web, base)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -163,7 +119,7 @@ jobs:
     name: cmux-next size budget (web, head)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -201,7 +157,7 @@ jobs:
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

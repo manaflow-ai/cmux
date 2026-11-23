@@ -3,15 +3,18 @@
 // browsers and profiles are made up; icons are small drawn SVGs standing in for the host's PNGs.
 import type {
   AgentRow,
-  AgentToolsRow,
   ComputerUseState,
   HostImage,
   ImportCounts,
   ImportRow,
   ImportState,
+  MakeItYoursBackground,
+  MakeItYoursState,
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -130,6 +133,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
@@ -408,43 +432,52 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   };
 }
 
-// MARK: cmux Tools
+// MARK: Make cmux Yours
 
-export type AgentToolsFixture = "checking" | "none" | "found" | "adding" | "added" | "declined" | "failed";
+export type MakeItYoursFixture = "fresh" | "loading" | "terminal" | "picked";
 
-const TOOLS_AGENTS: AgentToolsRow[] = [
-  { id: "claude", name: "Claude Code", state: "ready" },
-  { id: "codex", name: "Codex", state: "ready" },
+/** A painting stand-in: a dark sky over a hill, in `sky` and `hill`. */
+function painting(sky: string, hill: string): HostImage {
+  return {
+    template: false,
+    src: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="${sky}"/><circle cx="118" cy="30" r="12" fill="#f3e3b5" opacity="0.8"/><path d="M0 72 Q40 48 80 66 T160 60 V100 H0z" fill="${hill}"/></svg>`, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+    )}`,
+  };
+}
+
+const BACKGROUNDS: MakeItYoursBackground[] = [
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "friedrich-forest-moonlight",
+    name: "Forest in the Moonlight — Caspar David Friedrich",
+    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
+  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "rembrandt-storm-galilee",
+    name: "The Storm on the Sea of Galilee — Rembrandt",
+    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
 ];
 
-/** The cmux Tools step: before an answer (checking, none found, Claude Code and Codex found), while
- * Turn On runs, and each answer (on, declined, the answer could not be saved). */
-export function agentToolsState(kind: AgentToolsFixture = "found"): OnboardingState {
-  const answered = kind === "adding" || kind === "added" || kind === "declined" || kind === "failed";
-  const rows: AgentToolsRow[] =
-    kind === "checking" || kind === "none"
-      ? []
-      : kind === "added"
-        ? TOOLS_AGENTS.map((row) => ({ ...row, state: "terminals" as const }))
-        : TOOLS_AGENTS;
-  const done = kind === "added" || kind === "declined" || kind === "failed";
+/** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
+ * Terminal First, and after a person picked Compact and a painting. */
+export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
+  const choices: MakeItYoursState = {
+    workStyle: kind === "terminal" ? "terminal" : "gui",
+    density: kind === "picked" ? "compact" : "standard",
+    background: kind === "picked" ? "friedrich-forest-moonlight" : null,
+    backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    loaded: kind !== "loading",
+  };
   return {
-    step: "agentTools",
-    footer: footer({
-      primary: done ? "done" : "addTools",
-      primaryEnabled: kind !== "adding",
-      skip: answered ? "none" : "notNow",
-    }),
+    step: "makeItYours",
+    footer: footer({ primary: "continue" }),
     agents: null,
     importer: null,
     computerUse: null,
-    agentTools: {
-      rows,
-      loaded: kind !== "checking",
-      choice: kind === "declined" ? "off" : answered ? "on" : "ask",
-      applying: kind === "adding",
-      failed: kind === "failed",
-      answered,
-    },
+    makeItYours: choices,
   };
 }

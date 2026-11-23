@@ -1,5 +1,5 @@
 /// Which New Tab page template shows (cx-yabk, plans/cmux-next/new-tab-templates.md), set in
-/// Settings. Terminal draws the default screen: New Tab never opens a terminal by itself.
+/// Settings. Terminal is no page: a person's New Tab opens a terminal instead (the page, opened another way, draws the default screen).
 ///
 /// cmux ships Minimal and Classic (and Terminal). The Cards, Default, Threads and Console pages no
 /// longer ship (Leo 2026-11-18: "The templates should be like the customixastikms api you can build
@@ -23,7 +23,8 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
     case console
     /// The Terminal | Browser | Agent page.
     case classic
-    /// No page: New Tab opens a terminal.
+    /// Terminal-first (picked at the first run, cmux#48416): a person's New Tab (Cmd-T) opens a
+    /// terminal (cmux-window-rules `tabs::new_tab_kind`), and splits keep the terminal.
     case terminal
 
     /// A template cmux no longer ships: a saved one loads as Minimal, and no page or Settings write saves it.

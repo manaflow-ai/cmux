@@ -17,7 +17,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cli="${CMUX:-cmux}"
 
 # The order of the demo: the app looks first (Claude Code, Codex, studio), then the last demo's
-# setups redone, glass, widgets. `steps` drops repeats, so a glob after a named file adds only the rest.
+# setups redone, glass, widgets; then every installable look in the gallery (gallery/, bundled
+# from examples/looks and examples/gallery), the tabs and sidebar ones first; then the
+# whole-window showcase and the Leo collection (showcase/). `steps` drops repeats, so a glob after
+# a named file adds only the rest.
 order=(
   looks/claude.json
   looks/codex.json
@@ -26,6 +29,22 @@ order=(
   last-demo/*.json
   glass/*.json
   widgets/*.json
+  gallery/material.json
+  gallery/shadcn.json
+  gallery/apple.json
+  gallery/codex-sidebar.json
+  gallery/codex-threads.json
+  gallery/claude-code-sidebar.json
+  gallery/claude-code-session-recents.json
+  gallery/claude-code-project-picker.json
+  gallery/claude-code-transcript.json
+  gallery/claude-code-composer.json
+  gallery/claude-code-session-worktree.json
+  gallery/claude-code-whole.json
+  gallery/rex-whole.json
+  gallery/hairline.json
+  gallery/*.json
+  showcase/*.json
 )
 
 steps() {
@@ -37,15 +56,27 @@ steps() {
   done | awk '!seen[$0]++'
 }
 
-title() {
-  # The profile's name, or its file name when it has none.
-  local name
-  name="$(sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' "$here/$1" | head -n 1)"
-  printf '%s' "${name:-$1}"
+describe() {
+  # The step's line: the look's name (a gallery look's own, else the profile's, else the file's),
+  # where it comes from, and what a preview leaves to `cmux setup install` (a setup's actions and
+  # extensions, which no profile carries).
+  python3 -c '
+import json, sys
+n, total, relative, path = sys.argv[1:]
+profile = json.load(open(path))
+setup = profile.get("x-setup") or {}
+name = setup.get("name") or profile.get("name") or relative
+print("\n[%s/%s] %s  (%s)" % (n, total, name, relative))
+if setup.get("source"):
+    print("      from examples/" + setup["source"])
+left = [key + " " + ", ".join(setup[key]) for key in ("actions", "extensions") if setup.get(key)]
+if left:
+    print("      its " + " and ".join(left) + " come with cmux setup install; this preview shows the rest")
+' "$@"
 }
 
 reset() {
-  "$cli" customize discard && "$cli" action run newTab.default && "$cli" customize library status
+  "$cli" customize discard && "$cli" action run newTab.page --focus && "$cli" customize library status
 }
 
 finish() {
@@ -125,10 +156,11 @@ for file in "${list[@]}"; do
   n=$((n + 1))
   # Profile settings compose with live settings. Reset so looks cannot leak into each other.
   if [[ $n -gt 1 ]]; then "$cli" customize discard; fi
-  printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
+  describe "$n" "${#list[@]}" "$file" "$here/$file"
   "$cli" customize use "$here/$file"
-  # An already open page belongs to the previous profile. Show this one's page.
-  "$cli" action run newTab.default
+  # An already open page belongs to the previous profile. Show this one's page: newTab.page, not
+  # newTab.default, which gives the CLI a tab of the selected tab's kind (a terminal here), never the page.
+  "$cli" action run newTab.page --focus
   if [[ -n "$auto" ]]; then
     sleep "$auto"
   elif [[ $n -lt ${#list[@]} ]]; then

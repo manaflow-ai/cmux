@@ -36,7 +36,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-const { createGitHubPicker, useGitHubPicker, githubFolderRepo } =
+const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromReply } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder, newTabProjectPick } = await import("../src/agent-session/acpmux/cloudRun");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
@@ -846,4 +846,27 @@ test("a GitHub folder goes to the Cloud start as its cwd and asks this Mac for n
   }, true);
   onProjectPicked?.("github:acme/api");
   expect(asked).toEqual([]);
+});
+
+test("a not_connected status carries the host's message, and only that state does (why Connect is needed again)", () => {
+  expect(
+    githubStatusFromReply({
+      state: "not_connected",
+      repos_scope: null,
+      problem: "needs_reauth",
+      message: " GitHub access was suspended. ",
+    }),
+  ).toEqual({
+    state: "not_connected",
+    reposScope: null,
+    message: "GitHub access was suspended.",
+  });
+  expect(githubStatusFromReply({ state: "not_connected", repos_scope: null, problem: null, message: null })).toEqual({
+    state: "not_connected",
+    reposScope: null,
+  });
+  expect(githubStatusFromReply({ state: "ready", repos_scope: "all", message: "ignored" })).toEqual({
+    state: "ready",
+    reposScope: "all",
+  });
 });

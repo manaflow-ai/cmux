@@ -142,11 +142,12 @@ for (const order of [undefined, "chat"] as const) {
       await render(calls, order);
       const text = target === "create row" ? "new browser" : "helo";
       const field = await type(text);
-      expect(title(rows()[0]!)).toBe("Ask Claude Code");
+      // The prompt is Return's with no row of its own (David Beyer 2026-11-20): no row leads or is lit.
+      expect(rows().some((option) => option.dataset.type === "ask")).toBe(false);
       await hover(target === "create row" ? browserRow() : row("Search the web for helo"));
-      // Hover leaves the Ask row as the keyboard's Return target.
-      expect(returnTarget()).toEqual(["Ask Claude Code"]);
-      expect(field.getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
+      // Hover lights no row for the keyboard: Return still sends the prompt.
+      expect(returnTarget()).toEqual([]);
+      expect(field.getAttribute("aria-activedescendant")).toBeNull();
       const enter = await press(field, "Enter");
       expect(enter.defaultPrevented).toBe(true);
       expect(calls).toEqual([["ask", "claude", text, undefined, "claude-opus-5-5"]]);
@@ -169,7 +170,7 @@ test("Return with the list open and no hover sends the prompt", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("helo");
-  expect(rows().length).toBeGreaterThan(1);
+  expect(rows().length).toBeGreaterThan(0);
   await press(field, "Enter");
   expect(calls).toEqual([ASK_HELO]);
 });
@@ -184,14 +185,14 @@ test("Down to the web search, then Return, searches", async () => {
   expect(calls).toEqual([["search", "helo"]]);
 });
 
-test("typing again after a Down pick hands Return back to the Ask row", async () => {
+test("typing again after a Down pick hands Return back to the prompt", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("helo");
   await press(field, "ArrowDown");
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await type("helo there");
-  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  expect(returnTarget()).toEqual([]);
   await press(field, "Enter");
   expect(calls).toEqual([["ask", "claude", "helo there", undefined, "claude-opus-5-5"]]);
 });
@@ -199,12 +200,15 @@ test("typing again after a Down pick hands Return back to the Ask row", async ()
 test("a keyboard pick stands while the pointer rests on another row", async () => {
   const calls: unknown[][] = [];
   await render(calls, "chat");
-  const field = await type("helo");
-  await press(field, "ArrowDown");
-  await hover(row("Ask Claude Code"));
-  expect(returnTarget()).toEqual(["Search the web for helo"]);
+  const field = await type("new browser");
+  // Nothing is lit while the prompt leads, so drawn row i is i + 1 Downs away.
+  const index = rows().indexOf(browserRow());
+  for (let i = 0; i <= index; i++) await press(field, "ArrowDown");
+  expect(returnTarget()).toEqual(["New browser tab"]);
+  await hover(rows().find((option) => option !== browserRow())!);
+  expect(returnTarget()).toEqual(["New browser tab"]);
   await press(field, "Enter");
-  expect(calls).toEqual([["search", "helo"]]);
+  expect(calls).toEqual([["create", "browser"]]);
 });
 
 test("Ctrl-N and Ctrl-P move the highlight, and Return runs the row they reached", async () => {
@@ -214,10 +218,10 @@ test("Ctrl-N and Ctrl-P move the highlight, and Return runs the row they reached
   await press(field, "n", { ctrlKey: true });
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await press(field, "p", { ctrlKey: true });
-  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  // Back to the prompt, which has no row: nothing is lit.
+  expect(returnTarget()).toEqual([]);
   await press(field, "n", { ctrlKey: true });
   expect(returnTarget()).toEqual(["Search the web for helo"]);
-  await hover(row("Ask Claude Code"));
   await press(field, "Enter");
   expect(calls).toEqual([["search", "helo"]]);
 });
@@ -228,7 +232,7 @@ test("a click still runs the row it presses", async () => {
   await type("helo");
   const search = row("Search the web for helo");
   await hover(search);
-  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  expect(returnTarget()).toEqual([]);
   await act(async () => search.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["search", "helo"]]);
 });
@@ -239,7 +243,7 @@ test("a click on a create row still runs its action with suggestions open", asyn
   await type("new browser");
   const browser = browserRow();
   await hover(browser);
-  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  expect(returnTarget()).toEqual([]);
   await act(async () => browser.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["create", "browser"]]);
 });

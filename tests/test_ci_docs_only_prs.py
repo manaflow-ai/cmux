@@ -43,8 +43,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # migrations applied; feat-cmux-next requires clippy (changed cmux-tui packages) and React Doctor (changed React
 # projects)). They must start for every pull request: each gates its own work inside.
 REQUIRED = {
-    "cla.yml": "CLA Assistant (main)",
-    "cla-policy-guard.yml": "CLA policy guard (main)",
     "backend-migrations.yml": "backend migrations applied (main); its plan job finds no migration in prose",
     "cmux-tui-spec.yml": "clippy (changed cmux-tui packages) (feat-cmux-next); its changes job skips the rest",
     "cmux-next-react-doctor.yml": "React Doctor (changed React projects) (feat-cmux-next)",
@@ -58,11 +56,9 @@ ALLOWED: dict[str, str] = {
     "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
     "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
-    "classic-frozen-guard.yml": "policy over every changed path, Markdown in frozen classic paths included; one job",
-    "classic-api-guard.yml": "policy over every changed path; one job",
+    "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
     "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
-    "contributor-welcome.yml": "greets a first-time contributor on main; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
@@ -77,33 +73,32 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
-    "app-platform.yml": "cmux-tui/crates/cmux-app-host/** and examples/extensions/**",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
     "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
+                                "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
-    "ci-artifact-transport.yml": "workers/ci-artifacts/**",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "cmux-next-remote-daemon.yml": "daemon/remote/**",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
+    "rust-workspaces.yml": "the files a run workspace's sources name by literal path (scripts/ci/pr_trigger_paths.py "
+                           "rust_workspaces): docs/assets/screenshot.png, cmux-image-linear's compare test fixture, "
+                           "and docs/posthog/chief-product-analytics.md, the event catalog optchat-chief's analytics "
+                           "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "fleet-test-compile.yml": "Packages/Shared/**",
     "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "gallery-health.yml": "design/icons/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
-    "mux.yml": "mux/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
-    "swift-acpmux-protocol.yml": "Packages/macOS/CmuxNext/Sources/**",
     "swift-linux-packages.yml": "Packages/Shared/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
@@ -130,7 +125,9 @@ BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
 
 
+@functools.lru_cache(maxsize=None)
 def load(name: str):
+    # Parsed once: the allowed-workflows test asks for every workflow once per base and sample (282 x 2 x 12 parses, 113 s).
     return filters.load_yaml(WORKFLOWS / name)
 
 
@@ -269,10 +266,20 @@ class DocsOnlyPullRequests(unittest.TestCase):
     def test_every_copy_of_the_block_matches(self):
         self.assertEqual(docs.main(["--check", "--root", str(ROOT)]), 0,
                          "run python3 scripts/ci/docs_only_paths.py --sync")
-        for name in docs.WORKFLOWS:
+        for name in docs.block_workflows(ROOT):
             config = filters.triggers(filters.load_yaml(ROOT / name)).get("pull_request") or {}
             self.assertEqual([str(p) for p in config.get("paths") or []], list(docs.DOCS_ONLY_PATHS), name)
             self.assertNotIn("paths-ignore", config, name)
+
+    def test_a_workflow_with_derived_trigger_paths_keeps_them(self):
+        # scripts/ci/pr_trigger_paths.py derives these from their own deciders: fewer paths than the block, so the
+        # block is not written into them, and the fallback still calls them.
+        derived = set(docs.json.loads((ROOT / docs.TRIGGER_PATHS).read_text()).get("derived", {}))
+        fallback = (ROOT / docs.FALLBACK).read_text()
+        for name in set(docs.WORKFLOWS) & derived:
+            self.assertNotIn(name, docs.block_workflows(ROOT), name)
+            self.assertNotIn(docs.BEGIN, (ROOT / name).read_text(), name)
+            self.assertIn(f"uses: ./{name}", fallback, name)
 
     def test_nothing_compiled_in_is_docs(self):
         found = compiled_in()

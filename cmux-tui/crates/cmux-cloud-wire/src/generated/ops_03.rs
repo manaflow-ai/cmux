@@ -728,6 +728,77 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first.
+    CloudSurgeCreateOp {
+        name: "cloud.surge.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session],
+        params: CloudSurgeCreateParams,
+        result: CloudSurgeReceipt,
+        error: CloudSurgeCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeCreateParams {
+    pub count: i64,
+    pub ttl_seconds: i64,
+}
+
+wire_errors! {
+    /// The error codes cloud.surge.create declares.
+    CloudSurgeCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudSurgeCapacity = "cloud.surge.capacity",
+        CloudSurgeUnavailable = "cloud.surge.unavailable",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.
+    CloudSurgePreviewOp {
+        name: "cloud.surge.preview",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudSurgePreviewParams,
+        result: CloudSurgePreview,
+        error: CloudSurgePreviewError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgePreviewParams {
+    pub count: i64,
+    pub ttl_seconds: i64,
+}
+
+wire_errors! {
+    /// The error codes cloud.surge.preview declares.
+    CloudSurgePreviewError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmAttentionEmitOp {
         name: "cloud.vm.attention.emit",
@@ -823,80 +894,4 @@ pub struct CloudVmEventEmitParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmEventEmitResult {
     pub delivered: bool,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.event.emit declares.
-    CloudVmEventEmitError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmNetworkPolicyOp {
-        name: "cloud.vm.network_policy",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Install],
-        params: CloudVmNetworkPolicyParams,
-        result: CloudVmNetworkPolicyView,
-        error: CloudVmNetworkPolicyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmNetworkPolicyParams {
-    pub machine: MachineId,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.network_policy declares.
-    CloudVmNetworkPolicyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
-    CloudVmReceiverLifecycleOp {
-        name: "cloud.vm.receiver.lifecycle",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmReceiverLifecycleParams,
-        result: CloudVmReceiverLifecycleResult,
-        error: CloudVmReceiverLifecycleError,
-    }
-}
-
-wire_enum! {
-    CloudVmReceiverLifecycleParamsPhase {
-        Read = "read",
-        Begin = "begin",
-        Ready = "ready",
-        End = "end",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverLifecycleParams {
-    pub machine: MachineId,
-    pub phase: CloudVmReceiverLifecycleParamsPhase,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attempt: Option<String>,
 }
