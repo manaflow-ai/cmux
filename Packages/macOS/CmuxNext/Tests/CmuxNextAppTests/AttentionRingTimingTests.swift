@@ -293,4 +293,31 @@ struct AttentionRingTimingTests {
         #expect(model.attentionReadByEntry.contains(pane), "the ring went without the flash")
         try await PinnedPageTests.until({ !unread.showsUnread }, report: { "the click left the tab's blue dot" })
     }
+
+    /// Case 4, a quick click: the mouse-up comes in the same turn as the press, before the attention observation's next
+    /// turn brings the ring the press's selection shows. Before, going in found no ring, so the click read the tab with no flash.
+    @Test func aQuickClickOnAnUnreadTabBehindTheShownOneStillFlashesItsPanesRing() async throws {
+        let fixture = try await Self.open(active: true, hiddenUnread: true)
+        defer { fixture.close() }
+        let content = try #require(fixture.controller.content)
+        let paneModel = try #require(fixture.a.screens.first?.panes.first)
+        let unread = try #require(paneModel.tabs.first { $0.hasUnread }, "a has no unread tab behind the shown one")
+        let pane = LayoutPaneID(paneModel.id)
+        let model = content.layoutModel
+        let strip = try #require(content.panes[pane], "a's pane has no controller")
+        content.contentView.layoutSubtreeIfNeeded()
+        let view = strip.view.stripView
+        try #require(view.window === fixture.window && !view.isHiddenOrHasHiddenAncestor && view.bounds.width > 0, "the pane shows no tab strip")
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        #expect(model.attention[pane] == nil, "the pane rang for a tab it does not show")
+
+        // Press and release with no turn between them: the observation has not seen the selection yet.
+        strip.stripModel.selectedID = StripTabID(unread.id)
+        let notifications = fixture.services.notifications
+        notifications.noteMouseDown(in: fixture.window, at: point, synthetic: true)
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(model.attention[pane] == nil, "the quick click's mouse-up left the ring")
+        #expect(model.attentionReadByEntry.contains(pane), "the quick click read the tab without the flash")
+        try await PinnedPageTests.until({ !unread.showsUnread }, report: { "the quick click left the tab's blue dot" })
+    }
 }
