@@ -53,7 +53,6 @@ export function ShareDialogBody({
   const roles = [
     { value: "view", label: t("share.role.view") },
     { value: "talk", label: t("share.role.talk") },
-    { value: "drive", label: t("share.role.drive") },
   ];
   const canInvite = !busy && isAccount(account);
   const submit = (event: FormEvent) => {
@@ -61,7 +60,6 @@ export function ShareDialogBody({
     if (!canInvite) return;
     onInvite(account.trim(), role);
     setAccount("");
-    if (role === "drive") setRole("view");
   };
   const canCopy = view.general === "anyone" || view.inviteUrl !== null;
   return (
@@ -75,17 +73,14 @@ export function ShareDialogBody({
           aria-label={t("share.addPeople")}
           autoComplete="off"
           spellCheck={false}
-          onChange={(event) => {
-            setAccount(event.currentTarget.value);
-            if (role === "drive") setRole("view");
-          }}
+          onChange={(event) => setAccount(event.currentTarget.value)}
         />
         <Select
           className="share-dialog__role"
           buttonClassName="ui-btn"
           label={t("share.roleFor")}
           value={role}
-          options={isAccount(account) ? roles : roles.filter((option) => option.value !== "drive")}
+          options={roles}
           closeOnPick
           align="end"
           onChange={(value) => setRole(value as ShareRole)}
@@ -97,9 +92,7 @@ export function ShareDialogBody({
       {/* One fixed line under the field: a refusal or a result when there is one, else what "Can
           send" means (each message waits for the owner), so the label stays short. */}
       <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
-        {status ??
-          notice ??
-          (role === "drive" ? t("share.role.driveDetail") : role === "talk" ? t("share.role.talkHint") : "")}
+        {status ?? notice ?? (role === "talk" ? t("share.role.talkHint") : "")}
       </p>
       <section className="share-dialog__section" aria-label={t("share.peopleWithAccess")}>
         <h3 className="share-dialog__heading">{t("share.peopleWithAccess")}</h3>
@@ -180,9 +173,7 @@ function PersonRow({
         value={row.role}
         disabled={busy}
         align="end"
-        options={roles.map((option) =>
-          option.value === "drive" ? { ...option, detail: t("share.role.driveDetail") } : option,
-        )}
+        options={roles}
         onChange={(value) => value !== row.role && onRole(row.account, value as ShareRole)}
       >
         <Face person={person(row.account)} size={28} />
@@ -196,17 +187,8 @@ function PersonRow({
         </span>
         <span className="share-dialog__role-value">{roles.find((role) => role.value === row.role)?.label}</span>
       </RowPicker>
-      {/* Narrow, the word gives way to an x (share.css); the label always names whom it removes. */}
-      <Button
-        className="share-dialog__remove"
-        variant="ghost"
-        danger
-        disabled={busy}
-        aria-label={t("share.removeWho", { account: row.account })}
-        onClick={() => onRemove(row.account)}
-      >
-        <Icon name="action.close" className="share-dialog__remove-mark" />
-        <span className="share-dialog__remove-word">{t("share.remove")}</span>
+      <Button variant="ghost" danger disabled={busy} onClick={() => onRemove(row.account)}>
+        {t("share.remove")}
       </Button>
     </li>
   );
@@ -225,7 +207,7 @@ function RowPicker({
 }: {
   className: string;
   value: string;
-  options: { value: string; label: string; detail?: string }[];
+  options: { value: string; label: string }[];
   disabled: boolean;
   align: "start" | "end";
   onChange(value: string): void;
@@ -241,14 +223,7 @@ function RowPicker({
         <MenuRadioGroup value={value} onValueChange={onChange}>
           {options.map((option) => (
             <MenuRadioItem key={option.value} value={option.value} closeOnClick className="ui-select-option">
-              {option.detail ? (
-                <span className="share-dialog__who">
-                  <span>{option.label}</span>
-                  <span className="share-dialog__hint">{option.detail}</span>
-                </span>
-              ) : (
-                option.label
-              )}
+              {option.label}
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>
