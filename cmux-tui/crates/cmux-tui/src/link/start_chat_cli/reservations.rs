@@ -4,8 +4,8 @@
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{Flags, percent_segment, refused, valid_environment, valid_key};
-use crate::cli::{Platform, PlatformCallError};
+use super::{Flags, refused, valid_environment, valid_key};
+use crate::cli::PlatformCallError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
@@ -34,29 +34,64 @@ impl Call {
         body
     }
 
+    /// The reservation call through the generated `cmux_cloud_client` (the person's bearer, the
+    /// selected team and this process's build space on every request; redirects never followed).
+    /// Its answer and its refusals read as `Platform`'s own calls read them.
     pub(super) fn post(&self, credential: &str) -> Result<Value, PlatformCallError> {
         let unreachable = PlatformCallError::Unreachable;
         let origin =
             crate::cli::platform_origin(self.platform.as_deref(), &|name| std::env::var(name).ok())
                 .map_err(unreachable)?;
         let timeout = if self.action == Action::Release { 10 } else { 120 };
-        let platform =
-            Platform::new(origin, credential.to_string(), std::time::Duration::from_secs(timeout))
-                .map_err(|error| unreachable(error.message))?
-                .with_team(self.team.clone());
-        let path = format!("/v1/machines/reservations/{}", percent_segment(&self.compose_key));
-        match self.action {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = cmux_cloud_client::client_for(
+            &origin,
+            Some(credential),
+            self.team.as_deref(),
+            concat!("cmux/", env!("CARGO_PKG_VERSION")),
+            std::time::Duration::from_secs(timeout),
+        )
+        .map_err(|error| unreachable(error.to_string()))?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| unreachable(error.to_string()))?;
+        runtime.block_on(self.send(&client))
+    }
+
+    async fn send(&self, client: &cmux_cloud_client::Client) -> Result<Value, PlatformCallError> {
+        let typed = |body: Value| {
+            serde_json::from_value(body).map_err(|error| {
+                PlatformCallError::Unreachable(format!("the reservation was not sent: {error}"))
+            })
+        };
+        let answer = match self.action {
             Action::Reserve => {
                 let mut body = json!({"composeKey": self.compose_key});
                 if let Some(environment) = &self.environment {
                     body.set("environment", json!(environment));
                 }
-                platform.post("/v1/machines/reservations", body)
+                client.machine_reservations_reserve(&typed(body)?).await.map(json_of)
             }
-            Action::Bind => platform.post(&format!("{path}/bind"), self.bind_payload()),
-            Action::Release => platform.delete(&path),
+            Action::Bind => client
+                .machine_reservations_bind(&self.compose_key, &typed(self.bind_payload())?)
+                .await
+                .map(json_of),
+            Action::Release => {
+                client.machine_reservations_release(&self.compose_key).await.map(json_of)
+            }
+        };
+        match answer {
+            Ok(body) => body,
+            Err(error) => Err(PlatformCallError::from_api(error).await),
         }
     }
+}
+
+fn json_of<T: serde::Serialize>(
+    answer: cmux_cloud_client::ResponseValue<T>,
+) -> Result<Value, PlatformCallError> {
+    serde_json::to_value(answer.into_inner()).map_err(|_| PlatformCallError::Unreadable(200))
 }
 
 #[derive(serde::Deserialize)]

@@ -19,5 +19,3 @@ cmux-tui/src/cli/machine_join.rs /v1/machines/credentials/{machine_id}/{action}
 cmux-tui/src/cli/machine_join.rs /v1/machines/join-tokens
 cmux-tui/src/cli/machine_join/vault.rs /v1/machines/{}/vault
 cmux-tui/src/link/start_chat_cli.rs /v1/workspaces/{}/machine
-cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations
-cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations/{}

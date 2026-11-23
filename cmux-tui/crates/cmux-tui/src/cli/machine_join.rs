@@ -462,6 +462,59 @@ pub(crate) enum CallError {
 }
 
 impl CallError {
+    /// A refusal: its status, a code this file knows and the facts its body carries.
+    fn refusal(status: u16, retry_after: Option<&str>, body: Option<Value>) -> Self {
+        let parsed = body.unwrap_or_default();
+        let code = parsed
+            .get("code")
+            .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
+            .and_then(Value::as_str);
+        let code = known_code(code);
+        let facts = Some(refusals::Facts::read(Some(&parsed), retry_after));
+        Self::Status { status, code, facts }
+    }
+
+    /// A generated `cmux_cloud_client` method's error, read as [`Platform`]'s own calls read
+    /// one: a refusal keeps its status, known code and facts; no answer is unreachable.
+    pub(crate) async fn from_api(
+        error: cmux_cloud_client::Error<cmux_cloud_client::ByteStream>,
+    ) -> Self {
+        use cmux_cloud_client::Error;
+        use futures_util::StreamExt as _;
+        let (status, retry_after, body) = match error {
+            Error::ErrorResponse(response) => {
+                let status = response.status().as_u16();
+                let retry_after = retry_after(response.headers());
+                let mut stream = response.into_inner().into_inner();
+                let mut body = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(chunk) => body.extend_from_slice(&chunk),
+                        Err(_) => return Self::Unreadable(status),
+                    }
+                }
+                (status, retry_after, body)
+            }
+            Error::UnexpectedResponse(response) => {
+                let status = response.status().as_u16();
+                let retry_after = retry_after(response.headers());
+                match response.bytes().await {
+                    Ok(body) => (status, retry_after, body.to_vec()),
+                    Err(_) => return Self::Unreadable(status),
+                }
+            }
+            Error::CommunicationError(e) => {
+                return Self::Unreachable(e.without_url().to_string());
+            }
+            // A success whose body is not the route's answer.
+            Error::InvalidResponsePayload(..) | Error::ResponseBodyError(_) => {
+                return Self::Unreadable(200);
+            }
+            other => return Self::Unreachable(other.to_string()),
+        };
+        Self::refusal(status, retry_after.as_deref(), serde_json::from_slice(&body).ok())
+    }
+
     /// The failure for a call on `what`; a 404 on the join routes means they are off here.
     fn failure(&self, what: &str) -> Failure {
         match self {
@@ -562,11 +615,7 @@ impl Platform {
             .await
             .map_err(|e| CallError::Unreachable(e.without_url().to_string()))?;
         let status = response.status().as_u16();
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
+        let retry_after = retry_after(response.headers());
         let bytes = response.bytes().await.map_err(|_| CallError::Unreadable(status))?;
         let parsed: Option<Value> = if bytes.iter().all(u8::is_ascii_whitespace) {
             Some(Value::Null)
@@ -576,14 +625,7 @@ impl Platform {
         if (200..300).contains(&status) {
             return parsed.ok_or(CallError::Unreadable(status));
         }
-        let parsed = parsed.unwrap_or_default();
-        let code = parsed
-            .get("code")
-            .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
-            .and_then(Value::as_str);
-        let code = known_code(code);
-        let facts = Some(refusals::Facts::read(Some(&parsed), retry_after.as_deref()));
-        Err(CallError::Status { status, code, facts })
+        Err(CallError::refusal(status, retry_after.as_deref(), parsed))
     }
 
     async fn credentials_async(&self) -> Result<Vec<Value>, CallError> {
@@ -794,6 +836,10 @@ const KNOWN_CODES: [&str; 62] = [
 
 /// `: <why>` for a refusal of the platform's Cloud table that has a reason of its own (a cap
 /// names its limit and use, a rate limit when to try again), else nothing.
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok().map(str::to_owned)
+}
+
 pub(crate) fn refusal_reason(code: &str, facts: Option<&refusals::Facts>) -> String {
     facts
         .and_then(|facts| refusals::reason(code, facts))
