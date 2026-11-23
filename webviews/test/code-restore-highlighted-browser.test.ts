@@ -202,9 +202,25 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
   /// Before the page's scripts: draws a copy as the boot script does (a `cmux-chat-snapshot` host whose
   /// shadow root shows a highlighted code card, over the live root at opacity 0), then watches the
   /// live root's code cards from the frame the copy goes.
-  const watch = (p: Page) =>
-    p.addInitScript(() => {
+  const watch = (p: Page, lateMs: number) =>
+    p.addInitScript((late: number) => {
       const w = window as any;
+      // Pierre's worker answers its first jobs late, as one started while the app is still busy
+      // launching does: what it is sent in its first `late` ms reaches it then.
+      const RealWorker = window.Worker;
+      w.Worker = class extends RealWorker {
+        constructor(...args: ConstructorParameters<typeof Worker>) {
+          super(...args);
+          const born = performance.now();
+          (w.__workers ??= []).push(`${String(args[0]).split("/").pop()}@${Math.round(born)}`);
+          const post = super.postMessage.bind(this) as (...message: unknown[]) => void;
+          this.postMessage = ((...message: unknown[]) => {
+            const wait = born + late - performance.now();
+            if (wait > 0) setTimeout(() => post(...message), wait);
+            else post(...message);
+          }) as Worker["postMessage"];
+        }
+      };
       const state = {
         liveFirstRowsMs: 0,
         swapMs: 0,
@@ -261,6 +277,8 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
       const loop = () =>
         w.cmuxAfterPaint(() => {
           const shown = cards();
+          if (!state.swapMs && !w.__firstHighlightedMs && shown.some((card) => !plainCard(card)))
+            w.__firstHighlightedMs = Math.round(performance.now());
           if (!state.liveFirstRowsMs && document.querySelector("#root article.acpmux-row"))
             state.liveFirstRowsMs = Math.round(performance.now());
           if (!state.swapMs) {
@@ -274,6 +292,8 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
             state.plainAtSwap = plain;
           }
           if (plain > 0) state.plainFrames += 1;
+          if (!w.__firstHighlightedMs && shown.some((card) => !plainCard(card)))
+            w.__firstHighlightedMs = Math.round(performance.now());
         });
       const wait = () => (typeof w.cmuxAfterPaint === "function" ? loop() : setTimeout(wait, 0));
       wait();
@@ -298,23 +318,26 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
           plainSwaps,
           highlightedAtEnd,
           loads,
+          workers: w.__workers ?? [],
+          firstHighlightedMs: w.__firstHighlightedMs ?? 0,
+          swapMark: Math.round(performance.getEntriesByName("cmux-chat:snapshot-swap")[0]?.startTime ?? 0),
         };
       };
-    });
+    }, lateMs);
 
-  const LATE_MS = Number(process.env.CODE_RESTORE_LATE_MS ?? 400);
+  const LATE_MS = Number(process.env.CODE_RESTORE_LATE_MS ?? 1000);
   const run = async (): Promise<Report> => {
     const context = await browser!.newContext({ viewport: { width: 1200, height: 900 } });
     try {
-      // A relaunch's page loads its later chunks and starts its worker while the app is still busy
-      // launching: each comes LATE_MS late, as a busy launch's loader serves them.
-      await context.route(/\/assets\/(Highlighted|worker)[^/]*\.js$/, async (route) => {
+      // A relaunch's page loads its later chunks while the app is still busy launching: each comes
+      // LATE_MS late, as a busy launch's loader serves them.
+      await context.route(/\/assets\/Highlighted[^/]*\.js$/, async (route) => {
         await new Promise((done) => setTimeout(done, LATE_MS));
         await route.continue();
       });
       const p = await context.newPage();
       await installPaintedFrames(p);
-      await watch(p);
+      await watch(p, LATE_MS);
       await p.goto(url());
       await p.waitForFunction(() => (window as any).__codeState?.swapMs > 0, null, { timeout: 60_000 });
       // Two and a half seconds of frames after the copy went.
