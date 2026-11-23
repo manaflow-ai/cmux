@@ -20,6 +20,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var clearFailure: String?
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
+    /// The Filter sheet (the toolbar's Filter button): which workspaces the Feed shows.
+    @State private var choosingWorkspaces = false
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     /// Bounces the caught-up seal each time that state appears.
     @State private var caughtUpBounce = 0
@@ -60,9 +62,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure) }
+                // Two neighboring buttons in one glass group: Filter, then Mark All as Read.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    FeedFilterButton(store: store, choosingWorkspaces: $choosingWorkspaces)
+                    FeedMarkAllReadButton(store: store, clearFailure: $clearFailure, markFailure: $markFailure)
+                }
             }
             .agentChatDestinations()
+            .sheet(isPresented: $choosingWorkspaces) { FeedWorkspacesSheet(store: store) }
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -135,13 +142,17 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue, "\(store.hiddenWorkspaceCount > 0)"]
     }
 
-    /// The filter chips, a refresh error and an empty or connecting state, above the events.
+    /// The filter chips, the hidden-workspaces line, a refresh error and an empty or connecting
+    /// state, above the events.
     private var header: some View {
         VStack(spacing: 0) {
             chips
+            if store.hiddenWorkspaceCount > 0 {
+                hiddenWorkspacesRow(store.hiddenWorkspaceCount)
+            }
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
@@ -202,6 +213,27 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
+    }
+
+    /// Says the Feed is leaving workspaces out (Mail's "Filtered by" line), so a hidden workspace
+    /// never reads as a quiet one. Show All brings every workspace back.
+    private func hiddenWorkspacesRow(_ count: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash").foregroundStyle(.secondary).accessibilityHidden(true)
+            Text(count == 1 ? "1 workspace hidden" : "\(count) workspaces hidden")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Show All") { store.mutedWorkspaces.removeAll() }
+                .font(.footnote.weight(.semibold))
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .buttonStyle(.cmuxPressFill)
+                .accessibilityIdentifier("feed.hiddenWorkspaces.showAll")
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("feed.hiddenWorkspaces")
     }
 
     private func refreshErrorRow(_ message: String) -> some View {
@@ -375,65 +407,218 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
-/// The Filter menu: its own view, so the Mac's workspace list (which changes
-/// with every tree update while an agent works: titles, status) re-renders
-/// this menu only, never the Feed's list and its layout.
-private struct FeedFilterMenu: View {
-    @Bindable var store: FeedStore
+
+/// The Feed's Filter button: opens the Filter sheet (which workspaces the Feed shows). Its icon
+/// fills while any of the Mac's workspaces is hidden, so a filtered Feed reads as filtered from the
+/// toolbar too. Its own view, so the Mac's workspace list (which changes with every tree update
+/// while an agent works: titles, status) re-renders this button only, never the Feed's list.
+private struct FeedFilterButton: View {
+    let store: FeedStore
+    @Binding var choosingWorkspaces: Bool
+    @Environment(AppStore.self) private var appStore
+
+    var body: some View {
+        let hidden = appStore.workspaces.lazy.filter { store.mutedWorkspaces.contains($0.id) }.count
+        Button {
+            choosingWorkspaces = true
+        } label: {
+            Label("Filter", systemImage: hidden == 0 ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .accessibilityValue(hidden == 0 ? "All workspaces shown" : (hidden == 1 ? "1 workspace hidden" : "\(hidden) workspaces hidden"))
+        .accessibilityIdentifier("feed.filter")
+    }
+}
+
+/// The Feed's Mark All as Read button (`envelope.open`, Mail's mark-as-read; the Feed rows' Read
+/// action draws the same glyph). It touches every linked Mac, so it asks first, in a short sheet
+/// rather than a system alert: the alert draws its default button with black text on blue in light
+/// mode and ignores button styling, and the confirm button here is white on blue in both modes
+/// (the user's call, 2026-11-20). The sheet also offers the Mac's Clear All Notifications when a
+/// Mac can clear, as a destructive choice, so both Mac-wide actions are confirmed and the toolbar
+/// keeps two buttons.
+private struct FeedMarkAllReadButton: View {
+    let store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
     /// Why Mark All Notifications as Read failed (the screen's alert).
     @Binding var markFailure: String?
-    @Environment(AppStore.self) private var appStore
+    @State private var confirming = false
 
     var body: some View {
-        Menu {
-            Picker("Show", selection: $store.filter) {
-                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.inline)
-            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
-            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
-            Section {
-                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
-                    store.markAllRead()
-                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
-                    Task {
-                        do { _ = try await mark() } catch {
-                            markFailure = UserFacingError.message(error)
-                        }
-                    }
-                }
-                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
-                .accessibilityIdentifier("feed.markAllRead")
-            }
-            if let clear = FeedRouting.shared.clearAllNotifications {
-                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
-                Section {
-                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
+        Button {
+            confirming = true
+        } label: {
+            Label("Mark All as Read", systemImage: "envelope.open")
+        }
+        .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+        .accessibilityIdentifier("feed.markAllRead")
+        .sheet(isPresented: $confirming) {
+            FeedMarkAllReadConfirmation(
+                markAllRead: markAllRead,
+                clearAll: FeedRouting.shared.clearAllNotifications.map { clear in
+                    {
                         Task {
                             do { try await clear() } catch {
                                 clearFailure = UserFacingError.message(error)
                             }
                         }
                     }
-                    .accessibilityIdentifier("feed.clearAllNotifications")
-                }
-            }
-            Section("Workspaces") {
-                ForEach(appStore.workspaces) { workspace in
-                    Toggle(workspace.title, isOn: Binding(
-                        get: { !store.mutedWorkspaces.contains(workspace.id) },
-                        set: { on in
-                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
-                        }
-                    ))
-                }
-            }
-        } label: {
-            Label("Filter", systemImage: "line.3.horizontal.decrease")
+                })
         }
-        .accessibilityLabel("Filter")
+    }
+
+    private func markAllRead() {
+        store.markAllRead()
+        guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+        Task {
+            do { _ = try await mark() } catch {
+                markFailure = UserFacingError.message(error)
+            }
+        }
+    }
+}
+
+/// Mark All as Read's confirmation: a title, what it does, and full-width capsule buttons. The
+/// confirm button is white on blue in light and dark (CmuxMobileAccent's light blue, #0064D1, 5.6:1
+/// against white). Sized to its content and dismissed by a drag or Cancel.
+private struct FeedMarkAllReadConfirmation: View {
+    let markAllRead: () -> Void
+    /// The Mac's Clear All Notifications, when a linked Mac can clear.
+    let clearAll: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
+
+    private static let confirmFill = CmuxMobileColorToken(dark: CmuxMobileRGBA(hex: "#0064D1"), light: CmuxMobileRGBA(hex: "#0064D1"))
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Mark All as Read?").font(.headline)
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            capsule("Mark All as Read", id: "feed.markAllRead.confirm", fill: Self.confirmFill.color, ink: .white) {
+                dismiss()
+                markAllRead()
+            }
+            .keyboardShortcut(.defaultAction)
+            if let clearAll {
+                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
+                capsule("Clear All Notifications", id: "feed.clearAllNotifications", fill: Color(uiColor: .tertiarySystemFill), ink: .red) {
+                    dismiss()
+                    clearAll()
+                }
+            }
+            capsule("Cancel", id: "feed.markAllRead.cancel", fill: Color(uiColor: .tertiarySystemFill), ink: .primary) {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(24)
+        .presentationDetents([.height(clearAll == nil ? 260 : 322)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func capsule(_ title: LocalizedStringKey, id: String, fill: Color, ink: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(fill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// The Filter sheet: which workspaces the Feed shows, one switch per workspace (Settings' list of
+/// switches), searchable when the list is long. Replaces the Workspaces section that sat at the
+/// bottom of the old filter menu, where each switch closed the menu and a long list scrolled.
+private struct FeedWorkspacesSheet: View {
+    let store: FeedStore
+    @Environment(AppStore.self) private var appStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        // Worked out once per render, not per row: the Mac names only matter with more than one Mac.
+        let macNames = macNamesIfSeveral
+        return NavigationStack {
+            List {
+                if !rows.isEmpty {
+                    Section {
+                        ForEach(rows) { workspace in
+                            Toggle(isOn: shown(workspace.id)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workspace.title).lineLimit(1)
+                                    if let mac = macNames?[workspace.macID] {
+                                        Text(mac).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                            }
+                            // The app's green switch: the neutral accent tints a plain Toggle solid
+                            // white in dark mode, where on and off read the same.
+                            .toggleStyle(.cmuxMobileSwitch)
+                            .accessibilityIdentifier("feed.workspace.\(workspace.id)")
+                        }
+                    } header: {
+                        Text("Workspaces")
+                    } footer: {
+                        Text("Events from hidden workspaces stay out of the Feed until you turn them back on.")
+                    }
+                }
+            }
+            .overlay {
+                if appStore.workspaces.isEmpty {
+                    ContentUnavailableView("No Workspaces", systemImage: "square.stack", description: Text("Workspaces on your Mac show up here."))
+                } else if rows.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search Workspaces")
+            .navigationTitle("Filter")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Show All") { store.mutedWorkspaces.removeAll() }
+                        .disabled(store.mutedWorkspaces.isEmpty)
+                        .accessibilityIdentifier("feed.workspaces.showAll")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .accessibilityIdentifier("feed.workspaces.done")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .sensoryFeedback(.selection, trigger: store.mutedWorkspaces)
+    }
+
+    /// The Mac's workspaces in its own order, narrowed by the search.
+    private var rows: [Workspace] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return appStore.workspaces }
+        return appStore.workspaces.filter { $0.title.localizedStandardContains(needle) }
+    }
+
+    private func shown(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !store.mutedWorkspaces.contains(id) },
+            set: { on in
+                if on { store.mutedWorkspaces.remove(id) } else { store.mutedWorkspaces.insert(id) }
+            }
+        )
+    }
+
+    /// Each Mac's name by id, only when the workspaces span more than one Mac (with one, it says
+    /// nothing).
+    private var macNamesIfSeveral: [String: String]? {
+        guard Set(appStore.workspaces.map(\.macID)).count > 1 else { return nil }
+        return Dictionary(appStore.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 }
 

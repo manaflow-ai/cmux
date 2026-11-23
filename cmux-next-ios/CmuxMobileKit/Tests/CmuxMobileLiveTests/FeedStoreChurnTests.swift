@@ -83,6 +83,29 @@ import Testing
         #expect(store.needsYouCount == 0)
     }
 
+    /// The Feed's "N workspaces hidden" line counts only muted workspaces whose open events it
+    /// leaves out: a muted workspace with nothing open, or whose events are done, hides nothing.
+    @Test func hiddenWorkspaceCountCountsOnlyMutedWorkspacesWithOpenEvents() {
+        let store = FeedStore(items: [
+            Self.item("a", ago: 1, workspace: "w1"), Self.item("b", ago: 2, workspace: "w2"), Self.item("c", ago: 3, workspace: "w2"),
+        ])
+        #expect(store.hiddenWorkspaceCount == 0)
+        store.mutedWorkspaces = ["w2", "gone"]
+        #expect(store.hiddenWorkspaceCount == 1)
+        #expect(store.visibleItems.map(\.id) == ["a"])
+        store.mutedWorkspaces.insert("w1")
+        #expect(store.hiddenWorkspaceCount == 2)
+        #expect(store.visibleItems.isEmpty)
+        store.filter = .errors
+        #expect(store.hiddenWorkspaceCount == 0)
+        store.filter = .all
+        store.markDone("a")
+        #expect(store.hiddenWorkspaceCount == 1)
+        store.mutedWorkspaces.removeAll()
+        #expect(store.hiddenWorkspaceCount == 0)
+        #expect(store.visibleItems.map(\.id) == ["b", "c"])
+    }
+
     /// An event read before and reported again by the Mac (unread) is marked
     /// read on the way in, and the stored list and the save see the read copy.
     @Test func reReportedReadEventIsReadInTheListAndTheSave() {

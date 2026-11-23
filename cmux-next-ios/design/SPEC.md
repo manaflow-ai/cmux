@@ -977,11 +977,23 @@ permission requests, errors, PR events.
 
 ### 8.1 Screen
 
-- Toolbar: leading drawer circle, principal "Feed", trailing `line.3.horizontal.decrease`
-  circle (filter menu: Picker inline All / Needs you / Finished / Errors, section "Macs" with a
-  toggle per Mac; pattern `chatgpt-31-filter-menu`).
+- Toolbar: leading drawer circle, principal "Feed", and two neighboring trailing buttons in one
+  glass group, no More menu: Filter (`line.3.horizontal.decrease`; `.circle.fill` while a
+  workspace is hidden) opens the Filter sheet, and Mark All as Read (`envelope.open`, Mail's
+  mark-as-read) asks first in a short sheet (not a system alert, which draws its default button
+  black on blue in light): "Mark All as Read?", the message (every Feed event and every unread tab
+  on the Mac), then full-width capsules: Mark All as Read (white on #0064D1 in both modes), Clear
+  All Notifications (red, only when a Mac can clear) and Cancel. The chips are the only event-kind
+  filter; the sheet does not repeat them.
+- Filter sheet (title "Filter", medium and large detents, `Done`, leading `Show All`): a
+  "Workspaces" section with one green switch (`.cmuxMobileSwitch`) per workspace in the Mac's order, the Mac's name under it
+  when more than one Mac is linked, searchable; footer "Events from hidden workspaces stay out of
+  the Feed until you turn them back on." Empty: "No Workspaces"; a search with no match: the
+  system search empty state.
+- Hidden line under the chips while a hidden workspace has open events (Mail's "Filtered by"):
+  `eye.slash`, "N workspaces hidden", trailing `Show All`.
 - Chip row under the toolbar (scrolls with content): All, Needs you (with count), Finished,
-  Errors (4.1 `Chip`). Chips mirror the filter menu.
+  Errors (4.1 `Chip`).
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
 - Needs you pinned: open questions and permission requests (and terminal agents waiting for input)
@@ -1009,7 +1021,7 @@ permission requests, errors, PR events.
 - Padding 16 h / 12 v; avatar column 40 pt (agent avatar 40, 4.2) + 12 pt gap.
 - Header line (`subheadline`): agent name semibold, then `label2` "· <workspace> · <relative
   time>" (truncates the workspace first); trailing `ellipsis` `IconAction` (menu: Open tab,
-  Mute this workspace, Copy link, Mark as read).
+  Hide this workspace, Copy link, Mark as read).
 - Quote bubble (iMessage reply style): the prompt the event responds to, `bubble` fill at 100%
   dark / 100% light, radius 16, padding 12 h / 8 v, `subheadline` `label2`, max 3 lines with tail
   truncation, leading-aligned, max width 90% of the column. A 1.5 pt `separator` connector
@@ -1040,7 +1052,7 @@ permission requests, errors, PR events.
   (`arrowshape.turn.up.left`, system blue); every other event "Done" (`checkmark`, system purple,
   removes the row with the Undo bar) and "Read"/"Unread" (`envelope.open`/`envelope.badge`,
   system blue). The context menu and the `ellipsis` menu hold Open tab, Copy, Mark as
-  read/unread, Done and Mute this workspace.
+  read/unread, Done and Hide this workspace.
 
 ### 8.3 Comparison checklist (Feed)
 

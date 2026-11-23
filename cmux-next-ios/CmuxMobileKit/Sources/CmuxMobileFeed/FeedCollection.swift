@@ -1150,7 +1150,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             ? UIAction(title: "Mark as Unread", image: UIImage(systemName: "envelope.badge")) { _ in store.markUnread(item.id) }
             : UIAction(title: "Mark as Read", image: UIImage(systemName: "envelope.open")) { _ in store.markRead(item.id) })
         children.append(UIAction(title: "Done", image: UIImage(systemName: "checkmark")) { _ in store.markDone(item.id) })
-        children.append(UIAction(title: "Mute This Workspace", image: UIImage(systemName: "bell.slash")) { _ in
+        children.append(UIAction(title: "Hide This Workspace", image: UIImage(systemName: "eye.slash")) { _ in
             _ = store.mutedWorkspaces.insert(item.workspaceID)
         })
         return UIMenu(title: item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()), options: .displayInline, children: children)

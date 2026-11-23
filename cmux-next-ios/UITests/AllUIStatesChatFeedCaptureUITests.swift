@@ -126,6 +126,42 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// The toolbar's Mark All as Read: it asks first, so this opens the confirmation sheet.
+    @MainActor
+    private static func markAllAlert(_ app: XCUIApplication) -> String? {
+        steps([{ tap(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30) }, { wait(app.buttons["feed.markAllRead.confirm"].firstMatch, "Mark All as Read confirmation", timeout: 10) }])
+    }
+
+    /// The toolbar's Filter button opens the Filter sheet.
+    @MainActor
+    private static func openWorkspaces(_ app: XCUIApplication) -> String? {
+        steps([{ tap(app.buttons["feed.filter"].firstMatch, "Filter", timeout: 30) }, { wait(app.switches.firstMatch, "workspace switch", timeout: 10) }])
+    }
+
+    /// Turns the sheet's first workspace switch off. A SwiftUI Toggle's element is the whole row,
+    /// and a tap at its centre lands on the title, so tap the switch at the trailing edge
+    /// (ScreenSharingSheetUITests does the same) and wait for it to read off.
+    @MainActor
+    private static func turnOffFirstWorkspace(_ app: XCUIApplication) -> String? {
+        let toggle = app.switches.firstMatch
+        if let miss = wait(toggle, "first workspace switch", timeout: 10) { return miss }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        let off = NSPredicate(format: "value == '0' OR value == 0")
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: off, object: toggle)], timeout: 5)
+        return result == .completed ? nil : "first workspace switch did not turn off"
+    }
+
+    /// Hides the first workspace in the sheet and closes it: the Feed shows its hidden line.
+    @MainActor
+    private static func hideFirstWorkspace(_ app: XCUIApplication) -> String? {
+        steps([
+            { openWorkspaces(app) },
+            { turnOffFirstWorkspace(app) },
+            { tap(app.buttons["feed.workspaces.done"], "Done") },
+            { wait(app.buttons["feed.hiddenWorkspaces.showAll"], "hidden workspaces line", timeout: 10) },
+        ])
+    }
+
     @MainActor
     func testFeed() {
         let g = "12 Feed"
@@ -136,7 +172,31 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chip-needs-you", args: Self.feed) { app in C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Needs you'")).firstMatch, "Needs you chip") },
             Scene(group: g, id: "chip-finished", args: Self.feed) { app in C.tap(app.buttons["Finished"].firstMatch, "Finished chip") },
             Scene(group: g, id: "chip-errors", args: Self.feed) { app in C.tap(app.buttons["Errors"].firstMatch, "Errors chip") },
-            Scene(group: g, id: "filter-menu", args: Self.feed) { app in C.tap(app.buttons["Filter"].firstMatch, "Filter menu") },
+            Scene(group: g, id: "mark-all-alert", args: Self.feed) { app in Self.markAllAlert(app) },
+            Scene(group: g, id: "mark-all-cancelled", args: Self.feed) { app in
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.buttons["feed.markAllRead.cancel"].firstMatch, "Cancel") }])
+            },
+            Scene(group: g, id: "workspaces-sheet", args: Self.feed) { app in Self.openWorkspaces(app) },
+            Scene(group: g, id: "workspaces-sheet-one-hidden", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, { Self.turnOffFirstWorkspace(app) }])
+            },
+            Scene(group: g, id: "workspaces-sheet-large", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, {
+                    app.navigationBars["Filter"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                        .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
+                    return nil
+                }])
+            },
+            Scene(group: g, id: "workspaces-search-no-match", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, { C.tap(app.searchFields.firstMatch, "search field") }, { app.typeText("zzzz"); return nil }])
+            },
+            Scene(group: g, id: "hidden-workspaces-line", args: Self.feed) { app in Self.hideFirstWorkspace(app) },
+            Scene(group: g, id: "hidden-workspaces-filter-reopened", args: Self.feed) { app in
+                C.steps([{ Self.hideFirstWorkspace(app) }, { Self.openWorkspaces(app) }])
+            },
+            Scene(group: g, id: "hidden-workspaces-show-all", args: Self.feed) { app in
+                C.steps([{ Self.hideFirstWorkspace(app) }, { C.tap(app.buttons["feed.hiddenWorkspaces.showAll"], "Show All") }])
+            },
             Scene(group: g, id: "show-more-expanded", args: Self.feed) { app in
                 let row = app.tables["feed.list"].cells["feed.row.f-long"]
                 for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
@@ -166,6 +226,10 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.tap(app.buttons["All"].firstMatch, "All chip") }, { C.scrollDown(app, times: 3) }, { C.wait(app.buttons["feed.newPill"], "new events pill", timeout: 15) }])
             },
             Scene(group: g, id: "stress-300", args: Self.feed, env: ["CMUX_MOBILE_FEED_STRESS": "300"], settle: 4),
+            // Last: confirming marks every event read, and read marks persist across launches.
+            Scene(group: g, id: "mark-all-confirmed", args: Self.feed) { app in
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.buttons["feed.markAllRead.confirm"].firstMatch, "confirm Mark All as Read") }])
+            },
         ])
     }
 

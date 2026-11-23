@@ -397,6 +397,8 @@ public final class FeedStore {
         let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
         if open != needsYouIDs { needsYouIDs = open }
         if open.count != needsYouCount { needsYouCount = open.count }
+        let hidden = mutedWorkspaces.isEmpty ? 0 : Set(items.lazy.filter { !$0.isDone && self.filter.matches($0) && self.mutedWorkspaces.contains($0.workspaceID) }.map(\.workspaceID)).count
+        if hidden != hiddenWorkspaceCount { hiddenWorkspaceCount = hidden }
     }
 
     /// Needs you first: the asks still waiting on the person lead the list, newest first among
@@ -472,6 +474,10 @@ public final class FeedStore {
     public var mutedWorkspaces: Set<String> = [] {
         didSet { if mutedWorkspaces != oldValue { refreshDerived() } }
     }
+    /// How many hidden (muted) workspaces have events the Feed is leaving out under the selected
+    /// chip: the Feed's "N workspaces hidden" line. A muted workspace with no open matching events
+    /// hides nothing.
+    public private(set) var hiddenWorkspaceCount = 0
     /// Events that arrived while the person was scrolled away from the top.
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
