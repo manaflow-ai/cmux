@@ -401,6 +401,14 @@ export class SubsessionStore {
     let changed = false;
     const touched = new Set<string>();
     const rows = this.rows!;
+    // Each machine's menu is copied once per call, however many of its chats came or went: a whole
+    // list read (``setWhole``) costs one sort per machine, not one copy per chat.
+    const moves = new Map<string, { from: Set<MachineChat>; to: MachineChat[] }>();
+    const move = (host: string) => {
+      let at = moves.get(host);
+      if (!at) moves.set(host, (at = { from: new Set(), to: [] }));
+      return at;
+    };
     const drop = (row: NameRow) => {
       const id = row.entry.sessionId;
       for (const label of row.labels) {
@@ -414,7 +422,7 @@ export class SubsessionStore {
       this.hosts.delete(id);
       this.runs.delete(id);
       this.places.delete(id);
-      if (row.machine) this.moveMachine(row.host!, row.machine, undefined);
+      if (row.machine) move(row.host!).from.add(row.machine);
     };
     const add = (row: NameRow) => {
       const id = row.entry.sessionId;
@@ -428,7 +436,7 @@ export class SubsessionStore {
       if (row.host) this.hosts.set(id, row.host);
       if (row.run) this.runs.set(id, row.run);
       if (row.place) this.places.set(id, row.place);
-      if (row.machine) this.moveMachine(row.host!, undefined, row.machine);
+      if (row.machine) move(row.host!).to.push(row.machine);
     };
     for (const id of removed) {
       const row = rows.get(id);
@@ -474,6 +482,7 @@ export class SubsessionStore {
       this.keys.set(id, key);
       changed = true;
     }
+    for (const [host, { from, to }] of moves) this.moveMachines(host, from, to);
     // A name resolves only when it identifies exactly one live session (across peers two live chats
     // can share one, and opening the first would show the wrong chat); archived chats are a fallback
     // when no live session uses it. All aliases of one session count once.
@@ -532,24 +541,25 @@ export class SubsessionStore {
     return { removed, upserts };
   }
 
-  /// Chat `from` leaves machine `host`'s menu and `to` takes its place in the menu's order (either
-  /// may be absent): the menu is a new array, the others keep theirs.
-  private moveMachine(host: string, from: MachineChat | undefined, to: MachineChat | undefined): void {
-    const chats = [...(this.machines.get(host) ?? [])];
-    if (from) {
-      const at = chats.indexOf(from);
-      if (at >= 0) chats.splice(at, 1);
-    }
-    if (to) {
-      let low = 0;
-      let high = chats.length;
-      while (low < high) {
-        const mid = (low + high) >>> 1;
-        if (byMachineName(chats[mid]!, to) < 0) low = mid + 1;
-        else high = mid;
+  /// The chats `from` leave machine `host`'s menu and `to` take their places in the menu's order: the
+  /// menu is one new array, the others keep theirs. Many arrivals sort once.
+  private moveMachines(host: string, from: ReadonlySet<MachineChat>, to: readonly MachineChat[]): void {
+    const held = this.machines.get(host) ?? [];
+    const chats = from.size ? held.filter((chat) => !from.has(chat)) : [...held];
+    if (to.length > 8) {
+      chats.push(...to);
+      chats.sort(byMachineName);
+    } else
+      for (const chat of to) {
+        let low = 0;
+        let high = chats.length;
+        while (low < high) {
+          const mid = (low + high) >>> 1;
+          if (byMachineName(chats[mid]!, chat) < 0) low = mid + 1;
+          else high = mid;
+        }
+        chats.splice(low, 0, chat);
       }
-      chats.splice(low, 0, to);
-    }
     if (chats.length) this.machines.set(host, chats);
     else this.machines.delete(host);
   }
