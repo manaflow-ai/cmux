@@ -13,6 +13,38 @@
 // today; it only shrinks: a listed seed that plays clean is printed so it comes out. Regenerate it from
 // the full run: `bun scripts/fold-fuzz.ts --seeds 500 --look wipe --jobs 6 --out DIR --baseline
 // test/transcript-motion-baseline.json`.
+//
+// The baseline shipped today is the gate's own seeds, played twice on gcp-agent-lane-1 (`--seeds 24 --look
+// wipe --jobs 4`; the counts kept are the larger of the two plays): every seed flags `off-curve`, and
+// `move` rides the same causes, so every seed is listed for both -- whether a seed flags `move` in a given
+// real-time play is luck (seed 8 flagged it on a third play and on neither of the two read here). So what
+// this gate holds today is `resize`, and the two kinds' seed lists: a seed that goes quiet is printed to
+// come out, and a new seed that flags does not pass. It tightens as the causes below are fixed.
+// What flags, and the fix each wants (measured over those 24 seeds):
+//   - `off-curve` `clip-path 240 ms linear` (3442 flags): a wipe's clip samples WIPE.easing at WIPE_POINTS+1
+//     points and plays the straight line between them, so its curve is in the keyframes, where
+//     `onHouseCurve` -- which reads the easing option alone -- cannot see it (and GLIDE's
+//     cubic-bezier(0.4, 0, 0.2, 1) is no house curve either). The detector has to judge a sampled curve by
+//     its points.
+//   - `off-curve` `transform 1000 ms steps(48)` on `.cv-shimmer__band`/`.cv-shimmer__lit`: the cadenced
+//     shimmer is a decorative sweep with `iterations: 1`, so `sampleStarts`'s ambient-loop skip (written for
+//     exactly this, "a spinner, a shimmer") misses it. It moves no row's box.
+//   - `move`: a row drawn 20-32 px higher in one frame when a row BELOW it grew (its `cause` names the
+//     grower) -- the pane's own bottom-follow carrying the rows with it. A scroll is taken out of a row's
+//     move only for the reader's own input (`INPUT_MS`), never for the transcript's follow.
+// The two stray-start kinds count here for the first time (`seedFlags` used to drop them before the test
+// read them), so the baseline was re-recorded at 500 seeds on the head that fixes `playTurnEnd`: 221
+// `offscreen-start` and 31 `scroll-start` over 498 flagged seeds, 144 of them with a stray. That residual
+// is NOT this fix's path, and the run names where each one comes from:
+//   - 183 `clip-path` starts from `playReplace`'s own `play` (`turnEndFold.ts:717`, the `wipe`/`snapshot`/
+//     `sprout`/`defer` looks). Its animation key is the copy's place and height, both viewport-relative, so
+//     a scroll changes the key and the next pass starts a fresh wipe on a copy by then out of the view. It is
+//     entangled with the wipe edge being anchored in the view on purpose, so it is a design change with its
+//     own numbers, not this fix (a copy gate tried here measured WORSE: `offscreen-start` 91 -> 101 on the
+//     same seeds, and came out).
+//   - 32 `translate` starts from `tailGlide.ts:378` (`place`, through VirtualTranscript's `current`).
+//   - 7 CSS entrance and shimmer starts (`cv-roll-in-even`, `cv-enter-fade`, the cadenced shimmers): class
+//     changes, which no JS gate in `turnEndFold.ts` can see.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -34,8 +66,12 @@ await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
   const { openRecorder } = await import("../scripts/fold-variants-record");
   const { fuzz, seedFlags, detectorTable, RATCHET_KINDS } = await import("../scripts/fold-fuzz");
   const baseline = (await Bun.file(path.join(import.meta.dir, "transcript-motion-baseline.json")).json()) as Baseline;
-  /// The seeds CI plays: the baseline's first `CMUX_MOTION_FUZZ_SEEDS` (default 60; the full 500 is the report's run).
-  const count = Number(process.env.CMUX_MOTION_FUZZ_SEEDS ?? 60);
+  /// The seeds CI plays: the baseline's first `CMUX_MOTION_FUZZ_SEEDS` (default 20; the full 500 is the report's run).
+  /// A seed is a real-time play on a shared runner: 60 of them do not fit the file's 900 s, and the run was
+  /// cut mid-seed-31 with no verdict (cmux#51791, web / react-apps-base-check job 137674560957: the test timed
+  /// out at 880 s, and seed 31 died with "Target page, context or browser has been closed"). Measured there:
+  /// about 29 s a seed with 4 at a time, so 20 seeds is about 580 s, inside the limit with the replay's margin.
+  const count = Number(process.env.CMUX_MOTION_FUZZ_SEEDS ?? 20);
   const seeds = Array.from({ length: Math.min(count, baseline.seeds) }, (_, i) => i + 1);
   let recorder: Awaited<ReturnType<typeof openRecorder>>;
   beforeAll(async () => {
