@@ -7,6 +7,7 @@
 //   bun scripts/chat-sim.ts --list
 //   bun scripts/chat-sim.ts incoming-notice-turn --trace /tmp/sim.jsonl
 //   bun scripts/chat-sim.ts --all
+//   bun scripts/chat-sim.ts --map   (every mapped case, what is expected of it, and whether it holds)
 //   bun scripts/chat-sim.ts --long 1000 --trace /tmp/long.jsonl
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
@@ -39,6 +40,7 @@ import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { DROPPED, parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
+import { EVERYWHERE, MAP } from "../src/agent-session/acpmux/sim/map";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 
 const args = process.argv.slice(2);
@@ -493,6 +495,39 @@ if (sweep) {
       `${String(entry.rows).padStart(6)} rows ${String(entry.chats.size).padStart(4)} chats  ${key}\n${" ".repeat(19)}e.g. ${entry.example}`,
     );
   process.exit(classes.size ? 1 : 0);
+}
+if (flag("--map")) {
+  // The scenario map (sim/map.ts): each case, what is expected, and whether it holds on this checkout.
+  const runs = new Map<string, SimResult>();
+  const run = (name: string) => runs.get(name) ?? runs.set(name, runSimulation(SCENARIOS[name]!())).get(name)!;
+  const rulesOf = (name: string) => run(name).violations.map((violation) => `${violation.rule}: ${violation.detail}`);
+  let wrong = 0;
+  for (const entry of MAP) {
+    const broken = entry.scenario ? [...(entry.check?.(run(entry.scenario)) ?? []), ...rulesOf(entry.scenario)] : [];
+    const state = !entry.scenario ? "not played" : broken.length ? (entry.open ? "open" : "BROKEN") : "holds";
+    if (state === "BROKEN" || (state === "holds" && entry.open && entry.check)) wrong += 1;
+    console.log(`${state.padEnd(10)} ${entry.id}${entry.scenario ? ` (${entry.scenario})` : ""}`);
+    console.log(
+      `           when:     ${entry.when}\n           wrong:    ${entry.wrong}\n           expected: ${entry.expected}`,
+    );
+    if (entry.open) console.log(`           open:     ${entry.open}`);
+    if (state !== "holds" || flag("--verbose"))
+      for (const line of broken.slice(0, 5)) console.log(`           now:      ${line}`);
+  }
+  for (const each of EVERYWHERE) {
+    const breaks = scenarioNames().filter((name) => each.check(run(name)).length > 0);
+    const fresh = breaks.filter((name) => !each.known?.[name]);
+    wrong += fresh.length;
+    console.log(`${(fresh.length ? "BROKEN" : breaks.length ? "open" : "holds").padEnd(10)} everywhere: ${each.id}`);
+    console.log(`           expected: ${each.expected}`);
+    for (const name of breaks)
+      console.log(`           breaks:   ${name}${each.known?.[name] ? ` (open: ${each.known[name]})` : ""}`);
+  }
+  const count = (state: (entry: (typeof MAP)[number]) => boolean) => MAP.filter(state).length;
+  console.log(
+    `${MAP.length} cases: ${count((entry) => !!entry.scenario && !entry.open)} hold, ${count((entry) => !!entry.scenario && !!entry.open)} open, ${count((entry) => !entry.scenario)} not played; ${scenarioNames().length} scenarios; ${EVERYWHERE.length} checks on every scenario`,
+  );
+  process.exit(wrong ? 1 : 0);
 }
 if (flag("--list")) {
   for (const name of scenarioNames()) console.log(`${name.padEnd(24)} ${SCENARIOS[name]!().about}`);
