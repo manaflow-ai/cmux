@@ -181,6 +181,8 @@ export interface WorkerBindings {
   readonly CLOUD_IDLE_PAUSE?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Named MachineGitHub binding (integrations/machine-github.ts): "on" only in development; off, every method refuses. */
+  readonly PLATFORM_MACHINE_GITHUB?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
   /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
