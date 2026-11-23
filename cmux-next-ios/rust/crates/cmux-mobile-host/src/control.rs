@@ -406,6 +406,16 @@ pub enum Event {
     Unpaired {
         phone_device_id: String,
     },
+    /// Another of the person's paired devices (`by_device_id`) answered the waiting request of
+    /// `phone_device_id` with these keys (`pair_requests.rs`): the app answers it as the person's
+    /// Allow or Don't Allow, only while that request with these keys still waits.
+    PairAnswer {
+        phone_device_id: String,
+        identity_key: String,
+        approval_key: String,
+        allow: bool,
+        by_device_id: String,
+    },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
     NeedBrowser {

@@ -12,44 +12,11 @@
 // While the host says a read is running, the page asks it again every ``WAIT_MS`` — a local call
 // to the app, never to GitHub — so a card opened before the first read lands fills in by itself.
 import { useEffect, useSyncExternalStore } from "react";
-import type { HeaderPullRequest } from "../header/headerState";
+import type { LinkedPullRequest, PullRequestFile } from "./pullRequestTypes";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
-/** One file of a pull request, for the card's by-kind breakdown of its `+/−`. */
-export type PullRequestFile = {
-  readonly path: string;
-  readonly additions: number;
-  readonly deletions: number;
-};
-
-/** The header's pull request with everything else the card draws. */
-export type LinkedPullRequest = HeaderPullRequest & {
-  readonly author?: string;
-  /** The author's GitHub picture as a `data:image/…` URL (a cmux page's CSP allows only those);
-   *  absent until the host has it, when the card draws the monogram in the same box. */
-  readonly authorAvatar?: string;
-  /** GitHub's colour for each label, six hex digits without `#`; a label missing here gets a tone
-   *  picked from its name. */
-  readonly labelColors?: Readonly<Record<string, string>>;
-  /** GitHub's ISO 8601 text; empty when the host did not say. */
-  readonly createdAt?: string;
-  readonly updatedAt?: string;
-  readonly mergedAt?: string;
-  readonly additions?: number;
-  readonly deletions?: number;
-  /** Files changed as GitHub counts them, which can be more than `files` holds. */
-  readonly changedFiles?: number;
-  readonly files?: readonly PullRequestFile[];
-  readonly labels?: readonly string[];
-  readonly baseRef?: string;
-  readonly headRef?: string;
-  /** Its comments, review comments included; null or absent when the host's read did not say. */
-  readonly comments?: number | null;
-  /** `issue` for a GitHub issue (its `state` is `open`, `closed` or `not_planned`, and it has no
-   *  checks, files or branches); absent for a pull request. */
-  readonly kind?: "issue";
-};
+export type { LinkedPullRequest, PullRequestFile };
 
 /** What the host has for one link: the pull request, and when gh last answered about it. */
 export type PullRequestAnswer = {

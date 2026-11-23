@@ -318,6 +318,12 @@ struct LogState {
     /// The next pass writes a snapshot whether or not the content changed
     /// (a gap in the tail, cleared history, a mode change).
     force_snapshot: bool,
+    /// Snapshot mode: a flood outran the tail ([`TAIL_FLOOD_MAX_BYTES`] of it
+    /// inside one compaction spacing). Its bytes are neither written to the
+    /// tail nor kept in memory: the snapshot, at most once per
+    /// [`TAIL_COMPACT_SPACING`], covers them. Cleared by the snapshot that
+    /// ends where the stream ends.
+    flooded: bool,
     /// A snapshot or tail write failed and was reported; cleared by the next
     /// success (one report per failing stretch, not one per pass).
     store_error: bool,
@@ -367,6 +373,7 @@ impl LogState {
             tail_digest: None,
             tail_unsynced: false,
             force_snapshot: false,
+            flooded: false,
             store_error: false,
             retry_at: None,
             retry_delay: Duration::ZERO,
@@ -401,9 +408,10 @@ impl LogState {
         let resized = !new_generation
             && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
         if !(self.force_snapshot || new_generation || resized) {
-            // A tail past its cap that waits out the compaction spacing: the
-            // pass after it compacts, whether or not the terminal prints.
-            return (self.tail_bytes >= TAIL_MAX_BYTES).then(|| {
+            // A tail past its cap that waits out the compaction spacing (or a
+            // flood the snapshot covers): the pass after it compacts, whether
+            // or not the terminal prints.
+            return (self.tail_bytes >= TAIL_MAX_BYTES || self.flooded).then(|| {
                 TAIL_FLUSH_INTERVAL
                     .max(self.retry_wait().unwrap_or_default())
                     .max(self.compaction_wait())
@@ -414,6 +422,16 @@ impl LogState {
             .filter(|_| resized)
             .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
         Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
+    /// A flood in snapshot mode: drop the unwritten bytes (the snapshot, once
+    /// its spacing has passed, covers them) and stop keeping new ones.
+    fn start_flood_hold(&mut self) {
+        self.flooded = true;
+        self.pending = Vec::new();
+        self.pending_start = self.next_offset();
+        self.tail_end = None;
+        self.tail_digest = None;
     }
 
     /// The time left before a tail-cap compaction may be written.
@@ -798,7 +816,10 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
-        if self.full.enabled() || self.tail_enabled() {
+        if self.tail_enabled() && !self.full.enabled() && state.flooded {
+            // A flood the next snapshot covers: no copy into `pending`.
+            state.pending_start = state.next_offset();
+        } else if self.full.enabled() || self.tail_enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }

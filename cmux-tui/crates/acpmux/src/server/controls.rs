@@ -178,7 +178,8 @@ impl Controls {
     pub(super) fn reply(&self, conn: &Conn, msg: &Message, line: String) {
         conn.out.settle();
         if let Some(ticket) = self.budget.take(line.len(), false) {
-            if !conn.out.push_control(Line { text: line, ticket: Some(ticket) }) {
+            if !conn.out.push_control(Line { text: line, ticket: Some(ticket), ..Line::default() })
+            {
                 // A closed transport never opens broker readiness, even if the handler had
                 // committed the snapshot before its reply found that the reader was gone.
                 self.open.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -205,7 +206,7 @@ impl Controls {
             self.resync(conn, "overflow");
             return;
         };
-        let line = Line { text: line, ticket: Some(ticket) };
+        let line = Line { text: line, ticket: Some(ticket), ..Line::default() };
         if open.live {
             conn.raise_gate();
             conn.out.push_control(line);
@@ -228,7 +229,7 @@ impl Controls {
         conn.out.settle();
         if let Some(ticket) = self.budget.take(line.len(), true) {
             conn.raise_gate();
-            conn.out.push_control(Line { text: line, ticket: Some(ticket) });
+            conn.out.push_control(Line { text: line, ticket: Some(ticket), ..Line::default() });
         }
     }
 
