@@ -1340,6 +1340,17 @@ SHELL_FAIL = re.compile(r"^FAIL: (?!\w+ \([\w.]+\)$)\S")
 SUCCESS_DIAGNOSTIC = re.compile(r"^\s*ok:\s+.*\berror:", re.IGNORECASE)
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
+# A line a known-benign emitter printed from a step that did not fail. Every error line in a log is charged to the
+# side that printed it, so such a line refuses a red the base is failing too, and the first one in the log pre-empts
+# the failure a parser can name. 2026-11-22, cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531):
+# actions/checkout narrowed a sparse checkout in a reused self-hosted workspace and printed 54
+# `##[error]error: Path '<path>' not uptodate; will not remove from working tree.` lines at 02:37:42, its step green;
+# the job then ran five more minutes and ended in `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`. Those 54 paths are
+# the workspace's history, not the change's, so no base run prints the same ones and the Go failure main was failing
+# too could not be matched. git says this while narrowing a checkout and removes the path anyway. Only an emitter's
+# own known-benign line is exempt; any other error line, annotated or not, still counts.
+BENIGN = re.compile(r"^(?:##\[error\]|::error[^:]*::)?\s*error: .*\bnot uptodate; will not remove from working "
+                    r"tree\.?$")
 SUMMARY_FAILURE = re.compile(
     r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
     r"cannot|could not|failure|failed|fail|does not match|not match)\b"
@@ -2261,7 +2272,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(line)))
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
-                and not SUCCESS_DIAGNOSTIC.search(line)):
+                and not SUCCESS_DIAGNOSTIC.search(line) and not BENIGN.match(line)):
             k = scope[n][1]
             step = str(view.steps[k].get("name") or "")  # step-name: classify
             found.add((step, normalise_error(line)))
@@ -2344,7 +2355,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(line)))
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
-                and not SUCCESS_DIAGNOSTIC.search(line)):
+                and not SUCCESS_DIAGNOSTIC.search(line) and not BENIGN.match(line)):
             errors[normalise_error(line)] += 1
     # The panic ratchet's RED rows word for word, counts kept (#41129's review F1): its summary error is the same at
     # any count, so 693 > baseline 686 at the head is not 692 at the base. Hit locations are left out, as ratchet_red.
@@ -3136,7 +3147,7 @@ def compile_errors(lines: list[str], job: dict) -> CompileErrors:
                  or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
                  or SHELL_FAIL.match(line))
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
-                and not SUCCESS_DIAGNOSTIC.search(line)):
+                and not SUCCESS_DIAGNOSTIC.search(line) and not BENIGN.match(line)):
             continue
         said = line.strip()
         if CLIPPY_SCOPE.match(said):

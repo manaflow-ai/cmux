@@ -16763,6 +16763,54 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
         jobs, _ = self.found("some other workflow / tests")
         self.assertEqual([job["id"] for job in jobs], [137452467640])
 
+class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
+    """A step that did not fail printed 54 error annotations, and they refused a red the base was failing too.
+
+    2026-11-22, cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531): actions/checkout narrowed a sparse
+    checkout in a reused self-hosted workspace and annotated every path it kept, `##[error]error: Path '<path>' not
+    uptodate; will not remove from working tree.`, its own step green. The job ran five more minutes and ended in
+    `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, the failure main's own 'build-fleet Go tests' was failing at
+    three consecutive heads -- but the 54 paths are that workspace's history, printed by no base run, so compared
+    whole the head had 54 error lines the base did not and the red was refused. They are the workspace's, never the
+    change's: a base can never print them, so a verdict that reads them is a verdict no base can earn.
+    """
+
+    STAMP = "2026-11-22T02:37:42.1234567Z "
+    PATHS = ("docs/handbook/stalled-work-nobody-moves.md", "docs/handbook/alert-filed-as-fyi.md",
+             "docs/handbook/blobless-mirror-reads.md")
+    TAIL = ("FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+            "##[error]Process completed with exit code 1.")
+
+    def log(self, *, narrowed: bool) -> str:
+        said = [f"##[group]Run actions/checkout@v5", "Syncing repository: manaflow-ai/cmuxterm-hq"]
+        if narrowed:
+            said += [f"##[error]error: Path '{path}' not uptodate; will not remove from working tree."
+                     for path in self.PATHS]
+        said += ["##[endgroup]", *self.TAIL]
+        return "".join(f"{self.STAMP}{line}\n" for line in said)
+
+    def signature(self, *, narrowed: bool):
+        return excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"),
+                                         self.log(narrowed=narrowed))
+
+    def test_the_narrowing_annotations_are_no_error_lines_of_the_job(self):
+        said = [error for error in self.signature(narrowed=True).errors if "not uptodate" in error]
+        self.assertEqual(said, [], said)
+
+    def test_a_narrowed_checkout_reads_as_the_same_red_as_a_clean_one(self):
+        # What a base run of the same red prints: the Go failure, and none of this workspace's paths.
+        self.assertEqual(self.signature(narrowed=True), self.signature(narrowed=False))
+
+    def test_the_go_failure_is_still_read(self):
+        whole = self.signature(narrowed=True)
+        self.assertTrue(whole.errors or whole.tests, whole)
+
+    def test_another_error_line_still_counts(self):
+        text = self.log(narrowed=True) + f"{self.STAMP}##[error]error: the controller never came up\n"
+        whole = excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"), text)
+        self.assertTrue([error for error in whole.errors if "never came up" in error], whole.errors)
+
+
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
 
 
