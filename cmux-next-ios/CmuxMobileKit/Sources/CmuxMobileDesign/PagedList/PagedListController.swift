@@ -485,7 +485,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         spring.target = { [weak self] in self?.newestOffset ?? 0 }
         spring.current = { [weak self] in self?.collectionView.contentOffset.y ?? 0 }
         spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
-        spring.apply = { [weak self] y in self?.moveOffset(to: y) }
+        spring.apply = { [weak self] y in
+            guard let self else { return }
+            self.moveOffset(to: y)
+            // The rows the step reveals are laid out (dequeued, configured, sized, any correction made)
+            // now, in the display link's callback, not in the commit's layout pass: a row first laid out
+            // there drew a blank band above the first row for a frame while the content had already
+            // moved (video ecbd0207 frame 627, down-slow-inserts, the .down slide to new top rows).
+            self.collectionView.layoutIfNeeded()
+        }
         spring.finished = { [weak self] frames in
             guard let self else { return }
             // The slide ends at the newest end: the list follows it from here.
