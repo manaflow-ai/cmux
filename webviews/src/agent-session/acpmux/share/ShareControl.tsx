@@ -81,10 +81,11 @@ export function ShareDialogHost({
       setStatus(shareFailureText(error));
     }
   };
-  const step = async (work: () => Promise<unknown>) => {
+  /// `done` is the status line a step that worked leaves (a role change says so); else it clears.
+  const step = async (work: () => Promise<unknown>, done: string | null = null) => {
     setBusy(true);
     const failed = await work().then(
-      () => null,
+      () => done,
       (error: unknown) => shareFailureText(error),
     );
     setStatus(failed);
@@ -121,11 +122,17 @@ export function ShareDialogHost({
       });
     });
   // Inviting someone who already has access sets their role (the daemon refuses a second invite
-  // with another role, `share.invited`), and the same role again just says they have access.
+  // with another role, `share.invited`) and says so, since it changes what they may do; the same
+  // role again just says they have access.
   const invite = (account: string, role: ShareRole) => {
     const next = inviteStep(view, account, role);
     if (next.kind === "already") return setStatus(translate("share.error.alreadyIn", { account: next.account }));
-    void step(() => (next.kind === "role" ? client.setRole(next.account, role) : client.invite(account, role)));
+    if (next.kind === "invite") return void step(() => client.invite(account, role));
+    const label = translate(role === "talk" ? "share.role.talk" : "share.role.view");
+    void step(
+      () => client.setRole(next.account, role),
+      translate("share.roleChanged", { account: next.account, role: label }),
+    );
   };
   const general = (access: GeneralAccess) =>
     void step(async () => {
