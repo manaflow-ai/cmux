@@ -62,13 +62,17 @@ impl LossMeter {
         }
     }
 
-    /// The host resent `seq` because the viewer NACKed it: the original was
-    /// lost on the path, even though the repair will be reported under the
-    /// same sequence.
-    pub fn on_repaired(&mut self, seq: u16) {
+    /// The viewer NACKed this datagram (missing past its NACK grace) and the host
+    /// resent the same bytes. Unless a receipt came first, the original was lost
+    /// on the path, even though the copy is reported under the same sequence.
+    /// Without this a 1 % link drop that NACK repairs reads as 0 % loss.
+    /// Tail probes are speculative resends and must not call this.
+    pub fn on_resent(&mut self, seq: u16) {
         let first_ordinal = self.next_ordinal - self.order.len() as u64;
         let Some(&ordinal) = self.ordinals.get(&seq) else { return };
-        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize)
+            && !packet.arrived
+        {
             packet.repaired = true;
         }
     }
@@ -206,9 +210,39 @@ mod tests {
     }
 
     #[test]
+    fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3);
+        assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
+    }
+
+    #[test]
+    fn a_resend_after_a_receipt_is_not_loss() {
+        let mut m = sent(4);
+        assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
+        m.on_resent(2);
+        m.on_resent(77); // unknown: ignored
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    }
+
+    #[test]
+    fn one_percent_repaired_by_nack_reads_one_percent() {
+        let mut m = sent(1000);
+        let dropped = |s: &u16| s % 100 == 37;
+        assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
+        for seq in (0..1000).filter(dropped) {
+            m.on_resent(seq);
+        }
+        assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
+    }
+
+    #[test]
     fn a_repaired_packet_is_path_loss_but_not_congestion_loss() {
         let mut m = sent(20);
-        m.on_repaired(3);
+        m.on_resent(3);
         assert_eq!(m.on_arrivals(0..20, 0), None);
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.05));
         assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);

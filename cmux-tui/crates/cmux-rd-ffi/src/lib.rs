@@ -39,7 +39,7 @@ pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 pub use record_ffi::*;
-pub use session::{MAX_STREAMS, Session, SessionError};
+pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
 pub use upstream_ffi::*;
 
