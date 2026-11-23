@@ -15,7 +15,7 @@
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { RUN_PART } from "./runPartId";
 import { visibleToolItems } from "./mcpPresentation";
-import { runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { runStretches, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import { keyCallId } from "./turnRowsModel";
 
 /// How many stretches a part holds at most: a few cards' worth, so a part is about a screen.
@@ -24,7 +24,7 @@ export const RUN_PART_STRETCHES = 8;
 /// The parts of `row` (itself while it holds no more than RUN_PART_STRETCHES stretches), by the row.
 const partsOf = new WeakMap<AcpmuxRow, AcpmuxRow[]>();
 
-/// `rows` with each folded run of more than RUN_PART_STRETCHES stretches cut into parts.
+/// `rows` with each run of more than RUN_PART_STRETCHES stretches (an unfolded run's groups) cut into parts.
 export function cutLongRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < rows.length; at += 1) {
@@ -45,7 +45,9 @@ const groupKind = (group: ToolGroup) => (group.type === "group" ? `group:${group
 
 /// The rows `row` draws as: itself, or its parts in order.
 export function runParts(row: AcpmuxRow): AcpmuxRow[] {
-  if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return [row];
+  // A running turn's run is not folded while live-turn-work is `open` (its default since #48766), so an
+  // unfolded run is cut too, at its groups (`cut`).
+  if (row.kind !== "activity" || !row.items?.length) return [row];
   // Fewer items than a full part's stretches can hold no more stretches than that.
   if (row.items.length <= RUN_PART_STRETCHES) return [row];
   const kept = partsOf.get(row);
@@ -59,7 +61,17 @@ function cut(row: AcpmuxRow): AcpmuxRow[] {
   const all = row.items!;
   const visible = visibleToolItems(all)!;
   const groups = toolGroups(visible);
-  const stretches = runStretches(row, groups);
+  // An unfolded run is one stretch that folds nothing (toolGroups.ts `runStretches`); its groups stack
+  // flush as a folded run's stretches do, so each group is where a cut may fall.
+  const stretches: readonly RunStretch[] =
+    row.foldRun === true
+      ? runStretches(row, groups)
+      : groups.map((group, at) => ({
+          from: at,
+          groups: [group],
+          items: "items" in group ? group.items : [group.item],
+          fold: false,
+        }));
   if (stretches.length <= RUN_PART_STRETCHES) return [row];
   // Where each visible item sits in `all`, so a part keeps the hidden calls among its own.
   const index = new Map<AcpmuxActivity, number>();

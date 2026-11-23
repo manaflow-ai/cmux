@@ -298,89 +298,91 @@ test("a coordinator's open turn mounts as many elements at 20k records as at 10k
 // The running turn's run that keeps many Agent cards in sight draws as rows of a few cards each, which the
 // transcript windows; the rows draw exactly what the one row drew, in the same order, and Find still finds a call
 // in a later one.
-test("a long run cut into parts draws as the one row did", async () => {
-  const { runParts, RUN_PART_STRETCHES } = await import("../src/agent-session/acpmux/conversation/runParts");
-  const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { findRowIndex, rowHolds } = await import("../src/agent-session/acpmux/conversation/chatFind");
-  type Item = NonNullable<AcpmuxRow["items"]>[number];
-  const at = 1_700_000_000_000;
-  const items: Item[] = [];
-  for (let n = 0; n < 40; n += 1) {
-    items.push({
-      kind: "tool",
-      text: "",
-      tool: {
-        id: `agent-${n}`,
-        title: "Agent",
-        kind: "think",
-        status: n % 3 ? "in_progress" : "completed",
-        inputSummary: JSON.stringify({
-          description: `Review step ${n}`,
-          prompt: `Review the diff of step ${n}.`,
-          subagent_type: "general-purpose",
-        }),
-        ...(n % 3 ? {} : { output: `Reviewed: no findings.\nagentId: sub-${n}` }),
-      },
-    } as Item);
-    for (const k of [0, 1])
+// A running turn's run is unfolded while live-turn-work is `open` (its default, #48766): it is cut at its groups.
+for (const foldRun of [true, false] as const)
+  test(`a long run cut into parts draws as the one row did (${foldRun ? "folded" : "unfolded"})`, async () => {
+    const { runParts, RUN_PART_STRETCHES } = await import("../src/agent-session/acpmux/conversation/runParts");
+    const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+    const { findRowIndex, rowHolds } = await import("../src/agent-session/acpmux/conversation/chatFind");
+    type Item = NonNullable<AcpmuxRow["items"]>[number];
+    const at = 1_700_000_000_000;
+    const items: Item[] = [];
+    for (let n = 0; n < 40; n += 1) {
       items.push({
         kind: "tool",
         text: "",
         tool: {
-          id: `c-${n}-${k}`,
-          title: `glaeda-gh status pr ${n}`,
-          kind: "execute",
-          status: "completed",
-          command: `glaeda-gh status pr ${n}`,
-          output: "checks SUCCESS",
+          id: `agent-${n}`,
+          title: "Agent",
+          kind: "think",
+          status: n % 3 ? "in_progress" : "completed",
+          inputSummary: JSON.stringify({
+            description: `Review step ${n}`,
+            prompt: `Review the diff of step ${n}.`,
+            subagent_type: "general-purpose",
+          }),
+          ...(n % 3 ? {} : { output: `Reviewed: no findings.\nagentId: sub-${n}` }),
         },
       } as Item);
-  }
-  const row: AcpmuxRow = { id: "run-1", version: 7, at, kind: "activity", items, foldRun: true, settled: true };
-  const parts = runParts(row);
-  expect(parts.length).toBeGreaterThan(2);
-  expect(parts[0]!.id).toBe(row.id);
-  expect(new Set(parts.map((part) => part.id)).size).toBe(parts.length);
-  expect(parts.flatMap((part) => part.items!)).toEqual(items);
-  for (const part of parts) expect(part.items!.length).toBeLessThanOrEqual(RUN_PART_STRETCHES * 3);
-  // The same row cut again is the same parts (no new objects to lay out and draw again).
-  expect(runParts(row)).toBe(parts);
-  const host = dom.window.document.getElementById("root")!;
-  const drawn = async (rows: AcpmuxRow[]) => {
-    const root = createRoot(host);
-    try {
-      await act(async () =>
-        root.render(
-          <div>
-            {rows.map((one) => (
-              <div key={one.id} className="part">
-                <ToolRows row={one} />
-              </div>
-            ))}
-          </div>,
-        ),
-      );
-      // Each row draws its entries in a `.cv-tools` box of its own (KeepOpenedLine.tsx); what is in them is the same.
-      const tags = [...host.querySelectorAll(".part *")]
-        .filter((node) => !(node.classList.contains("cv-tools") && !node.parentElement?.closest(".cv-tools")))
-        .map((node) => `${node.tagName}.${node.className}`);
-      return { tags, text: host.textContent, cards: host.querySelectorAll(".cv-agentcall").length };
-    } finally {
-      await act(async () => root.unmount());
+      for (const k of [0, 1])
+        items.push({
+          kind: "tool",
+          text: "",
+          tool: {
+            id: `c-${n}-${k}`,
+            title: `glaeda-gh status pr ${n}`,
+            kind: "execute",
+            status: "completed",
+            command: `glaeda-gh status pr ${n}`,
+            output: "checks SUCCESS",
+          },
+        } as Item);
     }
-  };
-  const whole = await drawn([row]);
-  const cut = await drawn(parts);
-  expect(whole.cards).toBe(40);
-  expect(cut.cards).toBe(whole.cards);
-  expect(cut.text).toBe(whole.text);
-  expect(cut.tags).toEqual(whole.tags);
-  // Find goes to the part that holds the call.
-  const shown = [{ id: "u", version: 1, at, kind: "user", text: "go" } as AcpmuxRow, ...parts];
-  expect(findRowIndex(shown, row.id, rowHolds({ toolId: "agent-37" }))).toBe(
-    shown.findIndex((one) => one.items?.some((item) => item.tool?.id === "agent-37")),
-  );
-});
+    const row: AcpmuxRow = { id: "run-1", version: 7, at, kind: "activity", items, foldRun, settled: true };
+    const parts = runParts(row);
+    expect(parts.length).toBeGreaterThan(2);
+    expect(parts[0]!.id).toBe(row.id);
+    expect(new Set(parts.map((part) => part.id)).size).toBe(parts.length);
+    expect(parts.flatMap((part) => part.items!)).toEqual(items);
+    for (const part of parts) expect(part.items!.length).toBeLessThanOrEqual(RUN_PART_STRETCHES * 3);
+    // The same row cut again is the same parts (no new objects to lay out and draw again).
+    expect(runParts(row)).toBe(parts);
+    const host = dom.window.document.getElementById("root")!;
+    const drawn = async (rows: AcpmuxRow[]) => {
+      const root = createRoot(host);
+      try {
+        await act(async () =>
+          root.render(
+            <div>
+              {rows.map((one) => (
+                <div key={one.id} className="part">
+                  <ToolRows row={one} />
+                </div>
+              ))}
+            </div>,
+          ),
+        );
+        // Each row draws its entries in a `.cv-tools` box of its own (KeepOpenedLine.tsx); what is in them is the same.
+        const tags = [...host.querySelectorAll(".part *")]
+          .filter((node) => !(node.classList.contains("cv-tools") && !node.parentElement?.closest(".cv-tools")))
+          .map((node) => `${node.tagName}.${node.className}`);
+        return { tags, text: host.textContent, cards: host.querySelectorAll(".cv-agentcall").length };
+      } finally {
+        await act(async () => root.unmount());
+      }
+    };
+    const whole = await drawn([row]);
+    const cut = await drawn(parts);
+    expect(whole.cards).toBe(40);
+    expect(cut.cards).toBe(whole.cards);
+    expect(cut.text).toBe(whole.text);
+    expect(cut.tags).toEqual(whole.tags);
+    // Find goes to the part that holds the call.
+    const shown = [{ id: "u", version: 1, at, kind: "user", text: "go" } as AcpmuxRow, ...parts];
+    expect(findRowIndex(shown, row.id, rowHolds({ toolId: "agent-37" }))).toBe(
+      shown.findIndex((one) => one.items?.some((item) => item.tool?.id === "agent-37")),
+    );
+  });
 
 // The summary card's Subagents section drew every subagent the chat ever ran (chat-100k-flat CASES=coordinator: 2,386
 // card body elements at 20k records, 11,772 at 100k). Its body is a scroller: it mounts only the rows that body shows
