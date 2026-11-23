@@ -554,7 +554,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         from: None,
         from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+    let e = match begin_waiting(&client, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };
