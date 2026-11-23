@@ -95,6 +95,15 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           path: trusted
           persist-credentials: false
+          # Only what this job reads: the backend bun workspace (its members outside backend/ too) and the
+          # cache key's second lockfile. A full checkout of the repo took most of this job's time on every
+          # pull request push (3,100 plans a day, 2026-11-19), nearly all of which stop at the tree compare.
+          sparse-checkout: |
+            backend/
+            clients/ts/
+            workers/cmux-vm/sdk/
+            scripts/cmux-next/release/bun.lock
+          sparse-checkout-cone-mode: false
       - name: Changed files and head migrations
         id: files
         if: steps.same-tree.outputs.same != 'true'
