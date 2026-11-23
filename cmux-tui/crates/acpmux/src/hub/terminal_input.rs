@@ -26,8 +26,6 @@ use std::time::Duration;
 /// Longest one exchange with the session daemon takes, connecting included.
 // timeout: one local request to the cmux session daemon; a daemon that does not answer fails the Stop or send, which the person sees and can retry
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
-/// The longest reply line read.
-const MAX_REPLY: u64 = 256 * 1024;
 /// The session daemon's refusal while the terminal's agent works, asks, or is another session.
 pub(super) const NOT_WAITING: &str = "agent not waiting";
 
@@ -92,102 +90,35 @@ async fn write(d: &TerminalDriver, mut params: Value) -> Result<(), String> {
             .ok()
             .flatten()
             .ok_or("the terminal's harness is not running")?;
-    let socket = input.socket.clone();
+    let daemon = crate::computer_use::client::SocketDaemon::at(input.socket.clone());
     let terminal = input.terminal_id.clone();
-    let run = async move {
-        let mut link = Link::connect(&socket).await?;
-        let resolved =
-            link.call(json!({"cmd": "resolve-terminal", "terminal_id": terminal})).await?;
+    // Through `SocketDaemon::request`, as every acpmux request to a cmux-tui daemon goes, so a
+    // daemon older than `resolve-terminal` is swapped for the installed build (`daemon_skew.rs`).
+    let run = tokio::task::spawn_blocking(move || {
+        let resolved = daemon
+            .request("resolve-terminal", json!({"terminal_id": terminal}))
+            .map_err(|e| e.to_string())?;
         let surface = resolved
             .get("surface")
             .filter(|s| !s.is_null())
             .cloned()
             .ok_or("the chat's terminal is not open in cmux now")?;
         if let Some(p) = params.as_object_mut() {
-            p.insert("cmd".into(), json!("send"));
             p.insert("surface".into(), surface);
             p.insert("expect_foreground".into(), json!(expected));
         }
-        link.call(params).await.map(drop)
-    };
-    tokio::time::timeout(IO_TIMEOUT, run)
-        .await
-        .unwrap_or_else(|_| Err("the cmux session daemon did not answer in time".into()))
+        daemon.request("send", params).map(drop).map_err(|e| e.to_string())
+    });
+    match tokio::time::timeout(IO_TIMEOUT, run).await {
+        Ok(Ok(done)) => done,
+        Ok(Err(e)) => Err(format!("the request to the cmux session daemon stopped: {e}")),
+        Err(_) => Err("the cmux session daemon did not answer in time".into()),
+    }
 }
 
 fn base64_of(bytes: &[u8]) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(bytes)
-}
-
-/// One connection to a cmux session daemon (its JSON-line protocol: `{"id","cmd",...}` in,
-/// `{"id","ok","data"|"error"}` out).
-#[cfg(unix)]
-struct Link {
-    lines: tokio::io::Lines<tokio::io::BufReader<tokio::io::Take<tokio::net::unix::OwnedReadHalf>>>,
-    out: tokio::net::unix::OwnedWriteHalf,
-    next: u64,
-}
-
-#[cfg(unix)]
-impl Link {
-    async fn connect(socket: &std::path::Path) -> Result<Self, String> {
-        use tokio::io::AsyncReadExt as _;
-        let stream = tokio::net::UnixStream::connect(socket)
-            .await
-            .map_err(|e| format!("could not reach the cmux session daemon: {e}"))?;
-        let (read, out) = stream.into_split();
-        let lines =
-            tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(read.take(MAX_REPLY)));
-        Ok(Self { lines, out, next: 1 })
-    }
-
-    /// Sends `request` and returns its answer's `data`, or its `error`.
-    async fn call(&mut self, mut request: Value) -> Result<Value, String> {
-        use tokio::io::AsyncWriteExt as _;
-        let id = self.next;
-        self.next += 1;
-        if let Some(r) = request.as_object_mut() {
-            r.insert("id".into(), json!(id));
-        }
-        let mut line = request.to_string();
-        line.push('\n');
-        self.out
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|e| format!("could not write to the cmux session daemon: {e}"))?;
-        loop {
-            let reply = self
-                .lines
-                .next_line()
-                .await
-                .map_err(|e| format!("could not read the cmux session daemon: {e}"))?
-                .ok_or("the cmux session daemon closed the connection")?;
-            let Ok(reply) = serde_json::from_str::<Value>(&reply) else { continue };
-            if reply.get("id").and_then(Value::as_u64) != Some(id) {
-                continue;
-            }
-            if reply.get("ok").and_then(Value::as_bool) == Some(true) {
-                return Ok(reply.get("data").cloned().unwrap_or(Value::Null));
-            }
-            let error = reply.get("error").and_then(Value::as_str).unwrap_or("refused");
-            return Err(format!("the cmux session daemon refused: {error}"));
-        }
-    }
-}
-
-#[cfg(not(unix))]
-struct Link;
-
-#[cfg(not(unix))]
-impl Link {
-    async fn connect(_: &std::path::Path) -> Result<Self, String> {
-        Err("typing into a cmux terminal is Unix-only".into())
-    }
-
-    async fn call(&mut self, _: Value) -> Result<Value, String> {
-        Err("typing into a cmux terminal is Unix-only".into())
-    }
 }
 
 /// Most prompts waiting for a terminal's turn to end before they are typed (per chat).
