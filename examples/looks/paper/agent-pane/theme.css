@@ -1,0 +1,16 @@
+/* Paper's chat: a soft, rounded prompt in a warm tint, no hairline, and cards like a ruled page.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent), so the stylesheet reads over a dark theme as well as
+   a light one; Paper's theme file picks the paper and the sepia accent that warms the rest. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  --cv-user-bubble-radius: 18px;
+  --cv-code-edge-fade: 32px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 7%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 20%, transparent);
+  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 85%, var(--agent-accent)) 84%, transparent);
+  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 85%, var(--agent-accent)) 74%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));
+}

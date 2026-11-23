@@ -138,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
     "sessionCreatedAt",
     "senderHarness",
@@ -245,7 +246,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit", "recent"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.

@@ -22,6 +22,9 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** A second key of the same team for sandbox sends only (push.ts `signingConfig`): both or neither. */
+  readonly APNS_SANDBOX_KEY_P8?: string
+  readonly APNS_SANDBOX_KEY_ID?: string
   /** Comma-separated bundle ids a phone may register a push token for. */
   readonly APNS_TOPICS?: string
   /** Workers rate limiting bindings (absent in tests that do not configure them). */
