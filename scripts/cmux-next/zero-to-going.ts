@@ -36,9 +36,10 @@
  *
  * The model, one run per path, each its own rows:
  *   none  the newcomer: a fresh account and no Claude login on the machine. The default. Where the first reply is
- *         refused, the row is the refusal's own text, and RECOVERY is what it then takes to get a reply.
+ *         refused, the row is the refusal's own text, with the count of steps it then takes to get a reply.
  *   real  the person who signs in to Claude on the machine: the login goes as the agent's launch credential, the
- *         transfer cloud-journey-prod.yml uses (CLAUDE_CODE_OAUTH_TOKEN, a `claude setup-token` login).
+ *         transfer cloud-journey-prod.yml uses (CLAUDE_CODE_OAUTH_TOKEN, a `claude setup-token` login). It also
+ *         writes the model tokens the two turns used, by model, from Claude Code's transcripts on the machine.
  *   stub  the Cloud journey's model stub on the machine: the Cloud part without model latency. By hand only; its
  *         rows say "stubbed model" and are never the headline.
  *
@@ -285,15 +286,45 @@ export const MODEL_LABEL: Record<ModelRoute, string> = {
 };
 
 /**
- * What a newcomer does after the first reply is refused for a model connection, as the Start page gives it
- * (the agent's "If the start is refused" step): counted like every other step.
+ * What a newcomer does after the first reply is refused for a model connection: the steps the Start page's agent
+ * level gives for a refused start, so the count is the page's own.
  */
-export const RECOVERY: { kind: StepKind; by: "person" | "agent"; what: string }[] = [
-  { kind: "command", by: "agent", what: "read the refusal, or run `cmux cloud diagnostics` when it names nothing" },
-  { kind: "physical", by: "person", what: "open the card or Settings page it names" },
-  { kind: "physical", by: "person", what: "sign in to Claude there (a browser), or paste an API key" },
-  { kind: "command", by: "agent", what: "run the same `cmux chat --on vm ... --wait` again" },
-];
+export const recoverySteps = (): LevelStep[] => LEVELS.agent.steps.filter((s) => s.when === REFUSED || s.step === "cmux cloud diagnostics");
+
+/**
+ * The model tokens the session used so far, by model, read from Claude Code's own transcripts on the machine
+ * (each assistant message's usage, once per message id). Tokens, not money: the pricing lane turns them into its caps.
+ */
+const USAGE_PY = `import glob, json, os
+seen, out = set(), {}
+for f in glob.glob(os.path.expanduser('~/.claude/projects/**/*.jsonl'), recursive=True):
+    for line in open(f, errors='replace'):
+        try:
+            m = json.loads(line).get('message') or {}
+        except Exception:
+            continue
+        u, mid = m.get('usage'), m.get('id')
+        if not isinstance(u, dict) or not mid or mid in seen:
+            continue
+        seen.add(mid)
+        o = out.setdefault(str(m.get('model')), {'messages': 0, 'input': 0, 'cache_write': 0, 'cache_read': 0, 'output': 0})
+        o['messages'] += 1
+        o['input'] += int(u.get('input_tokens') or 0)
+        o['cache_write'] += int(u.get('cache_creation_input_tokens') or 0)
+        o['cache_read'] += int(u.get('cache_read_input_tokens') or 0)
+        o['output'] += int(u.get('output_tokens') or 0)
+print('@@usage ' + json.dumps(out, sort_keys=True))`;
+
+async function readUsage(ctx: Ctx): Promise<string> {
+  if (!ctx.exec) return "not read: no machine";
+  const r = await ctx.exec(`${GUEST}python3 -I - <<'ZG_USAGE'\n${USAGE_PY}\nZG_USAGE`, 45_000).catch((e) => ({ code: -1, stdout: "", stderr: String((e as Error).message) }));
+  const found = /@@usage (\{.*\})/.exec(r.stdout)?.[1];
+  if (!found) return `not read: exit ${r.code} ${(r.stderr || r.stdout).slice(-160)}`;
+  const by = JSON.parse(found) as Record<string, Record<string, number>>;
+  const models = Object.keys(by);
+  if (!models.length) return "not read: Claude Code's transcripts on the machine name no usage";
+  return models.map((m) => `${m}: ${by[m].input} input, ${by[m].cache_write} cache write, ${by[m].cache_read} cache read, ${by[m].output} output tokens in ${by[m].messages} model messages`).join("; ");
+}
 
 type Ctx = {
   api: Api;
@@ -410,8 +441,8 @@ async function chatOp(ctx: Ctx): Promise<OpResult> {
   if (ctx.model === "none") {
     // The newcomer: no login on the machine, the session started the plain way. A refusal is the row.
     const chat = await runPreclaimChat(ctx.exec, ctx.session, PROMPT, REPLY_BUDGET_MS);
-    const byPerson = RECOVERY.filter((s) => s.by === "person").length;
-    if (chat.replyMs === null) throw new Error(`refused: ${chat.replyNotJudged}. To recover: ${RECOVERY.length} more steps, ${byPerson} by the person. Before it: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms`);
+    const recovery = recoverySteps();
+    if (chat.replyMs === null) throw new Error(`refused: ${chat.replyNotJudged}. To recover: ${recovery.length} more steps, ${recovery.filter((s) => s.by === "person").length} by the person. Before it: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms`);
     return { detail: `${ctx.machine}: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms, first reply ${chat.replyMs} ms after the send (${MODEL_LABEL.none})` };
   }
   const a0 = Date.now();
@@ -500,7 +531,8 @@ function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<s
     "",
     `steps: every step of the level as the Start page gives it (${START_PAGE}), the conditional ones included. by the person: the steps only the person can do or that the person types; the rest the agent or Chief runs. fewest steps: the app installed and running, already signed in, nothing refused. Cloud part: the level's timed steps (sign-in, then the routes behind \`cmux chat --on vm ... --wait\`, then Chief's second turn) on the backend as the agent test account, without a person's think time; never the Mac or phone steps. source names the model that replied: with the stubbed model the time has no model latency; either way the harness gave the agent its Claude login, a step a fresh account does by hand first (connect Claude for Cloud).`,
     "",
-    ...(meta.backend ? [`After a first reply refused for a model connection: ${RECOVERY.length} more steps, ${RECOVERY.filter((r) => r.by === "person").length} by the person (${RECOVERY.map((r) => `${r.by}: ${r.what}`).join("; ")}).`, ""] : []),
+    ...(meta.backend ? [`After a first reply refused for a model connection: ${recoverySteps().length} more steps, ${recoverySteps().filter((r) => r.by === "person").length} by the person (${recoverySteps().map((r) => `${r.by}: ${r.step}`).join("; ")}).`, ""] : []),
+    ...(meta.usage ? [`Model tokens for the two turns (\`${PROMPT}\`, \`${SECOND_PROMPT}\`): ${meta.usage}.`, ""] : []),
     "<details><summary>The steps of each level</summary>",
     "",
     levelsMarkdown(),
@@ -508,7 +540,7 @@ function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<s
     "",
   ].join("\n");
   if (outDir) {
-    writeFileSync(path.join(outDir, "zero-to-going.json"), `${JSON.stringify({ meta, rows, steps: timings ?? [], recovery: RECOVERY, levels: LEVELS }, null, 2)}\n`);
+    writeFileSync(path.join(outDir, "zero-to-going.json"), `${JSON.stringify({ meta, rows, steps: timings ?? [], recovery: recoverySteps(), levels: LEVELS }, null, 2)}\n`);
     writeFileSync(path.join(outDir, "summary.md"), md);
   }
   return md;
@@ -556,7 +588,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (model === "real" && !validLogin("claude", login)) throw new Error("--model real: CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
   if (login) secrets.push(login);
   const health = await http("GET", `${backend.api}/v1/health`, undefined, {}).catch(() => null);
-  const meta = { backend: backend.name, api: backend.api, tag, commit: String(health?.body?.commit ?? health?.body?.version ?? "?"), team: team ?? "(personal)", model: MODEL_LABEL[model] };
+  const meta: Record<string, string> = { backend: backend.name, api: backend.api, tag, commit: String(health?.body?.commit ?? health?.body?.version ?? "?"), team: team ?? "(personal)", model: MODEL_LABEL[model] };
   log(`zero to going on ${backend.name} (${backend.api}), tag ${tag}, ${MODEL_LABEL[model]}`);
   const timings: OpTiming[] = [];
   const ctx: Ctx = { api, tag, secrets, name: `zero to going auto ${tag}`, machine: null, exec: null, model, login, nonce: randomBytes(6).toString("hex"), session: `zg-${tag}` };
@@ -581,6 +613,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { detail: "password sign-in (the stand-in for the browser sign-in) and user.ensure" };
     });
     if (signedIn && (await timeOp("chat", timings, log, secrets, () => chatOp(ctx)))) await timeOp("send", timings, log, secrets, () => sendOp(ctx));
+    if (model === "real" && ctx.exec) {
+      meta.usage = scrub(await readUsage(ctx), secrets);
+      log(`usage: ${meta.usage}`);
+    }
   } finally {
     process.off("SIGTERM", onSignal);
     process.off("SIGINT", onSignal);

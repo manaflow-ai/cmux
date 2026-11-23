@@ -98,10 +98,12 @@ The workflow measures two paths, each on its own machine with its own rows:
 | newcomer | `none` (the default) | a fresh account, no Claude login on the machine. Today the row is the refusal's text. |
 | the person's Claude login | `real` | the person has signed in to Claude on the machine: the login goes to the agent as its launch credential, as the Cloud journey's production run does. |
 
-After the refusal the newcomer has 4 more steps before a reply, 2 of them the person's (`RECOVERY` in the script):
-read the refusal or run `cmux cloud diagnostics`, open the card or Settings page it names, sign in to Claude there
-or paste an API key, run the same chat command again. The script also takes `--model stub` by hand (the Cloud part
-without model latency); its rows say "stubbed model" and are never the headline.
+After the refusal the newcomer has 3 more steps before a reply, 1 of them the person's (the agent level's own
+refused-start steps): do the one card or Settings page the refusal names, run `cmux cloud diagnostics` when the
+refusal does not say what is wrong, run the same chat command again. The Claude login run also writes the model
+tokens its two turns used, by model, read from Claude Code's transcripts on the machine: tokens, not money. The
+script also takes `--model stub` by hand (the Cloud part without model latency); its rows say "stubbed model" and
+are never the headline.
 
 The workflow can be started by hand (workflow_dispatch) only once this file is on `feat-cmux-next`; on its pull
 request it runs on each change to the script or the workflow. It reads the agent test account from the
