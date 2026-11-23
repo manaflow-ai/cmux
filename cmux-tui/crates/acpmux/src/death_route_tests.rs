@@ -151,7 +151,21 @@ fn a_placement_cap_waits_without_spending_a_try() {
 fn a_codex_limit_that_resets_soon_waits_then_restarts() {
     let mut f = dead();
     f.reset_in_seconds = Some(600.0);
-    assert!(matches!(route(&f), Route::Wait { .. }));
+    assert_eq!(
+        route(&f),
+        Route::Wait {
+            why: "waits for its Codex usage limit to reset in 10 min, then restarts in place"
+                .into()
+        }
+    );
+    f.reset_at = "2026-11-13T20:20:00Z".into();
+    assert_eq!(
+        route(&f),
+        Route::Wait {
+            why: "waits for its Codex usage limit to reset at 2026-11-13T20:20:00Z, then restarts in place"
+                .into()
+        }
+    );
     f.reset_in_seconds = None;
     assert_eq!(route(&f), Route::Restart { number: 1 });
 }
