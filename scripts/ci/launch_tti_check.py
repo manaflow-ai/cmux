@@ -62,6 +62,10 @@ FIFO, CMUX_NEXT_LAUNCH_MARKS_PATH) so its window is key at its first frame: a pl
 window key there on a fleet Mac (`terminal.probe_no_key_window`, both terminal rounds of cmux-ci step
 37643b8028222260ca36ab63). --launch exec keeps the old exec; the row's `launch` says which ran.
 
+--launch-delay-ms N is the bench's positive control (launch-tti.sh control=N): each measured launch gets
+CMUX_NEXT_LAUNCH_TEST_DELAY_MS=N, so the app waits N ms before it makes any window; launch_tti_control.py compares
+that run with a baseline one and fails the bench when its numbers did not move by about N.
+
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
 process to hold the PostEvent grant (CGPreflightPostEventAccess). A runner without it (`post_access: false`) types in
 the app instead (`input: in_app`, every round row and the TTI line say which path ran, `posted` or `in_app`): the
@@ -81,6 +85,7 @@ import json
 import mmap
 import os
 import plistlib
+import select
 import shutil
 import subprocess
 import sys
@@ -106,6 +111,7 @@ PRERUN_S = 60.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
+LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 BROWSER_PAINT, BROWSER_INPUT = "browser_pane.first_paint", "browser_pane.input_ready"  # CEFLaunchMarks.swift
 BROWSER_MARK_BYTES = BROWSER_PAINT.encode()  # a build whose executable names it has the browser marks
@@ -411,11 +417,14 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
     return "posted" if post_access else "in_app"
 
 
-def launch_env(env: dict, probe: Path, path: str) -> dict:
-    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path."""
+def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0) -> dict:
+    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path,
+    and with `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
         out[TYPE_PROBE_VARIABLE] = "1"
+    if delay_ms > 0:
+        out[LAUNCH_DELAY_VARIABLE] = str(delay_ms)
     return out
 
 
@@ -607,7 +616,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     if not shown:
         quit_app(inst, process)
         return None, "the prerun's window never showed"
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the prerun stays up `seconds` after its window shows, on purpose
     rr.wait(lambda: rr.call(inst.sock, "system.ping", timeout=2).get("error") is None, 10, 0.25)
     return None, quit_app(inst, process)
 
@@ -659,9 +668,9 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     spawned = uptime_ns()
     try:
         if args.launch == "open":
-            process, fd = ls_launch(app, launch_env(env, probe, path), out / "app-tti.log")
+            process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
         else:
-            process, fd, _ = rr.launch(app, launch_env(env, probe, path), out / "app-tti.log")
+            process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         args.load_runner.stop()
         failures.append(f"the launch failed: {error}")
@@ -713,7 +722,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             posted += 1
             last_post = time.monotonic()
         time.sleep(KEY_EVERY_S)
-    time.sleep(0.2)
+    # Marks written as the loop ended: read until the pipe stays quiet for 0.2 s (or ends), at most 2 s.
+    drain_end = time.monotonic() + 2.0
+    while time.monotonic() < drain_end:
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            break
+        before = (len(buf), len(marks))
+        read_marks(fd, buf, marks)
+        if (len(buf), len(marks)) == before:
+            break  # readable with nothing new: the writer closed the pipe
     read_marks(fd, buf, marks)
     os.close(fd)
     args.load_runner.stop()
@@ -868,7 +889,7 @@ def check(args) -> int:
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
-    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access,
+    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access, launch_delay_ms=args.launch_delay_ms,
                   input=input_path(keys.access, args.input))
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
@@ -879,7 +900,7 @@ def check(args) -> int:
         print("RESTART-FIRST-PAINT " + json.dumps(line), flush=True)
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
-    shown = ("verdict", "post_access", "input", "seed", "seed_error", "stages", *summary)
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
@@ -916,6 +937,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="busy: one `yes > /dev/null` per core through each measured launch")
     parser.add_argument("--launch", choices=("open", "exec"), default="open",
                         help="open: LaunchServices (activated, as a Dock click); exec: the harness execs the app")
+    parser.add_argument("--launch-delay-ms", type=int, default=0,
+                        help="the positive control: each measured launch waits this long before its first window "
+                             "(CMUX_NEXT_LAUNCH_TEST_DELAY_MS; the app clamps it to 5000)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)

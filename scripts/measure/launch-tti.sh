@@ -6,7 +6,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL|build] [--arg=build=SHA] \
 #     [--arg=config=bench|Release|Debug] [--arg=input=auto|posted|in_app] [--arg=plan=warm:terminal,warm:browser,warm:chat] \
-#     [--arg=load=none|busy] [--arg=chats=6] [--arg=workspaces=120] [--arg=launch=open|exec] \
+#     [--arg=load=none|busy] [--arg=chats=6] [--arg=workspaces=120] [--arg=launch=open|exec] [--arg=control=500] \
 #     --artifact .build/launch-tti/report.tgz --timeout 2400
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   dmg=build    a tagged app built from this checkout (scripts/reload.sh, config=bench by default: Release
@@ -21,11 +21,16 @@
 #   launch=      open (default): LaunchServices, activated, as a Dock click; exec: the harness execs the app
 # Prints TTI-HOST (the Mac, its load), TTI-ROUND per round, RESTART-FIRST-PAINT per front and kind,
 # RESTART-FIRST-PAINT-RATIO per kind and one TTI {json}; keeps tti.json and run.log in report.tgz.
+#   control=MS   the bench's positive control: the plan runs twice on the same build, as is (base/) and with
+#                CMUX_NEXT_LAUNCH_TEST_DELAY_MS=MS (delayed/: the app waits MS before any window, LaunchTestDelay;
+#                1-5000), then launch_tti_control.py prints CONTROL delta_ms=X expected=MS pass|fail per metric
+#                (first_frame per kind, first_chat_paint, launch_to_interaction per front) and the run fails unless
+#                every delta is within 30% of MS. A build older than the knob shows no delta and fails.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/launch-tti"
 rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-dmg=nightly config=bench build_sha="" extra=()
+dmg=nightly config=bench build_sha="" extra=() control=
 for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -37,6 +42,8 @@ for arg in "$@"; do
     plan=*) extra+=(--plan "${arg#plan=}") ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
     chats=*) extra+=(--chats "${arg#chats=}") ;;
+    control=*) control="${arg#control=}"
+      [[ "$control" =~ ^[1-9][0-9]{0,3}$ ]] && (( control <= 5000 )) || { echo "control=MS takes 1-5000 ms" >&2; exit 2; } ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -103,9 +110,26 @@ else
   source_args=(--dmg "$out/in.dmg")
 fi
 python3 -I -c 'import json, os, shutil, socket; print("TTI-HOST " + json.dumps({"name": socket.gethostname().split(".")[0], "cpus": os.cpu_count(), "load_at_launch": round(os.getloadavg()[0], 2), "free_disk_gb": round(shutil.disk_usage(os.path.expanduser("~")).free / 1e9, 1)}))' | tee "$out/run.log"
-scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/launch_tti_check.py" "${source_args[@]}" --out "$out" \
-  ${extra[@]+"${extra[@]}"} 2>&1 | tee -a "$out/run.log"
-rc=${PIPESTATUS[0]}
+tti() {  # tti OUT [ARGS...]: one run of the check's plan into OUT
+  local dir="$1"; shift
+  mkdir -p "$dir" && chmod 0777 "$dir"
+  scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/launch_tti_check.py" "${source_args[@]}" --out "$dir" \
+    ${extra[@]+"${extra[@]}"} "$@" 2>&1 | tee -a "$out/run.log"
+  return "${PIPESTATUS[0]}"
+}
+if [[ -z "$control" ]]; then
+  tti "$out"; rc=$?
+else
+  echo "TTI control: base run, then delayed by ${control} ms" | tee -a "$out/run.log"
+  tti "$out/base"; base_rc=$?
+  tti "$out/delayed" --launch-delay-ms "$control"; delayed_rc=$?
+  python3 -I scripts/ci/launch_tti_control.py --base "$out/base/tti.json" --delayed "$out/delayed/tti.json" \
+    --expected "$control" 2>&1 | tee -a "$out/run.log"
+  control_rc=${PIPESTATUS[0]}
+  rc=$control_rc
+  (( base_rc != 0 )) && rc=$base_rc
+  (( delayed_rc != 0 )) && rc=$delayed_rc
+fi
 rm -f "$out/in.dmg"
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz --exclude tti-marks.fifo . 2>/dev/null || true
 exit "$rc"
