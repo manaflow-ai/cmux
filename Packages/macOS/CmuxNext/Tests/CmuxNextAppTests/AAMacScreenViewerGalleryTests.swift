@@ -27,9 +27,50 @@ struct AAMacScreenViewerGalleryTests {
         var linkConnected = false
         var hasFrame = false
         var capturesKeyboard = false
+        /// A quality readout state: the readout drawn, over an ultra session's numbers.
+        var readout: MacScreenQualityReadout?
+        /// A bar state: the floating bar's arrangement, live in control over an ultra session.
+        var bar: MacScreenToolbarBar?
+        /// A host too old to name its profile (no `encode_profile`): the rate shows with no profile word.
+        var oldHost = false
         /// The toolbar's Record button shows a file being written (red, Stop Recording).
         var recording = false
     }
+
+    /// An ultra session (D10): the host streams at 148 Mbps, 120 of 120 fps, direct, 3 ms.
+    static var ultraStats: MacScreenSession.LiveStats {
+        var stats = MacScreenSession.LiveStats()
+        stats.fps = 119.6
+        stats.targetFps = 120
+        stats.latencyMs = 3
+        stats.encoding = "HEVC"
+        stats.hostKbps = 148_000
+        stats.lossPercent = 0.1
+        stats.encodeMsP50 = 2.4
+        stats.encodeProfile = "ultra"
+        return stats
+    }
+
+    static func stats(for state: State) -> MacScreenSession.LiveStats {
+        var stats = ultraStats
+        if state.oldHost { stats.encodeProfile = nil }
+        return stats
+    }
+
+    /// The `macScreen.qualityReadout` variants (R1 inline, R2 chip, R3 stats panel), each live with the ultra numbers.
+    static let readoutStates: [State] = MacScreenQualityReadout.allCases.map {
+        State(name: "readout-\($0.rawValue)", scope: .full, phase: .connected, hasFrame: true, readout: $0)
+    }
+
+    /// The `macScreen.toolbarBar` variants (Leo 2026-11-22, of the two-row bar: "this is still bad looking"), each live
+    /// in control with the ultra numbers; `stacked` is the bar he saw.
+    static let barStates: [State] = MacScreenToolbarBar.allCases.map {
+        State(name: "bar-\($0.rawValue)", scope: .full, phase: .connected, hasFrame: true, readout: .inline, bar: $0)
+    } + [State(name: "bar-row-oldhost", scope: .full, phase: .connected, hasFrame: true, readout: .inline, bar: .row,
+               oldHost: true)]
+
+    /// Leo's pane (the bar he saw stacked) and a narrow one.
+    static let barWidths: [CGSize] = [CGSize(width: 720, height: 450), CGSize(width: 480, height: 450)]
 
     static let states: [State] = [
         State(name: "connecting", scope: .full, phase: .connecting),
@@ -100,12 +141,17 @@ struct AAMacScreenViewerGalleryTests {
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
         defer { pane.close() }
         pane.model.hasFrame = state.hasFrame
+        pane.model.qualityReadoutOverride = state.readout
+        pane.model.toolbarBarOverride = state.bar
+        // The readout states show the host's numbers; the stats panel is the one Show Stats turns on.
+        if state.readout == .hud { pane.session?.preferences.showStats = true }
         if state.recording {
             pane.model.recording.file = MacScreenRecording.fileURL(device: "Studio MacBook Pro", at: Date(timeIntervalSince1970: 1_795_320_000))
             pane.model.recording.startedAt = Date(timeIntervalSince1970: 1_795_320_000)
         }
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
-                                       frameSize: state.hasFrame ? remotePixels : .zero)
+                                       frameSize: state.hasFrame ? remotePixels : .zero,
+                                       stats: state.readout == nil ? nil : stats(for: state), path: state.readout == nil ? nil : "Direct")
         pane.view.frame = root.bounds
         pane.view.autoresizingMask = [.width, .height]
         root.addSubview(pane.view)
@@ -194,6 +240,25 @@ struct AAMacScreenViewerGalleryTests {
         return try #require(ctx.makeImage())
     }
 
+    /// Images stacked top to bottom, left aligned, on gray.
+    static func strip(_ images: [CGImage]) throws -> CGImage {
+        let gap = 12
+        let width = images.map(\.width).max() ?? 1
+        let height = images.reduce(0) { $0 + $1.height + gap } - gap
+        let ctx = try #require(CGContext(data: nil, width: width, height: max(1, height), bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        var top = ctx.height
+        for image in images {
+            top -= image.height
+            ctx.draw(image, in: CGRect(x: 0, y: top, width: image.width, height: image.height))
+            top -= gap
+        }
+        return try #require(ctx.makeImage())
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() async throws {
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "mac-screen-viewer-gallery")
@@ -214,6 +279,33 @@ struct AAMacScreenViewerGalleryTests {
             }
             try AAGroupHeaderDensityGalleryTests.write(try Self.sheet(pairs), to: out.appending(path: "\(look.rawValue)-all.png"))
         }
+        // The quality readouts, in the default look and the bar look (where the bar has room for the full line).
+        for look in [MacScreenViewerLook.a, .current] {
+            var pairs: [(light: CGImage, dark: CGImage)] = []
+            for state in Self.readoutStates {
+                var pair: [CGImage] = []
+                for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                    let image = try await Self.render(look: look, state: state, size: Self.wide, theme: theme, dark: dark)
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(look.rawValue)-\(state.name)-\(mode).png"))
+                    pair.append(image)
+                }
+                pairs.append((pair[0], pair[1]))
+            }
+            try AAGroupHeaderDensityGalleryTests.write(try Self.sheet(pairs), to: out.appending(path: "\(look.rawValue)-readouts.png"))
+        }
+        // The bar variants at Leo's width and a narrow one, whole and as one sheet of the bars alone (top band).
+        var bars: [CGImage] = []
+        for state in Self.barStates {
+            for size in Self.barWidths {
+                for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                    let image = try await Self.render(look: .a, state: state, size: size, theme: theme, dark: dark)
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "a-\(state.name)-\(Int(size.width))-\(mode).png"))
+                    let scale = CGFloat(image.height) / size.height
+                    bars.append(try #require(image.cropping(to: CGRect(x: 0, y: 0, width: CGFloat(image.width), height: 56 * scale))))
+                }
+            }
+        }
+        try AAGroupHeaderDensityGalleryTests.write(try Self.strip(bars), to: out.appending(path: "a-bars.png"))
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot

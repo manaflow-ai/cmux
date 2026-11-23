@@ -219,6 +219,19 @@
   gap: var(--ds-space-3);
 }
 
+/* A provider signing in (logins done right): the row grows and the device card sits under its name. */
+.onb-agent-list[data-look] .onb-agent[data-signing] {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--onb-agent-row);
+  padding-block: var(--ds-space-2);
+}
+.onb-agent-signin {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--onb-agent-icon) + var(--ds-space-3));
+}
+
 /* A: a rounded card per agent (the Swift step's look). */
 .onb-agent-list[data-look="cards"] {
   display: flex;
@@ -585,8 +598,10 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at the chrome glass level over its blur, so a busy wallpaper
-   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+/* The cards take the surface color at the chrome glass level, so a busy wallpaper behind the window's glass never
+   fights the rows' text (the plain look's 5% tint did). Never opaque. No blur of their own: the window's glass
+   already frosts the wallpaper, and a second backdrop-filter over it was a second frost (Leo 2026-11-22: "doubled
+   up glass/wack looking glass all over the place"). */
 .onb-import {
   --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
 }
@@ -595,8 +610,6 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -892,8 +905,6 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
@@ -919,15 +930,19 @@
   visibility: hidden;
 }
 
-/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
+/* Reduce Transparency: the import cards turn solid. */
 @media (prefers-reduced-transparency: reduce) {
   .onb-import {
     --onb-card-glass: var(--ds-color-surface);
   }
-  .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid cards. */
+:where(:root[data-glass="off"]) .onb-import {
+  --onb-card-glass: var(--ds-color-surface);
+}
+:where(:root[data-glass="off"]) .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
@@ -939,15 +954,6 @@
   :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
-}
-
-/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
-.onb-agent-tools-note {
-  margin-top: auto;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio
@@ -1133,4 +1139,319 @@ img.onb-make-tile-image {
 }
 .onb-make[data-look="rows"] .onb-make-tiles {
   --onb-make-tile-h: 40px;
+}
+
+/* The captioned looks (preview, segmented, form): calmer selection, one segmented track for density,
+   unnamed tiles with the chosen work's whole name once below. */
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"]) {
+  --onb-make-tile-h: 36px;
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"]) .onb-make-badge {
+  padding: 0;
+  background: none;
+  color: var(--page-text-2);
+  font-weight: var(--weight-regular, 400);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"])
+  .onb-make-segments {
+  gap: 0;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-color-hover);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"]) .onb-make-segment {
+  height: var(--ds-control-compact, 24px);
+  border: 0;
+  background: transparent;
+  transition:
+    background-color var(--cmux-motion-micro) var(--cmux-ease-out),
+    box-shadow var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"])
+  .onb-make-segment:hover:not([data-checked]) {
+  background: transparent;
+  color: var(--ds-color-fg);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"])
+  .onb-make-segment[data-checked] {
+  background: var(--ds-color-surface);
+  box-shadow: var(--elevation-1);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"]) .onb-make-tile {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"])
+  .onb-make-tile-image {
+  border-radius: var(--ds-radius-md);
+  box-shadow: inset 0 0 0 1px var(--onb-card-rim);
+}
+.onb-make:is([data-look="preview"], [data-look="segmented"], [data-look="form"])
+  .onb-make-tile[data-checked] {
+  box-shadow: 0 0 0 2px var(--ds-color-accent);
+  border-radius: var(--ds-radius-md);
+}
+.onb-make-caption {
+  overflow: hidden;
+  margin-top: var(--ds-space-2);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Segmented: the cards' layout, the selection a ring only where a pick is (cards keep their rim). */
+.onb-make[data-look="segmented"] .onb-make-option[data-checked] {
+  box-shadow: none;
+}
+
+/* Form: the question on the left, its control on the right, as a Settings pane. */
+.onb-make[data-look="form"] {
+  --onb-make-legend-w: 136px;
+  gap: 24px;
+}
+.onb-make[data-look="form"] .onb-make-label {
+  float: left;
+  width: var(--onb-make-legend-w);
+  margin: 0;
+  padding-top: var(--ds-space-1);
+}
+.onb-make[data-look="form"] .onb-make-control {
+  margin-left: calc(var(--onb-make-legend-w) + 16px);
+}
+.onb-make[data-look="form"] .onb-make-options {
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-lg);
+  background: var(--onb-card-fill);
+}
+.onb-make[data-look="form"] .onb-make-option {
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.onb-make[data-look="form"] .onb-make-option + .onb-make-option {
+  border-top: 1px solid var(--onb-card-rim);
+}
+.onb-make[data-look="form"] .onb-make-option[data-checked] {
+  box-shadow: inset 3px 0 0 var(--ds-color-accent);
+}
+
+/* Preview (ships): the window drawn from the answers on the left, the three choices on the right. */
+.onb-make[data-look="preview"] {
+  --onb-make-stage-w: 208px;
+  display: grid;
+  grid-template-columns: var(--onb-make-stage-w) minmax(0, 1fr);
+  column-gap: var(--ds-space-6, 24px);
+  align-items: start;
+}
+.onb-make-stage {
+  min-width: 0;
+  margin: 0;
+}
+.onb-make-stage .onb-make-caption {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.onb-make-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+  min-width: 0;
+}
+.onb-make[data-look="preview"] .onb-make-options {
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-lg);
+  background: var(--onb-card-fill);
+  overflow: hidden;
+}
+.onb-make[data-look="preview"] .onb-make-option {
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.onb-make[data-look="preview"] .onb-make-option:hover {
+  background: var(--ds-color-hover);
+}
+.onb-make[data-look="preview"] .onb-make-option + .onb-make-option {
+  border-top: 1px solid var(--onb-card-rim);
+}
+.onb-make[data-look="preview"] .onb-make-option[data-checked] {
+  box-shadow: none;
+}
+/* A radio's dot, drawn: the native input stays (invisible) for roles, arrows and focus. */
+.onb-make-option-mark {
+  flex: none;
+  width: var(--cmux-menu-icon-size); /* a menu's state mark, as a radio's dot is */
+  height: var(--cmux-menu-icon-size);
+  margin-top: var(--grid-half-step);
+  border: 1px solid color-mix(in srgb, var(--ds-color-fg) 35%, transparent);
+  border-radius: 50%;
+  transition:
+    border-color var(--cmux-motion-micro) var(--cmux-ease-out),
+    box-shadow var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.onb-make-option[data-checked] .onb-make-option-mark {
+  border-color: var(--ds-color-accent);
+  box-shadow: inset 0 0 0 3.5px var(--ds-color-accent);
+}
+
+/* The little window. Every gap comes from the density, so a pick reflows it in one transition.
+ * A miniature, so its parts are drawn in half-steps of the grid (--w-u), not at control sizes. */
+.onb-make-window {
+  --w-u: var(--grid-half-step, 2px);
+  --w-h: calc(84 * var(--w-u));
+  --w-gap: 4px;
+  --onb-make-term: light-dark(#1d1d1f, #0c0c0d); /* colour-allow: a drawn terminal, dark in both schemes as a default terminal theme is */
+  --onb-make-term-ink: light-dark(#f2f2f4, #e6e6ea); /* colour-allow: light ink on the terminal and on a painting */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: var(--w-h);
+  overflow: hidden;
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: color-mix(in srgb, var(--ds-color-fg) 6%, transparent);
+  box-shadow: var(--elevation-1);
+}
+.onb-make-window[data-density="compact"] {
+  --w-gap: 2px;
+}
+.onb-make-window[data-density="comfortable"] {
+  --w-gap: 7px;
+}
+.onb-make-window-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.onb-make-window-art.is-none,
+.onb-make-window-art[data-empty] {
+  display: none;
+}
+.onb-make-window-bar {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: calc(3 * var(--w-u)) 8px 0;
+}
+.onb-make-window-bar span {
+  width: calc(3 * var(--w-u));
+  height: calc(3 * var(--w-u));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ds-color-fg) 30%, transparent);
+}
+.onb-make-window-body,
+.onb-make-pane {
+  transition:
+    gap var(--cmux-motion-quick) var(--cmux-ease-out),
+    padding var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-make-window-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  gap: var(--w-gap);
+  min-height: 0;
+  padding: calc(var(--w-gap) + 4px);
+  padding-top: calc(var(--w-gap) + var(--w-u));
+}
+.onb-make-pane {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--w-gap) + var(--w-u));
+  min-width: 0;
+  padding: calc(var(--w-gap) + 1.5 * var(--w-u));
+  border-radius: var(--ds-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
+  background: color-mix(in srgb, var(--ds-color-surface, Canvas) 62%, transparent);
+  backdrop-filter: blur(4px);
+}
+/* The sidebar sits on the window's glass, as NEXT's does: the painting shows through it. */
+.onb-make-pane-side {
+  flex: 0 0 22%;
+  border-color: transparent;
+  background: none;
+  backdrop-filter: none;
+}
+.onb-make-pane-chat {
+  flex: 1.5;
+}
+.onb-make-pane-web {
+  flex: 1;
+}
+.onb-make-pane-term {
+  flex: 1;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--onb-make-term) 88%, transparent);
+}
+.onb-make-line {
+  flex: none;
+  height: calc(1.5 * var(--w-u));
+  border-radius: var(--w-u);
+  background: color-mix(in srgb, var(--ds-color-fg) 22%, transparent);
+}
+.onb-make-line.is-short {
+  width: 60%;
+}
+/* On a painting (dark by nature) the chrome that sits on the glass takes light ink in both schemes. */
+.onb-make-window[data-art] .onb-make-window-bar span,
+.onb-make-window[data-art] .onb-make-pane-side .onb-make-line {
+  background: color-mix(in srgb, var(--onb-make-term-ink) 40%, transparent);
+}
+.onb-make-window[data-art] .onb-make-pane-side .onb-make-line[data-on] {
+  background: var(--onb-make-term-ink);
+}
+.onb-make-pane-side .onb-make-line[data-on] {
+  background: var(--ds-color-accent);
+}
+.onb-make-pane-term .onb-make-line {
+  background: color-mix(in srgb, var(--onb-make-term-ink) 35%, transparent);
+}
+.onb-make-pane-term .onb-make-line.is-prompt {
+  width: 40%;
+  background: color-mix(in srgb, var(--onb-make-term-ink) 85%, transparent);
+}
+.onb-make-bubble {
+  flex: none;
+  align-self: flex-end;
+  width: 55%;
+  height: calc(4 * var(--w-u));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ds-color-fg) 14%, transparent);
+}
+.onb-make-composer {
+  flex: none;
+  height: calc(5 * var(--w-u));
+  margin-top: auto;
+  border: 1px solid color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
+  border-radius: 4px;
+}
+.onb-make-block {
+  flex: none;
+  height: calc(13 * var(--w-u));
+  border-radius: calc(1.5 * var(--w-u));
+  background: color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-make-window-body,
+  .onb-make-pane,
+  .onb-make-option-mark,
+  .onb-make-segment {
+    transition: none;
+  }
 }

@@ -28,6 +28,7 @@ import {
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   TRANSCRIPT_LINE_ROW,
+  transcriptLineRow,
   liveStepHeight,
   transcriptGap,
 } from "./transcriptGrid";
@@ -91,6 +92,7 @@ import {
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
@@ -676,6 +678,10 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
+  /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
+  /// `durationMs` once the answer came), unset once it ended.
+  turnPhase?: "running";
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
@@ -1468,6 +1474,10 @@ export type AcpmuxSnapshot = {
   /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
   /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
   chatRead?: true;
+  /// acpmux's attach of the selected chat answered: its rows and its running turn are acpmux's,
+  /// not only a kept tail's (which keeps rows, not whether a turn runs). App.tsx holds the last
+  /// launch's copy for it while that copy shows a running turn the tail cannot draw.
+  chatAttached?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
@@ -1550,6 +1560,9 @@ export type AcpmuxSnapshot = {
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
+    /** acpmux's `_acpmux/harnesses` named no default harness (default_harness.rs): New Tab starts
+     * on no agent until one is picked. */
+    noDefault?: true;
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
@@ -1852,13 +1865,14 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
             ? MARK_STATUS
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
-/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`.
-const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
+/// One-line activity rows are one row apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS).
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// Read once per layout pass, with the scale (layoutConversation).
+let lineRowPt = TRANSCRIPT_LINE_ROW;
+const toolRowHeight = () => lineRowPt * chromeScale;
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -2270,8 +2284,26 @@ export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColum
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
-export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) =>
-  Math.max(120, transcriptColumn(paneWidth, column, endReserve).width);
+/// Where a row starts in from the column's left edge (`--cv-lead` in conversation/conversation.css): the
+/// composer's + glyph's center less half a row's icon box, the + at the composer's density, less the
+/// composer card's 8px narrow outset under 298px of column.
+const NARROW_COMPOSER_COLUMN = 297.5;
+const NARROW_COMPOSER_OUTSET = 8;
+export function transcriptLead(columnWidth: number): number {
+  const scale = gridScale();
+  const density = Math.max(0.8, composerDensityScale() ?? scale);
+  const lead = gridLength("composer-lead-center") * density - (gridLength("transcript-icon-box") * scale) / 2;
+  return lead - (columnWidth < NARROW_COMPOSER_COLUMN ? NARROW_COMPOSER_OUTSET : 0);
+}
+function composerDensityScale(): number | undefined {
+  if (typeof document === "undefined") return undefined;
+  const raw = parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-density-scale") ?? "");
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+}
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) => {
+  const { width } = transcriptColumn(paneWidth, column, endReserve);
+  return Math.max(120, width - transcriptLead(width));
+};
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -2502,6 +2534,10 @@ export type AcpmuxMessageRun = {
   /// The ids of the messages it received (each message's `msgId`, an inbox notice's prompt ids):
   /// laneNoticeBatches.ts never draws one of these again in a "Received N messages" row.
   messages?: string[];
+  /// Its phrases' kinds in the order each first came in the run ("sent", "received", or a work
+  /// category, toolRunSummary.ts): the line reads in that order, so a phrase that comes in later
+  /// joins the end and none before it moves (messageRuns.ts `messageRunSummary`).
+  order?: string[];
 };
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
@@ -3305,11 +3341,11 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them. Its attachments draw in one block above the bubble
-  // (UserBubble.tsx, bubbleParts.ts `bubbleLayout`), in every attachment view.
+  // a placed prompt join as the draft had them. The pane's attachment view says which attachments
+  // draw in the row above the bubble instead (UserBubble.tsx: the strip view draws them all there).
   const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? bubbleLayout(row)
+      ? bubbleLayout(row, composerSettingsSnapshot().attachmentView)
       : undefined;
   const inline = layout?.parts;
   const plainUser =
@@ -3324,6 +3360,19 @@ function measuredRowHeight(
   const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
+  // A long prompt shut on its fold draws its first lines and Show more whatever follows them
+  // (collapsedPromptHeight, below): when its head is past the fold already, the head is all there
+  // is to lex and measure. Measured whole, a prompt sent from a draft of thousands of lines laid
+  // out every line in the send's own task, which the composer's collapse waited on (Leo, 2026-11-22:
+  // "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG"). A head that is
+  // not past the fold (a very wide bubble) measures the whole text, as before.
+  const foldLimit = COLLAPSED_PROMPT_LINES * metrics().lineHeight + 1;
+  const shutLong =
+    row.kind === "user" &&
+    !promptOpen &&
+    row.from !== "chief" &&
+    !chiefEnvelope(row.text) &&
+    row.text.length > HUGE_PROMPT_HEAD_CHARS;
   let contentHeight: number;
   if (plainUser) {
     // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
@@ -3332,12 +3381,17 @@ function measuredRowHeight(
     const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
     if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
     else {
-      contentHeight = textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
+      const head = shutLong
+        ? textHeight(promptHead(row.text, HUGE_PROMPT_HEAD_CHARS), plainWidth, entry.prepared, usedPrepared)
+        : 0;
+      contentHeight = head > foldLimit ? head : textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
       entry.plainHeight = { key: plainKey, height: contentHeight };
     }
   } else {
-    if (!inline && !pasted && !picks && (entry.text !== row.text || entry.lexedLength === 0)) {
-      lexIncrementally(entry, row.text);
+    // The text lexed: a shut long prompt's head first (`shutLong`).
+    let lexed = shutLong ? promptHead(row.text, HUGE_PROMPT_HEAD_CHARS) : row.text;
+    if (!inline && !pasted && !picks && (entry.text !== lexed || entry.lexedLength === 0)) {
+      lexIncrementally(entry, lexed);
     }
     if (inline) {
       contentHeight = inlinePromptHeight(row, inline, contentWidth, entry.prepared, usedPrepared);
@@ -3367,8 +3421,16 @@ function measuredRowHeight(
           );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      contentHeight = (entry.blocks.length - 1) * blockGap();
-      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+      const blocksHeight = () =>
+        entry.blocks.reduce(
+          (sum, block) => sum + blockHeight(block, contentWidth, entry.prepared, usedPrepared),
+          (entry.blocks.length - 1) * blockGap(),
+        );
+      contentHeight = blocksHeight();
+      if (lexed !== row.text && contentHeight <= foldLimit) {
+        lexIncrementally(entry, (lexed = row.text));
+        contentHeight = blocksHeight();
+      }
     }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
@@ -3716,6 +3778,7 @@ export function layoutConversation(
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
+  lineRowPt = transcriptLineRow();
   // The gaps between rows also take the transcript look's density and row spacing (1 at cmux).
   const gapFactor = transcriptGapScale();
   const gapScale = scale * gapFactor;
