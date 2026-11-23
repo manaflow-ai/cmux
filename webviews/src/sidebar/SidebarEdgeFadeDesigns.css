@@ -53,9 +53,8 @@
     var(--sef-tone) var(--ds-glass-chrome-tint, 72%),
     transparent
   );
-  backdrop-filter: blur(var(--ds-glass-chrome-blur, 24px)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--ds-glass-chrome-blur, 24px))
-    saturate(160%);
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
   box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--sef-ink) 18%, transparent);
 }
 
@@ -121,7 +120,7 @@
 
 .sef-age {
   color: var(--sef-ink-3);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
 }
 
 /* No background of its own: the sidebar glass (or the fading rows) shows behind it. */
@@ -150,7 +149,7 @@
   border-radius: 50%;
   background: var(--sef-avatar-fill);
   color: white;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
