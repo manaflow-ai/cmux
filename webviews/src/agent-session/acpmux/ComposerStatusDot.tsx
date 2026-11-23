@@ -43,8 +43,12 @@ import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peekPin, peekPinOpen, type PeekPinEvent, type PeekPinState } from "./peekPin";
 import type { PeerLink } from "./peerLink";
 import { useNow } from "./subagents/subagentGroupModel";
+import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
 import "./composerStatusDot.css";
+
+/// A focus move inside the footer never scrolls the pane.
+const QUIET: FocusOptions = { preventScroll: true };
 
 export type FactsArm = "off" | "pulse" | "door";
 
@@ -216,10 +220,10 @@ class PeekPinDriver {
     const card = this.card;
     if (!card || !card.isConnected) return;
     const first = this.actions()[0];
-    if (first) first.focus({ preventScroll: true });
+    if (first) focusRoute(first, "person", "pinned the status card: its first action", QUIET);
     else {
       card.tabIndex = -1;
-      card.focus({ preventScroll: true });
+      focusRoute(card, "person", "pinned the status card: the card itself", QUIET);
     }
   }
 
@@ -361,7 +365,7 @@ export function ComposerStatusDot({
         const edge = event.shiftKey ? at <= 0 : at === actions.length - 1 || at < 0;
         if (edge) {
           event.preventDefault();
-          driver.dot?.focus({ preventScroll: true });
+          focusRoute(driver.dot, "person", "Tab past the status card: back to the dot", QUIET);
         }
       }
     };
