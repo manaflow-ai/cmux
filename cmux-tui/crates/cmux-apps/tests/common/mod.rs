@@ -276,6 +276,11 @@ pub struct FakeAgent {
     pub refusal: RefCell<Option<Unanswered>>,
     /// The platform's versions of the app, for `GET /v1/cloud/apps/{slug}`.
     pub app_versions: RefCell<Vec<Value>>,
+    /// Each app's secrets, by slug, for `POST /v1/cloud/apps/{slug}/process-env` (an app with
+    /// none answers `{env: {}}`).
+    pub secrets: RefCell<BTreeMap<String, BTreeMap<String, String>>>,
+    /// An answer to use for every `/process-env` call instead of the app's secrets.
+    pub process_env_answer: RefCell<Option<(u16, Value)>>,
 }
 
 impl AppsTransport for FakeAgent {
@@ -303,6 +308,14 @@ impl AppsTransport for FakeAgent {
                 code: "app.unreachable".into(),
                 message: "connection reset".into(),
             });
+        }
+        if path.ends_with("/process-env") {
+            if let Some((status, body)) = self.process_env_answer.borrow().clone() {
+                return answered(status, body);
+            }
+            let slug = path.trim_start_matches("/v1/cloud/apps/").trim_end_matches("/process-env");
+            let env = self.secrets.borrow().get(slug).cloned().unwrap_or_default();
+            return answered(200, json!({"env": env}));
         }
         let app = json!({"id": "app_1", "slug": "web", "team": "team_abc", "url": "https://a-web--team_abc.preview.example"});
         if path.ends_with("/versions") {
@@ -386,9 +399,31 @@ impl World {
         self.agent.sent.borrow().iter().filter(|s| s.path.ends_with("/versions")).cloned().collect()
     }
 
-    /// The calls that change something (every one but the readiness `GET`).
+    /// The calls that change something (every one but the readiness `GET` and the
+    /// `process-env` read).
     pub fn changes(&self) -> Vec<Sent> {
-        self.agent.sent.borrow().iter().filter(|s| s.method != "GET").cloned().collect()
+        self.agent
+            .sent
+            .borrow()
+            .iter()
+            .filter(|s| s.method != "GET" && !s.path.ends_with("/process-env"))
+            .cloned()
+            .collect()
+    }
+
+    pub fn process_env_reads(&self) -> Vec<Sent> {
+        self.agent
+            .sent
+            .borrow()
+            .iter()
+            .filter(|s| s.path.ends_with("/process-env"))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether `needle` is in any file written under the apps store.
+    pub fn stored_anywhere(&self, needle: &str) -> bool {
+        self.fs.files.borrow().values().any(|bytes| String::from_utf8_lossy(bytes).contains(needle))
     }
 }
 
