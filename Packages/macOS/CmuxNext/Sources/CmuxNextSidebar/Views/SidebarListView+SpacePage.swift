@@ -169,7 +169,8 @@ extension SidebarListViewComponents {
             for change in changes {
                 guard model.listedPaths(of: change.new.id).count == 1,
                       !SidebarModel.movesRows(from: change.old, to: change.new, groupsByFolder: model.groupsByFolder,
-                                              settles: model.settlesFinished),
+                                              settles: model.settlesFinished,
+                                              shelves: model.shelvesWaiting),
                       change.old.title == change.new.title || !page.isSoleMember(change) else { return nil }
             }
         }

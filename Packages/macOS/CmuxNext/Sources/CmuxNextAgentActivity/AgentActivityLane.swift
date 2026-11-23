@@ -80,6 +80,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
+    /// What the chat waits on that wakes it by itself (the summary's `backgroundWaits`: background tasks that notify,
+    /// watches to it, background subagents, working sub-sessions); 0 without any.
+    public let backgroundWaits: Int
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
@@ -88,8 +91,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, backgroundWaits: Int = 0) {
         self.id = id
+        self.backgroundWaits = backgroundWaits
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -158,7 +162,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  turnActivity: nonEmpty(turn?["activity"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
-                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))
+                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 backgroundWaits: (summary["backgroundWaits"] as? NSNumber)?.intValue ?? 0)
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.
