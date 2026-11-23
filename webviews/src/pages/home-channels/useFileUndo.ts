@@ -1,6 +1,6 @@
 // Cmd-Z and Shift-Cmd-Z over a composer's staged files and its text, on one line
 // (https://github.com/manaflow-ai/cmux/issues/38148). The Channels composer and Home's Chief composer
-// (home-messages MessageComposer) keep their files differently; each says how a file comes out of its
+// keep their files differently; each says how a file comes out of its
 // tray and goes back, and this runs the history (attachmentUndo.ts) between them and the editor's own.
 import { useEffect, useRef, type RefObject } from "react";
 import type { PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
