@@ -71,11 +71,9 @@ function NewCommandForm({
     );
   }
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-    <div
-      className="accounts-form"
+    <fieldset
+      className="accounts-form agent-command-form"
       data-agent-command-form=""
-      role="group"
       aria-label={t("settingsWindow.agentSkills.newCommand")}
     >
       <label className="row-help">
@@ -161,7 +159,7 @@ function NewCommandForm({
           {t("settingsWindow.agentSkills.newCommand.cancel")}
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
