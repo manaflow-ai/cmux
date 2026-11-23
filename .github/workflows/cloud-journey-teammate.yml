@@ -13,8 +13,9 @@ name: Cloud journey (a new teammate, staging)
 # CLOUD_CODEROUTER_EDGE_HOST in cmux-platform). Until both are on staging, its "reply" step fails with "no model
 # route": that is kink K1, this run's red by design. model=stub runs the rest of the walk on the shared model stub.
 #
-# idle_pause turns the fresh team's cloud.idlePause on (off by default for a new team, kink K8) and waits for the
-# machine to pause on its own after that many idle seconds; 0 leaves the idle pause out.
+# idle_pause checks the fresh team starts with cloud.idlePause on without the walk setting it (kink K8, cmux#51850)
+# and waits, with a deadline past the post-chat hold, for the machine to pause on its own after that many idle seconds;
+# 0 leaves the idle pause out.
 #
 # Leo, 2026-11-23: "we need to be able to get this working from the perspective of a teammate. a new person using
 # cloud."
