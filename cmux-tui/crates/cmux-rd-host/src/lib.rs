@@ -33,7 +33,10 @@
 //! app is Linux only. Design: plans/cmux-next/remote-desktop.md and remote-desktop-mac-host.md.
 //! Wire: crate cmux-rd-proto.
 
-#![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+#![cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    allow(dead_code)
+)]
 // Edition 2021 leaves `std::env::set_var`/`remove_var` safe to call; they race every concurrent
 // read of the environment (a C library's `getenv` too), so each call needs an `unsafe` block and
 // an argument that no other thread exists, as in edition 2024.
@@ -179,7 +182,10 @@ pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) ->
 pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        let Some(cmd) = args.first().filter(|cmd| matches!(cmd.as_str(), "host" | "serve")) else {
+        let Some(cmd) = args
+            .first()
+            .filter(|cmd| matches!(cmd.as_str(), "host" | "serve"))
+        else {
             return Ok(());
         };
         // `run_cli` reports a parse error itself.
@@ -251,7 +257,10 @@ fn unknown_command(cmd: &str) -> String {
                 (`cargo build --release --features openh264`)"
             .to_string();
     }
-    format!("not in this build: cmux-rd {cmd} is not built for {}", std::env::consts::OS)
+    format!(
+        "not in this build: cmux-rd {cmd} is not built for {}",
+        std::env::consts::OS
+    )
 }
 
 pub fn run_cli(args: &[String]) -> i32 {
@@ -292,7 +301,9 @@ pub fn run_cli(args: &[String]) -> i32 {
         return 2;
     }
     if cmd == "request-permission" {
-        let Some(grant) = (args.len() == 2).then(|| permissions::Grant::parse(&args[1])).flatten()
+        let Some(grant) = (args.len() == 2)
+            .then(|| permissions::Grant::parse(&args[1]))
+            .flatten()
         else {
             eprintln!("usage: cmux-rd request-permission screen-recording|accessibility");
             return 2;
@@ -391,7 +402,11 @@ mod cli_tests {
 
     #[test]
     fn every_usage_command_is_known() {
-        let list = USAGE.trim_start_matches("usage: cmux-rd ").split(' ').next().unwrap();
+        let list = USAGE
+            .trim_start_matches("usage: cmux-rd ")
+            .split(' ')
+            .next()
+            .unwrap();
         for cmd in list.split('|') {
             assert!(KNOWN_COMMANDS.contains(&cmd), "{cmd}");
         }
