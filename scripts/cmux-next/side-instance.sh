@@ -52,7 +52,8 @@
 #                   off (no feed, no key), no document types or login items, one URL scheme of its
 #                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
 #                   with its unrestricted entitlements (no Keychain group)
-#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), and
+#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
+#                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
 #                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
 #                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
@@ -235,6 +236,11 @@ case "$cmd" in
     rm -rf "$app/Contents/Library/LaunchAgents" "$app/Contents/Library/LaunchDaemons"
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
+    # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # copy's extension shows in another's sidebar and a save reloads both.
+    mkdir -p "$dir/config/customize"
+    plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
     # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
     # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
@@ -407,8 +413,8 @@ PY
     ;;
   env)
     app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/web-overlay" "$dir/web-slot"
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
     ;;
   socket)
     app_of >/dev/null

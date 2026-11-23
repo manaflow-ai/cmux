@@ -151,7 +151,7 @@ resolve() {
   if [ -n "$offline" ]; then
     mkdir -p "$source_packages" "$derived_data"
     if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
-      xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+      xcodebuild -skipPackagePluginValidation -project cmux.xcodeproj -scheme cmux -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
@@ -166,7 +166,7 @@ resolve() {
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
     if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
-      xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+      xcodebuild -skipPackagePluginValidation -project cmux.xcodeproj -scheme cmux -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
@@ -275,7 +275,7 @@ build() {
   for index in "${!schemes[@]}"; do
     scheme="${schemes[$index]}"
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
-      xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
+      xcodebuild -skipPackagePluginValidation -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -disableAutomaticPackageResolution \

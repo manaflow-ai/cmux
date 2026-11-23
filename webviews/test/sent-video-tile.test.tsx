@@ -48,6 +48,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
 const { linkAttachment, promptText } = await import("../src/agent-session/acpmux/attachments");
 
 const PATH = "/Users/dev/Library/Application Support/cmux/Chat Uploads/0190a000-upload/0/screen-demo.mp4";
@@ -208,7 +209,7 @@ try {
     expect(view.tile).not.toBeNull();
     expect(view.tile?.closest(".cv-user__bubble")).not.toBeNull();
     // No size kept and none read yet: the 160px square under the image rule (sentVideoSize).
-    expect(view.tile?.style.width).toBe("160px");
+    expect(view.tile?.style.width).toBe(`${SENT_IMAGE_HEIGHT}px`);
     expect(view.title).toBe("screen-demo.mov");
     expect(view.files.join("")).not.toContain("screen-demo.mov");
     expect(view.bubble).toBe("look");

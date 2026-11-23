@@ -42,6 +42,8 @@ import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
+import { Slot } from "../../../slots/Slot";
+import { sendTransitionSlot } from "../../../slots/sendTransition";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -236,20 +238,25 @@ export function UserBubble({
       <div className="cv-user__body">
         {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
-          <div className="ui-glass cv-user__bubble selectable">
-            {hasInterleaved ? (
-              <InlinePromptContent
-                rowId={row.id}
-                messageAt={row.at}
-                parts={shownParts!}
-                show={show}
-                renderImage={renderImage}
-                renderFile={renderFile}
-              />
-            ) : (
-              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
-            )}
-          </div>
+          // The bubble is the theme slot `chat.sendTransition` (slots/sendTransition): its default draws
+          // the glass div this row drew before.
+          <Slot
+            slot={sendTransitionSlot}
+            props={{
+              children: hasInterleaved ? (
+                <InlinePromptContent
+                  rowId={row.id}
+                  messageAt={row.at}
+                  parts={shownParts!}
+                  show={show}
+                  renderImage={renderImage}
+                  renderFile={renderFile}
+                />
+              ) : (
+                <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
+              ),
+            }}
+          />
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
@@ -354,8 +361,9 @@ export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
 /// re-render or a remount draws the same <img> at once). Its slot holds the thumbnail's own shape
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
-/// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
-/// has shows nothing. It fades in on its first draw only.
+/// it), and says "Couldn't load image" when the image cannot be drawn. A read that still failed
+/// after its tries again (imageEntries.ts) says so with Retry, never nothing. An image acpmux no
+/// longer has shows nothing. It fades in on its first draw only.
 export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
@@ -371,11 +379,22 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // (conversation.css), never past the bubble's edge.
   const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
-  if (shown.src !== undefined && failed === shown.src)
+  if (shown.status === "failed" || (shown.src !== undefined && failed === shown.src))
     return (
       <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
+        {/* Only a read can work a second time; bytes that do not decode never will. */}
+        {shown.status === "failed" && (
+          <button
+            type="button"
+            className="cv-user__image-retry"
+            aria-label={t("composer.retryAttachment")}
+            onClick={shown.retry}
+          >
+            {t("composer.retryAttachment")}
+          </button>
+        )}
       </span>
     );
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the

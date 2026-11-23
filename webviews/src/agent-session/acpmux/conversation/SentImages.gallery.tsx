@@ -16,6 +16,7 @@ import {
   type Shot,
 } from "../../../gallery/fixtures/sentMedia";
 import type { AcpmuxRow, PromptImage } from "../model";
+import { attachmentRetry } from "../../../pages/shared/attachmentRetry";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PresentationContext } from "./presentationContextModel";
@@ -23,7 +24,8 @@ import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { SentImages, UserBubble } from "./UserBubble";
 
 type Props = {
-  images: (PromptImage & { shot?: Shot; broken?: boolean })[];
+  /// `unread`: acpmux's read of it keeps failing (a reconnect that outlasts the tries again).
+  images: (PromptImage & { shot?: Shot; broken?: boolean; unread?: boolean })[];
   pending?: boolean;
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
@@ -40,6 +42,9 @@ type Props = {
   /// acpmux's reads answer only when the play releases them (gallery/fixtures/sentMedia.ts), so the
   /// first frame draws every image before its bytes.
   held?: boolean;
+  /// A prompt sent as words, the first image, more words, then a file, each where it was put in
+  /// the text; the image's bytes arrive `lateMs` after the row draws, as acpmux's read does.
+  mixed?: { lateMs: number };
 };
 
 const paint = (shot: Shot) => paintShot(shot);
@@ -97,7 +102,9 @@ function GallerySentImages({
   placedBefore,
   column,
   held,
+  mixed,
 }: Props) {
+  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} />;
   if (primedLate) return <GalleryPrimedLate images={images} />;
   if (placedIn !== undefined)
     return <GalleryPlacedImages images={images} text={placedIn} before={placedBefore} column={column} held={held} />;
@@ -205,13 +212,107 @@ function GalleryPlacedImages({
 /// for inline attachments after send"), whole, in its final box from the first frame.
 const placedHolds = attachmentsHoldTheirBoxes({ inBubble: true });
 
+/// Text, an image, more text, then a file, each where the composer put it (Leo, 2026-11-22: "there
+/// should be no problem doing so for inline attachments after send"). acpmux's read of the image
+/// lands `lateMs` after the row draws; its slot already has the image's shape, so nothing moves.
+function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateMs: number }) {
+  const [actions] = useState<TurnActions>(() => {
+    const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
+    return {
+      promptImage: (id: string) =>
+        new Promise<string | undefined>((resolve) => setTimeout(() => resolve(urls.get(id)), lateMs)),
+    };
+  });
+  const image = images[0]!;
+  const parts = [
+    { kind: "text" as const, text: "The toolbar overlaps the sidebar here " },
+    { kind: "image" as const, ...image, placed: true as const },
+    { kind: "text" as const, text: " and only after a resize, see the log " },
+    {
+      kind: "file" as const,
+      name: "resize-trace.log",
+      mimeType: "text/plain",
+      size: 48_213,
+      uri: "file:///Users/sample/resize-trace.log",
+      placed: true as const,
+    },
+    { kind: "text" as const, text: " for the frames." },
+  ];
+  const row: AcpmuxRow = {
+    id: "mixed",
+    version: 1,
+    kind: "user",
+    at: 1,
+    text: parts.map((part) => (part.kind === "text" ? part.text : "")).join(""),
+    inlineParts: parts,
+  };
+  return (
+    <ImageViewerContext.Provider value={() => {}}>
+      <TurnActionsContext.Provider value={actions}>
+        <div className="cv-user" style={{ padding: 16 }}>
+          <UserBubble row={row} text={row.text!} />
+        </div>
+      </TurnActionsContext.Provider>
+    </ImageViewerContext.Provider>
+  );
+}
+
+/// The mixed prompt's check: each attachment sits in the bubble's text in the order it was sent,
+/// and from the first frame to the image's arrival no box in the row moves or resizes, the image's
+/// slot, the words after it, the file's chip and the bubble included.
+const placedInOrderNoShift: Play = async ({ waitFor, document }) => {
+  const watched = () => {
+    const bubble = document.querySelector<HTMLElement>(".cv-user__bubble");
+    const content = bubble?.querySelector<HTMLElement>("[data-inline-content]");
+    if (!bubble || !content) return undefined;
+    return [bubble, ...content.children].map((node) => {
+      const box = (node as HTMLElement).getBoundingClientRect();
+      return { node: node as HTMLElement, box: [box.x, box.y, box.width, box.height] };
+    });
+  };
+  await waitFor(() => watched() !== undefined);
+  const before = watched()!;
+  if (document.querySelector("[data-inline-attachment-strip]"))
+    throw new Error("the attachments draw in a block above the text, not where they were put");
+  const kinds = before
+    .slice(1)
+    .map(({ node }) =>
+      node.classList.contains("cv-user__inline-image")
+        ? "image"
+        : node.classList.contains("cv-user__inline-file")
+          ? "file"
+          : "text",
+    );
+  if (kinds.join(",") !== "text,image,text,file,text")
+    throw new Error(`the bubble draws ${kinds.join(",")}, not text,image,text,file,text`);
+  await waitFor(() => {
+    const image = document.querySelector<HTMLImageElement>("img.cv-user__image");
+    return image !== null && image.complete && image.naturalWidth > 0;
+  });
+  const after = watched()!;
+  let moved = 0;
+  before.forEach(({ box }, index) => {
+    const now = after[index]?.box ?? [];
+    moved = Math.max(moved, ...box.map((value, axis) => Math.abs(value - (now[axis] ?? Infinity))));
+  });
+  if (moved > 0.5) throw new Error(`a box in the row moved ${moved}px when the image loaded`);
+};
+
 function GalleryShownImages({ images, pending = false, inline = false }: Props) {
   const [actions] = useState(() => {
     const urls = new Map(
       images.map((image) => [image.id, image.broken ? "data:image/png;base64,AAAA" : image.shot && paint(image.shot)]),
     );
+    const unread = new Set(images.filter((image) => image.unread).map((image) => image.id));
+    // The gallery shows where the tries again end, not the seconds they take.
+    if (unread.size > 0) attachmentRetry.delaysMs = [0, 0, 0];
     return {
-      promptImage: (id: string) => (pending ? new Promise<never>(() => {}) : Promise.resolve(urls.get(id))),
+      promptImage: (id: string) =>
+        pending
+          ? new Promise<never>(() => {})
+          : unread.has(id)
+            ? Promise.reject(new Error("socket closed"))
+            : Promise.resolve(urls.get(id)),
     };
   });
   return (
@@ -407,9 +508,41 @@ export default componentEntry<Props>({
       },
       play: placedHolds,
     },
+    "placed-mixed-loading": {
+      note: 'Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send." Words, a screenshot, more words, then a log file, each where it was put; the screenshot\'s bytes land 600 ms after the row draws into a slot already at its shape, so nothing in the row moves.',
+      height: 360,
+      props: {
+        images: [
+          {
+            id: "mixed-shot",
+            mimeType: "image/png",
+            name: "image.png",
+            width: 1440,
+            height: 900,
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+        ],
+        mixed: { lateMs: 600 },
+      },
+      play: placedInOrderNoShift,
+    },
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",
       props: { images: [pasted[0]!, { id: "x", mimeType: "image/png", name: "image.png", broken: true }] },
+    },
+    "read-failed": {
+      note: "A screenshot whose read still fails after its tries again: its slot says Couldn't load image with a Retry under it, never an empty gap.",
+      props: { images: [pasted[0]!, { ...pasted[1]!, id: "unread-b", unread: true }] },
+    },
+    "read-failed-sized": {
+      note: "A failed read whose record names its size keeps the thumbnail's own wide shape, so a Retry that draws it moves nothing.",
+      props: {
+        images: [{ ...pasted[1]!, id: "unread-sized", unread: true, width: 3024, height: 1180 }],
+      },
+    },
+    "read-failed-all": {
+      note: "Three screenshots whose reads all failed: each slot has its own Retry.",
+      props: { images: pasted.map((image) => ({ ...image, id: `unread-all-${image.id}`, unread: true })) },
     },
     loading: {
       note: "While acpmux reads the images, each slot holds its thumbnail's height (square: no size known yet).",
