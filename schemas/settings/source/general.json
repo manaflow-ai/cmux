@@ -2536,7 +2536,6 @@
             "shell",
             "script"
           ],
-          "page_hidden": "command objects by id; cmux.json only",
           "swift_owner": "ConfigActionsSetting"
         },
         {

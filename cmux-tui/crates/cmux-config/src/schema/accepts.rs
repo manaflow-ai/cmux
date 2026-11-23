@@ -82,6 +82,14 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of rotate (daily or folder:<absolute path>), folder (folder:<absolute path>) and off (none or a fixed background)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPlacement) {
+        Accepted::Shape(
+            "an object of picture ids to fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4), such as \"fill 0.3 0.7 1.5\"",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropRecents) {
+        Accepted::Shape(
+            "an array of at most 8 different backgrounds (none, daily, a listed painting, desktop, system:, file: or folder:<absolute path>, youtube:<video id>), newest first",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -183,6 +191,12 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::BackdropMemory) => {
             return super::backdrop::is_memory(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropPlacement) => {
+            return crate::backdrop_placement::is_placement_map(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropRecents) => {
+            return super::backdrop::is_recents(value);
         }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
@@ -498,6 +512,8 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::BackdropMemory => "backdrop_memory",
+        DomainKind::BackdropPlacement => "backdrop_placement",
+        DomainKind::BackdropRecents => "backdrop_recents",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
