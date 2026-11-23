@@ -234,6 +234,12 @@ pub(in crate::cli) fn note_started(chat: Chat) {
     *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
 }
 
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The chat `id` names when this process started it here ([`note_started`]): its scope is
 /// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
 /// app call and no session snapshot (goal local-instant-start).
@@ -1054,6 +1060,26 @@ pub(super) mod acp {
                     acpmux::rpc::method::MUX_WAIT,
                     json!({"sessions": [session], "until": ["ready", "permission", "closed"],
                            "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
                 )
                 .await
         })
