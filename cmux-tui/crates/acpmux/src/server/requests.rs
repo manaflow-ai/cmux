@@ -24,6 +24,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
 #[cfg(test)]
+#[path = "requests/reopen_attach_bytes_tests.rs"]
+mod reopen_attach_bytes_tests;
+#[cfg(test)]
 #[path = "requests/session_load_newest_tests.rs"]
 mod session_load_newest_tests;
 mod settled_attach;
@@ -31,6 +34,7 @@ mod settled_attach;
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
 mod successor;
+mod time_breakdown_gate;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
@@ -3278,7 +3282,10 @@ async fn dispatch_request_with_identity(
             // A binding belongs to the resolved recipient.  The person's connection may manage
             // it, or the recipient's own agent may manage its own threads; no other session may
             // claim an owner by putting a different id in the request.
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox_subscription.other_session: only the person or the chat's own agent manages its bindings",
@@ -3309,7 +3316,10 @@ async fn dispatch_request_with_identity(
             // The person's, or the chat's own agent's: no other session reads or answers for it.
             // An old acpmux CLI or an agent's shell that declared no terminal is an agent's too
             // (`cli_caller.rs`).
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox.other_session: only the person or the chat's own agent reads its inbox",
@@ -3335,7 +3345,13 @@ async fn dispatch_request_with_identity(
                         .await
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
-                method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
+                method::MUX_INBOX_THREADS => {
+                    // Its held count reads the surge journal's tail from the log.
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
@@ -3402,13 +3418,15 @@ async fn dispatch_request_with_identity(
                 let presence = hub.presence.snapshot(&s.id);
                 let reader = crate::author::author(&params).ok().flatten();
                 let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
-                return Ok(json!({
+                let mut reply = json!({
                     "session": detail,
                     "lastSeq": last,
                     "presence": presence,
                     "readThrough": read_through,
                     "hold": true,
-                }));
+                });
+                time_breakdown_gate::apply(&mut reply, &params);
+                return Ok(reply);
             }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
             // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
@@ -3450,9 +3468,10 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) =
+                    if let Some(mut reply) =
                         crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
                     {
+                        time_breakdown_gate::apply(&mut reply, &params);
                         return Ok(reply);
                     }
                     Some(key)
@@ -3519,6 +3538,7 @@ async fn dispatch_request_with_identity(
                 reply["settled"] = Value::Null;
                 hub.settle_view_for_open(&s, key);
             }
+            time_breakdown_gate::apply(&mut reply, &params);
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3700,7 +3720,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.wake(&s)).await
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
-        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => {
+            super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
