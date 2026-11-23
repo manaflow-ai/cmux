@@ -404,6 +404,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineIo
         | ResourceOperation::CloudMachineChatAccess
         | ResourceOperation::CloudMachineShareChat
+        | ResourceOperation::CloudMachineChiefStart
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
