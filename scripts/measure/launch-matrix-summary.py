@@ -32,7 +32,9 @@ def table(app: str, scenario: str, runs: list[dict]) -> dict:
            "frame_sources": sorted({r.get("frame_source", "?") for r in done}),
            "interactive_blockers": sorted({r["interactive_blocker"] for r in done if r.get("interactive_blocker")}),
            "interactive_evidence": sorted({r["interactive_evidence"] for r in done if r.get("interactive_evidence")}),
-           "load_median": stats([r.get("load") for r in runs])}
+           "load_median": stats([r.get("load") for r in runs]),
+           "other_instance_runs": sum(1 for r in runs if r.get("other_instance_pids")),
+           "error_texts": sorted({str(r["error"])[:120] for r in runs if r.get("error")})}
     for key in TIMES:
         row[key] = stats([r.get(key) for r in done])
     for key in RESOURCES:

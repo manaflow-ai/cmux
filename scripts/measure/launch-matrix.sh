@@ -197,7 +197,9 @@ nightly_app() {
 launch() {
   local line
   # shellcheck disable=SC2046
-  line="$(console /usr/bin/env LM_CUA="$CUA" "$PROBE" run "$2" "$1" "$4" $(profile_args "$3") 2>>"$OUT/probe.log" | grep '^LM-RUN ')"
+  # cmux NEXT (profile home) writes its launch marks to a FIFO the probe makes in the profile: the row's marks.
+  local marks=""; [[ "$KIND" == home ]] && marks="$3/marks.fifo"
+  line="$(console /usr/bin/env LM_CUA="$CUA" LM_MARKS_FIFO="$marks" "$PROBE" run "$2" "$1" "$4" $(profile_args "$3") 2>>"$OUT/probe.log" | grep '^LM-RUN ')"
   [[ -n "$line" ]] && echo "${line#LM-RUN }" || echo '{"error": "no result"}'
 }
 
@@ -228,7 +230,10 @@ record() {
 import json, sys
 r = json.loads(sys.argv[3]); r.update(json.loads(sys.argv[4] or "{}"))
 r.update(app_name=sys.argv[5], scenario=sys.argv[1], rep=int(sys.argv[2]), load=float(sys.argv[6]), profile=sys.argv[7])
-print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load1)" "$KIND")"
+others = [int(p) for p in sys.argv[8].split()]
+if others:  # a copy of the app this run did not start was up (Safari's own, on a shared Mac): the row says so
+    r["other_instance_pids"] = others
+print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load1)" "$KIND" "${LM_OTHERS:-}")"
   echo "LM-RUN $json"
   echo "$json" >>"$OUT/runs.jsonl"
 }
@@ -273,6 +278,8 @@ arm() {
     ( for ((i = 0; i < 120; i++)); do sweep_prompts Open "$tag" >>"$OUT/prompts-$tag.log" 2>&1; sleep 0.5; done ) &
     presser=$!
   fi
+  # Main processes of this bundle already up that this run did not start (left alone; named in the row).
+  LM_OTHERS="$(pgrep -f "$target/Contents/MacOS/" 2>/dev/null | tr '\n' ' ')"
   json="$(launch "$tag" "$target" "$dir" "$SETTLE")"
   if [[ -n "$presser" ]]; then
     kill "$presser" 2>/dev/null; wait "$presser" 2>/dev/null
@@ -310,7 +317,15 @@ install_copy() {
   fi
   file="$dir/dl/$(basename "$src")"
   cp "$src" "$file" && quarantine "$file"
-  if hdiutil imageinfo "$file" >/dev/null 2>&1; then
+  if [[ "$file" == *.pkg ]]; then
+    # An installer package: Installer copies the app out of the payload and the app carries no quarantine (the pkg
+    # was the file Gatekeeper judged); expanded here without root, the app copied out the same way.
+    pkgutil --expand-full "$file" "$dir/pkg" >/dev/null || return 1
+    found="$(find "$dir/pkg" -maxdepth 5 -name '*.app' -type d | head -1)"
+    [[ -n "$found" ]] || return 1
+    ditto "$found" "$dir/Applications/$(basename "$found")" && rm -rf "$dir/pkg"
+    echo "$dir/Applications/$(basename "$found")"; return 0
+  elif hdiutil imageinfo "$file" >/dev/null 2>&1; then
     hdiutil attach "$file" -nobrowse -readonly -noautofsck -mountpoint "$dir/mnt" >/dev/null || return 1
     found="$(find "$dir/mnt" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$dir/Applications/$(basename "$found")"

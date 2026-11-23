@@ -228,8 +228,44 @@ func runningCopy(_ app: URL) -> NSRunningApplication? {
 
 struct Opened { var requested: Double; var start: Double?; var window: Double?; var win: Window? }
 
+// cmux NEXT's own launch marks, as launch-ready.swift reads them: with LM_MARKS_FIFO set the probe makes that FIFO,
+// opens it for reading first (the app's nonblocking open for writing needs a reader), and passes it to the app as
+// CMUX_NEXT_LAUNCH_MARKS_PATH. Each line is "NAME MS" (ms since the process started); the first of each name is kept.
+// The row's `marks` are as the app wrote them (launch-ready's `marks`), so mac_cold and restart_to_chat read the same
+// marks from either harness; `marks_from_request` adds proc_start, the harness's own clock.
+var appMarks: [String: Double] = [:], marksPending = Data(), marksSource: DispatchSourceRead?, marksHold: Int32 = -1
+func startMarks() -> String? {
+    guard let fifo = ProcessInfo.processInfo.environment["LM_MARKS_FIFO"], !fifo.isEmpty else { return nil }
+    unlink(fifo)
+    guard mkfifo(fifo, 0o600) == 0 else { return nil }
+    let fd = Darwin.open(fifo, O_RDONLY | O_NONBLOCK)
+    guard fd >= 0 else { return nil }
+    // A writer of our own held open, so the app closing its end is no EOF that fires the read source forever.
+    marksHold = Darwin.open(fifo, O_WRONLY | O_NONBLOCK)
+    let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+    source.setEventHandler {
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        let count = read(fd, &buffer, buffer.count)
+        guard count > 0 else { return }
+        marksPending.append(contentsOf: buffer[0..<count])
+        while let newline = marksPending.firstIndex(of: 10) {
+            let line = String(decoding: marksPending[marksPending.startIndex..<newline], as: UTF8.self)
+            marksPending.removeSubrange(marksPending.startIndex...newline)
+            let parts = line.split(separator: " ")
+            if parts.count >= 2, let ms = Double(parts[parts.count - 1]) {
+                let name = parts[0..<(parts.count - 1)].joined(separator: " ")
+                if appMarks[name] == nil { appMarks[name] = ms }
+            }
+        }
+    }
+    source.resume()
+    marksSource = source
+    return fifo
+}
+
 func open(_ app: URL, _ rest: [String]) -> Opened {
-    let (arguments, env) = appArgs(rest)
+    var (arguments, env) = appArgs(rest)
+    if let fifo = startMarks() { env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = fifo }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.createsNewApplicationInstance = true
     configuration.activates = true
@@ -390,6 +426,10 @@ case "run", "growth":
         s["settle_s"] = amount
         row["settled"] = s
         row["quit"] = quit(pid)
+    }
+    if marksSource != nil {
+        row["marks"] = appMarks
+        if let start = o.start { row["marks_from_request"] = appMarks.mapValues { round1($0 + start - o.requested) } }
     }
     emit("LM-RUN", row)
     exit(row["error"] == nil ? 0 : 1)
