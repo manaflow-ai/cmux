@@ -9,7 +9,10 @@ slide: per surface, direction and offset after willShow/willHide: n, hit-test on
 target (ok), touch delivered on the target, drag taken by the content (hide), main-thread
 lag of the injection, ms to the app taking it.
 tti: per surface and direction: the XCUITest command's touch, the keyboard's notification,
-the keyboard drawn at its end, the injected input fired and taken, ms each.
+the keyboard drawn at its end (after it was drawn off it: a frame before the move's animation
+is committed reads the placeholder's model frame, already at the end), the injected input
+fired and taken, ms each; on a show also a key fired right after willShow (`will` columns:
+touch -> taken there is when the field takes input while the keyboard is still coming).
 """
 import json
 import os
@@ -61,7 +64,9 @@ def rows(trace, marks):
             continue
         t1 = ms[i + 1][0] if i + 1 < len(ms) else t0 + 5
         win = [(t, e) for t, e in evs if t0 <= t < t1]
-        inj = next(((t, e) for t, e in win if e['ev'] == 'inject' and 'id' in e), None)
+        injs = [(t, e) for t, e in win if e['ev'] == 'inject' and 'id' in e]
+        at_will = next(((t, e) for t, e in injs if e.get('off') == 'will'), None)
+        inj = next(((t, e) for t, e in injs if e.get('off') != 'will'), None)
         if inj is None:
             out.append({'mode': mode, 'dir': d, 'miss': 'noinject'})
             continue
@@ -83,8 +88,15 @@ def rows(trace, marks):
             r['taken'] = r['ok'] and r['touch_tgt']
             r['handled_ms'] = r['touch_ms']
         else:
-            r['taken'] = r['ok'] and r['drag_trk']
+            # A drag is taken when a scroll or pan under the finger drags.
+            r['taken'] = r['sent'] and r['drag_trk']
             r['handled_ms'] = r['touch_ms']
+        if at_will is not None:
+            tw, ew = at_will
+            kw = next((x for _, x in win if x['ev'] == 'injectDone' and x.get('id') == ew['id'] and x.get('got') == 'key'), None)
+            r['will_taken'] = kw is not None
+            r['will_handled_ms'] = float(kw['ms']) if kw else None
+            r['will_fired'] = tw
         if mode == 'tti':
             cmd = next((tt for tt, x in win if x['ev'] == 'touchBegan'), None)
             will = next((tt for tt, x in win if x['ev'] == ('willShow' if d == 'show' else 'willHide')), None)
@@ -95,6 +107,9 @@ def rows(trace, marks):
                 r.update({'cmd_to_touch': 1000 * (cmd - t0), 'touch_to_will': 1000 * (will - cmd),
                           'will_to_stop': 1000 * (stop - will), 'stop_to_fired': 1000 * (t - stop),
                           'touch_to_taken': 1000 * (t - cmd) + (r['handled_ms'] or 0) if r['taken'] else None})
+                if 'will_fired' in r:
+                    r['will_to_fired'] = 1000 * (r['will_fired'] - will)
+                    r['will_touch_to_taken'] = 1000 * (r['will_fired'] - cmd) + r['will_handled_ms'] if r['will_taken'] else None
         out.append(r)
     return out
 
@@ -142,6 +157,20 @@ def tables(res):
                 fmt([r['will_to_stop'] for r in g]), fmt([r['stop_to_fired'] for r in g]),
                 fmt([r['handled_ms'] for r in g]), fmt([r['touch_to_taken'] for r in g]),
                 sum(1 for r in g if r['taken']), len(g)))
+    print('\n## tti at will: a key fired right after willShow (in-app; p50 / p95 ms)\n')
+    print('| run | surface | n | touch -> will | will -> input fired | input handled | touch -> taken | taken |')
+    print('|---|---|---|---|---|---|---|---|')
+    for (tag, name), rs in sorted(res.items()):
+        if not name.endswith('-tti'):
+            continue
+        g = [r for r in rs if r.get('dir') == 'show' and 'miss' not in r and 'will_fired' in r]
+        if not g:
+            continue
+        print('| %s | %s | %d | %s | %s | %s | %s | %d/%d |' % (
+            tag, name[:-4], len(g), fmt([r['touch_to_will'] for r in g]),
+            fmt([r['will_to_fired'] for r in g]),
+            fmt([r['will_handled_ms'] for r in g]), fmt([r['will_touch_to_taken'] for r in g]),
+            sum(1 for r in g if r['will_taken']), len(g)))
     misses = {f'{t}/{n}': sum(1 for r in rs if 'miss' in r) for (t, n), rs in res.items()}
     print('\nmissed steps:', {k: v for k, v in misses.items() if v} or 'none')
 
