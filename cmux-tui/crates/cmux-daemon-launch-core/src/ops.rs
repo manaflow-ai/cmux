@@ -304,6 +304,19 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             to_value(&ensure::status_arguments(&r.session))
         }
         "ensure_environment" => to_value(&ensure::environment(&de(request)?)),
+        // The runtime scope of an app's HOME: a string, or null for the account's own HOME.
+        "runtime_scope" => {
+            #[derive(Deserialize)]
+            struct Home {
+                #[serde(default)]
+                home: Option<String>,
+            }
+            let r: Home = de(request)?;
+            to_value(&crate::runtime_scope::scope(
+                r.home.as_deref(),
+                crate::runtime_scope::account_home().as_deref(),
+            ))
+        }
         "ensure_timing" => {
             let r: TimingInput = de(request)?;
             to_value(&ensure::timing(r.binary_is_bundled, r.ensure_timeout_ms, r.replace))
