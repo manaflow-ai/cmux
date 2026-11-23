@@ -830,6 +830,7 @@ pub(super) fn placements(
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
+                "cmux.composer.chip/1" => "the agent chat composer's context chips".into(),
                 "cmux.chat.widget/1" => {
                     match entry.pointer("/options/tools").and_then(Value::as_array) {
                         Some(tools) if !tools.is_empty() => format!(
