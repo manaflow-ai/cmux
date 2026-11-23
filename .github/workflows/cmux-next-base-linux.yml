@@ -1,0 +1,101 @@
+name: cmux-next base linux
+
+# The step table's `linux` job (ci/steps.toml, run by `ci/run`) on the feat-cmux-next tip after landing.
+# pr-pipeline.yml runs that job on each pull request merged with its base, and nothing ran it on the base
+# itself: two green pull requests could land a red base and no run said so (2026-11-22: `app-platform`
+# was red on the base for 9 min and a person found it). cmux-next-post-merge.yml runs other suites.
+#
+# It reports and holds nothing: no pull request waits on it and no status is posted on one. A red run names
+# the merges since the last green tip and their authors in its summary; it starts no bisect and opens no
+# revert. One run at a
+# time per branch; pushes that land while it runs collapse into one pending run on the newest tip, so a
+# busy hour is about a dozen runs, not one per merge. Each run routes the steps by the paths changed
+# since the last green run, so a red step runs again on every tip until the base is green, and a run
+# after a green one costs only the steps the new commits reach. With no green run to diff from (the first
+# run, or a read that failed) every linux step runs.
+#
+# A push to a lane/base-linux-drill-* branch runs it there (the drill).
+on:
+  push:
+    branches:
+      - feat-cmux-next
+      - lane/base-linux-drill-*
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-base-linux-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: base linux
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # pr-pipeline.yml's bound for the same job: every linux step can run here.
+    timeout-minutes: 85
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout the tip and its parent
+        # Steps written for a pull request's merge commit read `HEAD^1` as the base (web-complexity,
+        # submodule-forward-only, chromium-currency). Here that is the tip before the newest landing.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the paths changed since the last green run
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since="$(python3 - <<'PY' || true
+          import json, os, urllib.request
+          url = (f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/"
+                 f"cmux-next-base-linux.yml/runs?branch={os.environ['GITHUB_REF_NAME']}&status=success&per_page=1")
+          request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                                                         "Accept": "application/vnd.github+json"})
+          with urllib.request.urlopen(request, timeout=30) as answer:
+              runs = json.load(answer).get("workflow_runs") or []
+          print(runs[0]["head_sha"] if runs else "")
+          PY
+          )"
+          if [[ "$since" =~ ^[0-9a-f]{40}$ ]] && git fetch --quiet --no-tags --depth=1 origin "$since"; then
+            git diff --name-only --no-renames -z "$since" HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            echo "SINCE_SHA=$since" >> "$GITHUB_ENV"
+            echo "::notice::linux steps routed by the $(tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c) paths changed since the last green run ($since)."
+          else
+            echo "::notice::No green run to diff from: every linux step runs."
+          fi
+      - name: Run the routed linux steps (ci/steps.toml)
+        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      - name: Name the merges since the last green tip
+        if: failure()
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY' || echo "::warning::The merges since the last green tip could not be listed."
+          import json, os, urllib.request
+          since, tip = os.environ.get("SINCE_SHA", ""), os.environ["GITHUB_SHA"]
+          lines = [f"## The base is red at {tip[:12]}", ""]
+          if since:
+              url = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/compare/{since}...{tip}?per_page=100"
+              request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                                                             "Accept": "application/vnd.github+json"})
+              with urllib.request.urlopen(request, timeout=30) as answer:
+                  commits = json.load(answer).get("commits") or []
+              lines += [f"Merges since the last green tip ({since[:12]}): {len(commits)}", ""]
+              for commit in commits:
+                  who = (commit.get("author") or {}).get("login") or commit["commit"]["author"]["name"]
+                  title = commit["commit"]["message"].splitlines()[0]
+                  lines.append(f"- {commit['sha'][:12]} {title} ({who})")
+          else:
+              lines.append("No green run to count from: every linux step ran on this tip.")
+          text = "\n".join(lines) + "\n"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(text)
+          print(text)
+          PY

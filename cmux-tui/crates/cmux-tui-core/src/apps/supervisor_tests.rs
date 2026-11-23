@@ -216,6 +216,8 @@ fn scripted_app_host() {
                 }
             }
             ToHost::Unmount { .. } => {}
+            // The scripted host never watches a signal.
+            ToHost::Watch { .. } => {}
             // A widget tick: the scripted render draws the clock it got.
             ToHost::Tick { mount, now_ms } => {
                 send(FromHost::Scene {
@@ -708,6 +710,31 @@ fn focus_ops_need_the_gesture_the_supervisor_minted() {
     );
 }
 
+/// A run of an app the catalog lacks names what the catalog holds, so a
+/// missing `cmux/cloud` says whether its folder was refused or never found.
+#[test]
+fn a_run_of_an_unknown_app_names_the_catalog_and_its_refusals() {
+    let root = temp_dir();
+    let broken = root.0.join("bundled/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("cmux-app.json"), "{").unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let error = run_op(&f, "cmux/cloud", "cloud.machine.list", Origin::Cli).unwrap_err();
+    assert_eq!(error.code, "apps.unknown");
+    assert_eq!(error.message, "no such app");
+    let details = error.details.expect("details");
+    assert_eq!(details["app"], "cmux/cloud");
+    assert!(details["first_party"].is_null(), "{details}");
+    let packages = details["packages"].as_array().unwrap();
+    assert!(packages.contains(&json!("cmux/demo")), "{details}");
+    let rejected = details["rejected"].as_array().unwrap();
+    let refused = rejected
+        .iter()
+        .find(|r| r["dir"].as_str().is_some_and(|d| d.ends_with("broken")))
+        .unwrap_or_else(|| panic!("{details}"));
+    assert!(!refused["issue"].as_str().unwrap().is_empty(), "{details}");
+}
+
 #[test]
 fn unknown_ops_ungranted_ops_storage_and_egress() {
     let f = fixture();
@@ -844,10 +871,12 @@ fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_githu
     f.install("local/spy");
     f.supervisor.logs(CLIENT, "cmux/demo", true);
     f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
-    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    // Before the next mount: its wait for a first scene drops every other event, and the
+    // liveness log lands while the spy's host is still starting.
     f.wait("liveness", |e| {
         e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
     });
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
     f.supervisor.publish(stream, json!({}));
     f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
     let heard = |app: &str| {
@@ -1299,6 +1328,8 @@ mod provider_channel;
 mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_signal_source_tests.rs"]
+mod signal_sources;
 #[path = "supervisor_status_item_tests.rs"]
 mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
@@ -1316,6 +1347,11 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+#[path = "supervisor_store_sections_tests.rs"]
+mod store_sections;
+
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
 
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;

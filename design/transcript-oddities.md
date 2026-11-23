@@ -45,10 +45,10 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 | T2 | Every reply after a daemon restart is hidden: a background bracket that never closed owns all later rows | 1 | fixed (follow-up PR) |
 | T3 | Under the Claude `runs` fold, a background turn's reply takes the prompt turn's answer slot, and the real answer folds away | 2 | fixed (follow-up PR) |
 | T4 | A large gap between the last tool row and the live Thinking line | 3 | fixed (cmux#48701, cmux#48597) |
-| T5 | The settled reply flickers in from the left middle of the pane, then lands | 4 | open (fix: cmux#48689) |
-| T6 | A one-line acknowledgement of a background finish is hidden with nothing to open it from | 2 | open (taste) |
-| T7 | Thought rows open on some clicks and not others | 4 | open (fix: cmux#48711) |
-| T8 | The fork button shows only after later tool calls | none (the turn's menu) | open (fix: cmux#48711) |
+| T5 | The settled reply flickers in from the left middle of the pane, then lands | 4 | fixed (cmux#48689, follow-ups cmux#48904) |
+| T6 | A one-line acknowledgement of a background finish is hidden with nothing to open it from | 2 | left as it is (taste, answered 2026-11-21) |
+| T7 | Thought rows open on some clicks and not others | 4 | fixed (cmux#48711) |
+| T8 | The fork button shows only after later tool calls | none (the turn's menu) | fixed (cmux#48711) |
 | O-rows | No space before a new "Working for" row; folds firing mid-turn; text visible while folding; entrances replaying on scroll; the Thinking to tool-call swap; the spinner; bottom buttons missing after a stop | 3, 4 | `design/chat-animation-ordering-map.md` |
 
 ### T1. A reply in a background finish's turn never draws
@@ -148,8 +148,18 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 - **Numbers** (13 scenarios, every painted frame, headless Chromium): frames away from place 55 to
   0, overlap frames 0, first ink 52 ms in 11 scenarios and 224 to 232 ms in the 2 where a kept row
   slides through the reply's box.
-- **Test**: `webviews/test/reply-settle-place-browser.test.ts`; O7 and O8 in
-  `chat-order-O7-O14.test.ts` assert the row stays at its place.
+- **Follow-ups** (cmux#48904, from the review of cmux#48689). (1) The hold was read once: a
+  placement pass later in the fold (a row above measured shorter, the view scrolled) could send a
+  kept row through the reply's box while the reply kept its first, zero-delay fade, visible over up
+  to 34 px of that row. The hold is now read on every pass (`Moving.hold`), and the reply goes back
+  to no ink until the row has passed. (2) The fold's backstop ended every animation 50 ms after the
+  move, so a fade held to near the move's end was cut at about 28% ink and jumped to full. The
+  backstop now waits for the latest held fade's end. (3) A row with its own entrance that nothing
+  crosses gets no fade from the fold: its entrance is its only one.
+- **Test**: `webviews/test/reply-settle-frames-real-browser.test.ts` (real Chromium, every painted
+  frame: a relayout mid-fold, the backstop, a row with its own entrance);
+  `webviews/test/reply-settle-place-browser.test.ts` (13 scenarios on a mocked clock); O7, O8 and
+  O8b in `chat-order-O7-O14.test.ts`.
 
 ### T6. A one-line acknowledgement is hidden with nothing to open
 
@@ -158,6 +168,10 @@ line that opens (`collectFoldedBackgroundId`). That is the rule Leo set for turn
 tell ("a turn you didn't start that has nothing new to tell you shouldn't show up as a message or
 ping you"), but the words are not reachable at all. Open question of taste, not a bug: whether the
 task's line should open to them.
+
+Answered 2026-11-21 by Leo's proxy (shadow-leo, ask-ed692d3eb3), from that same rule: "Don't build
+the clickable line today, and leave it unreachable as it is." Nothing was built. The question stays
+open for Leo himself: should a finish's one-line acknowledgement be reachable from the task's line?
 
 ### T7. Thought rows open on some clicks and not others
 
@@ -187,9 +201,15 @@ task's line should open to them.
   that can fork through any finished turn (`forksAnyTurn`: Claude and Codex). Other agents fork
   only at a chat's end and still wait for the idle chat. The app-level Fork Conversation is
   unchanged.
+- **Follow-up** (cmux#48904, from the review of cmux#48711): with the Fork kept while a turn
+  streams, the map of each prompt's turn was rebuilt from the whole chat on every streamed render
+  (`promptTurns` then `editableKey`). `trackPromptTurns` now reads only the rows after the first that
+  changed and keeps the same Map until an answered prompt changes
+  (`webviews/test/edit-turns-tracking.test.ts`: one row read per streamed row in a 400-turn chat).
 - **Test**: `conversation/forkTurnWhileWorking.test.ts`.
 - **Not proven**: a live fork made while a later turn runs. That the daemon accepts it is from
-  reading the path (`chat.fork` to the fork-through), not from a run in the app.
+  reading the path (`chat.fork` to the fork-through), not from a run in the app. The run is written
+  out, step by step, in `design/transcript-oddities-readback.md` (R6).
 
 ## Detectors
 

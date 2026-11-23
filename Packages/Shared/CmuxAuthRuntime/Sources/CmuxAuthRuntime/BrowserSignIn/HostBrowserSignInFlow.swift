@@ -631,6 +631,22 @@ public final class HostBrowserSignInFlow {
             lastFailure = .invalidCallback
             return false
         }
+        return await completeSession(payload, attemptID: attemptID, callbackState: authCallbackState(from: url))
+    }
+
+    /// Signs in with a session another device of the same person handed over (`cmux auth handoff`,
+    /// redeemed by the app from cmux-api): the same seed, validation and sign-out race guards as a
+    /// browser callback, with no URL and no state. Returns whether the app ended signed in.
+    public func completeHandoff(accessToken: String, refreshToken: String) async -> Bool {
+        guard !accessToken.isEmpty, !refreshToken.isEmpty else { return false }
+        log.log("auth.handoff.complete.begin")
+        return await completeSession(AuthCallbackPayload(refreshToken: refreshToken, accessToken: accessToken),
+                                     attemptID: nil, callbackState: nil)
+    }
+
+    /// The tail every sign-in shares: seed `payload`, complete it through the coordinator, and roll
+    /// back on a racing sign-out. `callbackState` is spent when the sign-in completes.
+    private func completeSession(_ payload: AuthCallbackPayload, attemptID: UInt64?, callbackState: String?) async -> Bool {
         let generation = signOutGeneration
         if let attemptID { completingAttemptID = attemptID }
         defer { if completingAttemptID == attemptID { completingAttemptID = nil } }
@@ -740,7 +756,7 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        if let state = authCallbackState(from: url) {
+        if let state = callbackState {
             // Single use: the popup's state may also have been issued for the
             // default-browser fallback.
             issuedCallbackStates.remove(state)
