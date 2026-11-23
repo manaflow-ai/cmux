@@ -690,7 +690,11 @@ class AppViewerRun(unittest.TestCase):
         led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 5, "p50_ms": 6.0, "p95_ms": 8.0}]}
         row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242,
                "window_id": 99, "session_scope": "full", "hub_session": "s1", "transport": "rd_wg",
-               "path": "direct", "window_on_primary_display": True}
+               "path": "direct", "window_on_primary_display": True,
+               "decode_ms": {"count": 120, "p50": 2.1, "p95": 3.0, "max": 4.0},
+               "glass_ms": {"count": 120, "p50": 9.4, "p95": 14.0, "max": 20.0},
+               "decode_present_ms": {"count": 120, "p50": 11.5, "p95": 16.5, "max": 22.0},
+               "frame_interval_ms": None}
 
         def answer(cmd):
             argv = shlex.split(cmd)
@@ -756,7 +760,8 @@ class AppViewerRun(unittest.TestCase):
         self.assertEqual((src["kind"], src["pid"], src["window"], src["transport"]), ("app-viewer", 4242, 99, "rd_wg"))
         self.assertTrue(src["encode_profile_applied"])
         b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
-                             "presented_source": src, "app_ledger": o.app_ledger}, None)
+                             "presented_source": src, "app_ledger": o.app_ledger,
+                             "app_timings": o.app_timings}, None)
         total = rows_named(b)["Total"]["cmux"]
         self.assertEqual((total["to"], total["via"], total["p50"]), ("presented", "app-viewer", 50.0))
         self.assertEqual(b["presented_source"]["kind"], "app-viewer")
@@ -764,6 +769,11 @@ class AppViewerRun(unittest.TestCase):
         text = "\n".join(vs.format_budget(b))
         self.assertIn("presented via app-viewer", text)
         self.assertIn("app viewer ledger: Present 6/8 (n 5)", text)
+        self.assertEqual(b["app_timings"]["decode_present_ms"]["p50"], 11.5)
+        self.assertNotIn("frame_interval_ms", b["app_timings"])  # null on the pane: left out
+        self.assertNotIn("short_window", b["app_timings"])
+        self.assertIn("app viewer timings p50/p95: decode 2.1/3 (n 120), glass 9.4/14 (n 120), "
+                      "decode_present 11.5/16.5 (n 120)", text)
 
     def test_host_app_approves_and_names_the_device(self):
         with tempfile.TemporaryDirectory() as tools:
@@ -794,6 +804,7 @@ class PresentedSourceLabel(unittest.TestCase):
         self.assertIn("null", b["presented_source"])
         self.assertNotIn("via", rows_named(b)["Total"]["cmux"])
         self.assertIn("null", b["app_ledger"])
+        self.assertIn("null", b["app_timings"])
         with self.assertRaises(ValueError):
             vs.presented_source("bogus")
 
