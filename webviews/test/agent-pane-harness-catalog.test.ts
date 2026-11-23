@@ -485,6 +485,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           // setup does not open yet and the draft stays. Setup opened from the Add harness chip meanwhile
           // is what lets Start Chat run while the image is still pending.
           await startChat(page);
+          // fixed-wait: the behavior is that setup does not open while the image is pending; there is no event to wait for.
           await page.waitForTimeout(300);
           expect(await page.locator(".acpmux-harnesses-close").count()).toBe(0);
           expect(await field.isVisible()).toBe(true);
