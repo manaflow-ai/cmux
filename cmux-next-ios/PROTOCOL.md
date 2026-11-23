@@ -1185,6 +1185,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
