@@ -21,9 +21,9 @@ public nonisolated enum MotionTunables {
         // spring is, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
         // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen (Cmd-Shift-Enter)."),
         // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
+        .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the paneClose spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         // plans/cmux-next/split-spring-animation/DESIGN.md. It was 0.95 damped until 2026-11-10 (the
         // numbers that follow were measured then). 0.28 ended visibly at 287 ms (half its travel at
@@ -62,6 +62,12 @@ public nonisolated enum MotionTunables {
         // 254 ms, over the ceiling (a 0.2 response would end at 236 ms).
         .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 1),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
+        // An exit ends sooner than its enter (`MotionPair`, MotionCapTests): each of these two takes
+        // 75% of the time of the motion that it undoes. 0.064 ends visibly at 75 ms (`split`, 0.085:
+        // 100 ms) and 0.15 at 177 ms (`zoom`, 0.2: 235 ms). Until 2026-11-16 a close ran on `split`
+        // and an unzoom on `zoom`.
+        .paneClose: (SpringParameters(response: 0.064, dampingFraction: 1), "A pane closing: its neighbours growing into its space, sooner than a split."),
+        .unzoom: (SpringParameters(response: 0.15, dampingFraction: 1), "A zoomed pane going back to its place, sooner than the zoom."),
     ]
 
     /// The spring of a token with no entry in `springDefaults` (every token has one today).
@@ -90,15 +96,17 @@ public nonisolated enum MotionTunables {
         .fadeOut: (MotionScale.quick, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (MotionScale.quick, "Hover card thumbnail swap; also the Reduce Motion ceiling of every fade."),
         .scrim: (MotionScale.standard, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
+        .wallpaper: (0.6, "A window background picture turning to its next one (schedule, shuffle, dynamic wallpaper) crossfades."),
         .lift: (MotionScale.micro, "Sidebar drag lift shadow."),
         .theme: (MotionScale.micro, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
-        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
+        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; 300 ms at most)."),
         .clickPulse: (MotionScale.large, "Agent cursor click ripple grows and fades (cmux-cua timing, 250 ms there)."),
         .cursorHide: (MotionScale.large, "Agent cursor fades out once its agent goes idle."),
         .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
         .settle: (MotionScale.standard, "A finished mark settles in once: a sidebar row's spinner turning into its done mark grows from 60% and an accent tint."),
+        .omniboxPopup: (MotionScale.quick, "The omnibox suggestion card fading in and out with its bar's card top (Helium: 82 ms)."),
     ]
 
     package static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

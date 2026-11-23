@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Darwin
 import Foundation
@@ -250,7 +251,7 @@ final class AppRunMarker {
            let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
             run.signal = number
         }
-        if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
+        if let exception { run.exception = RecordedException.read(from: exception) }
         return run
     }
 }

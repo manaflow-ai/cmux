@@ -89,11 +89,15 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
   });
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
-    // The background picker's one home is Personalization, which shows the same bar.
-    page = await renderPage({ path: "/settings/personalization" });
+    // The background picker's one home is Appearance, which shows the bar.
+    page = await renderPage({ path: "/settings/appearance" });
     const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
-    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
+    // Beside the step, the card keeps the picture Off showed (none); that write is no step of its own.
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([
+      { key: "appearance.background", value: "daily" },
+      { key: "appearance.backgroundMemory", value: { off: "none" } },
+    ]);
     expect(undoButton().disabled).toBe(false);
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
@@ -116,7 +120,20 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.getSnapshot().host?.theme?.current.room).toBeNull();
   });
 
-  test("Reset to Defaults asks inline, resets every appearance key set, and is itself undoable", async () => {
+  test("the bar's Reset menu runs Reset to Defaults on the pick, with no question", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
+    await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes("Reset to Defaults"),
+    )!;
+    await click(item);
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.container.querySelector(".appearance-bar-confirm")).toBeNull();
+    expect(page.store.appearance.nextUndo?.label).toBe("Appearance defaults");
+  });
+
+  test("Reset to Defaults resets every appearance key set, and is itself undoable", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));

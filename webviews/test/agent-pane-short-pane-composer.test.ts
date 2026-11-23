@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -85,43 +86,46 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
   /// Where the stack's parts end against the pane, and every box that holds more than it shows.
   const measure = async (page: Page) => {
     await settled(page);
-    return page.evaluate(() => {
-      const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
-      const requiredRect = (selector: string) => {
-        const box = rect(selector);
-        if (!box) throw new Error(`expected ${selector} to be rendered`);
-        return box;
-      };
-      const main = requiredRect(".acpmux-main");
-      const past = (selector: string) => Math.round(requiredRect(selector).bottom - main.bottom);
-      const overflow = (element: Element | null) =>
-        element ? Math.max(0, element.scrollHeight - element.clientHeight) : null;
-      const prompt = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
-      return {
-        // How far each part of the stack ends below the pane's bottom (0 or less: inside it).
-        past: {
-          dock: past(".acpmux-main > .acpmux-dock"),
-          card: past(".acpmux-composer-box"),
-          foot: past(".acpmux-composer-foot"),
-        },
-        // Content past the box of the page and of the pane's wrappers: only the transcript, the
-        // prompt and the queue scroll.
-        overflow: {
-          page: overflow(document.scrollingElement),
-          body: overflow(document.body),
-          root: overflow(document.getElementById("root")),
-          shell: overflow(document.querySelector(".acpmux-shell")),
-          main: overflow(document.querySelector(".acpmux-main")),
-          dock: overflow(document.querySelector(".acpmux-main > .acpmux-dock")),
-        },
-        prompt: {
-          height: prompt.getBoundingClientRect().height,
-          cap: parseFloat(getComputedStyle(prompt).maxHeight),
-          scrolls: prompt.scrollHeight > prompt.clientHeight + 1,
-        },
-        transcriptAbove: (rect(".acpmux-main > .acpmux-dock")?.top ?? 0) - (rect(".acpmux-scroll")?.top ?? 0),
-      };
-    });
+    return page.evaluate(
+      ({ MAIN_DOCK }) => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+        const requiredRect = (selector: string) => {
+          const box = rect(selector);
+          if (!box) throw new Error(`expected ${selector} to be rendered`);
+          return box;
+        };
+        const main = requiredRect(".acpmux-main");
+        const past = (selector: string) => Math.round(requiredRect(selector).bottom - main.bottom);
+        const overflow = (element: Element | null) =>
+          element ? Math.max(0, element.scrollHeight - element.clientHeight) : null;
+        const prompt = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
+        return {
+          // How far each part of the stack ends below the pane's bottom (0 or less: inside it).
+          past: {
+            dock: past(MAIN_DOCK),
+            card: past(".acpmux-composer-box"),
+            foot: past(".acpmux-composer-foot"),
+          },
+          // Content past the box of the page and of the pane's wrappers: only the transcript, the
+          // prompt and the queue scroll.
+          overflow: {
+            page: overflow(document.scrollingElement),
+            body: overflow(document.body),
+            root: overflow(document.getElementById("root")),
+            shell: overflow(document.querySelector(".acpmux-shell")),
+            main: overflow(document.querySelector(".acpmux-main")),
+            dock: overflow(document.querySelector(MAIN_DOCK)),
+          },
+          prompt: {
+            height: prompt.getBoundingClientRect().height,
+            cap: parseFloat(getComputedStyle(prompt).maxHeight),
+            scrolls: prompt.scrollHeight > prompt.clientHeight + 1,
+          },
+          transcriptAbove: (rect(MAIN_DOCK)?.top ?? 0) - (rect(".acpmux-scroll")?.top ?? 0),
+        };
+      },
+      { MAIN_DOCK },
+    );
   };
 
   const inside = { dock: 0, card: 0, foot: 0 };

@@ -82,6 +82,63 @@ class FleetCacheTests(unittest.TestCase):
         self.helper.write_text("#!/bin/bash\necho COMPILATION_CACHE_ENABLE_PLUGIN=YES\n")
         self.assert_local()
 
+    def writer_host(self, event="push", ref="refs/heads/nightly-next", repo="manaflow-ai/cmux",
+                    workflow="nightly.yml", opt_in="1"):
+        """This host's node signs (its fleet-cas.env names the sign key), inside a GitHub job."""
+        (self.cache / "fleet-cas.env").write_text("FLEET_CAS_STORE=127.0.0.1:7451\n"
+                                                  "FLEET_CAS_SIGN_KEY=/Users/cmux/.config/glaeda/fleet-cas-writer.key\n")
+        self.env.update({"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": event, "GITHUB_REF": ref,
+                         "GITHUB_REPOSITORY": repo,
+                         "GITHUB_WORKFLOW_REF": f"{repo}/.github/workflows/{workflow}@{ref}",
+                         "CMUX_FLEET_CAS_TRUSTED_WRITER": opt_in,
+                         "CMUX_FLEET_CAS_WRITER_LOCAL_CAS": str(self.root / "nightly-local-cas")})
+
+    def test_trusted_nightly_on_the_writer_writes_through_the_node_on_its_own_local_cas(self):
+        for event in ("push", "workflow_dispatch"):
+            for ref in ("refs/heads/main", "refs/heads/nightly-next"):
+                with self.subTest(event=event, ref=ref):
+                    self.writer_host(event=event, ref=ref)
+                    settings = self.settings()
+                    self.assertIn(f"COMPILATION_CACHE_REMOTE_SERVICE_PATH={self.cache}/fleet-cas.sock", settings)
+                    self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.root}/nightly-local-cas", settings)
+                    # Never the catch-up fill's CAS, which the fill empties at its start.
+                    self.assertNotIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", settings)
+
+    def test_untrusted_jobs_on_the_writer_sign_nothing(self):
+        cases = {
+            "pull request": dict(event="pull_request", ref="refs/pull/1/merge"),
+            "pull_request_target": dict(event="pull_request_target", ref="refs/heads/main"),
+            "fork": dict(repo="someone/cmux"),
+            "lane branch push": dict(ref="refs/heads/lane/x"),
+            "feat-cmux-next push": dict(ref="refs/heads/feat-cmux-next"),
+            "schedule": dict(event="schedule", ref="refs/heads/main"),
+            "other workflow": dict(workflow="ci-macos.yml"),
+            "no opt-in": dict(opt_in=""),
+        }
+        for name, case in cases.items():
+            with self.subTest(name):
+                self.writer_host(**case)
+                self.assert_local()
+
+    def test_writer_host_outside_actions_keeps_the_fill_path(self):
+        self.writer_host(event="pull_request", ref="refs/pull/1/merge")
+        self.env["GITHUB_ACTIONS"] = ""
+        self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", self.settings())
+
+    def test_reader_host_is_unchanged_for_pull_requests(self):
+        self.writer_host(event="pull_request", ref="refs/pull/1/merge")
+        (self.cache / "fleet-cas.env").write_text("FLEET_CAS_STORE=127.0.0.1:7451\n")
+        self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", self.settings())
+
+    def test_nightly_next_one_opts_in_only_for_trusted_refs(self):
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        job = workflow.split("\n  nightly-next-one:\n", 1)[1].split("\n    steps:", 1)[0]
+        trusted = ("(vars.NIGHTLY_FLEET_CAS_WRITE != 'off' && github.repository == 'manaflow-ai/cmux' && "
+                   "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && "
+                   "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next'))")
+        self.assertIn(f"      CMUX_CI_FLEET_CACHE_OFF: ${{{{ {trusted} && '' || '1' }}}}\n", job)
+        self.assertIn(f"      CMUX_FLEET_CAS_TRUSTED_WRITER: ${{{{ {trusted} && '1' || '' }}}}\n", job)
+
     def test_disabled_cache_never_probes_node(self):
         self.env["CMUX_CI_DISABLE_COMPILATION_CACHE"] = "1"
         marker = self.root / "probed"
@@ -179,7 +236,7 @@ class FleetCacheTests(unittest.TestCase):
             "#!/bin/bash\n"
             f"count=0; [[ -f '{count}' ]] && count=$(cat '{count}'); count=$((count + 1)); echo $count > '{count}'\n"
             f"printf '%s\\n' --- >> '{args_log}'; printf '%s\\n' \"$@\" >> '{args_log}'\n"
-            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit 65; fi\n"
+            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit ${{STUB_BUILD_STATUS:-65}}; fi\n"
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
@@ -233,6 +290,19 @@ class FleetCacheTests(unittest.TestCase):
         result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
                                                           STUB_FAIL_EVERY_BUILD="1")
         self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_stalled_build_retries_once_without_the_fleet_cache_too(self):
+        """Status 124 is run-xcodebuild-with-diagnostics.sh ending a build that stopped (run 43673773157's
+        build service deadlocked for hours). That build gets one more try, also on a cold-cache run, and
+        there is no third build."""
+        result, count, _ = self._run_nightly_release_stub("", DECIDE_COLD_CACHE_DISABLE="1", STUB_BUILD_STATUS="124")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count.read_text().strip(), "2")
+        self.assertIn("the Release build stalled", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub("", DECIDE_COLD_CACHE_DISABLE="1", STUB_BUILD_STATUS="124",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 124)
         self.assertEqual(count.read_text().strip(), "2")
 
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):

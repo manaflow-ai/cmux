@@ -1,0 +1,115 @@
+name: pr router
+
+# One router per push (cmuxterm-hq RFD 0023, "one router per push"). Every feat-cmux-next pull request
+# head used to start each pull request workflow on its own, and each began with a routing job of its
+# own that often skipped everything after it: on 11-20 the routing jobs alone were 7.1% of pull request
+# runner-minutes, about 13 a head. Here ONE small job lists the changed files once (a blobless two-commit
+# checkout of the merge commit, every changed path) and scripts/ci/pr_router.py decides which workflows
+# the change can reach (scripts/ci/pr_router.json). Each routed workflow is a `workflow_call` job below,
+# gated on the router's `start` list: a workflow it does not start costs no runner and reports one
+# skipped check under its own name; one it starts reports `<its name> / <job>` as before.
+#
+# pr-pipeline.yml is the step table's callee (ci/steps.toml, the CI v2 design): the router starts it when
+# the change routes a step of one of its jobs, so a new check is a step there, not a callee here.
+#
+# Adding a workflow: move its pull_request trigger (types, paths) into pr_router.json, give it
+# `workflow_call:`, add its caller job here, run `python3 scripts/ci/pr_router.py check`.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+# A push supersedes the older head's run and the workflows it called. An edit runs in a group of its own,
+# so it never cancels a push's run.
+concurrency:
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  route:
+    name: pr router
+    # A title or description edit routes only when a callee reads what changed: the size budget's
+    # `size:` line, the classic API guard's `Classic API change:` line or the base (its diff moved).
+    # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
+    # does not read, so an edit routed for one callee starts no runner in another.
+    if: ${{ github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      start: ${{ steps.route.outputs.start }}
+    steps:
+      - name: Checkout the router (blobless, the merge commit and the base tip)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/pr_router.py
+            scripts/ci/pr_router.json
+            scripts/ci/docs_only_paths.py
+            scripts/ci/workflow_paths_cover_inputs.py
+            scripts/ci/gh_expressions.py
+            scripts/ci/head_tier.py
+            scripts/ci/ci_steps.py
+            ci/steps.toml
+          sparse-checkout-cone-mode: false
+      - name: Route
+        id: route
+        # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
+        env:
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+        run: python3 -I scripts/ci/pr_router.py route
+
+  size-budget:
+    name: cmux-next size budget
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
+    uses: ./.github/workflows/cmux-next-size-budget.yml
+    permissions:
+      contents: read
+
+  classic-api-guard:
+    name: classic API guard
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'classic-api-guard.yml') }}
+    uses: ./.github/workflows/classic-api-guard.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  swift-linux-packages:
+    name: Swift packages on Linux
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
+    uses: ./.github/workflows/swift-linux-packages.yml
+    # A called workflow may ask no more than its caller job grants; with none granted here, every run
+    # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
+    permissions:
+      contents: read
+
+  web-validation:
+    name: Web validation
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'web-validation.yml') }}
+    uses: ./.github/workflows/web-validation.yml
+    permissions:
+      contents: read
+
+  pipeline:
+    name: pr pipeline
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
+    uses: ./.github/workflows/pr-pipeline.yml
+    permissions:
+      contents: read

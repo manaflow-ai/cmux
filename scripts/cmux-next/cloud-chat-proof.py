@@ -11,6 +11,11 @@ never included in evidence. Through the tagged app's own CLI and socket:
 3. `cloud start-chat --prompt ... --wait`: a new machine, a chat on it, the prompt, the reply,
 4. kills the machine the chat made.
 
+A cancel or a step timeout (SIGINT, SIGTERM, SIGHUP) kills the machines named after the run before the
+proof goes, and the evidence's `machine_cleanup` says whether that happened; when it did not (the runner
+stopped the process first), the workflow's always() step runs `--cleanup-tag`, which kills every machine
+named after the run and nothing else (cmuxterm-hq#8702: a cut-off proof leaked its machine).
+
 With `--paused-capture DIR` there is no chat (cmux-platform#1150 sends a paused machine's
 `paused_hourly_rate_usd`; webviews/src/pages/cloud/cost.ts says it as "About $X a month while paused"):
 after sign-in it makes one machine named after the tag (`cloud new-machine`, or reuses the one that
@@ -28,10 +33,12 @@ carry the one word that only that file holds, so the agent read it on the machin
 An unattended run has no person to answer the Claude login question (harness_login.rs `step_and_reason`), so a
 headless claude start-chat refuses unless the run decides it. `--grant-claude-login` gives the launched app its
 own scratch cmux.json holding the one-time Use My Claude Login consent, as cloud-chat-matrix.py does: what a
-Release-rules build (the published NEXT DEV app) waits for (`consent-first`). `--login none` is the start-chat's
-own choice: it copies no login, so Claude runs on the machine's team mode (the SR2/CodeRouter gateway), and it is
-decided before the consent and before a DEV build's `needs-login-choice` (a CLI's `--login pass` is not the
-person's, so it never stands in there, and CI holds no Claude login to copy anyway). Both go to a Claude chat only.
+Release-rules build (the published NEXT DEV app) waits for (`consent-first`). `--cache-claude-login` gives the
+signed-in account the cached Claude login a start copies to its own machine (claude_login_cache.py: the agent test
+account's CLAUDE_CODE_OAUTH_TOKEN from the environment, stored the way the app stores a `claude setup-token` login,
+removed when the run ends), and `--login pass` copies it: a DEV build installs a cached login with no prompt
+(`install-cached`), a Release build once the consent says yes. `--login none` copies nothing; run 42940662878 showed
+that leaves Claude signed out ("Not logged in") on a team the gateway does not serve. All go to a Claude chat only.
 
 Each step's exit code and the CLI's own message go to the evidence JSON and the job summary, with
 the reply text. The chat prompt always includes a browser proof against example.com, so a passing
@@ -39,6 +46,7 @@ run demonstrates that the agent on the Cloud machine drove its browser and read 
 Nothing here reads the credentials file; the app does.
 """
 import argparse
+import atexit
 import collections
 import hashlib
 import json
@@ -46,12 +54,16 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import claude_login_cache  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
@@ -65,6 +77,9 @@ parser.add_argument("--evidence", required=True)
 parser.add_argument("--from-folder", action="store_true",
                     help="start the chat from a new plain folder on this Mac; the reply must name a word only its file holds")
 parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
+parser.add_argument("--cleanup-tag", action="store_true",
+                    help="no chat: kill every machine named --tag (the machines this run's chat made), for the "
+                         "workflow's always() step after a proof that was cut off")
 parser.add_argument("--paused-capture", default="",
                     help="DIR: no chat; make one machine, pause it, open the Cloud page and write its image of the "
                          "machine's paused price to DIR (the line must say 'a month while paused'), then kill it")
@@ -72,15 +87,23 @@ parser.add_argument("--grant-claude-login", action="store_true",
                     help="the app this run launches gets its own scratch cmux.json that says yes to Use My Claude Login "
                          "on My Own Cloud Machines (a Release build's headless claude chat refuses without it)")
 parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
-                    help="a Claude chat's `start-chat --login` (default: none given). `none` copies no login: Claude runs "
-                         "on the machine's team mode, the SR2/CodeRouter gateway, on any build with no one to ask")
+                    help="a Claude chat's `start-chat --login` (default: none given). `pass` copies the account's "
+                         "cached login (see --cache-claude-login); `none` copies nothing")
+parser.add_argument("--cache-claude-login", action="store_true",
+                    help="store CLAUDE_CODE_OAUTH_TOKEN (environment only) as the signed-in account's cached Claude "
+                         "login for this run, the one a start copies to the account's own machine; removed at the end")
 args = parser.parse_args()
+CLAUDE_TOKEN = claude_login_cache.token_from(os.environ) if args.cache_claude_login else ""
+if args.cache_claude_login and not claude_login_cache.valid(CLAUDE_TOKEN):
+    parser.error(f"--cache-claude-login needs {claude_login_cache.TOKEN_ENV} set to a `claude setup-token` login")
 if args.paused_capture and (args.cleanup_machine or args.from_folder):
     parser.error("--paused-capture takes no --cleanup-machine or --from-folder")
 if not args.cleanup_machine and (not args.cloud_backend or not args.expected_api_origin):
     parser.error("--cloud-backend and --expected-api-origin are required for a chat proof")
 if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
     parser.error("--cleanup-machine must look like vm_<lowercase hex>")
+if args.cleanup_tag and args.cleanup_machine:
+    parser.error("--cleanup-tag and --cleanup-machine are separate runs")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 SOCKET_PATH = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -92,6 +115,10 @@ ENV = {
     "CMUX_SOCKET_PATH": SOCKET_PATH,
     "CMUX_NEXT_SOCKET_PATH": SOCKET_PATH,
 }
+# The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
+ENV.pop(claude_login_cache.TOKEN_ENV, None)
+# The cached login entries this run stored, removed in finish().
+CACHED_LOGINS: list[str] = []
 
 
 def claude_chat(agent: str) -> bool:
@@ -153,7 +180,8 @@ evidence = {
     "tag": None,
     "agent": args.agent,
     "from_folder": bool(FOLDER_PROOF_DIR),
-    "claude_login": {"consent_granted": bool(CONFIG_FILE), "login": START_LOGIN[1] if START_LOGIN else None},
+    "claude_login": {"consent_granted": bool(CONFIG_FILE), "login": START_LOGIN[1] if START_LOGIN else None,
+                     "cached": False},
     "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
     "prompt_bytes": len(args.prompt.encode("utf-8")),
     "steps": [],
@@ -208,7 +236,25 @@ def record(name: str, code: int, out: str, err: str, **extra) -> dict:
     return step
 
 
+def _remove_cached_logins_on_exit() -> None:
+    """The backstop for an exception or a cancelled job: a cached login never outlives the run."""
+    while CACHED_LOGINS:
+        code, err = claude_login_cache.remove(CLI, ENV, CACHED_LOGINS.pop())
+        if code != 0:
+            print(f"cached claude login NOT removed: exit {code} ({err.strip()[:200]})", file=sys.stderr, flush=True)
+
+
+atexit.register(_remove_cached_logins_on_exit)
+signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))  # a cancelled job skips atexit otherwise
+
+
 def finish(result: str) -> None:
+    while CACHED_LOGINS:
+        entry = CACHED_LOGINS.pop()
+        code, err = claude_login_cache.remove(CLI, ENV, entry)
+        record("remove cached claude login", code, "", err)
+        if code != 0 and result == "pass":
+            result = "fail: cached claude login not removed"
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -303,7 +349,7 @@ def app_link_log(since: str, keep: int = 300) -> dict:
     try:
         proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
                                  "--predicate", LINK_LOG_PREDICATE],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
+                                env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
     timer = threading.Timer(180, proc.kill)
@@ -435,6 +481,22 @@ def kill_machine(machine: str, *, inspect_status: bool = True, cleanup: bool = F
     failed = kill_failure(code_retry, out_retry, err_retry)
     record("cloud kill-machine retry", code_retry, "", failed["stderr"], raw=failed["raw"])
     return False
+
+
+def kill_run_machines() -> str:
+    """Kill every machine named after this run (start-chat names its machine --tag, so only this run's).
+    `killed`, `none` (no such machine), or `failed` (the listing or a kill failed)."""
+    list_code, list_out, list_err, machines = listed()
+    rows = [row for row in machines.get("machines") or []
+            if isinstance(row, dict) and row.get("title") == args.tag and row.get("machine_id")]
+    record("cloud list-machines (this run's machines)", list_code, "", failure_text(list_err, list_out),
+           count=len(rows), loaded=machines.get("loaded"))
+    if list_code != 0:
+        return "failed"
+    if not rows:
+        return "none"
+    killed = [kill_machine(row["machine_id"], inspect_status=False, cleanup=True) for row in rows]
+    return "killed" if all(killed) else "failed"
 
 
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
@@ -572,9 +634,17 @@ if args.credentials_file:
                    "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"])
 launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
 launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
+if args.cleanup_tag:
+    # After a cut-off proof the app it launched is usually still up on the run's socket, signed in: use it
+    # rather than open a second copy of the same bundle.
+    code, out, _ = cmux("app", "identify", "--json", timeout=30)
+    running = parsed(out) if code == 0 else {}
+    if running.get("pid") and running.get("app_bundle_path") == app_path:
+        record("reuse the running app", 0, "", "", pid=running.get("pid"))
+        launchable_cleanup = False
 if launchable_cleanup:
     try:
-        app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")
@@ -612,6 +682,10 @@ actual = wait_for("selected backend active and signed in", ("app", "call", "auth
                   and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
                   and value.get("signed_in") is True)
 evidence["api_origin"] = actual.get("backend")
+
+if args.cleanup_tag:
+    evidence["machine_cleanup"] = kill_run_machines()
+    finish("fail: a machine named after this run was not killed" if evidence["machine_cleanup"] == "failed" else "pass")
 
 PAUSED_LINE = "a month while paused"
 
@@ -676,6 +750,7 @@ def paused_capture(out_dir: str) -> None:
 
     def done(result: str) -> None:
         killed = kill_machine(machine, inspect_status=False)
+        evidence["machine_cleanup"] = "killed" if killed else "failed"
         finish(result if killed or result != "pass" else "fail: the capture passed but its machine was not killed")
 
     # 2. Running, then paused through the app's own Pause Machine.
@@ -756,8 +831,40 @@ def paused_capture(out_dir: str) -> None:
     done("pass")
 
 
+# From here a machine may exist. A cancel or a step timeout stops this process (SIGINT, then SIGTERM after a
+# few seconds); kill the run's machines before going. `machine_cleanup` stays `pending` in the evidence only
+# when the runner stopped the process before the kill finished, which the workflow's always() step reads.
+evidence["machine_cleanup"] = "pending"
+
+
+def cut_off(signum, _frame) -> None:
+    for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(each, signal.SIG_IGN)
+    name = signal.Signals(signum).name
+    record("cut off", 128 + signum, "", f"stopped by {name}; killing the machines named after this run")
+    evidence["machine_cleanup"] = kill_run_machines()
+    finish(f"fail: cut off by {name}")
+
+
+for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(each, cut_off)
+
 if args.paused_capture:
     paused_capture(args.paused_capture)
+
+if args.cache_claude_login:
+    # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
+    entries = claude_login_cache.names(actual)
+    if not entries:
+        record("cache claude login", 1, "", "auth.status names no user")
+        finish("fail: cache claude login")
+    for entry in entries:
+        CACHED_LOGINS.append(entry)
+        code, err = claude_login_cache.store(CLI, ENV, entry, CLAUDE_TOKEN)
+        record("cache claude login", code, "", err)
+        if code != 0:
+            finish("fail: cache claude login")
+    evidence["claude_login"]["cached"] = True
 
 # 2. A VM agent key at the selected environment's issuer.
 started = time.monotonic()
@@ -826,6 +933,7 @@ record("cloud browser event proof", event_code, "", "",
 
 # 5. The machine the chat made goes, pass or fail.
 killed = kill_machine(machine, inspect_status=False) if machine else False
+evidence["machine_cleanup"] = ("killed" if killed else "failed") if machine else "none"
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")

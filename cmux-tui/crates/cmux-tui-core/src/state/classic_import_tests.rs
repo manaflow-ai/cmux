@@ -389,6 +389,59 @@ fn begin_refuses_a_link_in_place_of_classics_session() {
     assert!(!home.ledger().parent().unwrap().join("backups").exists());
 }
 
+/// A retried `begin` that already ran replays its first result before any
+/// file is checked or copied: classic removing the file it read, or saving
+/// a newer archive, since does not turn the retry into a refusal.
+#[test]
+fn a_replayed_begin_answers_before_checking_classics_files() {
+    let mux = Mux::new_for_test("classic-import-replay-first", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    let once = record(&mux, &home, begin(&first), "early-begin");
+    assert_eq!(once["replayed"], false);
+    let backups = home.ledger().parent().unwrap().join("backups");
+    let count = |backups: &Path| std::fs::read_dir(backups).unwrap().count();
+    assert_eq!(count(&backups), 1);
+
+    std::fs::remove_file(home.session()).unwrap();
+    let history = home.session().parent().unwrap().join("session-history");
+    std::fs::create_dir_all(&history).unwrap();
+    std::fs::write(
+        history.join("session-com.cmuxterm.app-99999999999-w1-p1.json"),
+        r#"{"version":1,"createdAt":9,"windows":[]}"#,
+    )
+    .unwrap();
+    let again = record(&mux, &home, begin(&first), "early-begin");
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(again["value"], once["value"]);
+    assert_eq!(count(&backups), 1);
+}
+
+/// A ledger that does not decode stops automatic runs at every later launch,
+/// not only the first: the copy moved aside keeps it unusable until a manual
+/// import writes a new ledger, so no launch makes every workspace again.
+#[test]
+fn a_damaged_ledger_stops_every_automatic_run_until_a_manual_import() {
+    let mux = Mux::new_for_test("classic-import-damaged-ledger", SurfaceOptions::default());
+    let home = home(true);
+    std::fs::create_dir_all(home.ledger().parent().unwrap()).unwrap();
+    std::fs::write(home.ledger(), "{not json").unwrap();
+    let skip = json!({"decision": "skip", "reason": "ledger_not_usable"});
+    for _ in 0..2 {
+        let launch = plan(&mux, &home, Mode::Automatic);
+        assert_eq!(launch["ledger"], "unreadable");
+        assert_eq!(launch["decision"], skip, "{launch}");
+        assert!(launch["plan"].is_null());
+    }
+
+    let manual = plan(&mux, &home, Mode::Manual);
+    assert!(!keys(&manual).is_empty(), "{manual}");
+    run(&mux, &home, &manual, "recover");
+    let relaunch = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(relaunch["ledger"], "ledger");
+    assert_eq!(relaunch["decision"], json!({"decision": "skip", "reason": "unchanged"}));
+}
+
 /// Cancel on the launch's preview stands: later launches skip with
 /// `declined` whatever classic saves, a cut-off run still resumes, and a
 /// manual run's `begin` or `finish` takes the No back.
@@ -470,6 +523,51 @@ fn the_plan_says_whether_classic_is_open() {
     }
 }
 
+/// An idle classic saves only when its session changes, so a save long ago
+/// says nothing about whether it runs: a sentinel naming a live pid, or the
+/// per-user `cmux-<uid>.sock.lock` held, keeps a launch from asking. On
+/// 2026-11-15 a classic stable (open since Nov 7, last save 2 min
+/// earlier, its lock `cmux-501.sock.lock`) read as closed, and a relaunch
+/// offered its workspaces unasked.
+#[cfg(unix)]
+#[test]
+fn an_idle_classic_that_saved_long_ago_is_still_open() {
+    use std::os::unix::io::AsRawFd;
+    let mux = Mux::new_for_test("classic-import-idle", SurfaceOptions::default());
+    let home = home(true);
+    // Classic's last save, a day ago.
+    let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(home.session())
+        .unwrap()
+        .set_modified(day_ago)
+        .unwrap();
+    let sentinel = home.0.join(".local/state/cmux/lifecycle/com.cmuxterm.app/running.sentinel");
+    std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+    // A sentinel with no pid and an old save is a classic that crashed.
+    std::fs::write(&sentinel, "").unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // The sentinel names a live pid (this test's): classic runs, however old its save.
+    std::fs::write(&sentinel, format!("pid={}\n", std::process::id())).unwrap();
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+    std::fs::remove_file(&sentinel).unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // Classic stable's lock beside its per-user socket, held.
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let lock = home.0.join(format!(".local/state/cmux/cmux-{uid}.sock.lock"));
+    std::fs::write(&lock, "").unwrap();
+    let holder = std::fs::File::open(&lock).unwrap();
+    // SAFETY: the descriptor is open for the call.
+    assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+}
+
 /// The channel saved last is read, whichever build this is, and a newest
 /// channel whose files do not decode falls back to the next channel's.
 #[test]
@@ -478,6 +576,9 @@ fn the_newest_channel_is_read_and_a_broken_one_falls_back() {
     let home = home(true);
     let nightly = home.session().with_file_name("session-com.cmuxterm.app.nightly.json");
     std::fs::copy(home.session(), &nightly).unwrap();
+    // Nightly saved just now. A copy can keep its source's modified time (macOS clones the file).
+    let now = std::time::SystemTime::now();
+    std::fs::File::options().write(true).open(&nightly).unwrap().set_modified(now).unwrap();
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     std::fs::File::options().write(true).open(home.session()).unwrap().set_modified(old).unwrap();
     let newest = plan(&mux, &home, Mode::Manual);
@@ -661,4 +762,53 @@ fn classic_import_replies_match_the_embedded_catalog() {
         None,
     );
     assert_eq!(error_code(bad), "validation.invalid");
+}
+
+/// A DEV build never imports the person's classic data: its launch names its own folder
+/// (`CMUX_NEXT_CLASSIC_IMPORT_DIR`, BuildStatePaths), which stands for classic's Application Support. Classic's
+/// files there (none until someone puts a test session in) are the only ones read, and the ledger goes there too.
+#[test]
+fn dev_build_own_classic_import_never_reads_the_persons_classic() {
+    let mux = Mux::new_for_test("classic-import-dev-build", SurfaceOptions::default());
+    let home = home(true);
+    let own = home.0.join("dev-build/classic-import");
+    let (home_path, own_path) = (home.0.clone(), own.clone());
+    let places = Places::from_vars(|name| match name {
+        "HOME" => Some(home_path.clone().into_os_string()),
+        "CMUX_NEXT_CLASSIC_IMPORT_DIR" => Some(own_path.clone().into_os_string()),
+        _ => None,
+    })
+    .expect("places");
+    let empty = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(
+        empty["source"],
+        Value::Null,
+        "a DEV build read the person's classic session: {empty}"
+    );
+    assert_eq!(empty["plan"], Value::Null);
+
+    // A classic session put in the build's own folder is the one it imports.
+    let session = own.join("cmux/session-com.cmuxterm.app.json");
+    std::fs::create_dir_all(session.parent().unwrap()).unwrap();
+    std::fs::copy(home.session(), &session).unwrap();
+    let own_plan = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(own_plan["source"]["path"], session.to_string_lossy().as_ref(), "{own_plan}");
+
+    let fields = json!({"event": "seen", "bundle_id": BUNDLE});
+    let record = Record::parse(fields.as_object().unwrap()).unwrap();
+    let mutation = WorkspaceMutation::new(
+        "dev-build-seen".to_string(),
+        "resource-api",
+        crate::workspace_registry::Actor::Daemon,
+    )
+    .unwrap();
+    mux.classic_import_record(Some(&places), &mutation, &record).unwrap();
+    assert!(
+        own.join("cmux-next/com.cmuxterm.app/classic-migration/ledger.json").is_file(),
+        "the ledger is not in the build's own folder"
+    );
+    assert!(
+        !home.ledger().exists(),
+        "the DEV build wrote a ledger beside the person's classic data"
+    );
 }

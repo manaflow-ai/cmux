@@ -169,7 +169,8 @@ final class PageWKWebView: WKWebView {
         super.scrollWheel(with: event)
     }
 
-    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event); renderKeyEditNow() }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }

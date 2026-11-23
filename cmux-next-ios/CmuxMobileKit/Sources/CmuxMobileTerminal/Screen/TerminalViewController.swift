@@ -62,6 +62,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
     private let tuiHost = UIView()
+    /// The app's first rows pinned above the keyboard-clipped body
+    /// (`TerminalGridSizing.keyboardPlacement`): the surface's presented
+    /// frame again, cropped to those rows. Not the surface: it draws nothing.
+    let tuiHeader = UIView()
+    private let tuiHeaderRule = CALayer()
+    /// Rows `tuiHeader` shows now (0: hidden).
+    private(set) var tuiHeaderRows = 0
+    /// Clips the area's height (`tuiHost`): rows the surface shifts above it
+    /// (the cursor row kept on screen while a taller grid is fed behind the
+    /// held still) never show in the sub-row band over row 1. As wide as
+    /// the page's clip, so a panned or wider grid reaches the side padding.
+    private let tuiAreaClip = UIView()
     private let bottomStack = UIView()
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
@@ -93,12 +105,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The Jump to bottom row, the stack's top row (CMUX-10).
     private var jumpRowHost: UIHostingController<TerminalJumpToBottomRow>!
     private var tuiHeight: NSLayoutConstraint!
+    /// The terminal's background from the area's last row down to the
+    /// composer: while the keyboard hides, the gap that opens below the old
+    /// (shorter) grid shows nothing live or stale (the surface reaches below
+    /// the area).
+    private let tuiBelowCover = UIView()
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
+    /// The soft keyboard never changes them (`TerminalGridSizing`).
     private var tuiRows = 0
+    /// How far the TUI grid is moved down while the keyboard covers its
+    /// bottom, so the cursor's row stays on screen (`TerminalGridSizing.keyboardLift`).
+    private var tuiKeyboardLift: CGFloat = 0
     private var gridColumns = 0
     private var cell = CGSize.zero
     /// The Mac's grid when it is not the phone's (PROTOCOL.md "Terminal
@@ -181,6 +202,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tapStoppedScroll = false
     /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
     private let tuiScroll = TerminalTUIScrollController()
+    /// Every pan's frame times, to the Mac (`phone-frames`), in every build.
+    private lazy var panFrames: TerminalPanFrameRecorder = {
+        let recorder = TerminalPanFrameRecorder()
+        recorder.onPan = { [weak self] pan in
+            guard let self else { return }
+            model.session.reportScrollFrames(pan)
+        }
+        return recorder
+    }()
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
     private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
@@ -225,7 +255,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var glide: BottomGlide?
     /// What the dock shows (key row, composer) and the soft keyboard's state.
     private var dock = TerminalDockVisibility()
-    private var tuiSizing = TerminalTUISizing()
+    /// The old grid's rows, kept on the composer until the Mac's replay at
+    /// the page's new rows is in (`TerminalTUIGridHold`). The soft keyboard
+    /// never changes the rows (`TerminalGridSizing`); a chrome change does.
+    private var tuiGridHold = TerminalTUIGridHold()
+    private var tuiGridHoldExpiry: Task<Void, Never>?
+    private var keyboardMovement = 0
+    /// The Mac's redraw at fewer rows that waits for the keyboard to stop
+    /// (`TerminalKeyboardReplayHold`).
+    private var replayHold = TerminalKeyboardReplayHold()
+    /// The replay at a new grid is parsed while the held frame is up: the
+    /// area takes its new rows in the same pass that drops the held frame
+    /// (`unfreeze`), after Ghostty presented the new grid, so no frame shows
+    /// the new grid in the old area or the still where the area was.
+    private var areaSwapPending = false
+    /// When the keyboard's current movement ends (its notified duration).
+    private var keyboardMoveEnds: CFTimeInterval = 0
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
     /// between scroll callbacks (one per displayed frame while moving) and
@@ -248,6 +293,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
     private var scrollMeter = ScrollMeter()
     /// G-04: in-app frame intervals (`-CmuxMobileFrameLog`).
+    #if DEBUG
+    /// cmux#48951: wheel report -> Mac output -> present (`TerminalScrollBench`).
+    let rttLog = TerminalScrollRTT()
+    #endif
     private lazy var frameLog: TerminalFrameLog = {
         let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
         log.phaseProvider = { [weak self] in
@@ -289,14 +338,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Times `body` as the screen's main-thread work in this frame and marks
     /// it with a signpost (G-04). DEBUG only; release builds call `body`.
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T {
-        guard TerminalFrameLog.isEnabled else { return body() }
+        guard TerminalFrameLog.isEnabled || flickerTrace != nil else { return body() }
         let state = TerminalFrameLog.signposter.beginInterval(name)
         let start = CACurrentMediaTime()
         measureDepth += 1
         defer {
             measureDepth -= 1
             // Nested work is already inside the outer interval's time.
-            frameLog.work("\(name)", CACurrentMediaTime() - start, outermost: measureDepth == 0)
+            let elapsed = CACurrentMediaTime() - start
+            frameLog.work("\(name)", elapsed, outermost: measureDepth == 0)
+            flickerTrace?.work("\(name)", elapsed, outermost: measureDepth == 0)
             TerminalFrameLog.signposter.endInterval(name, state)
         }
         return body()
@@ -306,11 +357,27 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
     #endif
 
+    /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
+    private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
+
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
     private lazy var devProbe: TerminalDevProbe? = TerminalDevProbe.isEnabled
         ? TerminalDevProbe(title: { [weak self] in self?.model.title ?? "" }, text: { [weak self] in self?.surface.screenRows()?.logicalText })
         : nil
+    /// `-CmuxMobileTerminalFlickerTrace` (TerminalKeyboardToggleFlickerUITests).
+    private var flickerTrace: TerminalFlickerTrace?
+    /// Held stills taken, and the rows of the grid the latest one shows.
+    private var freezeCount = 0
+    private var freezeRows = 0
+    /// The held still is committed (on screen), so a present under it shows nothing.
+    private var heldCommitted = false
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -320,6 +387,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The scroll model is setting the offset (not a person).
     private var settingOffset = false
+    /// The page's offset at the last scroll: which way the reader moves past
+    /// a history window's end (``TerminalHistoryGap``).
+    private var lastGapOffsetY: CGFloat?
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
@@ -358,6 +428,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        hiddenFeed?.cancel()
         followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
     }
@@ -375,7 +446,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let base = theme.backgroundColor
         view.backgroundColor = base
         overrideUserInterfaceStyle = theme.interfaceStyle
+        composerHost?.overrideUserInterfaceStyle = theme.interfaceStyle
         bottomBacking.backgroundColor = base
+        tuiBelowCover.backgroundColor = base
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         if statusScrim.superview != nil {
             statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
@@ -409,9 +482,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.isHidden = true
         tuiClip.translatesAutoresizingMaskIntoConstraints = false
         tuiHost.translatesAutoresizingMaskIntoConstraints = false
-        tuiClip.addSubview(tuiHost)
+        tuiAreaClip.clipsToBounds = true
+        tuiAreaClip.isUserInteractionEnabled = true
+        tuiAreaClip.translatesAutoresizingMaskIntoConstraints = false
+        tuiClip.addSubview(tuiAreaClip)
+        tuiAreaClip.addSubview(tuiHost)
+        tuiBelowCover.isUserInteractionEnabled = false
+        tuiBelowCover.translatesAutoresizingMaskIntoConstraints = false
+        tuiBelowCover.backgroundColor = terminalBackground
+        tuiClip.addSubview(tuiBelowCover)
         view.addSubview(tuiClip)
         tuiClip.addGestureRecognizer(tuiHorizontalPan)
+        // The top exception: the app's first rows, drawn from the surface's
+        // own frame, over the area's top while the keyboard clips it.
+        tuiHeader.isHidden = true
+        tuiHeader.isUserInteractionEnabled = false
+        tuiHeader.layer.contentsGravity = .resize
+        tuiHeader.layer.masksToBounds = true
+        tuiHeaderRule.backgroundColor = UIColor.separator.cgColor
+        tuiHeader.layer.addSublayer(tuiHeaderRule)
+        view.insertSubview(tuiHeader, aboveSubview: tuiClip)
         hostGridNote.font = UIFont.preferredFont(forTextStyle: .caption2)
         hostGridNote.adjustsFontForContentSizeCategory = true
         // A Dynamic Type change resizes the note's font: measure the chip and place the note again.
@@ -441,7 +531,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer (in light mode inside a workspace they drew light glass
         // over the black grid).
         keyBar.overrideUserInterfaceStyle = .dark
-        composer.overrideUserInterfaceStyle = .dark
+        // The composer fills with the terminal theme's background (Leo,
+        // 2026-11-22: "dont draw unnecessary attention by making it light"),
+        // so its text and hairline take the theme's look, light or dark.
+        composer.overrideUserInterfaceStyle = terminalInterfaceStyle
         jumpRow.overrideUserInterfaceStyle = .dark
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
@@ -619,10 +712,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
             tuiClip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tuiClip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // Bottom-pinned: the grid's bottom rides the composer stack inside
+            // the keyboard's animation; the keyboard clips its top instead of
+            // resizing it (`TerminalGridSizing.keyboardPlacement`).
             tuiHost.bottomAnchor.constraint(equalTo: tuiClip.bottomAnchor),
             tuiHost.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor, constant: Self.sidePadding),
             tuiHost.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor, constant: -Self.sidePadding),
             tuiHeight,
+            tuiAreaClip.topAnchor.constraint(equalTo: tuiHost.topAnchor),
+            tuiAreaClip.bottomAnchor.constraint(equalTo: tuiHost.bottomAnchor),
+            tuiAreaClip.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
+            tuiAreaClip.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
+            tuiBelowCover.topAnchor.constraint(equalTo: tuiHost.bottomAnchor),
+            tuiBelowCover.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
+            tuiBelowCover.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
+            // As tall as the page, clipped by `tuiClip`: tied to the clip's
+            // bottom, a host taller than the clip (a shell's keyboard-down
+            // rows with the keyboard up) pushed the clip, and the composer
+            // under it, down outside the keyboard's animation.
+            tuiBelowCover.heightAnchor.constraint(equalTo: view.heightAnchor),
 
             scrollToBottomButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             scrollToBottomButton.bottomAnchor.constraint(equalTo: bottomStack.topAnchor, constant: -10),
@@ -667,12 +775,31 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             // A refusal comes back as `.inputNotSent` from inside `send`.
             inputRefused = false
-            // Ghostty's own replies to terminal queries are no keys the
-            // person typed: they never make the "not sent" notice.
-            if surface.isPerformingInput {
+            // Only what the person typed, pressed or pasted is a key (Leo,
+            // 2026-11-14: "all I did was navigate away and then it showed
+            // this, but I didn't type anything"). A scroll's wheel reports, a
+            // tap's click report, a key release and Ghostty's replies to
+            // terminal queries go only while attached and never make the
+            // "Keys typed while your Mac was unreachable" notice.
+            if surface.isEncodingUserInput {
                 model.session.send(data)
+                // The launch marks' key: one the session took (not refused, not held for a
+                // reattach), in the one terminal whose echo is then tracked (the marks are per process).
+                if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
+                   firstEcho.sent(data) {
+                    LaunchMarks.shared.mark("terminal_key_sent")
+                }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
+                // A scroll or a tap is still the person's: this phone is the active device.
+                if surface.isPerformingInput { model.session.noteInteraction() }
             }
         }
         // Held for a reattach (or a first attach still coming) is not sent:
@@ -691,9 +818,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.revealCursorForInput()
         }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
+        surface.onShownChange = { [weak self] shown in self?.pageShownChanged(shown) }
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            #if DEBUG
+            self.rttLog.presented()
+            #endif
         }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -712,7 +843,70 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        // A keyboard that went with no hide notification (while the app was in
+        // the background) is forgotten by the tracker: settle as after a hide.
+        keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
+        #if DEBUG
+        if TerminalFlickerTrace.isRequested {
+            flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// The page as drawn this frame, for `TerminalFlickerTrace`.
+    private func flickerSample() -> TerminalFlickerTrace.Sample? {
+        guard cell.height > 0 else { return nil }
+        // Sampled after UIKit's commit: a still up now is on screen.
+        if freezeView != nil { heldCommitted = true }
+        let probe = MobileKeyboardProbe()
+        var sample = TerminalFlickerTrace.Sample(demo: model.demoNote, isTUI: model.isTUI, held: freezeView != nil,
+                                                 stackTop: probe.onScreen(bottomStack, in: view).minY, resizes: model.ptyResizesSent,
+                                                 surfaceSize: surface.bounds.size)
+        if model.isTUI {
+            let rows = appliedHostRows ?? model.session.remoteRows ?? tuiRows
+            sample.gridTop = probe.onScreen(surface, in: view).minY + surface.gridPadding.y
+            sample.gridRows = rows
+            sample.pageRows = tuiRows
+            sample.heldAreaRows = tuiGridHold.heldRows ?? 0
+            sample.areaInset = tuiKeyboardLift
+            sample.sentRows = claimedTUIRows ?? 0
+            sample.coverTop = probe.onScreen(tuiBelowCover, in: view).minY
+            sample.areaTop = probe.onScreen(tuiHost, in: view).minY
+            sample.areaClips = tuiHost.clipsToBounds || tuiHost.superview?.clipsToBounds == true
+            sample.heldRows = freezeRows
+            sample.heldID = freezeCount
+            sample.clipTop = probe.onScreen(tuiClip, in: view).minY
+            sample.cellHeight = cell.height
+            sample.noteShown = !hostGridNote.isHidden
+            sample.nonBlankRows = surface.activeAreaText().map { TerminalHeldFrame.nonBlankRows(in: $0, limit: rows) } ?? 0
+            if let held = freezeView {
+                // The still itself (in its cover, for an area still).
+                let still = held.superview === view ? held : (held.subviews.first ?? held)
+                let drawn = probe.onScreen(still, in: view)
+                sample.heldTop = drawn.minY
+                sample.heldBottom = drawn.maxY
+                sample.heldIsArea = held.superview !== view
+            }
+        } else {
+            let frame = probe.onScreen(scrollView, in: view)
+            let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
+            sample.contentBottom = frame.minY + scrollView.contentSize.height - bounds.minY
+            sample.legibleBlank = legibleRowsBlank
+            sample.cellHeight = cell.height
+            sample.offsetModel = scrollView.contentOffset.y
+            sample.offsetDrawn = bounds.minY
+            sample.insetBottom = scrollView.contentInset.bottom
+            let drawn = probe.onScreen(surface, in: view)
+            sample.surfaceTop = drawn.minY
+            sample.surfaceBottom = drawn.maxY
+            sample.following = following
+            sample.legibleTop = frame.minY + scrollView.contentInset.top
+            sample.contentHeight = scrollView.contentSize.height
+        }
+        return sample
+    }
+    #endif
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
@@ -724,16 +918,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         registerEdgeEffectScrollView()
         #if DEBUG
         frameLog.start()
+        TerminalScrollBench.install(self)
         #endif
         startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
         // composer on the first frame (Codex QA F8).
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        // The keyboard may have come or gone while the page was away.
-        settleKeyboardLift()
+        // The keyboard may have come or gone while the page was away; a
+        // keyboard on record that nothing owns now is gone (no inset for it).
+        keyboardTracker.dropKeyboardWithoutOwner()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         outputSinceProbe = true
@@ -786,6 +980,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 frame: surface.frame.minY..<surface.frame.maxY, document: 0..<document.contentHeight(cellHeight: cell.height),
                 current: scrollView.contentOffset.y, target: target, viewport: view.bounds.height),
                abs(y - scrollView.contentOffset.y) > 0.5 {
+                #if DEBUG
+                if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("I") }
+                #endif
                 settingOffset = true
                 scrollView.contentOffset.y = y
                 settingOffset = false
@@ -803,6 +1000,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.contentOffset.y = target
             settingOffset = false
         }
+        #if DEBUG
+        if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("G") }
+        #endif
+        scroll.reachedTarget()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
         #if DEBUG
@@ -873,6 +1074,140 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
+    /// No answer within `TerminalTUIGridHold.cap` (the Mac kept its grid):
+    /// the area shows the page's rows.
+    private func armGridHoldExpiry() {
+        tuiGridHoldExpiry?.cancel()
+        tuiGridHoldExpiry = nil
+        guard tuiGridHold.heldRows != nil else { return }
+        tuiGridHoldExpiry = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: TerminalTUIGridHold.cap)
+            guard let self, !Task.isCancelled, self.tuiGridHold.heldRows != nil else { return }
+            sizingLog.notice("grid hold expired: no replay at \(self.tuiRows, privacy: .public) rows")
+            if self.freezeView != nil, self.model.isTUI {
+                // Under a held still: the area changes when the still goes.
+                self.endGridHold(layout: false)
+                self.areaSwapPending = true
+            } else {
+                self.endGridHold(layout: true)
+            }
+        }
+    }
+
+    /// The rows last sent for a full-screen app (the claim a replay answers).
+    private var claimedTUIRows: Int?
+
+    private func gridReplayed() {
+        // The held frame is up: the area changes when it goes (`unfreeze`).
+        if freezeView != nil, model.isTUI {
+            areaSwapPending = true
+            return
+        }
+        swapArea()
+    }
+
+    /// The area takes the rows of the replay just parsed (or keeps the
+    /// replay's grid while the page's own claim is still on its way).
+    private func swapArea() {
+        areaSwapPending = false
+        let held = tuiGridHold.heldRows
+        let shown = appliedHostRows ?? model.session.remoteRows
+        let pending = resizeSettle.pending?.rows == tuiRows || (claimedTUIRows == tuiRows && shown != tuiRows)
+        tuiGridHold.replayed(rows: shown, page: tuiRows, claimPending: model.isTUI && pending)
+        if tuiGridHold.heldRows == nil {
+            tuiGridHoldExpiry?.cancel()
+            tuiGridHoldExpiry = nil
+        } else if tuiGridHold.heldRows != held {
+            armGridHoldExpiry()
+        }
+        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cell.height
+        if tuiGridHold.heldRows != held || (cell.height > 0 && tuiHeight.constant != areaHeight) {
+            relayoutTUIArea()
+        }
+    }
+
+    /// The TUI area: the held grid's rows, else the page's, on the composer
+    /// stack (bottom-pinned).
+    private func applyTUIAreaHeight(cellHeight: CGFloat) {
+        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cellHeight
+        if tuiHeight.constant != areaHeight { tuiHeight.constant = areaHeight }
+    }
+
+    /// The hold changed outside a layout pass: the area takes its height in
+    /// this pass. Set from `layoutTerminal` (inside `viewDidLayoutSubviews`),
+    /// the constraint only moved the area in the next display frame, one
+    /// frame after the held frame went (the grid hung from the toolbar for a
+    /// frame).
+    private func relayoutTUIArea() {
+        if cell.height > 0 { applyTUIAreaHeight(cellHeight: cell.height) }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        // tuiHost is laid out by tuiClip, after the page's own pass (#42422).
+        tuiClip.layoutIfNeeded()
+    }
+
+    /// Sizes sent for a full-screen app and not answered yet, oldest first.
+    /// The Mac answers every resize, in order (a grid change, a mirror reset
+    /// and a replay); while a newer one is out, an answer is for a size the
+    /// page no longer wants. Only the newest answer is drawn: a toggle the
+    /// person took back (show, then hide before the Mac answered) swaps the
+    /// grid 0 times, a double toggle once.
+    private var claimsInFlight: [(size: TerminalResizeSettle.Size, at: CFTimeInterval)] = []
+
+    /// Claims older than a round trip's cap get no answer (the Mac kept its
+    /// grid, or the link changed).
+    private func pruneClaims() {
+        let now = CACurrentMediaTime()
+        let cap = TerminalTUIGridHold.capSeconds
+        claimsInFlight.removeAll { now - $0.at > cap }
+    }
+
+    /// The Mac's grid `size` arrived: it answers the oldest claim of that
+    /// size, and is stale when a newer claim is still out.
+    private func answerIsStale(_ size: TerminalResizeSettle.Size) -> Bool {
+        pruneClaims()
+        guard model.isTUI, let index = claimsInFlight.firstIndex(where: { $0.size == size }) else { return false }
+        claimsInFlight.removeFirst(index + 1)
+        return !claimsInFlight.isEmpty
+    }
+
+    /// The newest answer is still out for a full-screen app: a held still
+    /// stays up until it is drawn (an older answer fed meanwhile is never
+    /// shown).
+    private var newestAnswerAwaited: Bool {
+        guard model.isTUI else { return false }
+        pruneClaims()
+        return !claimsInFlight.isEmpty
+    }
+
+    /// A stale answer waits at most a round trip's cap for the newest one.
+    private func armStaleAnswerExpiry() {
+        staleAnswerExpiry?.cancel()
+        staleAnswerExpiry = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: TerminalTUIGridHold.cap)
+            guard let self, !Task.isCancelled, self.output.nextHostGridIsStale || !self.claimsInFlight.isEmpty else { return }
+            sizingLog.notice("the newest answer did not come: queued answers go to the screen")
+            self.claimsInFlight.removeAll()
+            // Only the last answer queued is drawn: the replay gate counts
+            // the replay after the last reset, and the older ones' resets
+            // would end it early.
+            self.output.keepLastStaleAnswer()
+            self.output.clearStale()
+            self.scheduleOutput()
+            if self.freezeView != nil, self.model.isTUI, self.heldFrameMayGo() { self.unfreeze() }
+        }
+    }
+    private var staleAnswerExpiry: Task<Void, Never>?
+
+    private func endGridHold(layout: Bool) {
+        tuiGridHoldExpiry?.cancel()
+        tuiGridHoldExpiry = nil
+        guard tuiGridHold.heldRows != nil else { return }
+        tuiGridHold.release()
+        guard layout else { return }
+        relayoutTUIArea()
+    }
+
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
@@ -881,6 +1216,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sentGridBefore = sentGrid
             sentGrid = size
         }
+        claimedTUIRows = size.rows
+        if model.isTUI, why != "first" {
+            // Answers still queued answer an older size now.
+            pruneClaims()
+            output.markGridsStale()
+            claimsInFlight.append((size, CACurrentMediaTime()))
+            // The Mac may keep its grid and not answer: the wait ends.
+            armStaleAnswerExpiry()
+        }
+        // The answer to this claim is a round trip away from now.
+        if tuiGridHold.heldRows != nil { armGridHoldExpiry() }
     }
 
     /// The stack's top with the keyboard down and the composer at its one-line
@@ -1030,6 +1376,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.stop()
         #endif
+        panFrames.finish()
         stopBlankWatch()
         stopFollowFallback()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
@@ -1082,21 +1429,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
-    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-        // A rotation with a hardware keyboard posts no keyboard notification:
-        // settle the keyboard's lift against the new layout once it lands.
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-            guard let self else { return }
-            settleKeyboardLift()
-            view.setNeedsLayout()
-        }
-    }
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         keyboardDock.refresh()
-        layoutTerminal()
+        measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
             model.session.start { [weak self] event in self?.sessionEvent(event) }
@@ -1132,7 +1468,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(Int(tuiKeyboardLift)) header=\(tuiHeaderRows)"
     }
     #endif
 
@@ -1153,19 +1489,60 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
     private let rowShift = RowShiftBox()
+    /// What the output pump did: display frames it ran on, pump calls and
+    /// batches handed to Ghostty. For tests and benches.
+    private(set) var outputCounts = TerminalOutputPumpCounts()
+    /// Session bytes queued and not yet handed to Ghostty.
+    var outputPendingBytes: Int { output.pendingBytes }
+    /// How often a page nobody can see hands its queued output to Ghostty.
+    static let hiddenFeedInterval: TimeInterval = 1
 
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
+        case .connection, .exited, .alternateScreen(false):
+            // A disconnect, a reattach, the process gone or the app off the
+            // alternate screen: a keyboard hold ends now (its held frame, if
+            // a reset waits behind it, is taken before the replay is fed).
+            let leaving = event == .alternateScreen(false)
+            apply(replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).release, pageWide: leaving)
+            // Nothing waits for an answer any more: a reattach replays at the
+            // grid it has, an app off the alternate screen keeps no hold.
+            claimsInFlight.removeAll()
+            output.clearStale()
+        default:
+            break
+        }
+        switch event {
         case .output(let data):
+            panFrames.output(data.count)
             let isReset = data == Self.mirrorReset
             if isReset {
                 sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
                 holdAwaitsReset = false
                 // The rows being read are rebuilt from the replay: a reader
                 // goes back to their rows once it is in (V2-3,
-                // TerminalReadingMark); otherwise to the prompt.
+                // TerminalReadingMark); otherwise to the prompt. A place
+                // waiting for older rows is placed by this reset's replay.
+                olderRowsAsked = false
+                #if DEBUG
+                let probeContext = probeResetContext()
+                let probeWaiting = restorePending
+                probeMarkMiss = "-"
+                #endif
                 markReadingPosition()
-                freezeLastFrame()
+                #if DEBUG
+                let outcome = probeWaiting ? "W" : (readingMark != nil ? "M" : "Z")
+                TerminalHistoryWindowProbe.shared.note(Character(outcome))
+                TerminalHistoryWindowProbe.shared.lastReset = "\(probeContext):\(outcome)\(outcome == "Z" ? probeMarkMiss : "")"
+                // The first attach marks nothing (no document yet): not a miss.
+                if outcome == "Z", document != nil {
+                    TerminalHistoryWindowProbe.shared.lastMiss = TerminalHistoryWindowProbe.shared.lastReset
+                }
+                #endif
+                // Held for the keyboard: the frame is held when it is fed.
+                if replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).takeHeldFrame {
+                    freezeLastFrame()
+                }
                 // Held already (a second reset, D4): the frame that releases
                 // it is one placed after this reset's replay.
                 placedSinceHold = false
@@ -1185,6 +1562,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            rttLog.outputArrived(bytes: data.count)
             #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
@@ -1200,9 +1578,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             output.append(alternateScreen: on)
             scheduleOutput()
         case .hostGrid(let columns, let rows):
+            // The Mac's shorter grid while the keyboard still rises: it and
+            // what follows wait for the keyboard to stop (`replayHold`).
+            _ = replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows)
             // In order with the bytes too: the mirror takes the Mac's new
-            // grid right before the first byte drawn for it.
-            output.append(hostGrid: columns, rows: rows)
+            // grid right before the first byte drawn for it. An answer to a
+            // resize older than the newest waits in the queue; the newest
+            // answer drops it (its reset clears whatever it would draw).
+            let stale = answerIsStale(.init(columns: columns, rows: rows))
+            output.append(hostGrid: columns, rows: rows, stale: stale)
+            if stale {
+                sizingLog.notice("answer \(columns, privacy: .public)x\(rows, privacy: .public) is for an older resize: it waits for the newest")
+                armStaleAnswerExpiry()
+            } else if output.dropStaleAnswers() > 0 {
+                sizingLog.notice("older answers dropped: the newest one is \(columns, privacy: .public)x\(rows, privacy: .public)")
+                // A dropped grid may have been the one the keyboard hold
+                // waits for: the hold is judged again for the newest.
+                replayHold.gridTaken()
+                _ = replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows)
+            }
             scheduleOutput()
         case .hostGridOwner(let name):
             // In order with the grid events: the owner and the grid it set
@@ -1236,7 +1630,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
+    /// A page nobody can see feeds on `hiddenFeedInterval` instead (`feedsHidden`).
     private func scheduleOutput() {
+        // Held for the keyboard: no display link meanwhile (`keyboardStopped`
+        // schedules again).
+        if replayHold.holding { return }
+        if feedsHidden { return armHiddenFeed() }
         if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
         } else {
@@ -1245,6 +1644,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
+            self?.outputCounts.frameTicks += 1
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
@@ -1279,17 +1679,51 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
     }
 
-    private func pumpOutput() {
-        guard pacer.canFeed(at: CACurrentMediaTime()) else {
+    /// The queue's next step is the Mac's shorter grid that came while the
+    /// keyboard rose, and the keyboard still moves: hold there
+    /// (`replayHold`), until `keyboardStopped` or the movement's end.
+    private func holdsAtGrid() -> Bool {
+        if replayHold.holding { return true }
+        // An older resize's answer waits for the newest one (or its expiry).
+        if output.nextHostGridIsStale {
+            stopOutputLink()
+            return true
+        }
+        guard replayHold.holdsAt(nextIsGrid: output.nextHostGrid != nil) else { return false }
+        stopOutputLink()
+        let deadline = max(0, keyboardMoveEnds - CACurrentMediaTime()) + 0.1
+        let movement = keyboardMovement
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { [weak self] in
+            // A did-show or did-hide that never came (filtered, or a page
+            // that left): the hold ends with the movement (not a newer one).
+            guard let self, self.replayHold.holding, self.keyboardMovement == movement else { return }
+            self.keyboardStopped()
+        }
+        return true
+    }
+
+    /// Hands Ghostty the next batch. `catchUp` (a hidden page's turn, or the
+    /// page shown again) takes up to `hiddenFeedBudget` bytes in one batch,
+    /// with no wait for a display frame or a burst's end: nothing is drawn
+    /// until the page is seen, and once it is, what it shows is current.
+    private func pumpOutput(catchUp: Bool = false) {
+        outputCounts.pumps += 1
+        // The Mac's redraw waits for the keyboard to stop (`replayHold`).
+        if replayHold.holding { return }
+        if !catchUp, !pacer.canFeed(at: CACurrentMediaTime()) {
             armBurstWake()
             return
         }
-        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
+        let budget = catchUp
+            ? Self.hiddenFeedBudget
+            : TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)
+        while !feedInFlight, !holdsAtGrid(), let step = output.next(budget: budget) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
             case .hostGrid(let columns, let rows):
+                replayHold.gridTaken()
                 appliedHostColumns = columns
                 appliedHostRows = rows
                 // The Mac's grid changed: a resize the phone sent before is answered.
@@ -1299,10 +1733,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
+                outputCounts.batches += 1
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
+                firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -1333,6 +1770,84 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func stopOutputLink() {
         outputLink?.invalidate()
         outputLink = nil
+    }
+
+    // MARK: Output of a page nobody can see
+
+    /// The page cannot be seen (out of its window: a warm tab behind
+    /// another; or the app in the background): its output reaches Ghostty
+    /// with no display link, in one batch per `hiddenFeedInterval` (Chrome's
+    /// background-tab timer throttling: work nobody can see runs at most once
+    /// a second). The mirror stays exact (every byte is parsed, in order, and
+    /// backpressure still pauses the Mac), and shown again the page catches up
+    /// at once (`pageShownChanged`). A reset's replay is fed as when shown:
+    /// the replay gate's deadline counts from the reset.
+    private var feedsHidden: Bool {
+        surface.surface != nil && !surface.isShown && !replayGate.isReplaying
+    }
+    /// The hidden page's next turn; nil when none is due (one at a time,
+    /// armed only while output waits).
+    private var hiddenFeed: DispatchWorkItem?
+    /// The most a hidden page hands Ghostty in one batch. A backlog of a
+    /// full batch or more (a flood) goes on as soon as Ghostty parsed the
+    /// last one, so the queue drains and backpressure lifts; Ghostty holds
+    /// its terminal lock for a batch, so it stays short enough for the page
+    /// shown in the middle of one.
+    static let hiddenFeedBudget = 1 << 20
+
+    /// Output waits on a hidden page: its next turn comes at most
+    /// `hiddenFeedInterval` from now. Stops the display link and a burst
+    /// wake; arms nothing when the queue is empty or a batch is in flight
+    /// (the batch's end looks again, `continueAfterBatch`).
+    private func armHiddenFeed() {
+        stopOutputLink()
+        burstWake?.cancel()
+        burstWake = nil
+        guard hiddenFeed == nil, !output.isEmpty, !feedInFlight else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hiddenFeed = nil
+                self.pumpOutput(catchUp: true)
+            }
+        }
+        hiddenFeed = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hiddenFeedInterval, execute: item)
+    }
+
+    /// A batch was parsed: on a hidden page, a full batch's backlog goes on
+    /// now and a smaller rest waits for the next turn; on a shown one, the
+    /// display link goes on while output waits.
+    private func continueAfterBatch() {
+        if feedsHidden {
+            if output.pendingBytes >= Self.hiddenFeedBudget {
+                pumpOutput(catchUp: true)
+            } else {
+                armHiddenFeed()
+            }
+        } else if output.isEmpty {
+            stopOutputLink()
+        } else if outputLink == nil {
+            // Shown while a hidden batch was in flight: the rest goes per frame.
+            scheduleOutput()
+        }
+    }
+
+    /// The surface's page came into view or left it (`TerminalSurfaceView.onShownChange`).
+    private func pageShownChanged(_ shown: Bool) {
+        guard shown else {
+            // Hidden: the display link stops and output waits for the hidden turn.
+            if feedsHidden { armHiddenFeed() }
+            return
+        }
+        hiddenFeed?.cancel()
+        hiddenFeed = nil
+        guard !output.isEmpty || feedInFlight else { return }
+        // Shown: what waited goes to Ghostty now, before the first frame,
+        // and the rest (a flood's backlog) per display frame after it.
+        pacer.newFrame()
+        if !feedInFlight { pumpOutput(catchUp: true) }
+        scheduleOutput()
     }
 
     /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
@@ -1382,13 +1897,54 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
     private var readingMarkAwaitsReport = false
+    /// A reader's place still to be put back across resets: one handed over
+    /// from the tab's previous host (``restoreScrollPlace(_:)``), or one above
+    /// the rows a replay held, waiting for the older rows it asked for
+    /// (`TerminalScrollRestore`). The next replay places it.
+    private var pendingRestore: TerminalScrollRestore?
+    /// Older rows were asked for and their reset has not come yet: the replay
+    /// deadline and the held frame's cap leave the pending place alone until
+    /// it does (a restore then would find the rows still missing).
+    private var olderRowsAsked = false
+    /// Flings a reset stopped to place the reader (demo and bench readout,
+    /// `historyfling`).
+    private(set) var flingsStoppedByReset = 0
+    /// A fling reached within a screen of the oldest row held: the older
+    /// rows are asked for when it ends. Their replay starts with a reset,
+    /// and a reset stops a fling to place the reader, so asking mid-fling
+    /// cut the first fling up short (Leo, 2026-11-21: "this claude code cli
+    /// is often slow to scroll up and down from ios").
+    private var olderRowsWanted = false
+    /// A place is waiting to be put back (the held frame stays for it).
+    private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
+    /// A place is waiting and the replay that places it is in (or overdue).
+    private var restoreDue: Bool { readingMark != nil || (pendingRestore != nil && !olderRowsAsked) }
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
-        guard let mark = readingMark else { return }
+        let ownMark = pendingRestore == nil
+        let pending = pendingRestore ?? readingMark.map { TerminalScrollRestore(mark: $0, fromEnd: false) }
         readingMark = nil
+        pendingRestore = nil
+        olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        fingerRestore = nil
+        #if DEBUG
+        let markOffsetY = readingMarkOffsetY
+        #endif
+        readingMarkOffsetY = nil
+        let held = scrollView.isTracking || scrollView.isDecelerating
+        // A gesture since the reset moved a page whose rows are the old
+        // replay's: the scroll model decides where the reader goes
+        // (`TerminalScrollModel.restoreReading`). Only the reader's own mark:
+        // a place waiting for older rows is dropped by the drag
+        // (`dropPendingRestore`).
+        guard var restore = pending, !model.isTUI, !held || ownMark else {
+            #if DEBUG
+            if pending != nil, !model.isTUI { TerminalHistoryWindowProbe.shared.note("T") }
+            #endif
+            return
+        }
         let total = scrollbar.total
         let reader = rowReader
         // Every row of the replay, read once (the whole-screen read is not
@@ -1396,13 +1952,156 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // by their text too, so output during the drop cannot push the reader
         // down (T-LIFE-09/15). Rows past the read's trimmed end use the reader.
         let screen = surface.screenRows()
-        guard let anchor = mark.locate(totalRows: total, rowText: { row in
+        let session = model.session
+        guard let anchor = restore.replayed(totalRows: total, rowText: { row in
             if let screen, row < screen.count { return screen.rows[row] }
             return reader.text(TerminalAbsoluteRow(row))
-        }) else { return }
-        sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
-        scroll.restoreReading(anchor)
-        restoredMark = (mark, anchor)
+        }, loadOlder: { session.loadOlderHistory() }) else {
+            // The reader is above the rows replayed: the older rows' replay
+            // (a reset) comes back here.
+            pendingRestore = restore
+            olderRowsAsked = true
+            let fromEnd = restore.mark.rowsFromEnd
+            let loads = restore.olderLoads
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("S")
+            #endif
+            sizingLog.notice("reading mark \(fromEnd, privacy: .public) rows from the end, above the \(total, privacy: .public) replayed: older rows asked (\(loads, privacy: .public))")
+            return
+        }
+        let placed = restore.mark
+        #if DEBUG
+        // The scroll state at the report and the rows the page moved since
+        // the mark (a gesture, or the reset's follow to the bottom).
+        let stateLetter: String
+        switch scroll.state {
+        case .following: stateLetter = "f"
+        case .reading: stateLetter = "r"
+        case .interacting: stateLetter = held ? "h" : "i"
+        }
+        let movedRows = markOffsetY.map { cell.height > 0 ? Int(((scrollView.contentOffset.y - $0) / cell.height).rounded()) : 0 }
+        TerminalHistoryWindowProbe.shared.lastPlace = "\(stateLetter)\(movedRows.map { $0 >= 0 ? "+\($0)" : "\($0)" } ?? "?")@\(anchor.row)/\(total)\(scrollView.isTracking ? "t" : (scrollView.isDecelerating ? "d" : ""))"
+        #endif
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public) (scroll \(String(describing: self.scroll.state), privacy: .public))")
+        if let underGesture = scroll.restoreReading(anchor) {
+            // A finger or its fling holds the page: placed once the document
+            // has the replay's rows (`applyFingerRestore`).
+            fingerRestore = underGesture
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("F")
+            #endif
+            return
+        }
+        guard scroll.state == .reading(anchor) else {
+            // The scroll model kept another state: the page stays on the old
+            // rows' offset in the new rows.
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("K")
+            #endif
+            return
+        }
+        restoredMark = (placed, anchor)
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("P")
+        #endif
+    }
+
+    /// A reader's rows found while a finger or its fling held the page
+    /// (`restoreReadingMark`).
+    private var fingerRestore: TerminalScrollModel.Anchor?
+    /// The page's offset when the reading mark was taken (DEBUG probe only:
+    /// after the reset the page follows the old document's bottom, so this
+    /// is not the finger's move).
+    private var readingMarkOffsetY: CGFloat?
+
+    /// After the document took the replay's rows: a reader restored under a
+    /// finger or a fling gets the page moved to their rows. A fling is
+    /// stopped there and the page rests on those rows: its settle reads the
+    /// reader's rows (`TerminalScrollModel.settled`), and a drag that begins
+    /// before the page has their frame starts on them.
+    private func applyFingerRestore() {
+        guard let restore = fingerRestore else { return }
+        fingerRestore = nil
+        guard let document, cell.height > 0, !model.isTUI else {
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)x\(document == nil ? "doc" : (model.isTUI ? "tui" : "cell"))"
+            #endif
+            return
+        }
+        let target = document.contentY(ofRow: restore.row, cellHeight: cell.height) + restore.delta
+        let y = min(max(-scrollView.contentInset.top, target), maxOffsetY)
+        let decelerating = scrollView.isDecelerating || fling != nil
+        #if DEBUG
+        let probeGesture = scrollView.isTracking ? "t" : (decelerating ? "d" : "")
+        defer {
+            let state: String
+            switch scroll.state {
+            case .following: state = "f"
+            case .reading: state = "r"
+            case .interacting: state = "i"
+            }
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)y\(document.row(atContentY: max(0, y), cellHeight: cell.height))max\(document.row(atContentY: max(0, maxOffsetY), cellHeight: cell.height))\(probeGesture)>\(state)\(scroll.awaitsPlacement ? "u" : "")@\(document.row(atContentY: max(0, scrollView.contentOffset.y), cellHeight: cell.height))"
+        }
+        #endif
+        if decelerating {
+            fling?.stop()
+            fling = nil
+            stopGlide()
+        }
+        settingOffset = true
+        if decelerating {
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
+        } else {
+            scrollView.contentOffset.y = y
+        }
+        settingOffset = false
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        if decelerating, !scrollView.isTracking { settleScroll() }
+    }
+
+    /// Where the reader is, for the tab's next host when the warm set cools
+    /// this one: nil while following the prompt (the next host follows too)
+    /// and in a full-screen app, which has no scrollback.
+    func scrollPlace() -> TerminalScrollPlace? {
+        if let pendingRestore { return pendingRestore.place }
+        if let readingMark { return TerminalScrollPlace(mark: readingMark) }
+        guard !model.isTUI, cell.height > 0, let anchor = readingAnchor() else { return nil }
+        let reader = rowReader
+        return TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
+            .map { TerminalScrollPlace(mark: $0) }
+    }
+
+    /// The tab's previous host kept the reader's place: the first replay puts
+    /// them back (asking for older rows when it holds too few).
+    func restoreScrollPlace(_ place: TerminalScrollPlace) {
+        pendingRestore = TerminalScrollRestore(place: place)
+    }
+
+    /// The person took the page (a drag, typing, Jump to bottom): a place
+    /// still waiting for its replay is dropped.
+    private func dropPendingRestore() {
+        guard pendingRestore != nil else { return }
+        pendingRestore = nil
+        olderRowsAsked = false
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("D")
+        #endif
+        sizingLog.notice("reading mark dropped: the person moved the page")
+    }
+
+    /// The rows at the top of the page while the reader is away from the
+    /// prompt, whatever the scroll state; nil while following (or within
+    /// `followSlackRows` of the bottom mid-gesture).
+    private func readingAnchor() -> TerminalScrollModel.Anchor? {
+        switch scroll.state {
+        case .following:
+            return nil
+        case .reading(let reading):
+            return reading
+        case .interacting:
+            guard let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height else { return nil }
+            return TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
+        }
     }
 
     /// The last mark restored and where it put the reader; reused when another
@@ -1415,32 +2114,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// fling lost the place, since only a settled reader was marked); a fling
     /// stops so the restore can land. Near the bottom, nothing: follow.
     private func markReadingPosition() {
-        guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        // A place still waiting for its replay (handed over, or older rows
+        // asked for) is the reader's: this replay places it.
+        guard !model.isTUI, readingMark == nil, pendingRestore == nil, cell.height > 0 else { return }
         // Mid Jump to bottom: the reader asked for the bottom, not the row
         // the glide was passing.
         if glide != nil {
             stopGlide(thenFollow: true)
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "glide"
+            #endif
             return
         }
-        let anchor: TerminalScrollModel.Anchor?
-        switch scroll.state {
-        case .following:
-            anchor = nil
-        case .reading(let reading):
-            anchor = reading
-        case .interacting:
-            if let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height {
-                anchor = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
-            } else {
-                anchor = nil
-            }
-        }
-        guard let anchor else {
+        guard let anchor = readingAnchor() else {
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "anchor"
+            #endif
             return
         }
+        #if DEBUG
+        // The anchor, the rows Ghostty holds, its viewport's top and its grid's rows.
+        probeMarkMiss = "text\(anchor.row)/\(scrollbar.total)v\(scrollbar.offset)g\(surface.grid.rows)"
+        #endif
         if scrollView.isDecelerating || fling != nil {
+            flingsStoppedByReset += 1
             fling?.stop()
             fling = nil
             stopGlide()
@@ -1457,8 +2156,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
+        readingMarkOffsetY = readingMark == nil ? nil : scrollView.contentOffset.y
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
     }
+
+    #if DEBUG
+    /// Why the last reset marked nothing (`TerminalHistoryWindowProbe.lastReset`).
+    private var probeMarkMiss = "-"
+
+    /// The scroll state for the probe: `f`, `r` or `i`, `u` while a restore
+    /// has not reached its rows, `t` a finger or `d` a deceleration.
+    private func probeResetContext() -> String {
+        var context: String
+        switch scroll.state {
+        case .following: context = "f"
+        case .reading: context = "r"
+        case .interacting: context = "i"
+        }
+        if scroll.awaitsPlacement { context += "u" }
+        if scrollView.isTracking || scrollView.isDragging {
+            context += "t"
+        } else if scrollView.isDecelerating {
+            context += "d"
+        }
+        return context
+    }
+    #endif
 
     /// The replay gate's own deadline (V3-2): the document is never left
     /// ungrown past it, held frame or not.
@@ -1469,24 +2192,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.model.mirrorPlaced()
             self.outputSinceProbe = true
             self.updateDocument()
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
             }
             self.applyScroll()
-            if let held = self.freezeView, self.readingMark == nil { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
+            if let held = self.freezeView, !self.restorePending { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
         }
     }
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
-        // A full-screen app taller than the phone: keep its cursor row on screen
-        // (the Mac's rows as of the bytes fed, `feedHostRows`).
-        if model.isTUI, tuiRowShift > 0 || (feedHostRows ?? 0) > tuiRows {
+        // A full-screen app taller than the phone (the Mac's rows as of the
+        // bytes fed, `feedHostRows`), or partly under the keyboard: keep its
+        // cursor row on screen.
+        let areaRows = tuiGridHold.rows(page: tuiRows)
+        if model.isTUI, tuiRowShift > 0 || (feedHostRows ?? 0) > areaRows
+            || tuiKeyboardLift > 0 || tuiClip.bounds.height < CGFloat(areaRows) * cell.height - 0.5 {
             applyTUIPlacement()
         }
+        firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -1503,6 +2232,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            // The Mac's grid is parsed: the area takes the page's rows now,
+            // behind the held frame, which the next present lets go (or the
+            // replay's rows, while the page's own answer is still coming).
+            gridReplayed()
             model.mirrorPlaced()
             if let started = replayStartedAt {
                 sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
@@ -1510,7 +2243,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
             outputSinceProbe = true
             // Ghostty's next scrollbar report has the replay's row count.
-            if readingMark != nil { readingMarkAwaitsReport = true }
+            if restoreDue { readingMarkAwaitsReport = true }
             updateDocument()
             // The mirror was reset and replayed: an open find searches the new rows.
             finder.rowsReplaced()
@@ -1519,7 +2252,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The replay is parsed and draws something: drop the held frame on
             // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
-            if freezeBatches >= 2, heldFrameMayGo() { unfreeze() }
+            // A full-screen app's area swaps with the still on a present
+            // (surfacePresented), once Ghostty has drawn the new grid.
+            if freezeBatches >= 2, !(areaSwapPending && model.isTUI), heldFrameMayGo() { unfreeze() }
         }
         if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
         outputSinceProbe = true
@@ -1534,7 +2269,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
         updateDocument()
-        if output.isEmpty { stopOutputLink() }
+        continueAfterBatch()
     }
 
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
@@ -1542,7 +2277,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             measured("scrollbar") { scrollbarReported(total: total, offset: offset, visible: visible) }
         case .cellSize:
-            view.setNeedsLayout()
+            // Ghostty reports its cell size on every font grid it builds: the
+            // zoom's `set_font_size` and again for the theme update queued
+            // after it (`applyFontSize`), at the same size. Only a new size
+            // lays out, and at once: the surface's frame takes the new rows in
+            // the same turn as Ghostty's new cells, not on a later pass after
+            // a frame drawn at the old frame. The first size (the surface is
+            // created, maybe inside a layout) waits for the next pass.
+            if surface.cellSize != cell {
+                view.setNeedsLayout()
+                if cell.height > 0 { view.layoutIfNeeded() }
+            }
             if model.isTUI { finder.rowsReplaced() }
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1566,6 +2311,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
         updateDocument()
+        if restoring { applyFingerRestore() }
         if restoring { applyScroll() }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm scrollbar %@", debugState) }
@@ -1582,21 +2328,60 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Held frame (R2-3)
 
     /// `ESC c`: the session resets the mirror before a replay (a resize, a reattach).
-    static let mirrorReset = Data("\u{1B}c".utf8)
+    static let mirrorReset = TerminalReclaimHold.reset
 
     /// Holds what is on screen until the replay after a reset is drawn. Only
     /// once the page has drawn something (the first attach has nothing to hold).
-    private func freezeLastFrame() {
+    /// `pageWide`: the app is leaving the alternate screen (its replay or the
+    /// event at hand turns it off): the area is about to be hidden, so the
+    /// still is of the whole page.
+    private func freezeLastFrame(pageWide: Bool = false) {
         // Never while the page is being scrolled: the still would stand over
         // the moving rows and show an older position until the replay was in
         // (user report 2026-10-14, frames alternating near the bottom).
         guard freezeView == nil, view.window != nil, document != nil || model.isTUI,
-              !scrollView.isTracking, !scrollView.isDecelerating,
-              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
-        snapshot.frame = view.bounds
+              !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        // A full-screen app's frame is its area alone: the rest of the page
+        // (the composer's glass, the key row) stays live above the backing,
+        // and a still of the whole page cost 10-15 ms on the frame the
+        // keyboard stopped (the held replay's reset, step f97802b9).
+        let areaStill = model.isTUI && !pageWide && !output.leavesAlternateScreen
+        let source: UIView = areaStill ? tuiHost : view
+        // The grid's host, whose height is the grid's (not the clip's, which
+        // animates with the keyboard: a still of it mid-animation is drawn at
+        // the clip's end size, its grid a few points off the moving composer),
+        // widened by the side padding a panned or wider surface reaches into.
+        let wide = CGRect(x: -Self.sidePadding, y: 0, width: tuiHost.bounds.width + 2 * Self.sidePadding, height: tuiHost.bounds.height)
+        guard let snapshot = measured("hold-frame-snapshot", {
+            areaStill ? tuiHost.resizableSnapshotView(from: wide, afterScreenUpdates: false, withCapInsets: .zero)
+                : view.snapshotView(afterScreenUpdates: false)
+        }) else { return }
         snapshot.isUserInteractionEnabled = false
-        view.insertSubview(snapshot, belowSubview: bottomBacking)
+        if source === view {
+            snapshot.frame = view.bounds
+            view.insertSubview(snapshot, belowSubview: bottomBacking)
+        } else {
+            // In the grid's own host, where it was taken, top-pinned with it:
+            // the host stands at the toolbar's edge while the composer moves.
+            snapshot.frame = wide
+            snapshot.autoresizingMask = [.flexibleBottomMargin]
+            tuiHost.addSubview(snapshot)
+        }
+        // On screen before Ghostty can present the replay: its renderer
+        // presents on its own thread, and a present that beat this pass's
+        // commit showed the new grid in the old area for a frame (htop's
+        // first show, a source frame of 5 ms).
+        CATransaction.flush()
         freezeView = snapshot
+        #if DEBUG
+        freezeCount &+= 1
+        // The rows the area shows as the still is taken (the Mac's new grid
+        // may be applied already: its change comes before the reset).
+        freezeRows = cell.height > 0 ? Int((tuiHeight.constant / cell.height).rounded()) : 0
+        #endif
+        #if DEBUG
+        heldCommitted = true
+        #endif
         freezeBatches = 0
         placedSinceHold = false
         // A TUI's replay at a new size can be an empty alternate screen until
@@ -1612,9 +2397,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.outputSinceProbe = true
                 self.updateDocument()
             }
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
                 self.applyScroll()
             }
             self.releaseHeldFrameAtCap(held, recover: true)
@@ -1665,6 +2451,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func unfreeze() {
+        #if DEBUG
+        heldCommitted = false
+        #endif
+        // The new grid is presented: the area takes its rows in this pass,
+        // with the still's removal (one commit).
+        if areaSwapPending { swapArea() }
         freezeView?.removeFromSuperview()
         freezeView = nil
         freezeBatches = 0
@@ -1685,6 +2477,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the foreground: UIKit posted no hide for a keyboard that
+        // went while the app was away, so the dock may still hold its inset.
+        keyboardTracker.dropKeyboardWithoutOwner()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -1737,7 +2532,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         let measured = surface.cellSize
-        if measured.height > 0 { cell = measured }
+        if measured.height > 0, measured != cell {
+            let previous = cell
+            cell = measured
+            if previous.height > 0 { cellSizeChanged(from: previous) }
+        }
         let cellHeight = cell.height > 0 ? cell.height : 16
         // The screen plus a margin above and below the visible rows
         // (TerminalMirrorRows). The rows depend on the screen, not on this
@@ -1763,16 +2562,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
 
-        // TUI rows: toolbar bottom to the composer's top where it settled
-        // (keyboard down, or up once the keyboard finished showing: R1-1).
-        let newTUIRows = tuiSizing.rows(restingStackTop: restingStackTop, chromeTop: chromeTop, cellHeight: cellHeight)
+        // TUI rows: toolbar bottom to the composer's resting top (keyboard
+        // down). Showing or closing the keyboard insets the grid instead of
+        // resizing the Mac's PTY (`TerminalGridSizing`).
+        let newTUIRows = TerminalGridSizing(cellHeight: cellHeight).rows(restingStackTop: restingStackTop, chromeTop: chromeTop)
         // The phone claims its own grid; only the rendering follows the Mac's.
         let columns = layout.phoneColumns
+        // Only a rows-only change (a chrome change: Hide Toolbar, a tab's
+        // insets; never the soft keyboard) is held: a new width (a rotation)
+        // shows the page's grid, letterboxed or shifted to the cursor as it
+        // is, until the Mac redraws.
+        if newTUIRows != tuiRows, model.isTUI, tuiRows > 0, columns == gridColumns {
+            tuiGridHold.rowsChanged(from: tuiRows, to: newTUIRows, shownRows: appliedHostRows ?? model.session.remoteRows)
+            armGridHoldExpiry()
+        }
         if newTUIRows != tuiRows || columns != gridColumns {
             tuiRows = newTUIRows
             gridColumns = columns
-            tuiHeight.constant = CGFloat(tuiRows) * cellHeight
         }
+        // The area keeps the grid on screen until the Mac's new one is in.
+        applyTUIAreaHeight(cellHeight: cellHeight)
         if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
         applyContentWidth()
         applyTUIPlacement()
@@ -1806,10 +2615,41 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     settingOffset = true
                     scrollView.contentOffset.y = maxOffsetY
                     settingOffset = false
+                } else if !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating, glide == nil, cell.height > 0,
+                          let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
+                                                     bottomOffsetY: maxOffsetY) {
+                    // Following: the offset moves here, in this pass, so it
+                    // rides the keyboard's animation. Left to applyScroll, a
+                    // stream's newest rows not yet presented made it wait for
+                    // a frame (jumpAwaitsFrame) and then move in one step,
+                    // outside the animation: the rows jumped up to their end
+                    // with the keyboard still rising and the composer caught
+                    // up with them (up to 400 pt of background between).
+                    // The rows a frame behind are the newest, at the bottom;
+                    // the next present brings them.
+                    settingOffset = true
+                    scrollView.contentOffset.y = target
+                    settingOffset = false
+                    // Ghostty draws the rows at the new offset too.
+                    updateViewport(visibleMinY: target)
                 }
             }
         }
         applyHostGridNote()
+    }
+
+    /// The font size changed (the key row's zoom keys, Settings): in this
+    /// layout pass, before the scroll target is read, the document takes the
+    /// new row height and a reader keeps the first row they see. Left to the
+    /// next scrollbar report, the page's bottom was the old row height's for
+    /// a frame or more (the last rows under the composer after a zoom in,
+    /// a gap above it after a zoom out), then jumped.
+    private func cellSizeChanged(from previous: CGSize) {
+        guard !model.isTUI, previous.height != cell.height else { return }
+        scroll.rowHeightChanged(from: previous.height, to: cell.height, topInset: scrollView.contentInset.top)
+        if let document { setContentHeight(document.contentHeight(cellHeight: cell.height)) }
+        // Ghostty rewraps at the new columns: the next update measures the rows again.
+        outputSinceProbe = true
     }
 
     private var maxOffsetY: CGFloat {
@@ -1920,6 +2760,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        dropPendingRestore()
         scroll.input()
         applyScroll()
     }
@@ -1989,12 +2830,34 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// against the previous frame's rows for the candidate shifts (none, the
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
+        if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
         #if DEBUG
-        TerminalBenchProbe.shared?.presented()
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
+        if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        #if DEBUG
+        if let probe = TerminalBenchProbe.shared {
+            probe.presented()
+            if probe.readScreen == nil {
+                probe.readScreen = { [weak self] in self?.surface.screenRows()?.rows }
+            }
+        }
         devProbe?.presented()
+        #endif
+        #if DEBUG
+        // What Ghostty just presented against what covers it: a grid of other
+        // rows than the area's with no committed still over it is a torn frame.
+        if model.isTUI, let fed = feedHostRows, fed != tuiGridHold.rows(page: tuiRows), !(freezeView != nil && heldCommitted) {
+            flickerTrace?.countTorn(fed: fed, area: tuiGridHold.rows(page: tuiRows))
+        }
         #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
+        // The pinned header shows the frame just presented, in this transaction.
+        if tuiHeaderRows > 0 { applyTUIHeader() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? surface.renderScale
         let rowPixels = Int((cell.height * scale).rounded())
@@ -2058,13 +2921,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The held frame may go (`TerminalHeldFrame.releasesOnPresent`).
     private func heldFrameMayGo() -> Bool {
         guard !holdAwaitsReset else { return false }
+        // A newer resize's answer is coming: this replay is not shown.
+        guard !newestAnswerAwaited else { return false }
         guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
         let visible = model.isTUI ? 0..<0 : visibleRowRange
-        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: readingMark != nil,
+        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: restorePending,
                                                    cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
                                                    visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
                                                    documentRows: (document?.originRow ?? 0)..<(document?.endRow ?? 0))
     }
+
 
     /// While following, a present reads only the rows on screen and 16 rows
     /// on each side (round 7: the full 151-row read cost p99 3.36 ms a
@@ -2282,7 +3148,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             stopGlide(thenFollow: true)
             copyMode.exit()
             selection.clear()
-            tuiSizing.tuiStarted()
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
             placesFromReport = false
@@ -2301,7 +3166,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The app's screen is gone: its selection and fling go with it.
             tuiSelection.clear()
             tuiScroll.stopMomentum()
-            tuiSizing.tuiEnded()
+            endGridHold(layout: false)
+            apply(replayHold.cancel(), pageWide: true)
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
@@ -2321,7 +3187,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         finder.rowsReplaced()
         // The note follows the screen it is over (letterbox or corner).
         applyHostGridNote()
-        // The TUI's rows follow the settled keyboard (R1-1); the shell's do not.
         view.setNeedsLayout()
     }
 
@@ -2379,9 +3244,42 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).
-        if scrollView.isTracking || scrollView.isDecelerating,
-           scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
-            model.session.loadOlderHistory()
+        // A finger on the page asks at once; a fling asks when it ends
+        // (`olderRowsWanted`), since the replay's reset would stop it.
+        if scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            if scrollView.isTracking {
+                model.session.loadOlderHistory()
+            } else if scrollView.isDecelerating || fling != nil {
+                olderRowsWanted = true
+            }
+        }
+        // The mirror holds a window far above the Mac's screen (a long
+        // history): a reader within a screen of where the window ends gets
+        // the newer rows, or the newest when they came up from the screen.
+        // Not while a reset's replay is fed or the reader's rows are still to
+        // be put back: the page's rows then are not the reader's, and a fling
+        // up to line 1 moved the window back down 40 times on its way
+        // (simulator run 8f9f55310f87a97be78b36cd).
+        let gapOffsetY = scrollView.contentOffset.y
+        defer { lastGapOffsetY = gapOffsetY }
+        if scrollView.isTracking || scrollView.isDecelerating, cell.height > 0,
+           !replayGate.isReplaying, !restorePending, let lastY = lastGapOffsetY, gapOffsetY != lastY,
+           let windowRows = model.session.historyWindowRows {
+            let gap = TerminalHistoryGap(shift: feedHostRows.map { surface.grid.rows - $0 } ?? 0, windowRows: windowRows)
+            let minY = max(0, gapOffsetY)
+            let top = originRow + Int(floor(minY / cell.height))
+            let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
+            if let need = gap.need(visibleTop: top, visibleBottom: bottom, movingDown: gapOffsetY > lastY) {
+                let asked = model.session.loadNewerHistory(toTheScreen: need == .newest)
+                #if DEBUG
+                if asked { TerminalHistoryWindowProbe.shared.note(need == .newest ? "N" : "R") }
+                if asked, need == .newest {
+                    let probe = TerminalHistoryWindowProbe.shared
+                    probe.lastNewest = "\(top)-\(bottom)/gap\(gap.row)/doc\(originRow)-\(document?.endRow ?? -1)/after:\(probe.lastPlace)/\(probeResetContext())"
+                }
+                #endif
+                _ = asked
+            }
         }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
@@ -2413,9 +3311,27 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A reader who already scrolled up keeps scrolling normally.
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
+        // The alternate screen's drag is the TUI scroll's (`installTUIScroll`).
+        if !model.isTUI { panFrames.begin(.scrollback, rows: documentRows) }
         // A finger owns the offset until it lifts (or the deceleration ends).
-        scroll.began()
+        // A restore still waiting for its frame (applyScroll) moves the page
+        // to the reader's rows first, so the drag starts there. Before, the
+        // drag started on the old offset, the Mac's screen after a history
+        // window's replay, and a fling up asked for the newest rows (#43189,
+        // step fdef196a3760133107947747: `place=f…@1656/4151`, then
+        // `newest=4096-4152/gap4111`).
+        if let unplaced = scroll.began(), let document, cell.height > 0, !model.isTUI {
+            let y = document.contentY(ofRow: unplaced.row, cellHeight: cell.height) + unplaced.delta
+            settingOffset = true
+            scrollView.contentOffset.y = min(max(-scrollView.contentInset.top, y), maxOffsetY)
+            settingOffset = false
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("U")
+            #endif
+        }
         restoredMark = nil
+        dropPendingRestore()
         placesFromReport = false
         // A finger owns the page: a move waiting for its frame is dropped
         // (the next one measures its own wait).
@@ -2424,11 +3340,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        // A finger caught the fling: it asks for older rows itself if it
+        // drags near the top.
+        olderRowsWanted = false
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         let pinned = dragPinsToComposer
         dragPin.ended()
+        if pinned || !decelerate { panFrames.finish(.scrollback) }
         if pinned {
             // The keyboard drag ended on the prompt.
             scroll.jumpToBottom()
@@ -2439,6 +3359,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        panFrames.finish(.scrollback)
         settleScroll()
     }
 
@@ -2462,7 +3383,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         scrollMeter = ScrollMeter()
         #endif
+        let olderWanted = olderRowsWanted
+        olderRowsWanted = false
         guard !model.isTUI, cell.height > 0 else { return }
+        if olderWanted, scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            model.session.loadOlderHistory()
+        }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
         if measureAfterGesture {
             measureAfterGesture = false
@@ -2473,7 +3399,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
         #endif
         applyScroll()
+        #if DEBUG
+        noteTopRowForProbe()
+        #endif
     }
+
+    #if DEBUG
+    /// The first word of the page's first row with text, for
+    /// `TerminalHistoryWindowProbe` (the history demo's rows start with
+    /// their number, so a UI test reads which row the reader rests on).
+    private func noteTopRowForProbe() {
+        guard let document, cell.height > 0 else { return }
+        let first = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height).row
+        let reader = rowReader
+        for row in max(0, first)..<(max(0, first) + max(1, Int(scrollView.bounds.height / cell.height))) {
+            guard let text = reader.text(TerminalAbsoluteRow(row)) else { continue }
+            if let word = text.split(separator: " ", omittingEmptySubsequences: true).first {
+                TerminalHistoryWindowProbe.shared.topWord = String(word)
+                return
+            }
+        }
+    }
+    #endif
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
@@ -2508,6 +3455,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// nothing, since UIKit's deceleration kept the offset). The deceleration
     /// stops and a drag in progress is cancelled, so nothing else owns the page.
     func scrollToBottom(animated: Bool) {
+        dropPendingRestore()
         fling?.stop()
         fling = nil
         stopGlide()
@@ -2582,6 +3530,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
 
+    /// DEBUG demo: a fling over a full-screen app, as the wheel (T-SCROLL-12).
+    func tuiFling(velocity: CGFloat) {
+        tuiScroll.demoFling(velocityY: velocity)
+    }
+
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {
@@ -2595,6 +3548,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         fling = animator
         animator.start()
+    }
+
+    /// DEBUG demo: a fling up from here that runs out half a screen below the
+    /// top of the rows held, slowing through the last screen the way a
+    /// reader's fling into the top does (`historyfling`). The demo fling
+    /// keeps `velocity * 0.998^ms`, so it travels `velocity / 2.002` points.
+    func flingToNearTop() {
+        let distance = scrollView.contentOffset.y + scrollView.contentInset.top - scrollView.bounds.height / 2
+        guard distance > 0 else { return }
+        fling(velocity: -distance * 2.002)
     }
 
     // MARK: Keyboard
@@ -2618,8 +3581,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         terminalTapped()
     }
 
-    /// A tap on the shell's rows: a web link opens in a browser tab beside the terminal
-    /// (the Mac's Cmd-click); anywhere else the terminal takes the keyboard.
+    /// A tap on the shell's rows: a web link opens where it can be reached (a public page on
+    /// this iPhone, a dev server on the Mac); anywhere else the terminal takes the keyboard.
     @objc private func shellTapped(_ tap: UITapGestureRecognizer) {
         if !tapStoppedScroll, selection.selection == nil, tuiSelection.selection == nil, !model.isTUI,
            let url = shellLink(at: tap.location(in: scrollView)) {
@@ -2839,6 +3802,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return super.canPerformAction(action, withSender: sender)
     }
 
+    #if DEBUG
+    /// The terminal demo's tap (`-CmuxMobileTerminalDemoToggle tap`): the
+    /// handler a tap on the terminal runs.
+    func debugTapTerminal() { terminalTapped() }
+    #endif
+
     @objc private func terminalTapped() {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd tap t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
@@ -2948,7 +3917,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        selection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        selection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        selection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         selection.install(in: scrollView)
         if let press = selection.longPress {
             press.addTarget(self, action: #selector(selectionPressChanged(_:)))
@@ -2989,7 +3959,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        tuiSelection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        tuiSelection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        tuiSelection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         tuiSelection.install(in: tuiHost)
     }
 
@@ -3005,7 +3976,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return touch.map { tuiSelection.ownsTouch($0) } ?? false
         }
         // The rows move under a selection: it would point at other text.
-        tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        tuiScroll.dragBegan = { [weak self] in
+            guard let self else { return }
+            tuiSelection.clear()
+            panFrames.begin(.tui, rows: documentRows)
+        }
+        tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
+        #if DEBUG
+        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
+        #endif
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
@@ -3048,6 +4027,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
         dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
+        measured("keyboard-will") { keyboardWillMove(note) }
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
@@ -3056,6 +4036,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
+        measured("keyboard-will") { keyboardWillMove(note) }
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
@@ -3066,12 +4047,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // settling the stack now would lay it out against the hide.
         guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
+        keyboardStopped()
         keyboardDidChange()
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardStopped()
+        keyboardDidChange()
+    }
+
+    /// The tracker forgot a keyboard nothing owns (UIKit never posted its
+    /// hide): the dock's guide is already back at rest; the key row's
+    /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
+    private func keyboardDropped() {
+        dock.keyboardWillHide()
+        dock.keyboardDidHide()
+        if model.keyboardVisible { model.keyboardVisible = false }
+        // As keyboardDidHide: output held while the keyboard moved goes out.
+        keyboardStopped()
         keyboardDidChange()
     }
 
@@ -3098,32 +4093,60 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return visible == onScreen
     }
 
-    /// Records how far the keyboard lifts the composer stack now. Only a page
-    /// in a window has a settled layout: `dockChanged()` from viewDidLoad runs
-    /// before the page has a window or its final insets, and its gap read as
-    /// a keyboard lift. A page back in a window, or after a rotation, settles
-    /// again: the keyboard may have come or gone while it was away (a hide
-    /// after a tab switch posts did-hide to a page with no window), and a
-    /// rotation with a hardware keyboard posts no keyboard notification.
-    private func settleKeyboardLift() {
-        guard view.window != nil else { return }
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+    /// The keyboard starts to move (will-show, will-hide). Its movement is
+    /// tracked for the replay hold (`TerminalKeyboardReplayHold`): a redraw
+    /// the Mac sends at fewer rows for another cause (a chrome change) while
+    /// the keyboard moves waits for it to stop. Nothing is claimed: the soft
+    /// keyboard never resizes the Mac's PTY (`TerminalGridSizing`).
+    private func keyboardWillMove(_ note: Notification) {
+        let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
+        keyboardMovement &+= 1
+        if duration > 0 {
+            replayHold.keyboardStarted()
+            keyboardMoveEnds = CACurrentMediaTime() + duration
+            let movement = keyboardMovement
+            // A did-show or did-hide that never comes (a reversed transition)
+            // ends the movement after its own duration.
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in
+                guard let self, self.keyboardMovement == movement else { return }
+                self.keyboardStopped()
+            }
+        } else {
+            // No animation (a hardware keyboard, an input view reload): the
+            // keyboard is at its end already.
+            keyboardStopped()
+        }
+    }
+
+    /// The keyboard reached its end (or a reversal ended its movement): output
+    /// held back while it moved (`replayHold`) goes to the screen.
+    private func keyboardStopped() {
+        apply(replayHold.keyboardStopped())
+    }
+
+    /// A keyboard hold ended (`TerminalKeyboardReplayHold.Release`): a reset
+    /// behind the held grid gets its held frame now, before its replay is
+    /// fed, and the output queue goes on.
+    private func apply(_ release: TerminalKeyboardReplayHold.Release, pageWide: Bool = false) {
+        if release.takeHeldFrame { freezeLastFrame(pageWide: pageWide) }
+        guard release.resume else { return }
+        sizingLog.notice("keyboard hold ended: the Mac's redraw at \(self.tuiRows, privacy: .public) rows goes to the screen")
+        scheduleOutput()
     }
 
     @objc private func keyboardDidChange() {
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        // The keyboard settled: a TUI gets the rows above the composer now,
-        // one resize (R1-1).
-        settleKeyboardLift()
+        measured("keyboard-did") { keyboardSettledLayout() }
+    }
+
+    /// The keyboard settled. The grid keeps its rows: no PTY resize for the
+    /// soft keyboard showing or closing (`TerminalGridSizing`).
+    private func keyboardSettledLayout() {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
         // saved frame for the next cold launch follows (R2-5).
         model.saveFrameSoon()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
-        // A full-screen app gets other rows with the keyboard up or down (R1-1).
-        if model.isTUI { finder.rowsReplaced() }
     }
 
     /// Keyboard state for the toolbar icon and the input target; layout
@@ -3199,6 +4222,16 @@ final class RowShiftBox: @unchecked Sendable {
     }
 }
 
+/// The output pump's work since the screen was made (`outputCounts`).
+struct TerminalOutputPumpCounts: Equatable {
+    /// Display frames the output link ran on.
+    var frameTicks = 0
+    /// Calls into the pump (frames, burst wakes, arrivals).
+    var pumps = 0
+    /// Batches handed to Ghostty.
+    var batches = 0
+}
+
 /// A display link target that does not retain the controller. Once its
 /// owner is gone the link stops itself (round 11 A3: a controller freed
 /// while its follow fallback waited left that link firing forever).
@@ -3250,11 +4283,13 @@ public enum TerminalChrome: Sendable {
 /// rows differ. The phone's claim stays its own grid (`measuredGrid`).
 extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostLayout: TerminalHostGridLayout {
-        let remoteColumns = appliedHostColumns ?? model.session.remoteColumns
+        let remoteColumns = TerminalHostGridLayout.followedHostColumns(
+            remoteColumns: appliedHostColumns ?? model.session.remoteColumns,
+            gridIsPhonesOwn: hostGridIsPhonesOwn, alternateScreen: model.isTUI)
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
-                                      visibleRows: tuiRows)
+                                      visibleRows: tuiGridHold.rows(page: tuiRows))
     }
 
     /// The page's scrollable width: the mirror plus its side padding.
@@ -3309,7 +4344,17 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// The full-screen app's surface in its host: panned, shifted to keep
     /// the cursor row, and the letterbox note under a shorter grid.
     func applyTUIPlacement() {
-        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else { return }
+        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else {
+            if tuiKeyboardLift != 0 {
+                tuiKeyboardLift = 0
+                tuiClip.bounds.origin.y = 0
+            }
+            if tuiHeaderRows != 0 {
+                tuiHeaderRows = 0
+                applyTUIHeader()
+            }
+            return
+        }
         let layout = hostLayout
         tuiPanX = layout.clampPan(tuiPanX)
         tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
@@ -3317,8 +4362,56 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
         }
+        // Keyboard up: the grid's bottom rides the stack and its top is
+        // clipped; the app's first rows stay pinned at the top (the top
+        // exception) and the body moves down only as far as the cursor's row
+        // needs. Set in the layout pass, so inside the keyboard's own animation.
+        let placement = TerminalGridSizing(cellHeight: cell.height)
+            .keyboardPlacement(gridRows: tuiGridHold.rows(page: tuiRows), visibleHeight: tuiClip.bounds.height,
+                               cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+        if placement.lift != tuiKeyboardLift {
+            tuiKeyboardLift = placement.lift
+            tuiClip.bounds.origin.y = -placement.lift
+        }
+        tuiHeaderRows = placement.headerRows
+        applyTUIHeader()
         positionHostGridNote()
         if finder.isActive { finder.redraw() }
+    }
+
+    /// The pinned header (the top exception): `tuiHeaderRows` of the TUI
+    /// host's first rows over the top of the area, from the frame the surface
+    /// presented last (its layer's IOSurface, cropped by `contentsRect`). A
+    /// pointer swap per present, no extra draw. Hidden with no header rows.
+    func applyTUIHeader() {
+        let rows = tuiHeaderRows
+        guard rows > 0, !tuiClip.isHidden, cell.height > 0, surface.superview === tuiHost,
+              let frameLayer = surface.layer.sublayers?.first, let contents = frameLayer.contents,
+              frameLayer.bounds.width > 0, frameLayer.bounds.height > 0 else {
+            if !tuiHeader.isHidden { tuiHeader.isHidden = true }
+            tuiHeader.layer.contents = nil
+            return
+        }
+        let width = max(0, tuiClip.frame.width - 2 * Self.sidePadding)
+        let height = CGFloat(rows) * cell.height
+        let frame = CGRect(x: tuiClip.frame.minX + Self.sidePadding, y: tuiClip.frame.minY, width: width, height: height)
+        // The host's first rows, where they would sit unclipped: host point
+        // (x, y) is surface point (x, y) - surface.frame.origin, then the
+        // presented layer's own point.
+        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX, y: -surface.frame.minY - frameLayer.frame.minY,
+                            width: width, height: height)
+        let unit = CGRect(x: source.minX / frameLayer.bounds.width, y: source.minY / frameLayer.bounds.height,
+                          width: source.width / frameLayer.bounds.width, height: source.height / frameLayer.bounds.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if tuiHeader.frame != frame { tuiHeader.frame = frame }
+        tuiHeader.backgroundColor = surface.backgroundColor
+        tuiHeader.layer.contents = contents
+        tuiHeader.layer.contentsRect = unit
+        let hairline = 1 / (view.window?.screen.scale ?? surface.renderScale)
+        tuiHeaderRule.frame = CGRect(x: 0, y: height - hairline, width: width, height: hairline)
+        CATransaction.commit()
+        if tuiHeader.isHidden { tuiHeader.isHidden = false }
     }
 
     /// The Mac's grid is the phone's own, as sent or still on its way.
@@ -3399,10 +4492,12 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
                 // bottom, `tuiHeight` tall), not its frame: in the page's
                 // layout pass (`layoutTerminal`) the clip is laid out but the
                 // host inside it is not yet, so its frame still has the old
-                // rows (the keyboard settling changes them) and the note was
+                // rows (a page or chrome change sets them) and the note was
                 // hidden above the terminal area, never placed again.
                 gridBottom = surface.superview === tuiHost
-                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.maxY - tuiHeight.constant + gridHeight), to: view).y : nil
+                    // The clip's height, not its bounds' maxY: the keyboard
+                    // lift moves the bounds origin, and the host with it.
+                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.height - tuiHeight.constant + gridHeight), to: view).y : nil
             } else if let document, cell.height > 0, scrollbar.total > 0 {
                 // The Mac's screen is the mirror's last rows: its bottom is
                 // the scrollback's end, wherever the document was last measured.

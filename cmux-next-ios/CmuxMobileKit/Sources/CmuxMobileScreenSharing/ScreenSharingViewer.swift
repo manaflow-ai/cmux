@@ -174,10 +174,40 @@ public final class ScreenSharingViewer: Identifiable {
             switch session.state {
             case .pending?: phase = .waitingForApproval(sessionID: session.id, scope: scope)
             case .ended?: phase = .ended(reason: nil)
-            case .approved?, .live?, nil: phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+            case .approved?, .live?, nil:
+                phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+                scheduleTicketWait(session.id)
             }
         case let .failure(error):
             phase = .refused(ScreenSharingRefusal(error), requested: scope)
+        }
+    }
+
+    /// How long an approved session waits for its `session.ticket` push before asking the hub for it.
+    @ObservationIgnored var ticketWait: Duration = .seconds(8)
+
+    /// Approved, and the ticket never came: pushes have no backlog, so a ticket pushed while the
+    /// hub socket was down is gone and the screen said Connecting forever. Past the wait the
+    /// ticket is asked for directly (`/reattach` re-admits an approved session); if the hub has
+    /// none either, the screen says why, with Try Again.
+    private func scheduleTicketWait(_ id: String) {
+        reattachTask?.cancel()
+        let hub = hub, reattach = reattachSession, wait = ticketWait
+        reattachTask = Task { [weak self] in
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, case let .approved(current, scope) = self.phase, current == id else { return }
+            let answer: Result<SessionTicket, DeviceHubError>
+            do { answer = .success(try await reattach(hub, id)) } catch {
+                answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
+            }
+            guard !Task.isCancelled, case .approved(id, _) = self.phase else { return }
+            switch answer {
+            case let .success(ticket):
+                self.accept(ticket)
+            case let .failure(error):
+                self.end(id, reason: ScreenSharingEndReason.failed.rawValue)
+                self.phase = .refused(ScreenSharingRefusal(error), requested: scope)
+            }
         }
     }
 
@@ -217,7 +247,8 @@ public final class ScreenSharingViewer: Identifiable {
                 return
             }
             end(ticket.sessionId, reason: ScreenSharingEndReason.failed.rawValue)
-            phase = .refused(.other, requested: ticket.scope)
+            phase = .refused(.other(reason: ScreenSharingRefusal.reason(error as? DeviceHubError ?? .transport(error.localizedDescription))),
+                             requested: ticket.scope)
             return
         }
         lastScope = ticket.scope
@@ -232,6 +263,14 @@ public final class ScreenSharingViewer: Identifiable {
         let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
                                     signaling: { [weak self] in self?.takeSignaling() })
         session.reconnectLimit = 0
+        // A drop goes straight to the reattach (no failed card first, over the last frame).
+        session.onDropped = { [weak self, weak session] in
+            // Taken only while this viewer streams this screen's session: then it reattaches.
+            guard let self, let session, self.screen === session, let id = self.sessionID,
+                  case let .streaming(current, _) = self.phase, current == id else { return false }
+            self.streamDropped(id)
+            return true
+        }
         stopStream()
         screen = session
         watch(session, sessionID: ticket.sessionId)
@@ -250,7 +289,11 @@ public final class ScreenSharingViewer: Identifiable {
                 switch session.phase {
                 case .failed, .ended:
                     self.streamDropped(sessionID)
-                case .connecting, .connected:
+                case .connected:
+                    // A stream that came up: its next drop starts the backoff over (first try at once).
+                    self.reattachAttempts = 0
+                    self.watch(session, sessionID: sessionID)
+                case .connecting:
                     self.watch(session, sessionID: sessionID)
                 }
             }
@@ -265,26 +308,52 @@ public final class ScreenSharingViewer: Identifiable {
         scheduleReattach(id)
     }
 
-    /// The link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
-    public nonisolated static let reattachBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+    /// The first try goes at once (the drop is already known and the hub answers in one round
+    /// trip), then the link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
+    public nonisolated static let reattachBackoff: [Duration] = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8),
+                                                                 .seconds(16), .seconds(30)]
+
+    /// The app came back to the foreground (or the network came back): a reattach waiting out
+    /// a long backoff step tries again now, from the start of the backoff. A reattach call
+    /// already waiting on the hub is left to answer.
+    public func reattachNow() {
+        guard case let .reconnecting(id, _) = phase, !reattachInFlight else { return }
+        reattachAttempts = 0
+        scheduleReattach(id)
+    }
+
+    /// Reattach tries since the stream last came up: kept across tickets, so a stream that fails
+    /// again before it connects (or a ticket whose signaling can't start) backs off instead of
+    /// asking the hub again at once, over and over.
+    @ObservationIgnored private var reattachAttempts = 0
+    /// A reattach call is waiting on the hub's answer.
+    @ObservationIgnored private var reattachInFlight = false
+
+    /// The next backoff step, counting the try.
+    private func nextReattachDelay() -> Duration {
+        defer { reattachAttempts += 1 }
+        return Self.reattachBackoff[min(reattachAttempts, Self.reattachBackoff.count - 1)]
+    }
 
     private func scheduleReattach(_ id: String) {
         reattachTask?.cancel()
+        reattachInFlight = false
         let hub = hub
         let reattach = reattachSession
         reattachTask = Task { [weak self] in
-            var attempt = 0
             while !Task.isCancelled {
-                let delay = Self.reattachBackoff[min(attempt, Self.reattachBackoff.count - 1)]
+                guard let delay = self?.nextReattachDelay() else { return }
                 do { try await Task.sleep(for: delay) } catch { return }
                 guard let self, case .reconnecting(id, _) = self.phase else { return }
+                self.reattachInFlight = true
                 do {
                     let ticket = try await reattach(hub, id)
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else { return } // a newer schedule owns the flag now
+                    self.reattachInFlight = false
                     self.accept(ticket)
                     return
                 } catch {
-                    attempt += 1
+                    if !Task.isCancelled { self.reattachInFlight = false }
                 }
             }
         }
@@ -382,7 +451,9 @@ public enum ScreenSharingRefusal: Equatable, Sendable {
     /// The Mac does not share its screen.
     case notShared
     case notFound
-    case other
+    /// Anything else (a transport failure, a server error, a code this build does not know),
+    /// with the hub's own words when it gave any: the card says them.
+    case other(reason: String?)
 
     init(_ error: DeviceHubError) {
         switch error.code {
@@ -391,8 +462,25 @@ public enum ScreenSharingRefusal: Equatable, Sendable {
         case .hostOffline?: self = .hostOffline
         case .notShared?: self = .notShared
         case .notFound?, .deviceRemoved?: self = .notFound
-        default: self = .other
+        default: self = .other(reason: Self.reason(error))
         }
+    }
+
+    /// Whether this is a refusal without a card of its own (``other(reason:)``).
+    var isOther: Bool { if case .other = self { true } else { false } }
+
+    /// The hub's words for a refusal this build has no card of its own for: the server's
+    /// message (else its code), the HTTP status, or the transport's own error; nil when
+    /// there is nothing to say.
+    static func reason(_ error: DeviceHubError) -> String? {
+        let text: String = switch error {
+        case let .server(_, code, message): message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? code.rawValue : message
+        case let .http(status): "HTTP \(status)"
+        case let .transport(detail), let .decoding(detail), let .identity(detail): detail
+        case .notConfigured, .notSignedIn: ""
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

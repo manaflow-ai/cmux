@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where this Mac keeps the files a chat's composer could not attach as prompt blocks (the App's
@@ -16,13 +17,9 @@ public nonisolated struct ChatUploadFolders: Sendable, Equatable {
         self.root = root
     }
 
-    /// The folders in this user's Application Support; nil without one.
-    public static var standard: ChatUploadFolders? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first.map {
-            ChatUploadFolders(root: $0.appending(path: "cmux", directoryHint: .isDirectory)
-                .appending(path: "Chat Uploads", directoryHint: .isDirectory))
-        }
-    }
+    /// `~/Library/Application Support/cmux/Chat Uploads`, a DEV build's own folder in a DEV build
+    /// (``BuildStatePaths/chatUploads``).
+    public static var standard: ChatUploadFolders? { ChatUploadFolders(root: BuildStatePaths.current.chatUploads) }
 
     /// Chat `session`'s folder.
     public func chat(_ session: String) -> URL {

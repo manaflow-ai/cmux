@@ -1,5 +1,6 @@
 //! Row ops (plans/cmux-next/rows.md): unit tests and a property test that
-//! mixes them with moves and closes. `PROPTEST_CASES` sets the case count.
+//! mixes them with moves and closes. The seed is fixed and `PROPTEST_CASES`
+//! sets the case count (`tests::property_config`).
 
 use super::*;
 use proptest::prelude::*;
@@ -332,12 +333,8 @@ fn concrete(state: &LayoutState, step: &Step, next: &mut u64) -> Option<LayoutOp
     })
 }
 
-fn cases() -> u32 {
-    std::env::var("PROPTEST_CASES").ok().and_then(|value| value.parse().ok()).unwrap_or(256)
-}
-
 proptest! {
-    #![proptest_config(ProptestConfig { cases: cases(), ..ProptestConfig::default() })]
+    #![proptest_config(tests::property_config())]
 
     /// Row ops mixed with splits, moves and closes: no op result ever breaks
     /// I1-I3 or R1/R2/R4 (the reducer would reject it with

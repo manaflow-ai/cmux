@@ -76,7 +76,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     /// Reads the helper's current socket and credentials, including after a restart.
     public convenience init(configuration: @escaping @MainActor () -> Configuration?) {
         self.init(configuration: configuration, send: { configuration, method, args in
-            try await CuaSocketClient(configuration: configuration).send(method, args)
+            try await AgentActivitySocketSource.request(configuration, method, args)
         })
     }
 
@@ -96,6 +96,24 @@ public final class AgentActivitySocketSource: AgentActivitySource {
             subscription?.cancel()
             directoryWatch?.cancel()
         }
+    }
+
+    /// The host's socket server must be a process of this user: another user's never gets a token.
+    nonisolated static let isOwnUser: @Sendable (UnixSocketPeer) -> Bool = { $0.uid == geteuid() }
+
+    /// One request line to the activity host and its `result` (the host's reply on `ok`).
+    nonisolated static func request(_ configuration: Configuration, _ method: String, _ args: [String: Any]) async throws -> [String: Any] {
+        let line = AgentActivityWire.requestLine(method: method, name: nil, args: args, authToken: configuration.authToken,
+                                                 hostAuthToken: configuration.hostAuthToken)
+        let data = try await AgentActivityLineConnection.oneShot(path: configuration.socketPath, send: line, deadline: .seconds(5),
+                                                                 acceptsServer: isOwnUser)
+        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AgentActivitySourceError.malformed
+        }
+        guard reply["ok"] as? Bool == true else {
+            throw AgentActivitySourceError.refused(reply["error"] as? String ?? "error")
+        }
+        return reply["result"] as? [String: Any] ?? [:]
     }
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {
@@ -199,8 +217,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath,
-                                                     acceptsServer: CuaHelperIdentity.isHelperServer)
+        let connection = AgentActivityLineConnection(path: config.socketPath, acceptsServer: Self.isOwnUser)
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],

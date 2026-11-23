@@ -20,6 +20,10 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # Steps run with a per-step HOME; the account's user-level tools (bun and node for the Debug
 # build's web bundles) live under its real home (as perf-bench.sh).
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"

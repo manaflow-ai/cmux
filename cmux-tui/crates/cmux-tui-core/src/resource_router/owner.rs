@@ -152,6 +152,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
+        | ResourceOperation::GitFingerprint
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitPush
         | ResourceOperation::GitWorktreeCreate
@@ -392,6 +393,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerGithubRepos
+        | ResourceOperation::CloudOwnerGithubConnect
         | ResourceOperation::CloudOwnerTurnCheckpoint
         | ResourceOperation::CloudOwnerTurnRewind
         | ResourceOperation::CloudOwnerTurns
@@ -401,6 +404,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineIo
         | ResourceOperation::CloudMachineChatAccess
         | ResourceOperation::CloudMachineShareChat
+        | ResourceOperation::CloudMachineChiefStart
+        // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
+        | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList

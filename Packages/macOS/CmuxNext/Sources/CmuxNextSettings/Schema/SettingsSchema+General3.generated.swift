@@ -4,6 +4,46 @@
 public import CmuxNextDesign
 
 extension GeneralSettingsSchema {
+    static var workspaceList: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
+        return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.newWorkspacePlacementPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
+                kind: .choice([
+                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
+                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                ]),
+                default: .string(CmuxConfigSnapshot.newWorkspacePlacementDefault.rawValue),
+                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.groupByComputerPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.groupByComputerDefault),
+                keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.autoNameWorkspacesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
+                help: SettingsText.keyed("settings.workspaces.autoName.help", "An unnamed workspace shows its front tab's name. Your own name always wins."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.autoNameWorkspacesDefault),
+                keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var palette: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.palette", "Command Palette")
         return [
@@ -12,7 +52,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.tabs", "Tabs Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -42,7 +82,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.workspaces", "Workspaces Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -72,7 +112,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.commands", "Commands Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -102,7 +142,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.settings", "Settings Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -132,7 +172,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.scopes", "Scope List Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -162,7 +202,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.aliases", "Command Aliases"),
-                help: SettingsText.keyed("settings.palette.aliases.help", "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."),
+                help: SettingsText.keyed("settings.palette.aliases.help", "A word for a command, such as \"vs\": \"splitRight\"."),
                 kind: .stringMap,
                 default: PaletteRankingSetting.aliasesDefault,
                 keywords: ["palette", "alias", "shortcut", "command"]
@@ -182,7 +222,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.searchHistory", "Remember Palette Searches"),
-                help: SettingsText.keyed("settings.palette.searchHistory.help", "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."),
+                help: SettingsText.keyed("settings.palette.searchHistory.help", "Rows you pick and use often rank higher. Off records nothing."),
                 kind: .toggle,
                 default: .bool(PaletteRankingSetting.searchHistoryDefault),
                 keywords: ["palette", "search", "history", "memory", "recent", "frecency", "ranking"]

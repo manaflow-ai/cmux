@@ -17,7 +17,7 @@ struct WorkspaceTodoRow: View {
                 Image(systemName: Self.symbol(item.state))
                     .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(WorkspaceChecklistStrings.toggle)
             if isEditing {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
@@ -38,7 +38,7 @@ struct WorkspaceTodoRow: View {
                 Label { Text(verbatim: "\(item.attachments.count)") } icon: { Image(systemName: "photo") }
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(.secondary)
-                    .themedHelp(item.attachments.map(\.name).joined(separator: "\n"))
+                    .themedHelp(item.attachments.map(\.name).joined(separator: ", "))
             }
         }
         .padding(.vertical, 4)

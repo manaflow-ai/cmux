@@ -8,20 +8,17 @@ import CmuxNextSettings
 /// App Store actions (app-platform.md 3): automation never installs; installs and removals pass the consent card.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
-            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         let services = context.services
-        let preview: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
-        }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
+        // Hidden until it is ready (`showsAppStore`, Labs): off in the palette, menus, keys, CLI and MCP.
+        registry.addSettingOffReason(["appStore.show", "appStore.showInstalled"]) { [weak services] in services?.settings?.snapshot.showsAppStore == true ? nil : CmuxConfigSnapshot.appStoreHiddenReason }
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
-        registry.bind("appStore.show", unavailable: preview, invoke: { invocation in
+        registry.bind("appStore.show", invoke: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", unavailable: preview, invoke: { invocation in
+        registry.bind("appStore.showInstalled", invoke: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
         // Hide and unhide (V9): apps-set hidden with the invocation's origin (the supervisor decides); the app keeps running.
@@ -65,6 +62,8 @@ enum AppStoreHandlers {
             return AppCommandPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, each running `app.menu.run`.
+        services.apps.client.installMenuRows(in: registry)
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""

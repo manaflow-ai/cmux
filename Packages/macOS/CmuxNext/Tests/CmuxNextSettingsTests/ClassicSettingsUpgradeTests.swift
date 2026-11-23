@@ -78,7 +78,7 @@ import Testing
 
         // First launch of next: it adopts the classic file, then runs its launch migration.
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()
@@ -112,7 +112,7 @@ import Testing
         """.utf8).write(to: config.appending(path: "cmux.json"))
 
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()
@@ -147,7 +147,7 @@ import Testing
         try original.write(to: dotfiles.appending(path: "cmux.json"))
         try FileManager.default.createSymbolicLink(at: config.appending(path: "cmux.json"), withDestinationURL: dotfiles.appending(path: "cmux.json"))
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()

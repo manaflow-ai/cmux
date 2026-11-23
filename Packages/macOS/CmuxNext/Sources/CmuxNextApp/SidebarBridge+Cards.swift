@@ -88,6 +88,8 @@ enum SidebarCardFeed {
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
+        case .noticeAction(UpdaterService.starCardID, let action): services.updater.starCardAction(action)
+        case .dismissNotice(UpdaterService.starCardID): services.updater.starPromptFinished(starred: false)
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card) where !services.machineAsks.answer(card, action: nil): dismissNotice(card, updater: services.updater)
@@ -164,7 +166,7 @@ enum SidebarCardFeed {
 
     /// The shared notice card (Lawrence 2026-10-09), one message at a time:
     /// the update status (a check's progress and result, a found update),
-    /// then the active test feed, then the newest announcement, then today's
+    /// then the active test feed, then the newest announcement, then the one-time GitHub star ask, then today's
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
@@ -182,7 +184,12 @@ enum SidebarCardFeed {
             return SidebarNoticeCard(id: announcementPrefix + item.id, symbol: "megaphone", title: item.title, detail: item.detail,
                                      actions: actions, dismissLabel: UpdaterService.cardDismissLabel)
         }
-        guard let tip = updater.tip else { return nil }
+        if updater.starPrompt.isOffered {
+            return .starPrompt(id: UpdaterService.starCardID, title: StarPromptCenter.title, detail: StarPromptCenter.detail,
+                               open: SidebarNoticeCard.Action(id: UpdaterService.starOpenAction, title: StarPromptCenter.openTitle),
+                               dismissLabel: UpdaterService.cardDismissLabel, shownAction: UpdaterService.tipShownAction)
+        }
+        guard let tip = updater.shownTip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,

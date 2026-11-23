@@ -26,6 +26,7 @@ pub enum Value {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Body {
     pub row: u64,
+    /// Advances whenever a field changes; field files keep their own stable generation.
     pub generation: u64,
     pub spilled: bool,
     /// Lexicographic key order is the fixed order for inline and spilled bodies alike.
@@ -57,12 +58,44 @@ impl Body {
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
+
+    /// The offset, in the stored JSON [`Blobs::write_body`] writes, of the end of `text`'s
+    /// content: where its closing quote is. [`Body::len`] when the body has no `text`.
+    pub fn fixed(&self) -> u64 {
+        // `{`, then each field as `"key":value` with `,` between fields; text adds its quotes.
+        let mut at = 1u64;
+        for (index, (key, value)) in self.fields.iter().enumerate() {
+            if index != 0 {
+                at = at.saturating_add(1);
+            }
+            at = at.saturating_add(key.len() as u64 + 3);
+            if key == "text" {
+                return at.saturating_add(1).saturating_add(value_len(value));
+            }
+            at = at.saturating_add(value_len(value));
+        }
+        self.len()
+    }
 }
 
 pub struct Blobs {
     dir: PathBuf,
     open: PathBuf,
     stopped: bool,
+}
+
+/// The maximum bytes returned by one body range read: the log's one bound.
+pub use crate::log::MAX_BLOB_READ;
+
+/// A range of the open body's stored JSON at one content generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpenBlobRange {
+    pub start: u64,
+    pub end: u64,
+    pub total: u64,
+    pub generation: u64,
+    /// [`Body::fixed`] of the body read: where `text`'s closing quote is, or `total`.
+    pub fixed: u64,
 }
 
 impl Blobs {
@@ -110,6 +143,10 @@ impl Blobs {
         if !body.spilled && projected > MAX_ROW_TEXT as u64 {
             self.spill(body)?;
         }
+        let generation = body
+            .generation
+            .checked_add(1)
+            .ok_or(Error::InvalidInput("body generation overflow"))?;
         self.stopped = true;
         if body.spilled {
             if append && let Some(Value::File(field)) = body.fields.get_mut(key) {
@@ -124,13 +161,8 @@ impl Blobs {
                     .checked_add(bytes.len() as u64)
                     .ok_or(Error::InvalidInput("body length overflow"))?;
             } else {
-                let generation = body
-                    .generation
-                    .checked_add(1)
-                    .ok_or(Error::InvalidInput("body generation overflow"))?;
                 let path = self.open.join(field_name(body.row, key, generation));
                 OpenOptions::new().create_new(true).write(true).open(path)?.write_all(bytes)?;
-                body.generation = generation;
                 body.fields.insert(
                     key.into(),
                     Value::File(FieldFile { generation, len: bytes.len() as u64 }),
@@ -141,6 +173,7 @@ impl Blobs {
         } else {
             body.fields.insert(key.into(), Value::Inline(bytes.to_vec()));
         }
+        body.generation = generation;
         self.stopped = false;
         Ok(())
     }
@@ -212,6 +245,63 @@ impl Blobs {
         }
         out.write_all(b"}")?;
         Ok(())
+    }
+
+    /// Reads the same stored JSON that `write_body` streams, without assembling the body.
+    /// Only field files intersecting this range are opened, at their intersecting offsets.
+    /// The sole writer holds `body` unchanged for this call; generation names that snapshot.
+    pub fn read_open_range(
+        &self,
+        body: &Body,
+        offset: u64,
+        max: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<OpenBlobRange, Error> {
+        self.writable()?;
+        out.clear();
+        let total = body.len();
+        let start = offset.min(total);
+        let amount =
+            (crate::log::Log::bound(max, MAX_BLOB_READ) as u64).min(total.saturating_sub(start));
+        let end = start.saturating_add(amount);
+        out.reserve(amount as usize);
+        let mut range = BodyRangeReader { start, end, position: 0, out };
+        range.bytes(b"{")?;
+        for (index, (key, value)) in body.fields.iter().enumerate() {
+            if !valid_key(key) {
+                return Err(Error::Corrupt("invalid body field name"));
+            }
+            if index != 0 {
+                range.bytes(b",")?;
+            }
+            range.bytes(b"\"")?;
+            range.bytes(key.as_bytes())?;
+            range.bytes(b"\":")?;
+            if key == "text" {
+                range.bytes(b"\"")?;
+            }
+            match value {
+                Value::Inline(bytes) => range.bytes(bytes)?,
+                Value::File(field) => {
+                    if let Some((offset, amount)) = range.take(field.len)? {
+                        let path = self.open.join(field_name(body.row, key, field.generation));
+                        let file = File::open(path).map_err(named_file_error)?;
+                        let base = range.out.len();
+                        range.out.resize(base.saturating_add(amount), 0);
+                        let buffer =
+                            range.out.get_mut(base..).ok_or(Error::Corrupt("body range length"))?;
+                        if fsio::read_at(&file, buffer, offset)? != amount {
+                            return Err(Error::Corrupt("body field is short"));
+                        }
+                    }
+                }
+            }
+            if key == "text" {
+                range.bytes(b"\"")?;
+            }
+        }
+        range.bytes(b"}")?;
+        Ok(OpenBlobRange { start, end, total, generation: body.generation, fixed: body.fixed() })
     }
 
     /// The caller syncs raw first. A small final body stays inline even if it once spilled.
@@ -313,6 +403,35 @@ impl Blobs {
     }
 }
 
+/// Tracks JSON offsets while copying only the intersection with the requested range.
+struct BodyRangeReader<'a> {
+    start: u64,
+    end: u64,
+    position: u64,
+    out: &'a mut Vec<u8>,
+}
+
+impl BodyRangeReader<'_> {
+    fn take(&mut self, len: u64) -> Result<Option<(u64, usize)>, Error> {
+        let position = self.position;
+        self.position = position.checked_add(len).ok_or(Error::Corrupt("body length overflow"))?;
+        let lo = position.max(self.start);
+        let hi = self.position.min(self.end);
+        Ok((lo < hi).then(|| (lo.saturating_sub(position), hi.saturating_sub(lo) as usize)))
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        if let Some((offset, amount)) = self.take(bytes.len() as u64)? {
+            let start = usize::try_from(offset).map_err(|_| Error::Corrupt("body range offset"))?;
+            let selected = bytes
+                .get(start..start.saturating_add(amount))
+                .ok_or(Error::Corrupt("body range length"))?;
+            self.out.extend_from_slice(selected);
+        }
+        Ok(())
+    }
+}
+
 fn field_name(row: u64, key: &str, generation: u64) -> String {
     format!("{row}-{key}-{generation}")
 }
@@ -345,3 +464,7 @@ fn named_file_error(error: std::io::Error) -> Error {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "blob_range_tests.rs"]
+mod range_tests;

@@ -30,6 +30,9 @@ pub struct ProviderEngine {
     events: EventSink,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
+    /// The caller's cmux workspace key (`CMUX_WORKSPACE_ID`), where the app
+    /// opens the session's tabs (``placed_in``).
+    workspace: Option<String>,
     /// Tabs the session created (`tabs.open` and their popups) and did not
     /// keep (`tab.keep`): they close when the session ends.
     created: Arc<Mutex<BTreeSet<String>>>,
@@ -141,8 +144,17 @@ impl ProviderEngine {
             subscription,
             events,
             lease,
+            workspace: None,
             ended: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// The session runs in the caller's workspace `workspace` (its key): the
+    /// app opens the session's tabs there, never in the focused one.
+    #[must_use]
+    pub fn placed_in(mut self, workspace: Option<String>) -> ProviderEngine {
+        self.workspace = workspace;
+        self
     }
 
     /// `tabs.list`: one shape for every source (driver-protocol.md).
@@ -175,7 +187,13 @@ impl ProviderEngine {
                     if created.contains(&row.target_id) {
                         row.active = current.as_deref() == Some(row.target_id.as_str());
                     }
-                    row.to_json()
+                    let agent = all && provider_session && self.provider.agent_tab(&row.target_id);
+                    let mut json = row.to_json();
+                    // A tab an agent already drove (any session): touching it leaves its page.
+                    if agent {
+                        json.set("agentDriven", Value::Bool(true));
+                    }
+                    json
                 })
                 .collect(),
         )
@@ -208,13 +226,21 @@ impl ProviderEngine {
             "tabs.list" => return Ok(Reply::Value(self.tabs_list(params))),
             // The app owns tabs: it opens them in the session's engine. Only
             // the URL and background pass; profile, workspace and focus are
-            // never the agent's to pick (D12).
+            // never the agent's to pick (D12). The app places the tab beside
+            // the session's caller (its workspace and terminal, stated when
+            // the session opened), never in the focused workspace.
             "tabs.open" => {
                 let mut open = serde_json::Map::new();
                 for key in ["url", "background", "timeoutMs"] {
                     if let Some(value) = params.get(key) {
                         open.insert(key.into(), value.clone());
                     }
+                }
+                if let Some(workspace) = &self.workspace {
+                    open.insert("callerWorkspace".into(), Value::String(workspace.clone()));
+                }
+                if let Some(terminal) = &self.lease.terminal {
+                    open.insert("callerTerminal".into(), Value::String(terminal.clone()));
                 }
                 // An incognito tab needs a store that keeps nothing: a source
                 // without one (the app: decision D1, issue 13742) refuses the call, never
@@ -328,9 +354,16 @@ impl ProviderEngine {
         // source routed to this session, are neither inputs nor reads: they
         // never take, block or refresh a lease (the session that listens for
         // a tab's dialogs is often not the one that drives it; the source
-        // refuses an answer from a session the event did not go to).
-        let registration =
-            matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
+        // refuses an answer from a session the event did not go to). Nor is a
+        // host-world evaluate, the gate's own (it refuses one from a session):
+        // a screenshot's secret mask and the checks before a key. As an act a
+        // capture took a tab from the next agent (#39163 F1); as a read the
+        // check before a key was the fresh read a hand back asks for, so the
+        // key went through unobserved.
+        let host_world = method == "frame.evaluate"
+            && params.get("world").and_then(Value::as_str) == Some("host");
+        let registration = host_world
+            || matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
         if !reads && !registration {
             let act = LeaseOp::Act { target: target_id.to_owned() };
             self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;

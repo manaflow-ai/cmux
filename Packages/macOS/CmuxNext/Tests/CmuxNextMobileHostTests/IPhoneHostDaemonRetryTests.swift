@@ -55,7 +55,7 @@ import Testing
         let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
         host.identityRetryClock = clock
         host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
                                   stateDirectory: directory, accessToken: { _ in throw CancellationError() },
                                   daemonSocket: { try socket.ask() }, acpmux: { nil }, fileRoots: { [] },
                                   computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
@@ -162,7 +162,7 @@ import Testing
         host.setKeepAwake = { holds.append($0) }
         host.identityRetryClock = clock
         host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
                                   stateDirectory: directory, accessToken: { _ in throw CancellationError() },
                                   daemonSocket: { try await socket.ask() }, acpmux: { nil }, fileRoots: { [] },
                                   computerName: { "Mac" }, macIdentity: { _ in try reads.read() })

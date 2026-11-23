@@ -1,7 +1,10 @@
 import AppKit
 public import CmuxNextActions
 
-/// Every catalog action available in the current context.
+/// Every catalog action that can run in the current context. A bound row that cannot run here (no
+/// target for it, a chat that lacks the control, an action switched off) is not listed and no
+/// search finds it; a CLI or MCP run of the action still gets the reason (Leo 2026-11-17: "just...
+/// stop showijg the toggle on gui").
 ///
 /// Bound actions run through the registry. Actions whose descriptor takes
 /// text get inline text entry. `effectOverrides` lets the palette serve an
@@ -77,6 +80,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         /// The catalog as the pass started; each action's state is read when its turn comes.
         private let entries: [ActionEntry]
         private var next = 0
+        /// Catalog actions whose state this pass read so far.
+        var readCount: Int { next }
         private var items: [PaletteItem] = []
         private var tiers: [PaletteTier] = []
         private var listed: [RegistryPaletteRows.Listed] = []
@@ -117,6 +122,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let overridden = provider.effectOverrides[actionID] != nil
             guard entry.isBound || overridden || provider.includeUnbound else { return }
             let face = provider.face(of: entry, overridden: overridden, unbound: unbound)
+            guard face.isEnabled || !entry.isBound else { return }
             if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
             listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
             tiers.append(descriptor.paletteTier)
@@ -144,11 +150,11 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
     }
 
-    /// What `entry`'s row shows now: its title, why it cannot run, its shortcut.
+    /// What `entry`'s row shows now: its title, whether it runs, its shortcut.
     private func face(of entry: ActionEntry, overridden: Bool, unbound: String) -> RegistryPaletteRows.Face {
         let descriptor = entry.descriptor
         let action = registry.action(for: descriptor.id)
-        // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
+        // A row whose run would refuse for the focused object (a chat control that chat lacks) cannot run here.
         let collectsTarget = descriptor.paletteTarget != nil
         let paletteReason = overridden || collectsTarget ? nil : action?.paletteUnavailableReason?()
         let runs = overridden || (registry.canPerform(descriptor.id, in: paletteContext(for: descriptor)) && paletteReason == nil)
@@ -163,9 +169,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
                                                             symbol: descriptor.symbol, isOn: isOn)
         return RegistryPaletteRows.Face(
             title: shown.title,
-            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
-            // its title alone does not (``ActionDescriptor/hint``).
-            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            // What the row does when its title alone does not say (``ActionDescriptor/hint``).
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : nil),
             accessory: entry.isBound || overridden ? nil : unbound,
             symbol: shown.symbol,
             isOn: isOn,
@@ -240,7 +245,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
-        item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+        item.aliases = ActionDescriptor.paletteAliases[actionID] ?? []
+        item.keywords += item.aliases
         item.rankBias = Self.rankBias(for: descriptor.paletteTier)
         return item
     }

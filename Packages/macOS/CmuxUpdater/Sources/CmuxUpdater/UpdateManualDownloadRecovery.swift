@@ -20,7 +20,6 @@ public struct UpdateManualDownloadRecovery: Sendable {
     private let stableDownloadURLString: String
     private let nightlyDownloadURLString: String
     private let rcDownloadURLString: String
-    private let nightlyNextDownloadURLString: String
 
     /// The direct stable DMG URL: the `cmux-macos.dmg` asset of the release the stable feed
     /// (`releases/latest/download/appcast.xml`) points at.
@@ -46,14 +45,16 @@ public struct UpdateManualDownloadRecovery: Sendable {
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
         self.rcDownloadURLString = rcDownloadURLString
             ?? Self.rcDownloadURLString(for: hostArchitecture)
-        self.nightlyNextDownloadURLString = Self.nightlyNextDownloadURLString(for: hostArchitecture)
     }
 
-    /// The direct cmux-next nightly DMG URL for `architecture`. A cmux-next build recovers to
-    /// its own track, never to main's NIGHTLY DMG.
-    public static func nightlyNextDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
-        "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-\(architecture.rawValue).dmg"
-    }
+    /// The cmux-next nightly download: cmux.com's redirect to the DMG of the update feed's
+    /// newest item. A cmux-next build recovers to its own track, never to main's NIGHTLY DMG.
+    ///
+    /// Not the rolling `nightly-next` release asset: a later, best-effort job moves that name,
+    /// so it can trail the feed by a build, and installing the build before the one the feed
+    /// offers repeats the failed update. cmux-next ships for Apple silicon only, so the URL
+    /// is the same on every Mac.
+    public static let nightlyNextDownloadURLString = "https://cmux.com/api/download/next"
 
     /// The direct nightly DMG URL for `architecture`.
     public static func nightlyDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
@@ -109,7 +110,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
         case .rc:
             return URL(string: rcDownloadURLString)
         case .nightlyNext:
-            return URL(string: nightlyNextDownloadURLString)
+            return URL(string: Self.nightlyNextDownloadURLString)
         case .stable:
             return URL(string: stableDownloadURLString)
         }

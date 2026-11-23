@@ -26,7 +26,11 @@ pub mod host {
         Err(crate::platform::unsupported("the agent host"))
     }
 }
+#[cfg(unix)]
+pub mod custody;
 pub mod link;
+#[cfg(unix)]
+pub(crate) mod proc_table;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
@@ -69,6 +73,21 @@ pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
 pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
+/// What a host of this build does that a host of an older one does not, and that a running chat
+/// should not wait for: the daemon moves a chat whose host is below it onto the installed build
+/// at its next idle point (`hub/host_level.rs`), however soon the chat works again. A daemon
+/// update swaps the daemon only; each host it adopts keeps the binary it started from until its
+/// chat hibernates, which a chat at work never does. Raise it only for such a change: each raise
+/// restarts every live chat's agent once (`claude --resume`), whose next turn reads its context
+/// again uncached.
+///
+/// 1: Claude Code suggests a next prompt only after a person's own turn
+/// (`claude_stdio/prompt_suggestions.rs`); a host before it lets Claude Code suggest one after
+/// every turn, about $0.10 each (sr2 audit 2026-11-21: 1,100 an hour from such hosts).
+/// 2: a process no person started asks Claude Code for no suggestions at all
+/// (`hub/host_level.rs` `start_params`): level 1's per-turn pause is honoured only under a
+/// server-side flag of Claude Code's, off by default.
+pub const HOST_LEVEL: u32 = 2;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
@@ -108,6 +127,10 @@ pub enum ControllerFrame {
     Detach,
     /// Ask for the translator's state (Claude stream-json harnesses).
     Query { id: u64 },
+    /// The agent holder (`custody.rs`): on a connection of its own, instead of `Hello`. The
+    /// host answers with its spawn spec and dups of the harness's stdio, its output ring and
+    /// pidfd over `SCM_RIGHTS`, then closes the connection.
+    Custody { token: String },
 }
 
 /// Host to controller.
@@ -137,6 +160,10 @@ pub enum HostFrame {
     Entry {
         h: u64,
         e: Entry,
+        /// The output ring's offset after the stdout line this entry is the last of (the agent
+        /// holder, `custody.rs`): a replacement host reads the ring again from there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        o: Option<u64>,
     },
     DetachAck,
     TerminateAck,
@@ -226,6 +253,43 @@ pub struct SpawnSpec {
     /// (or a daemon that predates it).
     #[serde(default)]
     pub prompt_suggestions_managed: Option<bool>,
+    /// The agent holder (`custody.rs`): the host keeps an output ring and hands custody of the
+    /// harness's stdio to its daemon, or (`adopt`) takes over a harness whose host died. None:
+    /// neither (the holder off, or a daemon that predates it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<HolderSpec>,
+}
+
+/// `SpawnSpec::holder`: the host keeps an output ring and hands custody to its daemon.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HolderSpec {
+    /// A replacement host: the harness runs already, and its descriptors come inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopt: Option<Adopt>,
+}
+
+/// What a replacement host continues from (`custody::respawn`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Adopt {
+    pub harness_pid: u32,
+    /// The harness's start time (macOS: its identity with the pid; Linux has the pidfd).
+    #[serde(default)]
+    pub harness_start: Option<u64>,
+    pub incarnation: String,
+    pub owner_token: String,
+    #[serde(default)]
+    pub caller_token: Option<String>,
+    /// The last entry the daemon logged: the replacement numbers on after it.
+    pub last_h: u64,
+    pub max_out_id: i64,
+    /// The ring offset after the last stdout line the daemon logged.
+    pub replay_from: u64,
+    /// A pidfd comes as the fifth descriptor.
+    pub pidfd: bool,
+    /// The start nonce the harness was started with (its `HOST_MARK`): what it started is found
+    /// by it, whatever host holds it now.
+    #[serde(default)]
+    pub harness_mark: Option<String>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
@@ -244,7 +308,7 @@ pub struct OrphanExit {
     /// The MCP servers the harness's configs named just before it started, as the daemon read
     /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
     #[serde(default)]
-    pub servers: Vec<crate::hub::Sidecar>,
+    pub servers: Vec<crate::sidecar_census::Sidecar>,
     /// The harness's `PATH`, for the servers its sessions name by command.
     #[serde(default)]
     pub path: String,
@@ -285,7 +349,7 @@ fn suggestions_default() -> bool {
 impl SpawnSpec {
     /// The session's caller token in the harness env, which the host keeps in its record.
     pub fn caller_token(&self) -> Option<String> {
-        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        let key = crate::person_tokens::CALLER_TOKEN_ENV;
         self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
     }
 }
@@ -319,6 +383,38 @@ pub struct HostRecord {
     pub protocol_max: u16,
     pub host_build: String,
     pub socket: PathBuf,
+    /// The host runs Claude Code's translator (`SpawnSpec::translator`), which registers the
+    /// `cmux-repo-sync` PreToolUse callback for every tool, as a direct one does
+    /// (`hub/repo_sync.rs`). False for a host of an older build: its chat waits for the whole
+    /// checkout, as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_translator: bool,
+    /// [`HOST_LEVEL`] of the build that wrote it; 0 for a host of an older build, which never
+    /// says.
+    #[serde(default)]
+    pub host_level: u32,
+    /// Whether the host keeps an agent holder (`custody.rs`), so a daemon may ask it for custody.
+    /// Only a harness that speaks ACP itself gets one: a translated (Claude) or bridged (Codex)
+    /// harness says `Some(false)`, and its daemon does not ask. None: a host of an older build,
+    /// which may hold one; it is asked as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<bool>,
+}
+
+impl SpawnSpec {
+    /// Whether its host keeps an agent holder (`custody.rs`): asked for one, and a harness that
+    /// speaks ACP itself. A translator's (Claude) or the Codex bridge's state is the host's own,
+    /// and a replacement host could not take it over, so neither gets one.
+    pub fn keeps_holder(&self) -> bool {
+        self.holder.is_some() && self.translator.is_none() && !self.codex_bridge
+    }
+}
+
+impl HostRecord {
+    /// Whether a daemon should ask this host for custody of its harness (`custody.rs`).
+    pub fn may_hold(&self) -> bool {
+        self.holder != Some(false) && !self.claude_translator
+    }
 }
 
 /// A record file that this build cannot read, and what it could parse.
@@ -778,6 +874,7 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(path);
     written
 }
 /// Windows port: host records are owner-only files there (a later landing).
@@ -813,7 +910,12 @@ pub(crate) fn encode_frame_within<T: Serialize>(
 #[derive(Serialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub(crate) enum EntryFrame<'a> {
-    Entry { h: u64, e: &'a Entry },
+    Entry {
+        h: u64,
+        e: &'a Entry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        o: Option<u64>,
+    },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

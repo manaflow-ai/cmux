@@ -25,13 +25,11 @@ enum RowDraw {
         if case .receipt = spec.kind { return span(max(0, spec.metrics.receiptRight - 170), spec.width) }
         guard case let .part(p) = spec.kind else { return span(0, spec.width) }
         let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: a group's incoming bubbles sit right of the avatar column
-        // Media carry a save button 14 + 28 pt beside them.
-        var media = false
-        if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
-        let extra: CGFloat = media ? 46 : 0
+        // cmux: media no longer carry a drawn save button beside them (HomeMediaSaveHover shows a real one on hover,
+        // inside the picture), so their span is the bubble's like any other row's.
         // cmux: the span starts at the avatar column when the row draws an avatar.
-        let lower = min(x - 36 - (p.outgoing ? extra : 0), p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
-        return span(max(0, lower), min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra)))
+        let lower = min(x - 36, p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
+        return span(max(0, lower), min(spec.width, x + p.size.width + 20))
     }
 
     /// cmux: `lower...upper`, empty at `lower` when the row is narrower than where its content starts
@@ -62,12 +60,9 @@ enum RowDraw {
         guard case let .part(p) = spec.kind else { return false }
         if case .custom = p.part { return false }
         let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
-        var media = false
-        if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
-        let extra: CGFloat = media ? 46 : 0
-        let rightFits = x + p.size.width + 20 + (p.outgoing ? 0 : extra) <= spec.width
+        let rightFits = x + p.size.width + 20 <= spec.width
         if !p.outgoing, fixedSpanKeys { return rightFits }
-        return x - 36 - (p.outgoing ? extra : 0) >= 0 && rightFits
+        return x - 36 >= 0 && rightFits
     }
     /// Whether row `b` draws exactly the pixels of row `a`'s bitmap, counted from each one's span start
     /// (`drawSpan`), with nothing but transparent columns past the narrower span's end: a live resize keeps
@@ -434,12 +429,20 @@ enum PartRenderer {
         case "image", "video":
             ctx.saveGState()
             shape.addClip()
-            UIColor(white: 0.2, alpha: 1).setFill()
+            // cmux: until the picture arrives, the received bubble's own color (light and dark themes), not a fixed
+            // dark gray that read as an empty box on a light chat.
+            Fixture.incoming.setFill()
             ctx.fill(body)
             if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
                 let s = max(body.width / img.size.width, body.height / img.size.height)
                 let w = img.size.width * s, h = img.size.height * s
                 img.draw(in: CGRect(x: body.midX - w / 2, y: body.midY - h / 2, width: w, height: h))
+                // cmux: a 1 pt edge inside the picture (black 10 % light, white 10 % dark), so a picture whose edge is
+                // the chat's own color (a screenshot of a dark window on a dark chat) still reads as one shape.
+                ctx.addPath(shape.cgPath)
+                ctx.setLineWidth(2) // half of it is inside the clip
+                ctx.setStrokeColor((Fixture.lightAppearance ? UIColor(white: 0, alpha: 0.1) : UIColor(white: 1, alpha: 0.1)).cgColor)
+                ctx.strokePath()
             }
             ctx.restoreGState()
             if a.kind == "video" {
@@ -454,8 +457,8 @@ enum PartRenderer {
                 UIColor(white: 1, alpha: 0.85).setFill()
                 tri.fill()
             }
-            // An undelivered photo shows only the red badge (Messages); the button sat under it.
-            if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
+            // cmux: no save button drawn beside the picture: it did nothing when clicked and sat at a different x for
+            // every width (user 2026-11-16). Save As… is on hover (HomeMediaSaveHover) and in the menu.
         case "voiceMemo":
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
@@ -573,22 +576,6 @@ enum PartRenderer {
         TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // HomeFonts (cx-qpqs)
     }
 
-    /// The round save button beside a photo or video (measured: 28 pt, 14 pt
-    /// from the media, vertically centred).
-    static let saveButtonOffset: CGFloat = 14
-    static func drawSaveButton(_ ctx: CGContext, body: CGRect, outgoing: Bool) {
-        let d: CGFloat = 28
-        let x = outgoing ? body.minX - saveButtonOffset - d : body.maxX + saveButtonOffset
-        let r = CGRect(x: x, y: body.midY - d / 2, width: d, height: d)
-        Fixture.badge.setFill()
-        UIBezierPath(ovalIn: r).fill()
-        let cfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        if let g = UIImage(systemName: "square.and.arrow.down", withConfiguration: cfg)?.withTintColor(UIColor(white: 0.66, alpha: 1), renderingMode: .alwaysOriginal) {
-            let s = g.size
-            g.draw(in: CGRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2 - 0.5, width: s.width, height: s.height))
-        }
-    }
-
     /// cmux: thread preview: the quoted root (a copy of its bubble, `drawQuoteBubble`) at the left edge, then a 2.5 pt
     /// stub at x 33.75 and "N Replies" (2 or more replies).
     /// cmux: a group quote (`ThreadPreview.cmuxGroup`, 2026-10-29 Messages group reference) sits at the bubble column with
@@ -689,20 +676,38 @@ enum PartRenderer {
                               baseline: box.minY + first + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
             }
         } else {
+            // cmux (Lawrence 2026-11-20): the square shows a real picture (a link's image, a table's first shot) or is
+            // not drawn at all; an empty grey box read as broken. A one-line card centres its line (HomeQuotePreview).
             let thumb = CGRect(x: box.minX + 8, y: box.minY + 11.25, width: 26, height: 26)
-            ctx.saveGState()
-            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
-            ink.withAlphaComponent(0.25).setFill()
-            ctx.fill(thumb)
-            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
-                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-                let w = img.size.width * s, h = img.size.height * s
-                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            if HomeQuotePreview.hasPicture(pv.part) {
+                ctx.saveGState()
+                UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+                ink.withAlphaComponent(0.25).setFill()
+                ctx.fill(thumb)
+                if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                    let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                    let w = img.size.width * s, h = img.size.height * s
+                    img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+                } else if let picture = HomeQuotePreview.thumbnail(pv.part) {
+                    let pw = CGFloat(picture.width), ph = CGFloat(picture.height)
+                    let s = max(thumb.width / pw, thumb.height / ph)
+                    let w = pw * s, h = ph * s
+                    // Flipped context: draw the picture upright.
+                    ctx.translateBy(x: 0, y: thumb.midY * 2)
+                    ctx.scaleBy(x: 1, y: -1)
+                    ctx.interpolationQuality = .high
+                    ctx.draw(picture, in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+                }
+                ctx.restoreGState()
             }
-            ctx.restoreGState()
             let (title, sub) = pv.lines
-            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+            let x = box.minX + HomeQuotePreview.textInset(pv.part)
+            if sub.isEmpty {
+                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 28.5, in: ctx)
+            } else {
+                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 21, in: ctx)
+                TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: x, baseline: box.minY + 34, in: ctx)
+            }
         }
         ctx.endTransparencyLayer()
         ctx.restoreGState()
@@ -1038,7 +1043,8 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    private var held: [(Key, CGImage, Int, PaletteBox?)] = []
+    /// The finished bitmaps held while `testHold` is set, in the order they finished (a test may reorder them).
+    var held: [(Key, CGImage, Int, PaletteBox?)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held

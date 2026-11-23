@@ -6,12 +6,26 @@
 set -euo pipefail
 
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+# The resolver's interpreter, picked on this host (hook_python.sh beside this hook): the one the install recorded
+# when it runs, else the first of the picker's fixed candidates that does. None that resolves into this checkout (git
+# runs this hook at its top) or the clone's git dir (this hook's parent folder) is ever run.
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
-if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
-    || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
-    echo "pre-commit: trusted Python interpreter metadata is missing or invalid; rerun scripts/install-git-hooks.sh." >&2
+RECORDED_PYTHON=""
+if [[ -r "$PYTHON_PATH_FILE" ]]; then
+    IFS= read -r RECORDED_PYTHON < "$PYTHON_PATH_FILE" || true
+fi
+if [[ ! -f "$HOOK_DIR/hook_python.sh" ]]; then
+    echo "pre-commit: the hook's Python picker (hook_python.sh) is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
+source "$HOOK_DIR/hook_python.sh"
+if ! hook_python_pick 0 "$RECORDED_PYTHON" "$(pwd -P)" "${HOOK_DIR%/*}"; then
+    echo "pre-commit: no Python 3.9+ on this host runs the hook. Tried: $HOOK_PYTHON_TRIED. Next: install one" \
+        "(macOS: brew install python; Debian or Ubuntu: sudo apt-get install -y python3), then rerun" \
+        "scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
 REGISTRY_VALIDATOR="$HOOK_DIR/validate_test_execution_registry.py"
 PBX_NORMALIZER="$HOOK_DIR/normalize-pbxproj.py"
 BUN_VERSION_READER="$HOOK_DIR/webviews_bun_version.py"
@@ -36,7 +50,8 @@ fi
 # registry helper's git): their PATH is one private directory of links to
 # checked tools only (CHILD_TOOLS below), never a PATH directory, whose other
 # entries nobody checked.
-# The trusted interpreter the installer recorded is its only root of trust.
+# Its only root of trust is the interpreter hook_python_pick chose above (the
+# installed picker, which never runs one inside the checkout or the git dir).
 # tests/test_install_git_hooks.py parses this hook and fails on any command
 # that is neither a shell builtin nor a resolved tool.
 # Python free of single quotes: it is a single-quoted bash string.
@@ -390,10 +405,11 @@ MERGE_HEAD_PATH="$("$TOOL_GIT" rev-parse --git-path MERGE_HEAD)"
 IN_MERGE=0
 [[ -f "$MERGE_HEAD_PATH" ]] && IN_MERGE=1
 
-# Register new Python tests that a workflow already runs, so adding a test and
-# its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+# Register new Python tests that a workflow already runs, and move a test whose
+# step a commit removes off linux-guard, so adding or removing a test's
+# workflow step is all a commit needs. Best effort: CI still validates.
 # Only this commit's tests: the ones it adds, and the ones its workflow changes
-# name. Registering every unregistered test the base carries wrote the same
+# add or remove a line for. Registering every unregistered test the base carries wrote the same
 # entries into every pull request, which then conflicted (#21946). A merge
 # adds no test of its own: registering what the base added since the branch
 # point put the base's tests into pull requests (#30071, #30351).
@@ -416,7 +432,7 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     done < <(
         {
             "$TOOL_GIT" diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
-            "$TOOL_GIT" diff --cached -U0 -- .github/workflows | "$TOOL_GREP" -E '^\+' | "$TOOL_GREP" -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
+            "$TOOL_GIT" diff --cached -U0 -- .github/workflows | "$TOOL_GREP" -E '^[+-]' | "$TOOL_GREP" -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
         } | "$TOOL_SORT" -u
     )
     if (( ${#OWN_TESTS[@]} > 0 )); then
@@ -425,7 +441,7 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     fi
     if ! registry_unchanged; then
         "$TOOL_GIT" add -A -- "${REGISTRY[@]}"
-        echo "pre-commit: registered new tests in ${REGISTRY[*]}"
+        echo "pre-commit: updated the test registry (${REGISTRY[*]}) from the workflows"
     fi
 fi
 

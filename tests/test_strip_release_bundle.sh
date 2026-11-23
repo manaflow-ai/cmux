@@ -107,7 +107,7 @@ CMUX_STRIP_TOOL="$TMP_DIR/tools/strip" \
 expected="$TMP_DIR/expected.log"
 printf '%s\n' \
   "$APP/Contents/MacOS/cmux" \
-  "-S -x $APP/Contents/Resources/bin/cmux" \
+  "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "-S -x $APP/Contents/Resources/bin/cmux-app-host" \
   "-S -x $APP/Contents/Resources/bin/cmux-browser-host" \

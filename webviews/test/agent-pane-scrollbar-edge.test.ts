@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -35,8 +36,8 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             actions.configureQuickActions(tools ? undefined : { quickActions: [] });
             window.cmuxAcpmuxBridge?.applyHeaderState?.({ inspector: true, version: 2 });
           }, tools);
-          const toggle = page.locator("button.acpmux-session-info-toggle");
-          const panel = page.locator("aside.acpmux-session-info");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
+          const panel = page.locator(SESSION_INFO);
           await toggle.waitFor();
           if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
           await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();

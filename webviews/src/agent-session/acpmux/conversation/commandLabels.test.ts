@@ -98,7 +98,7 @@ const CASES: [command: string, label: string][] = [
   ["sed -n '380,460p' webviews/src/agent-session/acpmux/conversation/toolGroups.ts", "Read toolGroups.ts"],
   ["head -40 ~/Projects/leo-workspace/tools/agent-memory", "Read agent-memory"],
   ["tail -n 30 /tmp/crl-install.log", "Read crl-install.log"],
-  ["cat package.json tsconfig.json", "Read 2 files"],
+  ["cat package.json tsconfig.json", "Read 2 files (package.json, tsconfig.json)"],
   ["curl -s 'https://api.example.com/v1/items?page=2' | jq .", "Fetched api.example.com/v1/items"],
   ["bun test src/agent-session/acpmux/conversation/commandLabels.test.ts", "Ran tests in commandLabels.test.ts"],
   ["FOO=1 bun test", "Ran tests with bun"],
@@ -119,8 +119,8 @@ const CASES: [command: string, label: string][] = [
   ["lane-gh search manaflow-ai/cmux is:pr command label", "Searched GitHub for “is:pr command label”"],
   ["glaeda-gh wait pr manaflow-ai/cmux#123 --until done --timeout 30m", "Waited on manaflow-ai/cmux#123"],
   ["wt new cmux lane/command-row-labels --from origin/feat-cmux-next", "Created worktree lane/command-row-labels"],
-  // A compound command names its first step and no more, an ellipsis for the rest.
-  ["git add -A && git commit -m wip && git push", "Staged all changes …"],
+  // A compound command reads as its whole line, not its first step and " …" (2026-11-14 change).
+  ["git add -A && git commit -m wip && git push", "Ran git add -A && git commit -m wip && git push"],
   // Unknown programs never get a meaning: their line, without the plumbing after it.
   ["make -j8 2>&1 | tail -20", "Ran make -j8"],
   // A write to a file stays on the line: only /dev/null and fd copies are plumbing.

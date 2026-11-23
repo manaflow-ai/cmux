@@ -101,6 +101,9 @@ mod tests {
             protocol_max: agent_host::PROTOCOL_MAX,
             host_build: "test".into(),
             socket,
+            claude_translator: false,
+            host_level: 0,
+            holder: None,
         };
         let started = tokio::time::Instant::now();
         let result = super::adoption_hello_scope(agent_host::link::connect(record, 0)).await;

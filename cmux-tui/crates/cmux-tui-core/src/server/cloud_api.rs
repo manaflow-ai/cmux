@@ -63,6 +63,8 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerHandoffBeginTurn
             | Op::CloudOwnerHarnessLoginCopy
             | Op::CloudOwnerGithubApp
+            | Op::CloudOwnerGithubRepos
+            | Op::CloudOwnerGithubConnect
             | Op::CloudOwnerTurnCheckpoint
             | Op::CloudOwnerTurnRewind
             | Op::CloudOwnerTurns
@@ -72,6 +74,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudMachineIo
             | Op::CloudMachineChatAccess
             | Op::CloudMachineShareChat
+            | Op::CloudMachineChiefStart
     )
 }
 pub(super) fn handle(

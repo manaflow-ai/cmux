@@ -1,0 +1,37 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/link-hints",
+  "name": { "en": "Link Hints", "ja": "リンクヒント" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Label every link in the browser tab you're looking at, then type a label to follow it. Open the link right there or in a new split.",
+    "ja": "表示中のブラウザタブのすべてのリンクにラベルを付け、ラベルを入力して開きます。その場で開くことも、新しい分割で開くこともできます。"
+  },
+  "tagline": {
+    "en": "Follow any link in a browser tab without touching the mouse",
+    "ja": "マウスを使わずに、ブラウザタブのリンクを開きます"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "keyboard" },
+  "categories": ["productivity", "samples"],
+  "keywords": ["links", "hints", "keyboard", "browser", "vimium", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/link-hints-catalog.json",
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderHints",
+      "title": { "en": "Link Hints", "ja": "リンクヒント" },
+      "symbol": "keyboard",
+      "options": { "defaultRegion": "bottom", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "page:write": "Draw short labels on the links of the browser tab you're looking at, remove them, and open the link you pick."
+  },
+  "activation": ["onInterface:cmux.section/1", "onOp:link_hints.show", "onOp:link_hints.show_split", "onOp:link_hints.follow", "onOp:link_hints.clear"],
+  "files": ["dist/", "catalog/"]
+}

@@ -18,7 +18,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "cable.connector",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 201).folder("new")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::DESTINATION, args::SESSION_2.optional(), args::BINARY.optional(), args::STATE_DIR.optional()],
+        arguments: &[args::DESTINATION, args::SESSION_2.optional(), args::BINARY.optional(), args::STATE_DIR.optional(), args::NAME.optional()],
         cli_name: "remote connect",
         main_menu: Some("file"),
         ..Action::DEFAULT

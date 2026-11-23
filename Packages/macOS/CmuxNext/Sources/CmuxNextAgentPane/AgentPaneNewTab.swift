@@ -53,10 +53,13 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
-    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
-    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "classic" or "terminal"); the settings
+    /// snapshot already reads a retired value (composer, cards, default, threads, console) as
+    /// "minimal", and the web page maps one to Minimal too. nil follows `layout`. The page validates it.
     public var template: String?
+    /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
+    /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
+    public var app: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -115,6 +118,45 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
 }
 
 extension AgentPaneNewTab {
+    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    public func showingApp(_ app: String?) -> AgentPaneNewTab {
+        var page = self
+        page.app = app
+        return page
+    }
+
+    /// The page with Integrate a harness off when it was dismissed for good.
+    public func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the project of the chat the person last picked and started, if any.
+    public func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    public func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
+        return page
+    }
+
+    /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
+    /// whose view is made after its tab opened gets the lists of then. The folders stay
+    /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).
+    public func listing(_ lists: NewTabPlaces.Lists?) -> AgentPaneNewTab {
+        guard let lists else { return self }
+        var page = self
+        page.omnibar.tabs = lists.tabs
+        page.omnibar.workspaces = lists.workspaces
+        return page
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
@@ -196,13 +238,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var keywords: [String]
         /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
         public var keycaps: [String]?
+        /// The command palette's symbol name.
+        public var symbol: String?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [],
+                    keycaps: [String]? = nil, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
             self.keycaps = keycaps
+            self.symbol = symbol
         }
     }
 
@@ -238,6 +284,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
+    /// Saved browser bookmarks, newest or tree order as supplied by the host.
+    public var bookmarks: [Page]
     /// The Commands palette's pick history (its `FrecencyStore`) for the rows the bar lists, by the palette's usage
     /// key (`tab:ID`, `workspace:ID`, `action:ID`): each key's decayed use count. The bar orders matches of one kind
     /// by it, so what the person picks often and lately comes first here as in the palette (cmuxterm-hq lenses
@@ -252,7 +300,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var profiles: [Profile]?
 
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:],
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], bookmarks: [Page] = [], uses: [String: Double] = [:],
                 profiles: [Profile]? = nil) {
         let cap = Self.maximumEntries
         self.tabs = tabs
@@ -262,13 +310,14 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
+        self.bookmarks = bookmarks
         self.uses = uses.count > Self.maximumUses
             ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
             : uses
         self.profiles = profiles.map { Array($0.prefix(Self.maximumProfiles)) }
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses, profiles }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, bookmarks, uses, profiles }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -280,6 +329,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
             history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
+            bookmarks: try values.decodeIfPresent([Page].self, forKey: .bookmarks) ?? [],
             uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:],
             profiles: try values.decodeIfPresent([Profile].self, forKey: .profiles)
         )
@@ -298,12 +348,13 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "folders": folders,
             "projects": projects,
             "actions": actions.map { action in
-                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail), ("symbol", action.symbol)])
                     .merging(["keywords": action.keywords]) { left, _ in left }
                     .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
+            "bookmarks": bookmarks.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
             "uses": uses,
         ].merging(profiles.map { ["profiles": $0.map { optional([("id", $0.id), ("name", $0.name), ("color", $0.color)]) }] } ?? [:]) { left, _ in left }
     }

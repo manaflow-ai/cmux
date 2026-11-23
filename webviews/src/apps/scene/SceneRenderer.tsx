@@ -7,14 +7,32 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import {
+  SceneAppeared,
+  SceneLeavingContext,
+  SceneTextContent,
+  useSceneChildren,
+  useSceneEntering,
+} from "./sceneMotion";
+import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
+import {
+  sceneColor,
+  sceneGlass,
+  sceneNumber,
+  sceneStyle,
+  sceneText,
+  textStyle,
+  sceneGradient,
+  sceneRecord,
+  type SceneStyle,
+} from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -251,6 +269,23 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
+/** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
+ * so the app sends nothing while it counts. */
+function SceneDateText({ props, style }: { props: SceneNode["props"]; style: SceneDateStyle }) {
+  const now = useSceneNow(true);
+  const text = formatSceneDate(style, props.date as number, now, { timeZone: props.timeZone });
+  return <SceneTextContent text={text} transition={props.contentTransition} />;
+}
+
+const SHAPES = new Set(["Circle", "Capsule", "Rectangle", "RoundedRectangle"]);
+/** HStack `alignment`: SwiftUI's vertical alignments (center is the stylesheet's default). */
+const HSTACK_ALIGN: Record<string, string> = {
+  top: "flex-start",
+  bottom: "flex-end",
+  firstTextBaseline: "first baseline",
+  lastTextBaseline: "last baseline",
+};
+
 function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
   const props = node.props;
   switch (node.type) {
@@ -262,18 +297,26 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "ForEach":
     case "Reorderable":
       return children;
-    case "Text":
+    case "Text": {
+      const dateStyle = sceneDateStyle(props);
       return (
-        <span className="cmux-app-scene-text" style={textStyle(props)}>
-          {sceneText(props.text)}
+        <span className="cmux-app-scene-text" style={textStyle(props)} data-date-style={dateStyle}>
+          {dateStyle ? (
+            <SceneDateText props={props} style={dateStyle} />
+          ) : (
+            <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+          )}
         </span>
       );
+    }
     case "Icon":
       return (
         <SceneSymbol
           symbol={props.symbol}
           size={Math.max(6, sceneNumber(props.size) ?? 14)}
           color={sceneColor(props.color)}
+          rendering={props.symbolRendering}
+          palette={props.symbolColors}
         />
       );
     case "Row":
@@ -322,6 +365,7 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "Capsule":
     case "Rectangle":
     case "RoundedRectangle":
+    case "Line":
       return null;
     case "Image":
       return <SceneImage source={props.src} />;
@@ -343,28 +387,68 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
   }
 }
 
-const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeProps): ReactNode {
-  const node = useSceneNode(store, id);
+type NodeViewProps = NodeProps & { leaving?: boolean };
+const NO_CHILDREN: readonly string[] = [];
+
+const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving: own }: NodeViewProps): ReactNode {
+  const live = useSceneNode(store, id);
+  // A leaving node (and its subtree) draws from its last props, which the store keeps, until
+  // its transition ends.
+  const inLeaving = useContext(SceneLeavingContext);
+  const leaving = own === true || inLeaving;
+  const node = live ?? (leaving ? store.getDeparted(id) : undefined);
+  const entering = useSceneEntering(store, node);
   const inheritedDisabled = useContext(DisabledContext);
+  const shown = useSceneChildren(store, node?.children ?? NO_CHILDREN);
   if (!node) return null;
   const props = node.props;
-  const disabled = inheritedDisabled || props.disabled === true;
-  const children = node.children.map((child) => (
-    <SceneNodeView key={child} id={child} store={store} dispatch={dispatch} />
-  ));
+  const disabled = inheritedDisabled || props.disabled === true || leaving;
+  const childView = (child: (typeof shown)[number]) => (
+    <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
-  const style: CSSProperties = sceneStyle(props);
+  const style: SceneStyle = sceneStyle(props);
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
   if (node.type === "Panel") style.gap = sceneNumber(props.spacing) ?? "var(--cmux-app-scene-panel-spacing)";
   if (node.type === "VStack" || node.type === "LazyVStack" || node.type === "Reorderable") {
     style.alignItems =
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
-  if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
-    style.width = style.height = Math.max(0, sceneNumber(props.size) ?? 16);
-    style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
+  if (node.type === "HStack") {
+    // SwiftUI's vertical alignment: top, center (the default), bottom, or the first or last
+    // text baseline (AM/PM beside a big time).
+    style.alignItems = HSTACK_ALIGN[sceneText(props.alignment)];
+  }
+  const frame = sceneRecord(props.frame);
+  if (node.type === "Line") {
+    // A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
+    if (frame.width === undefined && frame.minWidth === undefined) style.width = "100%";
+    if (frame.height === undefined) style.height = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
+    style.backgroundColor = sceneColor(props.stroke) ?? sceneColor(props.fill) ?? sceneColor("separator");
+  }
+  if (SHAPES.has(node.type)) {
+    // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
+    const side = Math.max(0, sceneNumber(props.size) ?? 16);
+    if (frame.width === undefined && frame.maxWidth === undefined && frame.minWidth === undefined) style.width = side;
+    if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
+      style.height = side;
+    if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
+    style.backgroundImage = sceneGradient(props.fill);
+    style.backgroundColor = style.backgroundImage
+      ? undefined
+      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
     if (sceneColor(props.stroke)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
@@ -382,7 +466,19 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
+    "data-transition": typeof props.transition === "string" ? props.transition : undefined,
+    "data-entering": entering && !leaving ? "" : undefined,
+    "data-leaving": own === true ? "" : undefined,
+    "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
+    // `frame({maxHeight: "infinity"})`: the node takes its stack's (or the tile's) whole height (scene.css).
+    "data-fill-height": frame.maxHeight === "infinity" && frame.height === undefined ? "" : undefined,
+    // `frame({maxWidth: "infinity"})`: the node takes the width its row has free (SwiftUI's flexible frame).
+    "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
+    // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
+    "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };
@@ -438,6 +534,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
       </SceneContextMenu>
     );
   }
+  if (own === true) rendered = <SceneLeavingContext.Provider value>{rendered}</SceneLeavingContext.Provider>;
   return <DisabledContext.Provider value={disabled}>{rendered}</DisabledContext.Provider>;
 });
 
@@ -451,11 +548,14 @@ export function SceneRenderer({
   resolveAsset?: SceneAssetResolver;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
+  const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
       {root ? (
         <div className="cmux-app-scene-root">
-          <SceneNodeView id={root} store={store} dispatch={dispatch} />
+          <SceneAppeared key={generation} store={store} generation={generation}>
+            <SceneNodeView id={root} store={store} dispatch={dispatch} />
+          </SceneAppeared>
         </div>
       ) : null}
     </AssetContext.Provider>

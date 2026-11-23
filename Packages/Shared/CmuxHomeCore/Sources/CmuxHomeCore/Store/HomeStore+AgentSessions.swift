@@ -38,13 +38,21 @@ extension HomeStore {
     /// chat; from this call its pill and its chat say Working, with no tell, report or session read. An agent
     /// stays started when its session ends, so a list without it changes nothing.
     ///
-    /// - Parameter peers: The agent ids (`a<n>`) that have a session.
-    /// - Returns: True when an agent not started before is in `peers` (the loaded transcripts redraw).
+    /// Each agent's session start in `startedAt` is when its pill counts from (an agent queued or slow to spawn starts
+    /// later than the Chief's message to it); a start not in a later call is kept.
+    ///
+    /// - Parameters:
+    ///   - peers: The agent ids (`a<n>`) that have a session.
+    ///   - startedAt: When each agent's newest session began, by agent id (acpmux's session `createdMs`).
+    /// - Returns: True when an agent not started before is in `peers`, or an agent's session start changed (the
+    ///   loaded transcripts redraw).
     @discardableResult
-    public func agentsStarted(_ peers: Set<String>) -> Bool {
+    public func agentsStarted(_ peers: Set<String>, startedAt: [String: Date] = [:]) -> Bool {
         let new = peers.subtracting(startedAgents)
-        guard !new.isEmpty else { return false }
+        let moved = startedAt.filter { agentSessionStarts[$0.key] != $0.value }
+        guard !new.isEmpty || !moved.isEmpty else { return false }
         startedAgents.formUnion(new)
+        agentSessionStarts.merge(moved) { _, now in now }
         for conversation in agentMessages.keys { bumpTranscript(conversation) }
         return true
     }

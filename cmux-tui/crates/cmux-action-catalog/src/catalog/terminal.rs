@@ -7,6 +7,11 @@ use crate::text::t;
 
 const GROUP: &str = "TerminalActionCatalog";
 
+/// A terminal of the session, by its `term_…` id; the palette lists them from the daemon's
+/// `terminal.list` (`op:terminal.list`), by title.
+#[rustfmt::skip]
+const PROJECT_TERMINAL: Argument = Argument { name: "terminal", title: t("LayoutActions", "argument.terminal.project", "Terminal"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:terminal.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -123,6 +128,40 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::ON.optional()],
         targets: &["tab"],
         cli_name: "terminal keep",
+        ..Action::DEFAULT
+    },
+    // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
+    // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
+    // In the workspace category, where the line shows: a row in a terminal category needs its App
+    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Show Last Line in Sidebar"),
+        keywords: &["pin", "tail", "last line", "output", "status", "sidebar"],
+        category: "workspace",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ON.optional()],
+        targets: &["tab"],
+        cli_name: "terminal pin-tail",
+        ..Action::DEFAULT
+    },
+    // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
+    // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
+    // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a
+    // terminal category needs its App handler before it lands (HandlerCoverage).
+    Action {
+        id: "terminal.project",
+        group: GROUP,
+        title: t("LayoutActions", "action.terminal.project", "Show Terminal in New Tab…"),
+        keywords: &["terminal", "project", "show", "reattach", "attach", "restore", "kept", "detached", "background", "mirror", "tab"],
+        category: "workspace",
+        symbol: "rectangle.portrait.on.rectangle.portrait",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[PROJECT_TERMINAL],
+        targets: &["pane"],
+        cli_name: "action terminal-project",
         ..Action::DEFAULT
     },
     Action {
@@ -349,6 +388,48 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "terminal.fixLastCommand",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.fixLastCommand", "Fix Last Command with Agent"),
+        keywords: &["fix", "error", "failed", "agent", "chat", "exit", "debug", "ask"],
+        category: "terminal",
+        symbol: "wrench.and.screwdriver",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 9).folder("tools")], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal fix-last-command",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.sendLastOutputToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.sendLastOutputToChat", "Send Last Output to Chat"),
+        keywords: &["output", "command", "agent", "chat", "send", "ask", "result"],
+        category: "terminal",
+        symbol: "text.bubble",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 8).folder("tools")], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal send-last-output-to-chat",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.sendSelectionToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.sendSelectionToChat", "Send Selection to Chat"),
+        keywords: &["selection", "agent", "chat", "send", "ask", "quote"],
+        category: "terminal",
+        symbol: "bubble.left.and.text.bubble.right",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menus: &[Placement::at("terminalSelection", "edit", 7).folder("tools")], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal send-selection-to-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.terminalOpenDirectory",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.terminalOpenDirectory", "Open Current Directory In…"),
@@ -356,7 +437,8 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "arrow.up.forward.app",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "inspect", 0).folder("tools")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::APP],
+        // `app`: an editor id (listed, the default first), `finder`, `terminal`, or any app by name, bundle id or path.
+        arguments: &[args::EDITOR],
         targets: &["pane"],
         cli_name: "terminal open-current-directory-in",
         ..Action::DEFAULT

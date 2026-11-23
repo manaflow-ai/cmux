@@ -146,9 +146,8 @@ describe("spinner period", () => {
       ),
     ).toEqual([2]);
     expect(finds("a.css", ".a { animation: cmux-spin 900ms linear infinite; }")).toEqual([1]);
-    expect(finds("a.css", ".a { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }")).toEqual([
-      1,
-    ]);
+    const offPeriod = ".a { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }"; // motion-allow: an off-period fallback the scan must catch
+    expect(finds("a.css", offPeriod)).toEqual([1]);
     expect(finds("a.css", ".a { animation: cmux-spin var(--cmux-motion-large) linear infinite; }")).toEqual([1]);
     expect(finds("a.css", ".a { animation-name: cmux-spin; animation-duration: 1s; }")).toEqual([1]);
     expect(finds("a.css", ":root { --cmux-spinner-period: 1200ms; }")).toEqual([1]);

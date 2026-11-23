@@ -32,6 +32,8 @@ public final class LinkController {
     /// The last dial was refused with 401: the next dial mints a fresh token.
     @ObservationIgnored private var refreshTokenNextDial = false
     @ObservationIgnored private let clock: any Clock<Duration>
+    /// Settings → Transport → Align Keepalives: the heartbeat's beats.
+    @ObservationIgnored private let beat: KeepaliveBeat
     /// Every dial, phase, probe, drop and roam, for connectivity telemetry (team: verbose).
     @ObservationIgnored private let events: LinkConnectivityEvents
     @ObservationIgnored private var dialTask: Task<Void, Never>?
@@ -57,6 +59,36 @@ public final class LinkController {
     /// Beyond a probe's own timeout, how long the bound around it waits.
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
+    /// The link kept beside a redial after its probe failed
+    /// (``LinkMachine/standby``), its state watch and its probe loop.
+    @ObservationIgnored private(set) var standbyLink: (any MacLink)?
+    @ObservationIgnored private var standbyWatchTask: Task<Void, Never>?
+    @ObservationIgnored private var standbyTask: Task<Void, Never>?
+    /// The standby link is probed one probe at a time, each bounded by
+    /// ``standbyProbeTimeout``, with this gap between them: a path back from
+    /// a blackout carries traffic again within both plus one round trip
+    /// (1.25 s). Only while there is a standby (at most ``standbyLimit``):
+    /// about 36 pings, a few KB, per blackout; nothing while idle.
+    nonisolated static let standbyProbeEvery: Duration = .milliseconds(250)
+    nonisolated static let standbyProbeTimeout: Duration = .seconds(1)
+    /// How long a silent standby link is kept. Past the 30 s blackout of
+    /// an elevator; the Rust link closes on its own keepalive before that
+    /// when the Mac is gone.
+    nonisolated static let standbyLimit: Duration = .seconds(45)
+    /// The probes that fill ``standbyLimit``, one per probe and gap (36).
+    nonisolated static let standbyProbes = Int(standbyLimit / (standbyProbeTimeout + standbyProbeEvery))
+    /// What the timers did, for tests that move a test clock: how many heartbeat tasks were
+    /// started and how many have begun running, how many times the heartbeat went to sleep and for
+    /// how long the last time, and how many probes started and the last one's timeout. Counters
+    /// only; nothing reads them to decide.
+    @ObservationIgnored private(set) var heartbeatStarts = 0
+    @ObservationIgnored private(set) var heartbeatsBegun = 0
+    @ObservationIgnored private(set) var heartbeatSleeps = 0
+    @ObservationIgnored private(set) var lastHeartbeatWait: Duration = .zero
+    @ObservationIgnored private(set) var probeStarts = 0
+    @ObservationIgnored private(set) var lastProbeTimeout: Duration = .zero
+    /// A probe is out and its result not yet handled.
+    var isProbing: Bool { probeTask != nil }
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Every phase change and every drop of a live link, for the connectivity incident detector.
     @ObservationIgnored public var onSignal: (@MainActor (LinkSignal) -> Void)?
@@ -93,11 +125,13 @@ public final class LinkController {
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
         telemetry: ConnectivityTelemetry = .shared,
+        beat: KeepaliveBeat = .live,
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
         machine = LinkMachine(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP)
         self.dialer = dialer
         self.clock = clock
+        self.beat = beat
         self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
     }
@@ -215,6 +249,7 @@ public final class LinkController {
     private func run(_ effect: LinkMachine.Effect) {
         switch effect {
         case .close:
+            closeStandby()
             dialTask?.cancel()
             watchTask?.cancel()
             heartbeatTask?.cancel()
@@ -302,12 +337,101 @@ public final class LinkController {
             probe(generation: generation, timeout: timeout)
         case .quickProbe(let generation):
             probe(generation: generation, timeout: Self.presenceProbeTimeout)
+        case .keepStandby:
+            keepStandby()
+        case .promoteStandby(let generation):
+            promoteStandby(generation: generation)
+        case .closeStandby:
+            closeStandby()
         }
+    }
+
+    /// The live link becomes the standby: its heartbeat stops, its channels
+    /// and the coordinator's hold on it stay (no `onLink(nil)`), and a loop
+    /// probes it until it answers, closes or ``standbyLimit`` passes.
+    private func keepStandby() {
+        closeStandby()
+        guard let link, let generation = machine.standby else { return }
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        probeTask?.cancel()
+        probeTask = nil
+        self.link = nil
+        standbyLink = link
+        // The watch keeps running (cancelling it would end the link's state
+        // stream); it reports the standby's close as `standbyLost`.
+        standbyWatchTask = watchTask
+        watchTask = nil
+        ConnectTimeline.shared.mark("link_standby")
+        let clock = clock
+        standbyTask = Task { [weak self] in
+            for _ in 0..<Self.standbyProbes where !Task.isCancelled {
+                let result = await Self.race(timeout: Self.standbyProbeTimeout + Self.probeGrace, clock: clock) {
+                    try await link.probe(timeout: Self.standbyProbeTimeout)
+                }
+                guard let self, !Task.isCancelled, self.machine.standby == generation else { return }
+                if case .success(let rtt) = result {
+                    ConnectTimeline.shared.mark("link_standby_alive", detail: rtt.map { "\($0) ms" } ?? "traffic")
+                    self.send(.standbyAlive(generation: generation, path: link.connectedPath ?? .noPath, rttMillis: rtt))
+                    return
+                }
+                do { try await clock.sleep(for: Self.standbyProbeEvery) } catch { return }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.send(.standbyLost(generation: generation))
+        }
+    }
+
+    /// The standby answered first: it is the link again under `generation`,
+    /// with its channels as they were. The redial is dropped.
+    private func promoteStandby(generation: Int) {
+        guard let standby = standbyLink else { return }
+        dialTask?.cancel()
+        dialTask = nil
+        retryTask?.cancel()
+        standbyTask?.cancel()
+        standbyTask = nil
+        standbyLink = nil
+        watchTask?.cancel()
+        watchTask = standbyWatchTask
+        standbyWatchTask = nil
+        prepared = nil
+        // A redial adopted but not yet connected (`onLink` not called for it):
+        // never handed to the coordinator, so it only closes.
+        if let fresh = link, ObjectIdentifier(fresh) != ObjectIdentifier(standby) {
+            Task { await fresh.close() }
+        }
+        link = standby
+        ConnectTimeline.shared.mark("link_standby_promoted")
+        startHeartbeat(generation: generation)
+    }
+
+    private func closeStandby() {
+        standbyTask?.cancel()
+        standbyTask = nil
+        standbyWatchTask?.cancel()
+        standbyWatchTask = nil
+        if let standby = standbyLink {
+            standbyLink = nil
+            Task { await standby.close() }
+        }
+    }
+
+    /// A channel on this link died or went silent while the link looked up
+    /// (a terminal's liveness check): prove the link now with the quick
+    /// probe, so a link that is really dead is redialed at once instead of
+    /// after its heartbeat (Leo, 2026-11-21: "intermittent 30s lag/disconnects").
+    /// A no-op while a probe runs or the link is not connected.
+    public func suspect() {
+        guard phase.isConnected else { return }
+        run(.quickProbe(generation: machine.generation))
     }
 
     private func probe(generation: Int, timeout: Duration) {
         guard let link, phase.isConnected, generation == machine.generation, probeTask == nil else { return }
         let clock = clock
+        probeStarts += 1
+        lastProbeTimeout = timeout
         probeTask = Task { [weak self] in
             // The link's probe: the pong, or any frame from the Mac within the
             // timeout (a pong behind a busy queue on a slow relay is not a dead
@@ -337,9 +461,21 @@ public final class LinkController {
         self.link = link
         watchTask?.cancel()
         let states = link.states
+        let id = ObjectIdentifier(link)
         watchTask = Task { [weak self] in
             for await state in states {
-                guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
+                guard let self, !Task.isCancelled else { return }
+                // Kept beside a redial: only its close matters.
+                if let standby = self.standbyLink, ObjectIdentifier(standby) == id {
+                    if case .disconnected = state, let kept = self.machine.standby {
+                        self.send(.standbyLost(generation: kept))
+                    }
+                    continue
+                }
+                // The live link, under whatever generation it has now (a
+                // standby promoted back takes a new one).
+                guard let live = self.link, ObjectIdentifier(live) == id else { return }
+                let generation = self.machine.generation
                 switch state {
                 case .connected(_, let path, let rtt):
                     if case .connecting = self.machine.phase {
@@ -352,6 +488,10 @@ public final class LinkController {
                     log.info("link dropped: \(reason, privacy: .public)")
                     self.events.dropped(reason: reason)
                     self.send(.linkDropped(generation: generation, reason: reason))
+                case .suspect(let silentMillis):
+                    // Rust heard nothing after a ping: prove the link now (cmux#49296).
+                    log.info("link suspect: silent \(silentMillis, privacy: .public) ms")
+                    self.suspect()
                 case .idle, .connecting:
                     break
                 }
@@ -378,12 +518,25 @@ public final class LinkController {
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
         let clock = clock
-        let interval = machine.isBackgrounded ? Self.backgroundHeartbeat : Self.heartbeat
+        let beat = beat
+        // Align Keepalives keeps the 2.5 s foreground beat and moves the
+        // background one to the 10 s keepalive beat (never longer than 15 s).
+        let interval = machine.isBackgrounded
+            ? (beat.isOn ? KeepaliveBeat.period : Self.backgroundHeartbeat)
+            : Self.heartbeat
+        heartbeatStarts += 1
         heartbeatTask = Task { [weak self] in
-            var wait = interval
+            self?.heartbeatsBegun += 1
+            var wait = beat.delay(toNextBeatOf: interval) ?? interval
             while !Task.isCancelled {
+                self?.heartbeatSleeps += 1
+                self?.lastHeartbeatWait = wait
                 do { try await clock.sleep(for: wait) } catch { return }
                 guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
+                if let toBeat = beat.delay(toNextBeatOf: interval) {
+                    wait = self.alignedHeartbeat(generation: generation, interval: interval, toBeat: toBeat)
+                    continue
+                }
                 // A frame from the Mac within the beat proves the link alive as
                 // a pong would: probe only a link quiet for a whole beat, and
                 // look again one beat after its last frame. Silence is then
@@ -398,6 +551,26 @@ public final class LinkController {
                 self.run(.probe(generation: generation))
             }
         }
+    }
+
+    /// How far past a beat a wake still counts as on it (timer lateness).
+    nonisolated static let beatTolerance: Duration = .milliseconds(50)
+
+    /// One heartbeat wake with Align Keepalives on; returns the next wait.
+    /// The rule above still holds (a link quiet for a whole beat is probed,
+    /// so the 5 s bound holds from the last frame, and a link with traffic
+    /// is not probed), and an idle link, whose only frames are keepalives,
+    /// is probed on the beat, with the link ping and the sockets' pings.
+    private func alignedHeartbeat(generation: Int, interval: Duration, toBeat: Duration) -> Duration {
+        let quiet = link?.receivedAgo
+        let onBeat = toBeat >= interval - Self.beatTolerance
+        let idle = link?.trafficAgo.map { $0 >= interval } ?? false
+        if quiet.map({ $0 >= interval }) ?? true || (onBeat && idle) {
+            run(.probe(generation: generation))
+            return toBeat
+        }
+        // The next beat, or one beat after the last frame, whichever is first.
+        return min(toBeat, interval - (quiet ?? .zero))
     }
 
     /// `operation`'s result, or a timeout failure after `timeout`, whichever

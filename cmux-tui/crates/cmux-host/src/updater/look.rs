@@ -29,6 +29,21 @@ use serde_json::Value;
 
 use crate::config::Paths;
 
+/// The image's one pre-ready check, retained across exec and later updater checks.
+/// Versions are content-addressed cmux-tui binaries (SHA256), not profile numbers.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstReady {
+    pub image_behind: Option<bool>,
+    pub from_version: Option<String>,
+    pub to_version: Option<String>,
+    pub channel_commit: Option<String>,
+    pub started_at: u64,
+    pub finished_at: u64,
+    pub check_ms: u64,
+    pub update_ms: Option<u64>,
+    pub outcome: String,
+}
+
 /// The updater's last check and its last update run.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Look {
@@ -42,6 +57,11 @@ pub struct Look {
     pub waited: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swapped: Option<Swap>,
+    /// How the last flip ended: its new build proved itself (`updated`) or
+    /// was flipped back (`rolled_back`). Kept across later checks, so the
+    /// census can tell a build that stayed from one that never did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settled: Option<Settled>,
 }
 
 /// One flip: the build's commit (its first 12 characters) and when (Unix ms).
@@ -49,6 +69,22 @@ pub struct Look {
 pub struct Swap {
     pub commit: String,
     pub at: u64,
+}
+
+/// How a flip ended: the build's commit (its first 12 characters), `updated`
+/// or `rolled_back`, and when (Unix ms).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settled {
+    pub commit: String,
+    pub outcome: String,
+    pub at: u64,
+}
+
+/// A flip's end, as [`Settled::outcome`] names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settle {
+    Updated,
+    RolledBack,
 }
 
 /// One check's outcome as codes.
@@ -123,6 +159,23 @@ impl Look {
         }
     }
 
+    /// The look after the pending flip to `commit` (started at `started_at`
+    /// ms) ended as `how` at `at` ms. The flip's swap is filled in first when
+    /// its check did not live to save it.
+    pub fn settle(look: Option<Look>, commit: &str, started_at: u64, how: Settle, at: u64) -> Look {
+        let mut look = Look::with_pending(look, commit, started_at);
+        look.settled = Some(Settled {
+            commit: short(commit),
+            outcome: match how {
+                Settle::Updated => "updated",
+                Settle::RolledBack => "rolled_back",
+            }
+            .to_owned(),
+            at,
+        });
+        look
+    }
+
     /// The block the status report carries.
     pub fn to_json(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
@@ -177,12 +230,22 @@ pub fn seen_of(outcome: &super::role::Outcome) -> Seen {
 /// state plus a pending update's swap (seconds in the pending file, ms
 /// here). None when this machine's updater never checked.
 pub fn report(paths: &Paths) -> Option<Value> {
-    let look = super::load_state(paths).look;
+    let state = super::load_state(paths);
+    let look = state.look;
     let look = match super::load_pending(paths) {
         Some(p) => Some(Look::with_pending(look, &p.commit, p.started_at.saturating_mul(1000))),
         None => look,
     };
-    look.map(|l| l.to_json())
+    look.map(|l| {
+        let mut report = l.to_json();
+        if let (Some(first), Some(map)) = (state.first_ready, report.as_object_mut()) {
+            map.insert(
+                "first_ready".to_owned(),
+                serde_json::to_value(first).unwrap_or(Value::Null),
+            );
+        }
+        report
+    })
 }
 
 /// The same block without its `at`: what makes a report due when it
@@ -308,5 +371,44 @@ mod tests {
         let mut moved = block.clone();
         moved["at"] = json!(T + 99_000);
         assert_eq!(report_key(&Some(block)), report_key(&Some(moved)));
+    }
+
+    // The lead (2026-11-15): "a build counts as arrived only when its first
+    // machine's updater block says outcome "updated" for that commit, with no
+    // rolled_back for it within 15 min". The census reads that from `settled`.
+    #[test]
+    fn a_flip_reports_whether_its_build_stayed_and_later_checks_keep_it() {
+        // The flip's check did not live to save its swap: settling fills it in.
+        let busy = Look::next(None, Seen::Busy("turn".into()), T);
+        let up = Look::settle(Some(busy), A, T + 5_000, Settle::Updated, T + 60_000);
+        assert_eq!(up.swapped, Some(Swap { commit: A[..12].to_owned(), at: T + 5_000 }));
+        assert_eq!(
+            up.to_json()["settled"],
+            json!({"commit": &A[..12], "outcome": "updated", "at": T + 60_000})
+        );
+        // Every later check keeps it until the next flip settles.
+        let later = Look::next(Some(up.clone()), Seen::Current, T + 120_000);
+        assert_eq!(later.outcome, "current");
+        assert_eq!(later.settled, up.settled);
+        // A rollback names the build that never proved itself.
+        let back = Look::settle(Some(later), A, T + 5_000, Settle::RolledBack, T + 600_000);
+        assert_eq!(back.swapped, up.swapped, "the swap is not counted twice");
+        assert_eq!(back.to_json()["settled"]["outcome"], "rolled_back");
+        // No flip ended yet: no block, so an older census never reads one.
+        assert!(Look::next(None, Seen::Current, T).to_json().get("settled").is_none());
+    }
+
+    #[test]
+    fn the_report_carries_the_settled_flip() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let state = super::super::State {
+            look: Some(Look::settle(None, A, T, Settle::Updated, T + 30_000)),
+            ..Default::default()
+        };
+        super::super::save_state(&paths, &state).unwrap();
+        let report = report(&paths).unwrap();
+        assert_eq!(report["settled"]["commit"], &A[..12]);
+        assert_eq!(report["settled"]["outcome"], "updated");
     }
 }

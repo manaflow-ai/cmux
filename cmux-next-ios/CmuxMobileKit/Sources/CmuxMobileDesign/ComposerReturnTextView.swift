@@ -39,6 +39,9 @@ open class ComposerReturnTextView: UITextView {
         isScrollEnabled = true
         alwaysBounceVertical = false
         showsHorizontalScrollIndicator = false
+        // A long draft scrolls inside the field with no scroll bar: the
+        // field's rounded edge already shows where the text is cut.
+        showsVerticalScrollIndicator = false
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .tertiaryLabel
@@ -93,10 +96,26 @@ open class ComposerReturnTextView: UITextView {
         return height
     }
 
-    /// The text's own height at `width` (all of it, however tall).
+    /// The text's own height at `width` (all of it, however tall). SwiftUI asks for the
+    /// field's size several times in one update, each a full text layout; the last
+    /// answer stands while the text, width, font and insets are the same.
     public func contentHeight(width: CGFloat) -> CGFloat {
-        sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)).height
+        let key = MeasureKey(text: text ?? "", width: max(width, 1), font: font, inset: textContainerInset,
+                             padding: textContainer.lineFragmentPadding)
+        if let measured, measured.key == key { return measured.height }
+        let height = sizeThatFits(CGSize(width: key.width, height: .greatestFiniteMagnitude)).height
+        measured = (key, height)
+        return height
     }
+
+    private struct MeasureKey: Equatable {
+        var text: String
+        var width: CGFloat
+        var font: UIFont?
+        var inset: UIEdgeInsets
+        var padding: CGFloat
+    }
+    private var measured: (key: MeasureKey, height: CGFloat)?
 
     /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
     /// as wide as offered, as tall as `fieldHeight` says for the text.
@@ -111,17 +130,37 @@ open class ComposerReturnTextView: UITextView {
     /// After an edit: a draft taller than the field keeps the caret line in
     /// view; one that fits stays at its top.
     public func followCaret() {
-        if textOverflows {
-            scrollRangeToVisible(selectedRange)
-        } else {
+        if !textOverflows {
             pinToTop()
+        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+            // Typing at the end: the field's bottom inset shows below the last
+            // line, as it does at rest (scrollRangeToVisible stops at the
+            // caret, leaving the line flush against the field's bottom edge).
+            pinToBottom()
+        } else {
+            scrollRangeToVisible(selectedRange)
         }
+    }
+
+    private func pinToBottom() {
+        let bottom = max(-adjustedContentInset.top, contentSize.height + adjustedContentInset.bottom - bounds.height)
+        if contentOffset.y != bottom { contentOffset.y = bottom }
     }
 
     private func pinToTop() {
         let top = -adjustedContentInset.top
         if contentOffset.y != top { contentOffset.y = top }
     }
+
+    #if DEBUG
+    /// A typed key to the frame that draws it (`InputLatencyTrace`: `<field id>_key_frame`).
+    override open func insertText(_ text: String) {
+        guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
+        let start = CACurrentMediaTime()
+        super.insertText(text)
+        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+    }
+    #endif
 
     override open func layoutSubviews() {
         super.layoutSubviews()
@@ -164,7 +203,7 @@ open class ComposerReturnTextView: UITextView {
         insertingLineBreak = true
         defer { insertingLineBreak = false }
         insertText("\n")
-        scrollRangeToVisible(selectedRange)
+        followCaret()
     }
 
     @objc private func hardwareReturn() { perform(returnPolicy.action(hardware: true)) }

@@ -12,6 +12,9 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
+mod batch;
+pub(super) use batch::{Whole, read_at_most};
+
 /// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
 /// under it with room for the request around its base64.
 pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;
@@ -636,6 +639,25 @@ impl Remote {
         }
         let mut bytes = Buffer(Vec::new());
         Ok(self.read_into(path, &mut bytes)?.map(|_| bytes.0))
+    }
+
+    /// The SHA-256 of the file at `path`, hex, read through bounded range
+    /// reads; None when it is not there.
+    pub(super) fn sha256(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        use sha2::Digest as _;
+        struct Hashing(sha2::Sha256);
+        impl Write for Hashing {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut out = Hashing(sha2::Sha256::new());
+        let size = self.read_into(path, &mut out)?;
+        Ok(size.map(|_| out.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()))
     }
 
     /// Streams the file at `path` into `out` through bounded range reads.

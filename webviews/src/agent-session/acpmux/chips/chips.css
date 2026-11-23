@@ -211,8 +211,20 @@
   justify-content: center;
   padding: 8px 12px;
   border-radius: var(--cv-media-radius, 8px);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--ds-surface-card);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
+}
+/* Until its metadata loads a video has no size of its own: the reply names none and the host's answer
+   carries none, so the player draws at the browser's 300x150 and then grows to its frame, moving every
+   row under it twice. It holds the box most recordings fill instead, 16:9 at the player's widest, and
+   takes its own size once, in one step, when its metadata comes (most need no step at all). A web
+   video the host fetches on its own holds the same box while it loads (ReplyMedia.tsx `reserve`). */
+.cv-media > .cv-media__frame > video[data-unsized],
+.cv-media.is-video.is-remote[data-reserve] {
+  box-sizing: border-box;
+  width: 480px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
 }
 .cv-media__name {
   font-size: 12px;
@@ -284,6 +296,8 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   letter-spacing: var(--text-detail--letter-spacing);
+  /* One line, as every video tile's length (composer/videoLengthFit.ts). */
+  white-space: nowrap;
 }
 /* Every control on a playing video shows the arrow too (WebKit's own controls). */
 .cv-media__frame.is-playing video,
@@ -374,6 +388,21 @@
   max-width: 100%;
   max-height: 100%;
 }
+/* A video whose size the host already read (VideoViewer `size`): its final box from the first frame,
+ * the size it would take once its metadata loads (its own size, shrunk to fit the stage), instead of
+ * WebKit's 300 × 150 until then. The stage is its own size container, so the fit needs no measuring. */
+.cv-media-stage[data-sized] {
+  container-type: size;
+}
+.cv-media-stage[data-sized] video {
+  width: min(
+    calc(var(--cv-media-w) * 1px),
+    100cqw,
+    calc(100cqh * var(--cv-media-w) / var(--cv-media-h))
+  );
+  height: auto;
+  aspect-ratio: var(--cv-media-w) / var(--cv-media-h);
+}
 /* Web media before it loads (RemoteMedia): its site and Load, like a web image's placeholder. */
 .cv-media.is-remote {
   flex-direction: row;
@@ -408,7 +437,7 @@
   vertical-align: top;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  background: var(--ds-surface-card);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 10%, transparent),
     inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);

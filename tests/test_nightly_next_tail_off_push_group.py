@@ -213,8 +213,7 @@ if SCRIPT.exists():
     sha = "a" * 40
     needs_ctx = {
         "decide": {"result": "success", "outputs": {"track": "nightly-next", "should_publish": "true",
-                                                    "published_sha": "b" * 40, "variants": '["arm64"]',
-                                                    "early_mini_jobs": " ignored "}},
+                                                    "published_sha": "b" * 40, "variants": '["arm64"]'}},
         "publish-nightly": {"result": "success", "outputs": {"build": "123", "build_sha": sha, "source": "own",
                                                              "tag_status": "updated",
                                                              "downloads": "- arm64: a.dmg\n- x86_64: b.dmg"}},

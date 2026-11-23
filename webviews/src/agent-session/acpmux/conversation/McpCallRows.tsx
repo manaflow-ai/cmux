@@ -3,6 +3,7 @@
 // fields and its response (ToolDetail.tsx), or to its request and response pretty-printed
 // (mcpCalls.ts). A call with nothing to open beyond its line (a description and a lifecycle
 // note) is inert. Opening and closing play the transcript's fold (fold.ts).
+import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
@@ -49,6 +50,7 @@ import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord } from "./toolFailureCauseModel";
+import { RunningTime } from "./RunningTime";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -118,6 +120,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
 
 export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const names = useContext(McpNamesContext);
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -211,10 +214,13 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
             {summary && <span className="cv-tool__detail">{`  ${summary}`}</span>}
             <InlineFailureCause failure={failure} />
           </span>
+          {/* How long a running call (a wait, a long fetch) has run, from a few seconds on (RunningTime.tsx). */}
+          {running && !tool.approved && <RunningTime startedAt={tool.startedAt} meta />}
           {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
           {tool.approved && (
             <span className="cv-command__meta cv-tool__meta">
               <ApprovedMark />
+              {running && <RunningTime startedAt={tool.startedAt} />}
             </span>
           )}
           {expandable && (
