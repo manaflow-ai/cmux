@@ -1262,6 +1262,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a prompt before it reaches queue admission.
+    #[cfg(test)]
+    pub(super) prompt_admission_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a prompt whose turn shows, before its last check and its acceptance.
     #[cfg(test)]
     pub(super) turn_shown_seam: full_access_bound::WriteSeam,
@@ -1685,6 +1688,8 @@ impl Hub {
             queue_approval_off: AtomicBool::new(false),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            prompt_admission_seam: Default::default(),
             #[cfg(test)]
             turn_shown_seam: Default::default(),
             #[cfg(test)]
@@ -2152,6 +2157,7 @@ impl Hub {
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
+            prompt_admission: tokio::sync::Mutex::new(()),
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
             recovery_pending: AtomicBool::new(false),

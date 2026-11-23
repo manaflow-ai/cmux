@@ -137,6 +137,9 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Orders prompt setup before it reaches `queue_slot`: an upload read or another slow setup
+    /// step must not let a later prompt claim the chat first. Held only until queue admission.
+    pub(super) prompt_admission: tokio::sync::Mutex<()>,
     /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
     /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
     /// (its `queued` record, its turn) goes between the restore's check and its settle.
