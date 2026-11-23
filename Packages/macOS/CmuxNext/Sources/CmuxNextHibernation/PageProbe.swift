@@ -21,11 +21,24 @@ package struct PageProbe: Hashable, Sendable {
     /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
     /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
     package static func unanswered(media: BrowserMediaState?, muted: Bool) -> PageProbe {
-        PageProbe(playingMedia: tabPlays(media, muted: muted), answered: false)
+        PageProbe(playingMedia: tabPlays(media, muted: muted), mediaSession: resumable(media), answered: false)
+    }
+
+    /// The tab's media the person resumes from outside the page (``mediaSession``): an element that is not
+    /// muted, or one whose page handles `mediaSession` actions. A muted autoplay or ad video, or sound with no
+    /// element, is no session: such a page still freezes.
+    package static func resumable(_ media: BrowserMediaState?) -> Bool {
+        media.map { !$0.isSoundOnly && (!$0.isMuted || !$0.actions.isEmpty) } ?? false
     }
 
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     package var playingMedia = false
+    /// The tab reports media it can resume (``resumable(_:)``), paused too: the person resumes it from
+    /// macOS Now Playing, the media keys or the tab's media menu, and each of those runs in the page. A frozen
+    /// page runs none of them, so Play did nothing (https://github.com/manaflow-ai/cmux/issues/51079: a
+    /// paused open.spotify.com tab froze 30 s after it was hidden, and its music never came back). It keeps
+    /// the page from a freeze only; a discard ends the session with the page.
+    package var mediaSession = false
     /// The person's form edits in the tab's frames (`BrowserPageBusy.editedForm`).
     package var editedForm = false
     /// Camera, microphone or screen capture the page started (`BrowserPageBusy`).
@@ -52,10 +65,11 @@ package struct PageProbe: Hashable, Sendable {
     /// only what the tab reported on its own (`BrowserTabState.media`) is known.
     package var answered = true
 
-    package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
+    package init(playingMedia: Bool = false, mediaSession: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
                  beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
                  answered: Bool = true) {
         self.playingMedia = playingMedia
+        self.mediaSession = mediaSession
         self.editedForm = editedForm
         self.capturing = capturing
         self.webAudio = webAudio
@@ -80,8 +94,8 @@ package struct PageProbe: Hashable, Sendable {
     }
 
     /// The page does something a freeze stops (it keeps memory and state, so form input and a
-    /// `beforeunload` do not count).
-    package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC || connectedDevice }
+    /// `beforeunload` do not count), or holds a media session the person resumes from outside it.
+    package var stopsWhenFrozen: Bool { playingMedia || mediaSession || capturing || webAudio || webRTC || connectedDevice }
 
     /// Why the probed page stays loaded now, or nil when it may hibernate.
     ///

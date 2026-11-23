@@ -14,7 +14,7 @@ cmux customize check
 Run `cmux customize apply` to keep the preview or `cmux customize discard` to return to the preceding configuration. To install the repository version as a removable layer, use a build with setup subpath support.
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/whole@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/whole@feat-cmux-next
 cmux setup remove manaflow-ai/rex-whole
 ```
 

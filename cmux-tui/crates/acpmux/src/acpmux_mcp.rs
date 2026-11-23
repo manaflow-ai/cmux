@@ -19,8 +19,9 @@
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
 //! socket only. So it can do nothing that CLI cannot, and the daemon records a message it sends
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
-//! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
-//! with this server's environment, which the agent gave it.
+//! `pr_state` and `pr_wait` read through the daemon's one GitHub poller for the machine
+//! (`pr_poller.rs`); `pr_state` falls back to the agent's own `gh` (one `gh pr view`), with this
+//! server's environment, which the agent gave it, when the daemon cannot answer.
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
 //! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
 //! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
@@ -78,6 +79,8 @@ mod goal;
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
+/// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
+pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -96,6 +99,7 @@ pub(crate) fn tools() -> Value {
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
         list.push(pr::tool());
+        list.push(pr::wait_tool());
         list.push(wrap_up::tool());
         list.push(who_else::tool());
         list.extend(goal::tools());
@@ -369,6 +373,9 @@ fn served_with(
                 }
                 if name == pr::NAME {
                     return pr::call(&daemon, &session, &args).await;
+                }
+                if name == pr::WAIT_NAME {
+                    return pr::wait(&daemon, &session, &args).await;
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
