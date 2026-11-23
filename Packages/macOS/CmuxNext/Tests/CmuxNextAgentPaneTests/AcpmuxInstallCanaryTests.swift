@@ -40,7 +40,14 @@ struct AcpmuxInstallCanaryTests {
 
     @Test func anErrorIsARefusal() async throws {
         let stream = Stream([#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad params","data":{"reason":"transport.intent_invalid"}}}"# + "\n"])
-        #expect(try await AcpmuxInstallCanary.hello(on: stream) == .refused("transport.intent_invalid: bad params"))
+        #expect(try await AcpmuxInstallCanary.hello(on: stream) == .refused("transport.intent_invalid: bad params", retryable: false))
+    }
+
+    /// A busy daemon's refusal carries its `data.retryable`, so the decision (Rust) takes it as
+    /// inconclusive instead of a refused build.
+    @Test func aRetryableErrorSaysSo() async throws {
+        let stream = Stream([#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"connection request limit reached","data":{"reason":"connection.busy","retryable":true}}}"# + "\n"])
+        #expect(try await AcpmuxInstallCanary.hello(on: stream) == .refused("connection.busy: connection request limit reached", retryable: true))
     }
 
     @Test func aReplySplitOverChunksAfterANotificationPasses() async throws {

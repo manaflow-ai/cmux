@@ -22,7 +22,13 @@ export async function uploadForSend(
   call: Call,
 ): Promise<SendUploadResult> {
   const { ticket } = prompt;
-  const files = chips.map((chip) => new File([bytesOf(chip.data ?? "")], chip.name, { type: chip.mimeType }));
+  // A text file or a large paste carries its contents as text, not base64: upload them as UTF-8.
+  const files = chips.map(
+    (chip) =>
+      new File([chip.data ? bytesOf(chip.data) : new TextEncoder().encode(chip.text ?? "")], chip.name, {
+        type: chip.mimeType || "text/plain",
+      }),
+  );
   const sent = await uploadToMachine(files, call, undefined, undefined, {
     sessionId: prompt.sessionId,
     promptId: prompt.promptId,
