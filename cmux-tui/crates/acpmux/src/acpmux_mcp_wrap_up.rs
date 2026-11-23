@@ -79,9 +79,47 @@ fn trim_to(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
+/// Other names callers give each field, taken as that field when it is missing ("eh close
+/// enough"): cmuxterm-hq#18786, 14 wrap_up calls in 7 days on one VM sent `summary` and were
+/// refused with "recap is required". Leo, 2026-11-20: "Like we need a bunch of synonyms for
+/// code for you guys where it just goes 'eh close enough' and works".
+const ALIASES: &[(&str, &[&str])] = &[
+    ("recap", &["summary", "message", "text", "result"]),
+    ("ask", &["question"]),
+    ("actions", &["options", "buttons", "answers"]),
+    ("learned", &["lessons", "facts"]),
+];
+
+/// ARGS with each alias moved to its field when that field is missing, and one line per alias
+/// taken (`summary taken as recap`).
+fn canonical(args: &Value) -> (Value, Vec<String>) {
+    let Some(map) = args.as_object() else {
+        return (args.clone(), Vec::new());
+    };
+    let mut map = map.clone();
+    let mut said = Vec::new();
+    for (field, names) in ALIASES {
+        if map.get(*field).is_some_and(|v| !v.is_null()) {
+            continue;
+        }
+        if let Some((name, value)) = names
+            .iter()
+            .find_map(|name| map.get(*name).filter(|v| !v.is_null()).map(|v| (*name, v.clone())))
+        {
+            map.remove(name);
+            map.insert((*field).to_owned(), value);
+            said.push(format!("{name} taken as {field}"));
+        }
+    }
+    (Value::Object(map), said)
+}
+
 /// The call's input checked: a recap, and an ask with its answers when there is one. A field
 /// past its bound is cut (`trim_to`), never refused; each cut is one line of the second value.
+/// A field sent under another name (ALIASES) is taken as that field.
 pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
+    let (args, _) = canonical(args);
+    let args = &args;
     let text =
         |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
     let mut notes = Vec::new();
@@ -150,8 +188,10 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
 }
 
 pub(super) fn call(args: &Value) -> Value {
+    let (_, said) = canonical(args);
     match check(args) {
-        Ok((shown, notes)) => {
+        Ok((shown, mut notes)) => {
+            notes.splice(0..0, said);
             let text = if shown["ask"].is_string() {
                 "Shown to the person under your answer, with the question. End your turn now; their answer comes as their next message."
             } else {
@@ -282,6 +322,27 @@ mod tests {
         }
         let at = "x".repeat(RECAP_CEILING);
         assert_eq!(shown(json!({"recap": at}))["recap"], at);
+    }
+
+    /// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
+    #[test]
+    fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
+        let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
+        let result = call(&json!({"summary": summary}));
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"]["recap"], summary);
+        assert!(result["structuredContent"].get("trimmed").is_none());
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("summary taken as recap"), "{text}");
+        assert_eq!(
+            shown(
+                json!({"message": "Done.", "question": "Open a PR?", "options": ["Yes", "No"], "lessons": ["Use pnpm."]})
+            ),
+            json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes", "No"], "learned": ["Use pnpm."]})
+        );
+        // The field itself wins over an alias sent beside it.
+        assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
+        assert!(check(&json!({"summary": "  "})).is_err());
     }
 
     #[test]
