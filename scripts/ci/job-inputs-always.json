@@ -974,7 +974,6 @@
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/",
-          "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+RetiredKeys.generated.swift",
           "agent-chat/public/app.css",
           "agent-chat/src/agentBrands.generated.ts",
           "art/full/",
