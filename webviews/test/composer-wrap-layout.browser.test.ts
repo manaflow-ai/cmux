@@ -12,6 +12,7 @@ import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   type ComposerPaint = {
     glyphTop: number;
+    textBottom: number;
     scrollTop: number;
     editorScrollTop: number;
     height: number;
@@ -25,9 +26,30 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const layouts = [
-    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: false },
-    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, bottom: false },
-    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, bottom: true },
+    // New Tab's +, mic and Send stand on the box's bottom edge as the draft grows (newtab/screen.css;
+    // Leo 2026-11-22: the buttons must "stick with teh bottom of the composer").
+    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: true, holds: "top", capped: false },
+    // The chat composer's controls stand on the box's bottom edge too, and its text rides that edge
+    // while the box grows upward from it (fieldGrowth.ts; Leo 2026-11-22: "the caret gets shot
+    // down past the composer as it goes"): its last line holds still on the bottom edge, not its first
+    // on the top. New Tab grows downward from a fixed top, so its text holds the top.
+    {
+      entry: "agent-pane.composer-row",
+      variant: "wrap-one-line",
+      newTab: false,
+      bottom: true,
+      holds: "bottom",
+      capped: true,
+    },
+    // Codex's prompt has its own two-line floor, so its first line holds the top as New Tab's does.
+    {
+      entry: "agent-pane.composer-look",
+      variant: "codex-grow-line",
+      newTab: false,
+      bottom: true,
+      holds: "top",
+      capped: false,
+    },
   ];
   beforeAll(async () => {
     vite = await createServer({
@@ -83,6 +105,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             height: bounds.height,
             firstLineTop: text.top - bounds.top,
             glyphTop: glyph.top - bounds.top,
+            textBottom: bounds.bottom - text.bottom,
             scrollTop: field.scrollTop,
             editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
             moving: field.getAnimations().length > 0,
@@ -142,11 +165,13 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               for (const key of ["--cmux-density-scale", "--cmux-density-text-scale", "--cmux-composer-zoom"])
                 document.documentElement.style.setProperty(key, String(density));
             }, density);
+            const fieldSelector = `${layout.newTab ? ".nt-box" : ".acpmux-composer-box"} .acpmux-md-field`;
             const editor = page.locator(layout.newTab ? ".nt-field .ProseMirror" : ".acpmux-composer-box .ProseMirror");
             const placeholderTop = async () => {
               await editor.fill("");
               await page.waitForFunction(
-                () => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0,
+                () => (field) => document.querySelector(field)!.getAnimations().length === 0,
+                fieldSelector,
               );
               await frame(page);
               return page.evaluate(() => {
@@ -196,7 +221,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               const first = before.controls[index]!;
               const second = after.controls[index]!;
               expect(Math.abs(second.left - first.left)).toBeLessThan(0.5);
-              const edge = layout.bottom ? "bottom" : "top";
+              const edge = "bottom";
               expect(Math.abs(second[edge] - first[edge])).toBeLessThan(0.5);
             }
             if (layout.newTab) {
@@ -214,11 +239,22 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
                   0.5 / placed.devicePixelRatio + 1 / 64,
                 );
             }
-            const stable = (current: Measurement, previous: Measurement, shrinking = false) => {
-              expect(current.scrollTop).toBe(0);
+            // The text holds the box's fixed edge on every frame: New Tab's top (no scroll), the chat
+            // composer's bottom as it grows (its last line, the caret's, never below the box). A shrink
+            // rides the top edge (fieldGrowth.ts): what is left sits above what went.
+            const still = (current: ComposerPaint, shrinking = false) => {
               expect(current.editorScrollTop).toBe(0);
-              expect(Math.abs(current.firstLineTop - before.firstLineTop)).toBeLessThan(0.5);
-              expect(Math.abs(current.glyphTop - before.glyphTop)).toBeLessThan(0.5);
+              if (layout.holds === "top" || shrinking) {
+                expect(current.scrollTop).toBe(0);
+                expect(Math.abs(current.glyphTop - before.glyphTop)).toBeLessThan(0.5);
+                // The composer's zoom puts the field's height on fractional pixels, and its scroll
+                // offset (which holds the text's end) on whole device pixels: a subpixel apart.
+              } else expect(Math.abs(current.textBottom - before.textBottom)).toBeLessThanOrEqual(1);
+            };
+            const stable = (current: Measurement, previous: Measurement, shrinking = false) => {
+              still(current, shrinking);
+              if (layout.holds === "top")
+                expect(Math.abs(current.firstLineTop - before.firstLineTop)).toBeLessThan(0.5);
               if (layout.newTab) {
                 expect(Math.abs(current.top - before.top)).toBeLessThan(0.5);
                 expect(current.strip).toBe(before.strip);
@@ -283,9 +319,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               });
               expect(painted.length).toBeGreaterThan(0);
               for (const sample of painted) {
-                expect(sample.scrollTop).toBe(0);
-                expect(sample.editorScrollTop).toBe(0);
-                expect(Math.abs(sample.glyphTop - before.glyphTop)).toBeLessThan(0.5);
+                still(sample, !wrap);
                 if (layout.newTab)
                   expect(Math.abs(sample.suggestions! - UI_ANCHOR_GAP), JSON.stringify(sample)).toBeLessThanOrEqual(
                     0.5 / sample.devicePixelRatio + 1 / 64,
@@ -302,19 +336,22 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             if (layout.newTab) expect(Math.abs((await placeholderTop()) - placeholder!)).toBeLessThan(0.5);
             await editor.fill(Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n"));
             await editor.press("Control+End");
-            await page.waitForFunction(() => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0);
+            await page.waitForFunction(
+              (field) => document.querySelector(field)!.getAnimations().length === 0,
+              fieldSelector,
+            );
             await frame(page);
-            expect(
-              await page.locator(".acpmux-md-field").evaluate((field) => field.scrollHeight > field.clientHeight),
-            ).toBe(true);
-            if (!layout.newTab && !layout.bottom) {
+            expect(await page.locator(fieldSelector).evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(
+              true,
+            );
+            if (layout.capped) {
               const capped = await measure(page, false);
               for (let index = 0; index < before.controls.length; index++)
                 expect(Math.abs(capped.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);
             }
             await page.keyboard.type("x");
             await frame(page);
-            expect(await page.locator(".acpmux-md-field").evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
+            expect(await page.locator(fieldSelector).evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
           } finally {
             await page.close();
           }

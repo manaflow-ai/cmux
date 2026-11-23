@@ -271,6 +271,10 @@ public final class ConversationComposeViewController: UIViewController {
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // The sheet may be presented after its keyboard was already hidden.
+        // Reconcile before focusing To:, so an unannounced hide cannot leave
+        // the composer above empty space.
+        keyboardTracker.dropKeyboardWithoutOwner()
         recipientField.textField.becomeFirstResponder()
     }
 
