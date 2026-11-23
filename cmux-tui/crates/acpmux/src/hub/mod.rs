@@ -126,6 +126,7 @@ pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_replay;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -2298,6 +2299,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
