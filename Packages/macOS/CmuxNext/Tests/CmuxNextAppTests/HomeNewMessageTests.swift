@@ -207,6 +207,28 @@ struct HomeNewMessageTests {
         #expect(HomeChiefRoster().recentChiefs(contacts, rows: rows, now: now).map(\.id) == [recent.0.id, Self.ada.id])
     }
 
+    /// #48467: in the dev build the list under To: cut its last row off ("Member" with half of "Team" under it): the
+    /// table's automatic style added padding `preferredHeight` did not count. At its preferred height, in a window
+    /// whose content runs under the titlebar, every row shows whole and nothing scrolls.
+    @Test func theListShowsItsLastRowWhole() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let list = HomeRecipientSuggestionsView(frame: .zero)
+        list.show(rows: [.header("Chiefs"), .recipient(.contact(Self.chief)), .newChief, .header("Team"), .recipient(.contact(Self.ada))])
+        list.frame = NSRect(x: 20, y: 500 - 40 - list.preferredHeight, width: 400, height: list.preferredHeight)
+        window.contentView?.addSubview(list)
+        list.layoutSubtreeIfNeeded()
+        list.table.layoutSubtreeIfNeeded()
+        let visible = list.scroll.contentView.documentVisibleRect
+        for row in 0..<list.rows.count {
+            let rect = list.table.rect(ofRow: row)
+            #expect(visible.minY <= rect.minY + 0.5 && rect.maxY <= visible.maxY + 0.5, "row \(row) \(rect) is cut off (visible \(visible))")
+        }
+        #expect(list.table.style == .plain)
+    }
+
     // MARK: The To: field
 
     @Test func theFieldTokenizesOnReturnCommaAndTab() throws {

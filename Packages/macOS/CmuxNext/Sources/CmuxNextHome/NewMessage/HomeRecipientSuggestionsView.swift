@@ -44,6 +44,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: false)
     static let rowHeight: CGFloat = 44
     static let headerHeight: CGFloat = 26
+    /// A row's content inset from the list's edges: its own `space4` plus the 8 pt the inset table style used to add
+    /// on each side, now that the table is plain (the avatars and headers stay where they were).
+    static var rowInset: CGFloat { Metrics.space4 + 8 }
     static let avatarSize: CGFloat = 28
     /// The list grows to this many rows' height, then scrolls (the page also caps it at the window).
     static let maxRows = 9
@@ -62,6 +65,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         table.headerView = nil
         table.rowHeight = Self.rowHeight
         table.intercellSpacing = .zero
+        // #48467: the plain style, no insets of its own. The automatic style resolved to the inset one, whose padding
+        // `preferredHeight` did not count: the list's last row was cut off ("Member / Team" in New Message).
+        table.style = .plain
         table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
@@ -73,6 +79,8 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         scroll.hasVerticalScroller = true
         scroll.borderType = .noBorder
         scroll.drawsBackground = false
+        scroll.automaticallyAdjustsContentInsets = false  // under the window's titlebar it pushed the rows down
+        scroll.contentInsets = NSEdgeInsetsZero
         SystemScrollers.follow(scroll)
         addSubview(scroll)
         emptyLabel.font = Typography.caption
@@ -212,8 +220,8 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.space4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space4),
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Self.rowInset),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Self.rowInset),
             label.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -4),
         ])
         cell.setAccessibilityRole(.staticText)
@@ -240,12 +248,12 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         title.lineBreakMode = .byTruncatingTail
         var views: [NSView] = [leading, title]
         var constraints = [
-            leading.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.space4),
+            leading.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Self.rowInset),
             leading.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             leading.widthAnchor.constraint(equalToConstant: Self.avatarSize),
             leading.heightAnchor.constraint(equalToConstant: Self.avatarSize),
             title.leadingAnchor.constraint(equalTo: leading.trailingAnchor, constant: Metrics.space3),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space4),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Self.rowInset),
         ]
         if let detail {
             let line = ThemedLabel(labelWithString: detail)
@@ -256,7 +264,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
             constraints += [
                 title.bottomAnchor.constraint(equalTo: cell.centerYAnchor, constant: 1),
                 line.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-                line.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space4),
+                line.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Self.rowInset),
                 line.topAnchor.constraint(equalTo: cell.centerYAnchor, constant: 1),
             ]
         } else {
