@@ -196,9 +196,34 @@ def owned_gcp(label: object) -> bool:
     return isinstance(label, str) and label in OWNED_GCP_LINUX
 
 
+# The Freestyle Linux rung's label (pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
+# same-repository job. Blacksmith's runners never take it. It sits right after the owned GCP lead (or leads) in an x64
+# pool whose jobs need no fresh machine, with a Blacksmith x64 member after it (spec_problems()): a full GCP pool moves
+# to Freestyle, and a full Freestyle rung moves to Blacksmith (label_evidence()'s full mark, as for the GCP lead).
+# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] We
+# could use Freestyle."
+OWNED_FREESTYLE_LINUX = frozenset(pr_runner_pool.OWNED_FREESTYLE_LINUX)
+
+
+def owned_freestyle(label: object) -> bool:
+    """The Freestyle Linux rung's label (OWNED_FREESTYLE_LINUX)."""
+    return isinstance(label, str) and label in OWNED_FREESTYLE_LINUX
+
+
 def owned_lead(label: object) -> bool:
-    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()) or the GCP pool (owned_gcp())."""
-    return owned_ephemeral(label) or owned_gcp(label)
+    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the GCP pool (owned_gcp())
+    or the Freestyle rung after it (owned_freestyle()). None has a size or is probed; a full one overflows."""
+    return owned_ephemeral(label) or owned_gcp(label) or owned_freestyle(label)
+
+
+def owned_prefix(listed: Sequence[object]) -> list[str]:
+    """A pool's leading owned x64 members (the GCP lead, the Freestyle rung), which the outage override keeps first."""
+    lead: list[str] = []
+    for member in listed:
+        if not (owned_gcp(member) or owned_freestyle(member)):
+            break
+        lead.append(str(member))
+    return lead
 
 
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -319,6 +344,16 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 if spec.get("ephemeral_only"):
                     found.append(f"{where}: {member} is the owned GCP Linux label, whose persistent runners take it "
                                  "too; an ephemeral_only pool's jobs need a fresh machine (OWNED_GCP_LINUX)")
+            elif owned_freestyle(member):
+                at = listed.index(member)
+                if not all(owned_gcp(other) for other in listed[:at]) \
+                        or not any(X64_SIZE.match(other) for other in listed[at + 1:]):
+                    found.append(f"{where}: {member} is the Freestyle Linux label; it may only lead an x64 pool or "
+                                 "follow its owned GCP lead, with a Blacksmith x64 member after it to overflow to "
+                                 "(OWNED_FREESTYLE_LINUX)")
+                if spec.get("ephemeral_only"):
+                    found.append(f"{where}: {member} is the Freestyle Linux label, whose VMs keep their disk between "
+                                 "jobs; an ephemeral_only pool's jobs need a fresh machine (OWNED_FREESTYLE_LINUX)")
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
