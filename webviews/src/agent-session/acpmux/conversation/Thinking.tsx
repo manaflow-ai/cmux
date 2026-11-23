@@ -158,34 +158,33 @@ type Roll = {
 /// (`drawn`, the last commit's) rolls out with its words, and the new tail rolls in with the new
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
-  const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
-  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
-  // costs none.
-  const drawn = useRef(tail);
-  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
-  // that records this commit's tail, so it still reads the one before.
-  const rolledOut = roll.out !== undefined;
-  useLayoutEffect(() => {
-    if (!rolledOut) return;
-    const before = drawn.current;
-    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
-  }, [rolledOut, roll.turns]);
-  useLayoutEffect(() => {
-    drawn.current = tail;
-  });
+  // `drawn`: the tail these words were last drawn with, kept with them in the render that draws it,
+  // so a new roll takes the old words' tail in the render that rolls them. Filled in by a layout
+  // effect, each tool call's start or end cost the transcript a second commit (and the line its
+  // layout reads again) before the frame painted.
+  const [roll, setRoll] = useState<Roll & { drawn: string }>({ key, label, lead, turns: 0, drawn: tail });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
-    setRoll({
+    const next = {
       key,
       label,
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      // Its tail is the one last drawn, filled in by the first layout effect above.
-      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
-    });
-  } else if (label !== roll.label) setRoll({ ...roll, label, lead });
+      // The old words roll out with the tail they were last drawn with.
+      out: rolls
+        ? { key: roll.key, label: roll.label, lead: roll.lead, turns: roll.turns, tail: roll.drawn }
+        : undefined,
+      drawn: tail,
+    };
+    setRoll(next);
+    return next;
+  }
+  if (label !== roll.label || tail !== roll.drawn) {
+    const next = { ...roll, label, lead, drawn: tail };
+    setRoll(next);
+    return next;
+  }
   return roll;
 }
 

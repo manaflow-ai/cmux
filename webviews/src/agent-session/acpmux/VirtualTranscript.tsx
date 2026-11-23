@@ -343,11 +343,14 @@ function fadeInOpenedChat(node: HTMLElement | null): Animation | undefined {
 /// 146px), and with any slack the row kept the frame's height, so every row below it sat that
 /// fraction too high, over the row above. A height that did not change still compares equal, so
 /// it renders nothing.
+/// The row's version is not compared: placement reads only the height and the fields below (a row
+/// keeps its last drawn height until its next version is drawn), so a new version drawn at the same
+/// height places every row where it was. Compared, each streamed update of the live line (a tool
+/// call's start or end, its words changing in place) drew the whole transcript a second time.
 function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
   return (
     old !== undefined &&
     old.sessionId === entry.sessionId &&
-    old.version === entry.version &&
     old.width === entry.width &&
     old.height === entry.height &&
     Boolean(old.actions) === Boolean(entry.actions) &&
@@ -1111,6 +1114,8 @@ function TranscriptView({
   const followRef = useRef(follow);
   followRef.current = follow;
   const transcriptMounted = useRef(true);
+  /// The offset, scroll lead and follow state the last commit drew with (set in its layout effect).
+  const drewScroll = useRef<{ top: number; delta: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   const pacedScroll = (frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
@@ -1140,6 +1145,18 @@ function TranscriptView({
       });
       return;
     }
+    // The last commit already drew this offset, lead and follow state (a followed view's commit
+    // places it at the new end before the scroll event that reports it): a render now would draw
+    // the same rows in the same place. Committed anyway, each followed tool call's start or end
+    // rendered the whole transcript a second time.
+    const drew = drewScroll.current;
+    if (
+      drew !== undefined &&
+      drew.top === scrollRef.current.top &&
+      drew.delta === scrollRef.current.delta &&
+      drew.following === followingRef.current
+    )
+      return;
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
@@ -3770,6 +3787,11 @@ function TranscriptView({
           : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
   const renderFollowing = sessionSwitched || followingRef.current;
+  const drewTop = renderScroll.top;
+  const drewDelta = unplacedScroll.delta;
+  useLayoutEffect(() => {
+    drewScroll.current = sessionSwitched ? undefined : { top: drewTop, delta: drewDelta, following };
+  });
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
   const shownTop = renderScroll.top - lift - origin;
