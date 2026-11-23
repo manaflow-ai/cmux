@@ -30,6 +30,9 @@ export const SNAPSHOT_BOOT_GLOBAL = "__cmuxChatSnapshotBoot";
 /// bundle started.
 export const SNAPSHOT_LIVE_GLOBAL = "__cmuxChatSnapshotLive";
 export type SnapshotLive = { drawn?: boolean; painted?: () => void };
+/// The global the boot script sets to true once it told the host the copy drew (`pane.painted`, boot.ts), so the
+/// bundle, which reports the same when it starts (live.ts `reportChatSnapshot`), does not report it twice.
+export const SNAPSHOT_REPORTED_GLOBAL = "__cmuxChatSnapshotReported";
 /// The element the copy is drawn in (its shadow root holds the copy).
 export const SNAPSHOT_HOST_TAG = "cmux-chat-snapshot";
 /// The copy's stand-ins for `<html>` and `<body>`, which a shadow tree cannot hold: the page's own

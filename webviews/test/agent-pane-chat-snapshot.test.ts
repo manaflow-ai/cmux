@@ -507,6 +507,37 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("a copy that draws before the bundle tells the host itself, once, and the bundle does not tell it again", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    // The shared page host's handler (pageClient.ts), which the page finds before any script runs.
+    await page.addInitScript(() => {
+      const w = window as any;
+      w.hostPosts = [];
+      w.webkit = {
+        messageHandlers: {
+          cmuxPage: {
+            postMessage: async (body: { id: number }) => {
+              w.hostPosts.push({ body, bundleStarted: w.reports !== undefined });
+              return { t: "ok", id: body.id };
+            },
+          },
+        },
+      };
+    });
+    await relaunched(page, before.snapshot);
+    expect(await page.evaluate(() => (window as any).hostPosts)).toEqual([
+      {
+        body: { t: "call", id: 2 ** 30, op: "cmux.agent.pane.painted", params: { drewKeptTail: true } },
+        bundleStarted: false,
+      },
+    ]);
+    // The bundle's own report is the one the boot script made.
+    expect(await page.evaluate(() => (window as any).reports)).toEqual([]);
+    await context.close();
+  });
+
   test("a copy the host answers after the page drew the chat draws nothing", async () => {
     const context = await newContext(800, 600);
     const before = await written(await context.newPage());
