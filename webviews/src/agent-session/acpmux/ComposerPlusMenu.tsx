@@ -7,19 +7,20 @@
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { Picker, PlusIcon, type Section } from "./ComposerPickers";
-import { isComposerCommand, runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
+import { PaperclipIcon, Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { runComposerPlusAction, type ComposerPlusEntry, isComposerCommand } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
 
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
+import { composerPlusReturnHint } from "./composerPlusReturnHint.experiment";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { Tooltip } from "../../ui/Tooltip";
 import { Button } from "../../ui/Button";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { toolbarButtonsFrom, type ToolbarButton } from "./composer/toolbarButtons";
-import { composerActionIcon, composerPlusMenuSections } from "./composerPlusMenuModel";
+import { composerPlusMenuSections, composerActionIcon, composerPlusReturnVerb } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
 import { memo, useEffect } from "react";
@@ -34,6 +35,8 @@ export type ComposerPlusMenuProps = {
   client?: PageClient | null;
   /** The trigger's extra classes (New Tab's `acpmux-newtab-plus`). */
   className?: string;
+  /** The trigger's glyph: + (the default), or Studio's attach paperclip at the row's right end, its menu opening leftward. */
+  glyph?: "plus" | "paperclip";
   /** Plan is on: its row draws the Build glyph, as its title says Build. */
   planning?: boolean;
   /** A composer action (`composer.attachFiles`, `composer.planMode`, ...). */
@@ -57,6 +60,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
+  glyph = "plus",
   client,
   planning = false,
   onCommand,
@@ -92,7 +96,11 @@ const MemoPlusMenu = memo(function PlusMenu({
     experimentArm(composerPlusCommands),
     planShortcut,
   ).map((group) => ({
-    choices: group.choices,
+    // The verb Return carries out, drawn beside ↩ on the highlighted row (composerPlusReturnHint).
+    choices: group.choices.map((choice, index) => {
+      const entry = group.entries[index];
+      return entry ? { ...choice, verb: t(`composer.returnVerb.${composerPlusReturnVerb(entry)}`) } : choice;
+    }),
     onPick: (id: string) => {
       const entry = group.entries.find((row) => row.id === id);
       if (!entry) return "keep";
@@ -107,9 +115,10 @@ const MemoPlusMenu = memo(function PlusMenu({
       tooltip={t("composer.addTooltip")}
       shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
-      button={<PlusIcon />}
-      align="start"
+      button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
+      align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
+      returnHint={experimentArm(composerPlusReturnHint) === "verb"}
       {...(onOpen ? { onOpen } : {})}
     />
   );

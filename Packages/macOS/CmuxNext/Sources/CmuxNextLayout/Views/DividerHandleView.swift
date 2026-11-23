@@ -263,8 +263,8 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
 
     /// A right-click anywhere in the handle's grab band opens its divider's menu, a hidden divider's too.
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard !isDragging, let contextMenu else { return super.menu(for: event) }
-        return contextMenu()
+        guard !isDragging, let contextMenu else { return NSMenu.withoutSystemItems(super.menu(for: event)) }
+        return NSMenu.withoutSystemItems(contextMenu())
     }
 
     override func flagsChanged(with event: NSEvent) {

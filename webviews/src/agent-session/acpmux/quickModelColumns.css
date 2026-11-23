@@ -118,7 +118,7 @@
   color: var(--agent-accent-text, white);
   font-weight: 600;
   line-height: 1;
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, black 15%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, black 15%, transparent);
 }
 .acpmux-cols-avatar[data-empty] {
   color: var(--agent-muted);
@@ -136,7 +136,7 @@
   background: var(--surface-popup, var(--cmux-surface-solid, #1e1e1e));
   box-shadow:
     0 0 0 1.5px var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)),
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 
 /* The account card: under the avatar, over the columns. */

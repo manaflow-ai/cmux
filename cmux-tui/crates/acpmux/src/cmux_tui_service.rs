@@ -99,7 +99,9 @@ pub fn admit(
 
 /// The machine a pipe dials: its hub `daemonId` (its node key, standard base64), given as
 /// `daemonId`, or by `machine`: a peer whose config names its WireGuard key, a route the carrier
-/// was given, or a key itself.
+/// was given, a key itself, or the name the hub lists the machine by (`acpmux machine ls`, the
+/// address book's host). This machine's own key is refused: the hub carries only between two of
+/// the person's machines, and its daemon is on loopback here.
 async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcError> {
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let port = params
@@ -124,6 +126,7 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
             configured
                 .or_else(|| carrier.as_ref().and_then(|c| c.route(machine)))
                 .or_else(|| is_key(machine).then(|| machine.to_owned()))
+                .or_else(|| book_key(&hub.mesh_book_machines(), machine))
                 // A hub-connected machine by the name `acpmux machine ls` shows: the address
                 // book's `(daemonId, host)` rows of this person's other machines.
                 .or_else(|| book_machine(&hub.mesh_book_machines(), machine))
@@ -140,7 +143,22 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
         )
         .with_data(json!({"reason": "machine.unknown"}))
     })?;
+    if carrier.as_ref().is_some_and(|c| c.public_key() == daemon) {
+        return Err(RpcError::invalid_params(format!(
+            "that is this machine: the hub carries only between two of your machines; reach this \
+             machine's daemon at ws://127.0.0.1:{port} without --via-machine"
+        ))
+        .with_data(json!({"reason": "machine.self"})));
+    }
     Ok((daemon, port))
+}
+
+/// The `daemonId` of the one machine the hub's address book lists as `name` (its host, any
+/// case), among `machines` (`(daemonId, host)`). None when no machine or more than one has it.
+fn book_key(machines: &[(String, String)], name: &str) -> Option<String> {
+    let mut found = machines.iter().filter(|(_, host)| host.eq_ignore_ascii_case(name));
+    let (key, _) = found.next()?;
+    found.next().is_none().then(|| key.clone())
 }
 
 /// The hub `daemonId` of the machine the address book lists as `name` (its host name, matched
@@ -214,6 +232,21 @@ mod tests {
 
     fn consent(required: bool, control: &str) -> Value {
         json!({"consentRequired": required, "consent": {"screen": "none", "control": control}})
+    }
+
+    #[test]
+    fn a_machine_the_hub_lists_is_named_by_its_host() {
+        let machines = vec![
+            ("a".repeat(44), "gcp-lane-2".to_owned()),
+            ("b".repeat(44), "air".to_owned()),
+            ("c".repeat(44), "twice".to_owned()),
+            ("d".repeat(44), "Twice".to_owned()),
+        ];
+        assert_eq!(book_key(&machines, "gcp-lane-2"), Some("a".repeat(44)));
+        assert_eq!(book_key(&machines, "AIR"), Some("b".repeat(44)));
+        // Two machines listed under one name: neither is picked.
+        assert_eq!(book_key(&machines, "twice"), None);
+        assert_eq!(book_key(&machines, "nowhere"), None);
     }
 
     #[test]

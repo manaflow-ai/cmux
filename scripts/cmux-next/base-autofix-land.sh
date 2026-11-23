@@ -59,6 +59,10 @@ main() {
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
   unset TOKEN
+  # The Swift rewrites' pull request only: the push token may lack pull-requests (its mint asks for
+  # contents alone, cmux-next-base-autofix.yml). Unset: the push token.
+  pr_token="${PR_TOKEN:-$token}"
+  unset PR_TOKEN
   # Global, and removed on EXIT: set -e ends the script without returning from main.
   work="$(mktemp -d)"
   trap 'rm -rf "${work:-}"' EXIT
@@ -135,6 +139,9 @@ main() {
       "$@"
     fi
   }
+  with_pr_token() { # <gh command...>: the pull-request token for this one command only
+    if [[ -n "$pr_token" ]]; then GH_TOKEN="$pr_token" "$@"; else "$@"; fi
+  }
   propose_sources() { # <base> <paths>: the rewrite as a commit on <base>, pushed to SOURCES_BRANCH, with its pull request
     local on="$1" paths="$2" path entry tree commit previous number path_list
     local idx="$work/sources-index"
@@ -173,10 +180,10 @@ main() {
       echo "::warning title=Base autofix Swift rewrites::open the pull request for $sources_branch into $branch by hand"
       return 0
     fi
-    number="$(with_token gh pr list --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" --state open \
+    number="$(with_pr_token gh pr list --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" --state open \
       --json number --jq '.[0].number // empty' 2>/dev/null || true)"
     [[ -z "$number" ]] || { echo "Its pull request #$number compiles the new head."; return 0; }
-    if ! with_token gh pr create --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" \
+    if ! with_pr_token gh pr create --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" \
       --title "chore(next): base autofix Swift rewrites" \
       --body "The base autofix rewrote these Swift files (the namespace lint's safe rewrites) and could not compile them, so they wait here for this pull request's CI instead of landing on $branch (8f33d7030473 broke the Release compile that way). Made by ${RUN_URL:-the base autofix}; a newer run replaces the head.
 
@@ -234,6 +241,13 @@ none" >/dev/null; then
   while ((status != 0)); do
     held="$(grep . "$work/held" || true)"
     if [[ -z "$held" ]]; then
+      if ((status == 75)); then
+        # A base that keeps moving is no red: every push to it starts a run (cancel-in-progress: false keeps
+        # the newest pending one), and that run repairs these (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING
+        # SHIT INSTEAD OF JUST BEING OOPS").
+        echo "$branch kept moving under every push; the run its newest push started repairs it."
+        exit 0
+      fi
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
     git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
@@ -274,9 +288,10 @@ none" >/dev/null; then
       exit "$status"
     fi
     if ((round >= rounds)); then
-      echo "::error::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
+      # No red: the run the newest of those pushes started repairs them.
+      echo "::warning title=Base autofix::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
       printf '%s' "$again" | sed 's/^/  /' >&2
-      exit 1
+      exit 0
     fi
     round=$((round + 1))
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
