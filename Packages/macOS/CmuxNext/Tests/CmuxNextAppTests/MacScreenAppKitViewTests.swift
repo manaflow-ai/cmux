@@ -62,7 +62,7 @@ struct MacScreenAppKitViewTests {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let home = pages.makeView(for: "home")
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let prompt = MacScreenApprovalPrompt()
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
@@ -137,6 +137,24 @@ struct MacScreenAppKitViewTests {
         home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list, devicesLook: .classic))
         #expect(texts(under: home).contains("Open cmux on Air Blue to share its screen."))
         #expect((findView("macScreen.home.view.Air Blue", under: home) as? NSButton)?.isEnabled == false)
+        pages.tabClosed("home")
+    }
+
+    /// The quiet rows keep Start cmux on NAME (Leo 2026-11-14: "agents need to be able to help set up and
+    /// propagate the app for me"): an offline Mac's one button; without the daemon's verbs, none.
+    @Test func quietOfflineRowOffersStartCmux() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let offline = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false, online: false,
+                                                    macScreenShared: true, access: MacScreenAccess(.full),
+                                                    setup: .make(isMac: true, online: false, verbs: .all, run: nil))
+        let noDaemon = MacScreenHomeSnapshot.Device(id: "other-mac", name: "Studio", isPhone: false, online: false,
+                                                     macScreenShared: true, access: MacScreenAccess(.full))
+        home.build(MacScreenHomeSnapshot(devices: .list([offline, noDaemon]), sharingLook: .list, devicesLook: .offlineLines))
+        #expect(findView("macScreen.home.start.Air Blue", under: home) != nil)
+        #expect(findView("macScreen.home.start.Studio", under: home) == nil)
         pages.tabClosed("home")
     }
 
@@ -237,7 +255,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         #expect(pane.model.card == .hubConnect)
         #expect(texts(under: pane.view.chrome.card).contains(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), "Studio")))
@@ -260,7 +278,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func toolbarShowsTheNameAndHidesStreamControlsBeforeASession() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
         #expect(texts(under: toolbar).contains("Studio"))

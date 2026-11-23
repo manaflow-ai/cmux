@@ -59,6 +59,17 @@ export const BENCHES: readonly Bench[] = [
   // chat-open takes about 36 s on the perf runner (2026-11-12).
   { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
+  // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
+  // part so it never pushes the suite past its cap.
+  {
+    name: "settled-page",
+    file: "settled-page.bench.ts",
+    args: ["3", "120"],
+    env: { ONLY: "chat_switch,workspace_switch" },
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",
@@ -143,6 +154,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Scrolling up a long chat page by page at 1k, 10k and 100k rows: each older page's ask to its drawn frame (target
+  // 50 ms p95), loading and blank frames, the anchor's shift, and the 100k / 1k ratio (target 1.2x). perf-cron.py's
+  // web-ui-scroll-up part runs it.
+  {
+    name: "transcript-scroll-up-scale",
+    file: "transcript-scroll-up-scale.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.
@@ -154,6 +175,15 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_200_000,
     ownPart: true,
   },
+  // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
+  // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
+  {
+    name: "coord-sim-load",
+    file: "coord-sim-load.bench.ts",
+    args: ["3", "10", "60", "5000"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
   // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
@@ -163,6 +193,37 @@ export const BENCHES: readonly Bench[] = [
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
     timeoutMs: 1_770_000,
+    ownPart: true,
+  },
+  // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
+  // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
+  // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
+  // (composerTypingRows.ts). perf-cron.py's web-ui-typing part runs it; each load ends by its 120 s safety deadline.
+  {
+    name: "composer-typing",
+    file: "composer-typing.bench.ts",
+    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    timeoutMs: 1_500_000,
+    ownPart: true,
+  },
+  // A fast fling and clicks along the prompt rail in a 1,500-turn paged chat, with 200, 500 and 1,000 listed sessions
+  // and a busy daemon (Leo 2026-11-22: "lags on scrolling in general when he's scrolling really fast"). perf-cron.py's
+  // web-ui-scroll part runs it (`--only chat-fast-scroll`).
+  {
+    name: "chat-fast-scroll",
+    file: "chat-fast-scroll.bench.ts",
+    args: ["--sizes", "200,500,1000", "--turns", "1500", "--seconds", "4", "--clicks", "16"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
+  // The sidebar chats page flung at 300 and 1,500 px a frame and jumped along its track at 200 to 10,000 Earlier
+  // rows, with every row mounted (the app's host today), a same-frame slice host and a one-frame-late one: work per
+  // frame and blank frames (the same ask). The web-ui-scroll part runs it too (`--only sidebar-chats-fling`).
+  {
+    name: "sidebar-chats-fling",
+    file: "sidebar-chats-fling.bench.ts",
+    args: ["200", "500", "1000", "10000"],
+    timeoutMs: 600_000,
     ownPart: true,
   },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
@@ -187,12 +248,16 @@ export const BENCHES: readonly Bench[] = [
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
   // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
-  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
+  // ordinary chat-switch and transcript-replay: the five timeouts sum to 1,695 s, under that part's 1,800 s cap.
+  // chat-open-god opens the small chat and the god one in the same rounds (PAIRED=1), interleaved with a calibration
+  // page (bench/runnerCalibration.ts), so the ordinary chat-open no longer runs in that part: 7 rounds, against the
+  // 3 that left chat_open.god.compact.attach_to_latest reading the runner (89 to 174 ms for the same work). 24 s for
+  // both chats at 3 rounds on a linux-pool runner (2026-11-19).
   {
     name: "chat-open-god",
     file: "chat-open.bench.ts",
-    args: ["3", "300"],
-    env: { FIXTURE: "god" },
+    args: ["7", "300"],
+    env: { FIXTURE: "god", PAIRED: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },

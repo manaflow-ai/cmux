@@ -18,14 +18,14 @@ public nonisolated protocol RemoteViewStreamSource: AnyObject, Sendable {
     /// Asks the host for an IDR: after a decode error or a frame gap.
     func requestKeyframe()
     /// Frame `frame` finished decoding at `decodedAtMicros` (`DispatchTime` uptime) after
-    /// `decodeMicros`: the source's stage ledger and decode feedback.
+    /// `decodeMicros`: the source's decode feedback to the host.
     func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64)
     /// Frame `frame` reached the glass at `presentedAtMicros` (`DispatchTime` uptime).
     func notePresented(frame: UInt32, presentedAtMicros: UInt64)
 }
 
 public nonisolated extension RemoteViewStreamSource {
-    /// A source without a stage ledger ignores decode and present times.
+    /// A source with no feedback channel ignores decode and present times.
     func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {}
     func notePresented(frame: UInt32, presentedAtMicros: UInt64) {}
 }

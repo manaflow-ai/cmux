@@ -1,0 +1,14 @@
+/* Aurora's chat: the prompt bubble is a faint teal glass with a teal hairline, cards are a neutral
+   wash, and the corner follows the glass's rounder geometry without becoming a capsule.
+   Every color is made from the theme's own (--agent-text, --agent-accent), which the theme file sets
+   per appearance, so the tint reads as pale teal on snow and deep teal on polar night.
+   Links and the transcript's text keep the host's colors (contrast numbers: DESIGN.md).
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-accent) 38%, transparent);
+  --cv-user-bubble-radius: 16px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 90%, var(--agent-accent)) 13%, transparent);
+}

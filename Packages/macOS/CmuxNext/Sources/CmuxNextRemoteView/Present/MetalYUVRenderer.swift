@@ -68,7 +68,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         let retained = RetainedTextures(luma: luma, chroma: chroma)
         commands.addCompletedHandler { _ in retained.release() }
         if let onPresented = frame.onPresented {
-            // The stage ledger's Present: when the picture reached the glass (host time in
+            // The viewer's Present stage: when the picture reached the glass (host time in
             // seconds, the `DispatchTime` uptime base); 0 when the drawable was never shown.
             drawable.addPresentedHandler { shown in
                 let at = shown.presentedTime

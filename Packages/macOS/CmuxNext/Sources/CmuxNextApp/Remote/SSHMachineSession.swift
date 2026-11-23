@@ -8,9 +8,8 @@ import Foundation
 import Observation
 import CmuxNextWakeups
 
-/// One SSH machine: its saved route, its link (`SSHMachineLink`), and the
-/// daemon connection over the link socket. Like `CloudMachineSession`, the
-/// machine's daemon is its own tree and sidebar section.
+/// One SSH machine: its saved route, its link (`SSHMachineLink`), and the daemon connection over the link
+/// socket. Like `CloudMachineSession`, the machine's daemon is its own tree and sidebar section.
 @Observable
 final class SSHMachineSession {
     struct DaemonFailure: Equatable {
@@ -40,29 +39,28 @@ final class SSHMachineSession {
     var installPhase: RemoteInstaller.Phase?
     /// The last install or connect failure worth showing.
     var lastError: String?
-    /// cx-3r9mt: an older cmux-tui on a machine that is not idle: the sidebar says "Update
-    /// available" and the person's Update installs it; the app never does it by itself.
+    /// cx-3r9mt: an older cmux-tui on a machine that is not idle: the sidebar says "Update available" and the
+    /// person's Update installs it; the app never does it by itself.
     var updateOffered = false
     /// A newer build waits as `~/.cmux/bin/cmux.staged` (``RemoteStaticInstallStager``); the header says so.
     var staticInstallStaged = false
-    /// Why the machine's cmux-tui did not start: the daemon's error and the
-    /// link's output (the remote error, for example a session db the daemon
-    /// cannot open). Set when the first connection gives up after the SSH
-    /// link came up at least once, cleared when the daemon connects or the
-    /// link stops (cx-zdh8). Before the link comes up, SSH's own status
-    /// says what is wrong.
+    /// Why the machine's cmux-tui did not start: the daemon's error and the link's output (the remote error,
+    /// for example a session db the daemon cannot open). Set when the first connection gives up after the SSH
+    /// link came up at least once, cleared when the daemon connects or the link stops (cx-zdh8). Before the
+    /// link comes up, SSH's own status says what is wrong.
     var daemonFailure: DaemonFailure?
     /// The SSH link came up since the last connect (ssh reached the machine).
     @ObservationIgnored private var linkReached = false
     @ObservationIgnored private var startupError: DaemonError?
-    /// Connect at launch (the user did not disconnect it). Saved in the
-    /// session registry's transport.
+    /// Connect at launch (the user did not disconnect it). Saved in the session registry's transport.
     var autoConnect = true
     /// Offer to install when the next probe finds cmux-tui missing or too
     /// old (set by a user-initiated connect, cleared when offered).
     @ObservationIgnored var offersInstall = false
     /// The window whose action connected it, where its "Connecting to…" row lists (#31490).
     @ObservationIgnored var connectingWindow: String?
+    /// A person's connect is under way (until its daemon connects or gives up): only it lists a "Connecting to…" row.
+    var personConnectPending = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
@@ -98,6 +96,7 @@ final class SSHMachineSession {
             }) {
                 guard let self, observation.attemptID == self.connectionAttemptID else { continue }
                 let startup = observation.startup
+                if startup != .connecting { self.personConnectPending = false } // connected or given up: the row goes
                 guard case .unavailable(let error) = startup else {
                     self.startupError = nil
                     self.daemonFailure = nil
@@ -214,6 +213,7 @@ final class SSHMachineSession {
 
     func disconnect(keepAutoConnect: Bool = false) {
         if !keepAutoConnect { autoConnect = false }
+        personConnectPending = false
         daemon.shutdownConnection()
         linkStatus = .offline
         let link = link

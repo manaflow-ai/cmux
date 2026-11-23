@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Issue 38049: the first-run Bring your history page drew at `app.uiScale` alone, larger than the
+/// Issue 38049: the first-run Bring your history page (since removed) drew at `app.uiScale` alone, larger than the
 /// Chief chat it covers whenever Agent Chat Zoom was below 1, and Cmd-- could not shrink it. A page
 /// that follows the chat zoom shows `uiScale` times `agentPane.zoom`, live, in the web view itself;
 /// any other page keeps `uiScale`.
@@ -12,7 +12,7 @@ import Testing
 struct PageWebViewChatZoomTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.chat-zoom", resource: "chat-zoom", namespaces: [])
-    /// As `cmux.import-history` declares it.
+    /// As a page shown over the Chief chat declares it (the setup card, `cmux.setup-card`).
     private let chiefDescriptor = PageDescriptor(id: "test.chat-zoom", resource: "chat-zoom", namespaces: [], followsChatZoom: true)
 
     init() throws {

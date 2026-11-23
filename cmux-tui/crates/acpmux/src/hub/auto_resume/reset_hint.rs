@@ -240,7 +240,11 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
 }
 
 /// Finds an absolute reset deadline in an agent error or saved Claude usage windows.
-pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -> Option<u64> {
+pub(in crate::hub) fn reset_at(
+    error: &str,
+    usage_limits: Option<&Value>,
+    now_ms: u64,
+) -> Option<u64> {
     retry_after(error, now_ms)
         .or_else(|| {
             let lower = error.to_ascii_lowercase();

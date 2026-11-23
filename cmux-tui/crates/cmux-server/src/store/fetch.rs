@@ -171,8 +171,10 @@ fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        hasher.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
+        // `read` never returns more than the buffer holds.
+        let Some(chunk) = buf.get(..n) else { break };
+        hasher.update(chunk);
+        out.write_all(chunk)?;
         total += n as u64;
     }
     Ok((total, hasher.finalize().into()))

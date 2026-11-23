@@ -79,7 +79,7 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux'|'windows', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id,
         mac_screen_chosen INT 0/1,              -- 1 once the switch was set on purpose
@@ -132,7 +132,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets and `screenShare` (the host's last report, or null). |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
-| `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. Marks the switch as set on purpose, so a join never changes it again. |
+| `PUT /v1/devices/:id/mac-screen` | `{shared, agent?: {session, device?}}` | `{device}` | Only device `:id` itself may change its own sharing. Marks the switch as set on purpose, so a join never changes it again. `agent` names the owner's agent session that asked, under the account's `agentsMayShare`; the `shared`/`unshared` audit row's `detail` then reads `agent <session> on <device>`. |
 | `PUT /v1/devices/:id/screen-share` | `{state, missing, holder?, session, osVersion?, checkedAtMs, detail?}` | `{device}` | A Mac or Linux host's own screen sharing status, `cmux.screen-share.status/1` (acpmux `screen_share.rs`): `state` `granted`, `needs_grant` (with `missing`: `screen_recording`, `accessibility`), `not_installed`, `unsupported`; `session` `this_user`, `other_user`, `nobody`, `unknown`. Only device `:id` itself, from any of its sessions (host and machine included); other fields are dropped, a value outside the schema is 400. Pushes `devices.changed` when it changed. Each row reads its one line from it. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
 | `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `full` (every device here is the same account's). |
@@ -145,7 +145,9 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
+| `GET /v1/settings` | | `{settings:{agentsMayShare, updatedAt, updatedBy}}` | The account's settings, one value each per user (User DO `meta`). `agentsMayShare` ("My agents can turn screen sharing and control on my machines") is false until a person turns it on. A host session may read it. |
+| `PUT /v1/settings` | `{agentsMayShare}` | `{settings}` | A full session only (a host session gets 403 `host_scope`): the app writes it after the person's click in Settings or on its dialog. A change audits `agents_allowed` or `agents_disallowed` with `deviceId` and pushes `settings.changed` to every device. |
+| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed`/`agents_allowed`/`agents_disallowed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
@@ -177,6 +179,7 @@ others. Server → device messages:
 {type:'devices.changed'}                       // refetch GET /v1/devices
 {type:'permissions.changed', hostId}
 {type:'relays.changed'}
+{type:'settings.changed'}                      // refetch GET /v1/settings
 {type:'session.request', session:{id, viewerId, viewerName, viewerKeyFingerprint, scope}}   // to the host
 {type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope, ownerKind:'user'}
 {type:'session.denied', sessionId}             // to the viewer
@@ -232,7 +235,11 @@ that held the answer is gone is back to `ask`.
    The push also says `ownerKind: 'user'`: both devices are this one account's,
    as the hub authenticated them. A host serves such a session without its own
    consent sheet; a ticket without it (an older hub), or a later team or shared
-   owner, still goes through the host's consent.
+   owner, still goes through the host's consent. Every Mac host (the app, cmux
+   Remote with the app quit, the acpmux share host) serves it with no local
+   consent read, and no consent change stops it. A Linux desktop enabled
+   `--view-only` serves its control ticket view only rather than ending it. A
+   host that refuses a ticket on its consent ends it `consent_required`.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if cmux billing includes the relay for the user right now

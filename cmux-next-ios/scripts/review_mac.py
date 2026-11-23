@@ -18,14 +18,19 @@
   review_mac.py phones SOCK                   {"paired_connected": N, "phones": [...]} (names and ids only)
   review_mac.py quit SOCK                     quit as the person does, keeping sessions (quitKeepSessions)
   review_mac.py backend-check VALUE           the canonical origin --backend names, or exit 2 with the reason:
-      `dev`/`development`, `preview-N`, the shared dev Workers API origin, or a tailnet origin
-      (https://<host>.<tailnet>.ts.net[:port]); the app's own allowlists (Rust cmux-cloud-environment,
+      `dev`/`development`, `preview-N`, the shared dev Workers API origin, a tailnet origin
+      (https://<host>.<tailnet>.ts.net[:port]) or a tag stack's public origin (https://api.s<N>.wdev.cmux.dev);
+      the app's own allowlists (Rust cmux-cloud-environment,
       iOS CloudBackendOverride) hold the same list
   review_mac.py backend-write FOLDER ORIGIN   the dev build's backend.json in its bundle folder
       (~/Library/Application Support/cmux-next/<bundle id>); an empty ORIGIN removes it. Prints
       `changed` or `same` (a running app reads it only at launch)
   review_mac.py backend SOCK [--timeout S]    the Cloud backend the running app uses (`auth.status`):
       {"backend", "backend_label", "cloud_environment", "cloud_unavailable"} as JSON
+  review_mac.py space APP                     the cloud data space the installed app's requests and its
+      hostd carry (`X-Cmux-Build-Space`), as the app decides it (BuildIdentity.devTag, CMUXBuildSpace):
+      `dev:<slug>` for a tagged DEV or staging build, an empty line for the default space (nightly,
+      release, RC), `unusable` for a DEV build with no usable tag (its requests are refused)
 
 Nothing here turns a setting on, presses Allow or writes the app's pairing state: the code is the
 Mac's own single-use invite, the same route as scanning it (cmux-next-ios/SECURITY.md, pair-e2e).
@@ -45,6 +50,8 @@ import urllib.parse
 PAGE = "cmux.mobile-pairing"
 DEVELOPMENT_API = "https://cmux-api-development.debussy.workers.dev"
 TAILNET_LABEL = re.compile(r"^[a-z0-9-]+$")
+PUBLIC_STACK = re.compile(r"api\.s[0-9]{1,3}\.wdev\.cmux\.dev")
+TEAM_TAILNET_SUFFIX = ".tail137216.ts.net"
 
 
 def backend_origin(value):
@@ -73,11 +80,16 @@ def backend_origin(value):
     preview = re.fullmatch(r"cmux-api-preview-(\d+)\.debussy\.workers\.dev", host)
     if preview and not port and int(preview.group(1)) > 0:
         return f"https://cmux-api-preview-{int(preview.group(1))}.debussy.workers.dev"
-    if host.endswith(".ts.net"):
-        labels = host[: -len(".ts.net")].split(".")
-        if len(labels) >= 2 and all(label and TAILNET_LABEL.match(label) for label in labels):
+    # One machine of the team's tailnet (Rust TEAM_TAILNET_SUFFIX, iOS CloudBackendOverride): another tailnet's
+    # name is refused, since a Tailscale Funnel name is public.
+    if host.endswith(TEAM_TAILNET_SUFFIX):
+        machine = host[: -len(TEAM_TAILNET_SUFFIX)]
+        if machine and TAILNET_LABEL.match(machine):
             return f"https://{host}{suffix}"
-    raise ValueError(f"{raw!r} is not the shared dev deployment or a tailnet (*.ts.net) origin")
+    # A tag stack's public origin (scripts/cmux-next/cloud-dev-stack/gateway): one slot's API host, no port.
+    if PUBLIC_STACK.fullmatch(host) and not port:
+        return f"https://{host}"
+    raise ValueError(f"{raw!r} is not the shared dev deployment, a machine of the team's tailnet (*{TEAM_TAILNET_SUFFIX}) or a tag stack's public origin")
 
 
 def write_backend(folder, origin):
@@ -130,6 +142,48 @@ def rpc(sock, method, params=None, timeout=30):
     return result if isinstance(result, dict) else {"result": result}
 
 
+BUILD_KINDS = (("com.cmuxterm.app.debug", "dev"), ("com.cmuxterm.app.nightly", "nightly"),
+               ("com.cmuxterm.app.rc", "rc"), ("com.cmuxterm.app.staging", "staging"), ("com.cmuxterm.app", "release"))
+MAX_SLUG = 64
+
+
+def tag_slug(raw):
+    """BuildIdentity.tagSlug / CMUXBuildSpace.slug: lowercase, every run outside [a-z0-9] one `-`, trimmed."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (raw or "").lower()).strip("-")
+    return slug or None
+
+
+def build_space(plist, app_name=""):
+    """The space of a Mac app with Info.plist `plist` (BuildIdentity(bundle:).devTag, then CMUXBuildSpaceState)."""
+    bundle_id = str(plist.get("CFBundleIdentifier") or "").strip()
+    kind, suffix = "dev", None
+    for prefix, candidate in BUILD_KINDS:
+        if bundle_id == prefix:
+            kind = candidate
+            break
+        if bundle_id.startswith(prefix + "."):
+            kind, suffix = candidate, bundle_id[len(prefix) + 1:]
+            break
+    if kind == "release" and suffix is not None:
+        kind = "dev"  # com.cmuxterm.app.<other>: isolated as DEV
+    if not bundle_id or kind not in ("dev", "staging"):
+        return ""
+    environment = plist.get("LSEnvironment") if isinstance(plist.get("LSEnvironment"), dict) else {}
+    shipped = tag_slug(environment.get("CMUX_TAG"))
+    if shipped is None and app_name.startswith("cmux DEV "):
+        shipped = tag_slug(app_name[len("cmux DEV "):])
+    tag = shipped or tag_slug(suffix)
+    if tag and len(tag) > MAX_SLUG:
+        return "unusable"  # rejected rather than truncated, so two tags never share one space
+    if tag:
+        return "dev:" + tag
+    # needsBuildSpace: every DEV build (`com.cmuxterm.app.debug[.x]`) and a tagged staging build refuses
+    # cloud calls without a tag.
+    needs = bundle_id == "com.cmuxterm.app.debug" or bundle_id.startswith(("com.cmuxterm.app.debug.",
+                                                                           "com.cmuxterm.app.staging."))
+    return "unusable" if needs else ""
+
+
 def info(app):
     with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
         return plistlib.load(f)
@@ -156,12 +210,20 @@ def wait(fn, timeout, every=1.0):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "mark-used", "mac-id",
-                                  "phones", "quit", "backend-check", "backend-write", "backend"])
+                                  "phones", "quit", "backend-check", "backend-write", "backend", "space"])
     p.add_argument("target")
     p.add_argument("value", nargs="?", default="")
     p.add_argument("--timeout", type=float, default=60)
     p.add_argument("--used", default="")
     a = p.parse_args(argv)
+    if a.op == "space":
+        try:
+            plist = info(a.target)
+        except (OSError, ValueError, plistlib.InvalidFileException) as error:
+            print(f"no readable Info.plist in {a.target} ({type(error).__name__})", file=sys.stderr)
+            return 1
+        print(build_space(plist, os.path.splitext(os.path.basename(a.target.rstrip("/")))[0]))
+        return 0
     if a.op == "backend-check":
         try:
             print(backend_origin(a.target))

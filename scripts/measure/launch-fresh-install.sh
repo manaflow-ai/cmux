@@ -8,8 +8,8 @@
 # launch the first open of a copy nothing has run, with an empty home (a person's first launch), opened through
 # LaunchServices as a double-click opens it:
 #   n   a new copy, not quarantined: ditto from the mounted DMG (an update's copy with no pre-warm)
-#   q   the real fresh install: a DMG file quarantined as a browser download marks it, mounted, the app dragged into
-#       /Applications (Finder's copy, else ditto with the volume's quarantine kept; the row says which), opened there
+#   q   the real fresh install: a DMG file quarantined as a browser download marks it, mounted, the app copied into
+#       /Applications as a drag copies it (ditto, the volume's quarantine kept), opened there
 #   m   the same quarantined DMG, the app opened from the mounted volume
 #   p   as n, then the updater pre-warm's first step run on the copy before the open (its executable with
 #       --cmux-prewarm-launch, StagedUpdatePrewarm: exec and dyld, then exit), as an installer of ours could run it
@@ -29,10 +29,10 @@
 # checkers, reduced to LF-TRACE: when the app's process made its first file call (dyld's first look: everything
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
-# Prints LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
-# /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open while the DMG mounts
-# and for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
+# /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
 # anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
 set -uo pipefail
 
@@ -75,8 +75,16 @@ main() {
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
+  mkdir -p "$out/mnt-layout"
+  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
+    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
+    hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
+  else
+    echo "LF-LAYOUT unknown: attach failed"
+  fi
   OUT="$out"
-  CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+  cua_pick "$out"
   [[ -x "$CUA" ]] && echo "LF cua $(console "$CUA" permissions status 2>&1 | tr '\n' ' ' | head -c 200)" || echo "LF cua none: a prompt cannot be pressed"
   # Where q drags the app: /Applications when the console user may write it, as on a person's Mac; else ~/Applications.
   APPS=/Applications
@@ -178,6 +186,23 @@ marker_refresh() { [[ -n "$MARKER" ]] && (($(date +%s) + 900 > MARKER_EXPIRES)) 
 
 marker_remove() { [[ -n "$MARKER" ]] && rm -f "$MARKER"; MARKER=""; }
 
+# cua_pick DIR: CUA, the console's CuaDriver as a shim in DIR that reaches its daemon. cua-driver finds the daemon's
+# socket under $HOME/Library/Caches/cua-driver, and a fleet step's HOME is the step's own home, so every press there
+# failed with "Cua Driver daemon is not running" (cmux21, rows q and m, 2026-11-22). The shim runs it with the HOME
+# whose socket exists: this HOME, this user's own home, or the console user's.
+cua_pick() {
+  local real=/Applications/CuaDriver.app/Contents/MacOS/cua-driver home="" h u
+  CUA="$real"
+  [[ -x "$real" ]] || return 0
+  for u in "" "$(id -un)" "$(stat -f %Su /dev/console 2>/dev/null)"; do
+    if [[ -z "$u" ]]; then h="$HOME"; else h="$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"; fi
+    [[ -n "$h" && -S "$h/Library/Caches/cua-driver/cua-driver.sock" ]] && { home="$h"; break; }
+  done
+  [[ -n "$home" ]] || { echo "cua: no daemon socket under $HOME or the console user's home; CuaDriver calls may fail" >&2; return 0; }
+  mkdir -p "$1" && printf '#!/bin/sh\nHOME=%q exec %q "$@"\n' "$home" "$real" >"$1/cua-driver" && chmod +x "$1/cua-driver" \
+    && CUA="$1/cua-driver"
+}
+
 # prompts ARGS...: launch-fresh-install-prompts.py in the console session, with the console's CuaDriver.
 prompts() {
   [[ -x "${CUA:-}" ]] || return 1
@@ -203,68 +228,36 @@ cpu_delta() {
 
 now_ms() { python3 -I -c 'import time; print(int(time.time() * 1000))'; }
 
-# mount_point DMG SECONDS: where DMG is mounted (hdiutil info's image-path), waiting up to SECONDS; empty if never.
-mount_point() {
-  local end=$(($(date +%s) + $2)) found=""
-  while [[ -z "$found" && $(date +%s) -lt $end ]]; do
-    found="$(hdiutil info -plist | python3 -I -c '
-import plistlib, sys
-for image in plistlib.load(sys.stdin.buffer).get("images", []):
-    if image.get("image-path") == sys.argv[1]:
-        for entity in image.get("system-entities", []):
-            if entity.get("mount-point"): print(entity["mount-point"]); sys.exit()' "$1")"
-    [[ -n "$found" ]] || sleep 0.2
-  done
-  printf '%s' "$found"
-}
-
 # first ROW REP: one copy made as ROW makes it, its first open measured, then the copy and its DMG deleted.
 first() {
   local name="$1" rep="$2" tag="$1-$2" mount app dmgfile copied_by=none dir before after line rc=0
   mount="$OUT/mnt-$tag" dmgfile="$OUT/$tag.dmg"
   mkdir -p "$mount" "$OUT/home-$tag" && chmod 0777 "$OUT/home-$tag"
   cp "$OUT/app.dmg" "$dmgfile" || return 1
-  local mounted_by=hdiutil mount_ms=null t_mount prewarm_ms=null cpu_prepare
+  local mounted_by=hdiutil mount_ms=null prewarm_ms=null cpu_prepare
   cpu_prepare="$(checker_cpu)"
-  if [[ "$name" == n || "$name" == p || "$name" == s || "$name" == x ]]; then
-    hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
-  else
-    # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
+  # Every row mounts with hdiutil, unbrowsed, at the job's own mount point. Rows q and m quarantine the DMG file first;
+  # hdiutil carries that onto the volume's files, so the copy (q) and the mounted app (m) are quarantined as a
+  # download's are. -noautofsck: hdiutil checks a quarantined image with fsck_apfs before mounting it, and fsck_apfs
+  # reading the image's device asks "would like to access files on a removable volume" in the worker's name
+  # (cmux-austin-mini-0, 2026-11-19 10:53Z, tccd: accessing fsck_apfs, responsible the worker). Never `open DMG`: DiskImageMounter mounts it under /Volumes, where a walk of the job (or of anything
+  # else on the Mac) asks "would like to access files on a removable volume" in the worker's name, and it stayed mounted
+  # after the run (cmux-austin-mini-0, 2026-11-19, job c5408b53).
+  if [[ "$name" == q || "$name" == m ]]; then
     quarantine "$dmgfile"
     marker_refresh
-    # The quarantined image's own check may ask first ("downloaded from the Internet", CoreServicesUIAgent or
-    # DiskImageMounter): the job needs the mount, so a sweep beside the wait presses Open there, as a person would.
-    # Beside it, not in it: the wait still sees the mount within 0.2 s.
-    local sweeper mounted="$OUT/mounted-$tag"
-    rm -f "$mounted"
-    ( while sleep 3 && [[ ! -e "$mounted" ]]; do sweep_prompts Open "mount $tag"; done ) &
-    sweeper=$!
-    t_mount="$(now_ms)"
-    console /usr/bin/open "$dmgfile" >>"$OUT/mount.log" 2>&1
-    mount="$(mount_point "$dmgfile" 120)"
-    [[ -n "$mount" ]] && mount_ms=$(($(now_ms) - t_mount))
-    : >"$mounted"; wait "$sweeper"; rm -f "$mounted"
-    if [[ -n "$mount" ]]; then
-      mounted_by=open
-    else
-      mount="$OUT/mnt-$tag"
-      hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
-    fi
   fi
+  hdiutil attach "$dmgfile" -nobrowse -readonly -noautofsck -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
     n|p|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
-       # Finder's copy, as a drag makes it (the console may refuse the Apple event: then ditto, and the row says so).
-       if console /usr/bin/perl -e 'alarm 150; exec @ARGV' /usr/bin/osascript -e 'on run {src, dst}' -e 'with timeout of 120 seconds' \
-           -e 'tell application "Finder" to duplicate ((POSIX file src) as alias) to ((POSIX file dst) as alias)' \
-           -e 'end timeout' -e 'end run' "$found" "$dir" >>"$OUT/finder.log" 2>&1 && [[ -d "$dir/$(basename "$found")" ]]; then
-         copied_by=finder
-       else
-         console /usr/bin/ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
-       fi
+       # ditto keeps the volume's quarantine, as a drag's copy does. Never Finder's copy through osascript: an Apple
+       # event to Finder asks "wants access to control Finder" on a screen nobody answers (cmux-austin-mini-0,
+       # 2026-11-19), and the row fell back to ditto anyway.
+       console /usr/bin/ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     m) app="$found"; copied_by=mounted ;;
   esac
@@ -290,7 +283,13 @@ first() {
     # shellcheck disable=SC2024
     sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
-    sleep 1
+    # Until fs_usage is tracing: its first event is in the file (the system always has file activity), 10 s.
+    for _ in $(seq 100); do
+      [[ -s "$OUT/fs-$tag.txt" ]] && break
+      kill -0 "$trace_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    [[ -s "$OUT/fs-$tag.txt" ]] || echo "LF-WARN fs_usage logged nothing within 10 s for $tag" >&2
   fi
   # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
   fresh_keychain "$OUT/home-$tag/h"
@@ -334,7 +333,14 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   ran="$(printf '%s' "$json" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ran_from") or "")')"
   pids="$(ps -axo pid=,command= | LF_A="$app/" LF_B="${ran:-$app}/" awk 'index($0, ENVIRON["LF_A"]) || index($0, ENVIRON["LF_B"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
-  sleep 1
+  # Until those processes have exited (ps, not kill -0: some run as root), 10 s.
+  if [[ -n "$pids" ]]; then
+    for _ in $(seq 100); do
+      ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after kill: $(echo $pids)" >&2
+  fi
   # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
   # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
   # from the Internet'.

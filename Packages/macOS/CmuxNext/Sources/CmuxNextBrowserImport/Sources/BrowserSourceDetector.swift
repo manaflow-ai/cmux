@@ -165,7 +165,8 @@ public struct BrowserSourceDetector: Sendable {
         let files = browser.source?.files
         func present(_ name: String?) -> Bool { name.map { FileManager.default.fileExists(atPath: profile.appending(path: $0).path) } ?? false }
         let sessions = profile.appending(path: "Sessions")
-        let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
+        let sessionLogs = (try? FileManager.checked.contentsOfDirectory(atPath: sessions.path)) ?? []
+        let hasSession = sessionLogs.contains { $0.hasPrefix("Session_") } || present("Current Session")
         return [
             .bookmarks: present(files?.bookmarks ?? "Bookmarks") ? .available : .absent,
             .history: present(files?.history ?? "History") ? .available : .absent,
@@ -178,6 +179,9 @@ public struct BrowserSourceDetector: Sendable {
         ]
         #endif
     }
+
+    /// A Firefox profile's session stores, newest first.
+    static let firefoxSessionFiles = ["sessionstore-backups/recovery.jsonlz4", "sessionstore.jsonlz4", "sessionstore-backups/previous.jsonlz4"]
 
     static func firefoxAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
         #if CMUX_NO_BROWSER_DATA_IMPORT
@@ -192,7 +196,7 @@ public struct BrowserSourceDetector: Sendable {
         return [
             .bookmarks: places,
             .history: session(places),
-            .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
+            .openTabs: session(Self.firefoxSessionFiles.contains(where: present) ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
             .searchEngines: present("search.json.mozlz4") ? .available : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
@@ -227,8 +231,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: state(directory.appending(path: "History.db")),
             .cookies: cookies.map(state) ?? .absent,
             .passwords: .unsupported(.exportFromSource),
-            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder.
-            .searchEngines: SafariSearchEngineReader().read() != nil ? .available : .absent,
+            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder: a provider is set.
+            .searchEngines: BrowserDataReader.safariServices() != nil ? .available : .absent,
         ]
         #endif
     }

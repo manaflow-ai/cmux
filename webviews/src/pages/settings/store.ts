@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { userMessage } from "../shared/userMessage";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -37,6 +38,7 @@ import {
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
+import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
@@ -45,6 +47,7 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
+  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -52,8 +55,9 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -64,15 +68,10 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
-  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -83,10 +82,24 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type RowNoteData,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -489,7 +502,14 @@ export class SettingsStore {
   async chooseBackdropImage(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
       const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      // A file that is no picture or movie says so, as a link does, not "Invalid value".
+      if (!reply.ok)
+        this.setError(
+          BACKGROUND,
+          isBackdropRefusal(reply.error.code)
+            ? { ...rowError(reply.error), message: linkRefusal(reply.error.code) }
+            : rowError(reply.error),
+        );
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
   }
@@ -681,6 +701,12 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** General > Language: Relaunch, so the native menus take the Language setting; false when the host refused. */
+  async runLanguageRelaunch(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.language.relaunch", {});
+    return reply.ok;
+  }
+
   /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
    * Throws the host's refusal (a managed key, an unreadable cmux.json). */
   async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
@@ -708,6 +734,15 @@ export class SettingsStore {
     await this.refreshAccounts();
     if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
     return reply.value.error ?? null;
+  }
+
+  /** One in-place sign-in gesture (shared/signIn ACCOUNT_ACTIONS) with the host's whole answer, so
+   * the card reads the login it started. Nothing of the answer is kept here: the one-time code stays
+   * in the card. The list refreshes after a gesture that changes it (a finish, use or remove). */
+  async runAccountSignIn(run: AccountsRun): Promise<Reply<AccountsRunReply>> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    if (run.action !== ACCOUNT_ACTIONS.start) await this.refreshAccounts();
+    return reply;
   }
 
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
@@ -796,6 +831,54 @@ export class SettingsStore {
     return this.mcpServersState();
   }
 
+  /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
+   * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
+   * message, which never carries a secret value). */
+  async runAgentConfig(run: AgentConfigRun): Promise<AgentConfigAnswer | { error: string }> {
+    const reply = await this.request("cmux.settings.agentConfig", run);
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? { code: "agentConfig", message: "" };
+    if ("code" in answer && !("agent" in answer))
+      return { error: answer.message || t("settingsWindow.agentConfig.error.notChanged") };
+    return answer;
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
+  async agentSkillsState(): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture, then the card as it is after it (null: the host has none). */
+  async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.run", run);
+    return reply.ok ? reply.value : this.agentSkillsState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
+  }
+
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
   async refreshModels(): Promise<void> {
     await this.fetchNative(settingsKeys.models);
@@ -869,6 +952,21 @@ export class SettingsStore {
     return reply.ok ? (reply.value?.try_on ?? null) : null;
   }
 
+  /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
+   * the host has no Compute part or the read failed. */
+  async allotment(): Promise<AllotmentView | null> {
+    const reply = await this.request("cmux.settings.cloud.allotment.get", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
+  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.cloud.allotment.set", run);
+    return reply.ok
+      ? { view: reply.value, error: null }
+      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
    * no shares part or the read failed. */
   async shares(): Promise<SharesState | null> {
@@ -876,7 +974,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+  /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
@@ -1179,6 +1277,7 @@ export class SettingsStore {
 
   preview(key: string, value: unknown, owner?: object): void {
     this.previewOwner = owner ?? {};
+    this.setLive({ key, value });
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
@@ -1186,7 +1285,26 @@ export class SettingsStore {
   previewEnd(key: string, owner?: object): void {
     if (owner && this.previewOwner !== owner) return;
     this.previewOwner = null;
+    if (this.live?.key === key) this.setLive(null);
     void this.request("cmux.settings.preview.end", { key });
+  }
+
+  /** The preview showing now, for the page's own pictures (a font row's preview follows a size
+   * slider's drag before the release writes it). Kept apart from the state: a drag step re-renders
+   * only what reads it. */
+  private live: { key: string; value: unknown } | null = null;
+  private readonly liveListeners = new Set<() => void>();
+  private setLive(next: { key: string; value: unknown } | null): void {
+    this.live = next;
+    for (const listener of this.liveListeners) listener();
+  }
+  readonly subscribeLive = (listener: () => void): (() => void) => {
+    this.liveListeners.add(listener);
+    return () => this.liveListeners.delete(listener);
+  };
+  /** The previewed value of `key`, or undefined when no preview of it is showing. */
+  liveValue(key: string): unknown {
+    return this.live?.key === key ? this.live.value : undefined;
   }
 
   /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */

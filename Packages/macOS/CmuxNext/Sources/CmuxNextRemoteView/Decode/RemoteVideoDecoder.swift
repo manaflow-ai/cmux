@@ -14,16 +14,19 @@ public nonisolated struct RemoteDecodedFrame: @unchecked Sendable {
     public let tCaptureMicros: UInt64
     /// `DispatchTime.now().uptimeNanoseconds` when decode finished.
     public let decodedAtNanos: UInt64
+    /// When the transport released the access unit (`RemoteAccessUnit.releasedAtNanos`), 0 when unknown.
+    public let releasedAtNanos: UInt64
     /// Told the picture's on-glass time (`DispatchTime` uptime, µs) by a presenter that
-    /// knows it (Metal: the drawable's presented time): the stage ledger's Present.
+    /// knows it (Metal: the drawable's presented time): the viewer's Present stage.
     public let onPresented: (@Sendable (UInt64) -> Void)?
 
     public init(pixelBuffer: CVPixelBuffer, frame: UInt32, tCaptureMicros: UInt64, decodedAtNanos: UInt64,
-                onPresented: (@Sendable (UInt64) -> Void)? = nil) {
+                releasedAtNanos: UInt64 = 0, onPresented: (@Sendable (UInt64) -> Void)? = nil) {
         self.pixelBuffer = pixelBuffer
         self.frame = frame
         self.tCaptureMicros = tCaptureMicros
         self.decodedAtNanos = decodedAtNanos
+        self.releasedAtNanos = releasedAtNanos
         self.onPresented = onPresented
     }
 

@@ -9,9 +9,9 @@ name: cmux-next hot verify
 # version, before/after light and dark, the video and the phase timings (push_to_first_shot_s among them). A new
 # head edits that comment in place. Advisory: never a required check, never gates a merge.
 #
-# Two halves, the cmux-next-media hand-off shape. The pull request run (this file as the PR has it, no secret,
-# read-only token) runs the plan on the PR head and, for an eligible change, starts a run of this workflow on
-# feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
+# Two halves, the cmux-next-media hand-off shape. The pull request run (this file as the PR has it, no secret, a
+# token that reads and can only start a workflow) is one job: it runs the plan on the PR head and, for an eligible
+# change, starts a run of this workflow on feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
 # protected branch, never from the PR:
 #   - web: one dispatch of cmux-next-web-bundle-publish.yml (pr=N, its own credentials); nothing waits for it
 #     (the worker serves the head's web itself when latest.json does not name the head yet)
@@ -31,7 +31,7 @@ name: cmux-next hot verify
 #   - publish (the look_result run): the pr-media environment (it admits only the protected branches) downloads
 #     out.tar as data, checks every file with the shared pr-media privacy check (the worker's own text reader's
 #     lines too), uploads through .github/actions/pr-media-publish and writes the comment
-#     (scripts/cmux-next/hot-verify-ci.py render/post). A look with no out.tar gets one `look again`.
+#     (scripts/cmux-next/hot-verify-ci.py render/post), all in one job. A look with no out.tar starts one more look.
 # No engine on the PR head or the base yet, a needs-build plan (against the published nightly's CMUXCommit, as the
 # worker plans): each ends the run with a step-summary line and no comment.
 on:
@@ -39,6 +39,34 @@ on:
     branches: [feat-cmux-next]
     # closed: a PR that merged with no look receipt gets one look at its merge commit (the `plan` job).
     types: [opened, synchronize, reopened, ready_for_review, closed]
+    # Path gate (2026-11-21, CI 10x; Leo: "Make each one advisory, after-merge or path-gated, unless it caught a real
+    # failure"). A look needs a layer the engine can put onto the running nightly with no build: web (webviews/,
+    # cmux-tui/frontends/web/) or rust (the cmux-tui tree build's inputs that live_apply.py sorts as daemon: cmux-tui/,
+    # acpmux/, Rust and Cargo manifests; scripts/cmux-next/cmux-tui-tree-inputs.txt). Any other change plans
+    # "nothing in the app changes" or "needs a build", so its head started a run, a Linux runner and a plan for no
+    # look (6,879 heads planned in 11-13..19, 1 own red). Only a change that can reach a layer starts it now, the
+    # merged (closed) half included; the `!` lines are scripts/ci/docs_only_paths.py's prose excludes. A change to the
+    # engine's layer rules (live_apply.py, hot-apply.py) updates this list in the same pull request.
+    paths:
+      - "webviews/**"
+      - "cmux-tui/**"
+      - "acpmux/**"
+      - "first-party-apps/cloud/server/**"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - ".github/workflows/cmux-next-hot-verify.yml"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+  # docs-only-fallback.yml calls this in a pull request's own context when GitHub's `paths:` could have skipped it
+  # wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
   # GitHub dispatches only a workflow it knows on a branch; a push that changes this file registers it on
   # feat-cmux-next (its jobs skip), as cmux-tui-tree-request.yml does.
   push:
@@ -64,7 +92,7 @@ on:
         default: ""
         type: string
       attempt:
-        description: "1 for the one more look `look again` starts after a look that failed on the fleet"
+        description: "1 for the one more look a result run starts after a look the fleet lost"
         required: false
         default: "0"
         type: string
@@ -88,26 +116,40 @@ concurrency:
   group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
+  # switches itself off at 2026-11-22 00:00 UTC.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # The pull request half: the engine's plan, on the PR head, with no secret. Drafts wait until they are ready,
   # forks never run, and CI_QUOTA_HOLD=1 pauses it while the GITHUB_TOKEN budget is held for the nightly.
   plan:
     name: plan the look
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # 10 minutes for the plan, 20 for the dispatch's retries.
+    timeout-minutes: 30
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
       issues: read
       pull-requests: read
-    outputs:
-      eligible: ${{ steps.plan.outputs.eligible }}
-      layers: ${{ steps.plan.outputs.layers }}
+      # The plan's last step starts the look on feat-cmux-next (a workflow dispatch). Nothing here can write
+      # pr-media or the PR. The hand-off was its own job until 2026-11-23: a second Linux runner, queued after
+      # the plan, for one 7-28 s dispatch.
+      actions: write
     steps:
       # The engine and this workflow's helper come from the base branch (the same rules for every PR, as the
       # fleet step's engine does); the PR head is fetched as git objects and planned as `sha:` (no worktree
       # of it). A PR that brings the engine itself, before the base has one, is planned with its own scripts/.
+      # A persistent pool runner reuses the workspace. After an earlier job's checkout of other paths, this sparse
+      # checkout stops at "Path '...' not uptodate; will not remove from working tree" and the job dies before it
+      # reads anything: run 45077133789 lost a finished look's receipt that way. Without a .git, actions/checkout
+      # empties the directory and clones fresh; an ephemeral runner has nothing to drop.
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -203,26 +245,16 @@ jobs:
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
-
-  # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
-  # else from here. A dispatch that never starts ends this job red (below).
-  hand-off:
-    name: start the look on feat-cmux-next
-    needs: plan
-    if: ${{ needs.plan.outputs.eligible == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 25
-    # actions: write starts the run; nothing here can write pr-media or the PR.
-    permissions:
-      actions: write
-    steps:
+      # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
+      # else from here. A dispatch that never starts ends this job red (below).
       - name: Dispatch the look
+        if: ${{ steps.plan.outputs.eligible == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
           KIND: ${{ github.event.action == 'closed' && 'merge' || 'head' }}
-          LAYERS: ${{ needs.plan.outputs.layers }}
+          LAYERS: ${{ steps.plan.outputs.layers }}
           EVENT_AT: ${{ github.event.pull_request.updated_at }}
         run: |
           set -uo pipefail
@@ -259,8 +291,8 @@ jobs:
   # still at the head the plan saw.
   target:
     name: check the pull request
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -276,10 +308,23 @@ jobs:
       kind: ${{ steps.check.outputs.kind }}
       attempt: ${{ steps.check.outputs.attempt }}
       event_at: ${{ steps.check.outputs.event_at }}
-      # A look_result run (the build fleet controller's dispatch when the step ended): its out.tar link.
-      tar: ${{ steps.result.outputs.tar }}
-      url: ${{ steps.result.outputs.url }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the pull request check
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/cmux-next/hot-verify-pr.sh
+            /scripts/ci/gh_budget_wait.sh
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
@@ -291,66 +336,7 @@ jobs:
           ATTEMPT: ${{ inputs.attempt }}
           EVENT_AT: ${{ inputs.event_at }}
         run: |
-          set -euo pipefail
-          [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
-          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full commit sha"; exit 1; }
-          [[ "$LAYERS" =~ ^(web|rust|customize)(,(web|rust|customize)){0,2}$ ]] || { echo "::error::layers takes web, rust and customize"; exit 1; }
-          # These go into the request job's name, which the build fleet controller parses: only these shapes.
-          KIND="${KIND:-head}" ATTEMPT="${ATTEMPT:-0}" EVENT_AT="${EVENT_AT:-}"
-          [[ "$KIND" =~ ^(head|merge)$ ]] || { echo "::error::kind takes head or merge"; exit 1; }
-          [[ "$ATTEMPT" =~ ^[01]$ ]] || { echo "::error::attempt takes 0 or 1"; exit 1; }
-          [[ "$EVENT_AT" =~ ^[0-9]{0,11}$ ]] || EVENT_AT=""
-          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-"), (.merge_commit_sha // "-")] | @tsv')"
-          IFS=$'\t' read -r head_repo live base_ref state draft merged_at merge_sha <<<"$info"
-          ok=true
-          # A merged pull request is looked at too, at its merged head: a look queued behind a busy gateway label
-          # often starts after the merge, and `look again` runs after it (the worker takes a merged head on GitHub's
-          # PR API's word, cmuxterm-hq#11742). Or at its merge commit (kind merge, dispatched when it merged with no
-          # receipt). Closed without a merge, or a draft: no look.
-          if [[ "$head_repo" != "$GITHUB_REPOSITORY" || "$base_ref" != feat-cmux-next ]]; then
-            echo "hot verify: #$PR is not a same-repository pull request into feat-cmux-next; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
-          elif [[ "$draft" == true || ( "$state" != open && "$merged_at" == - ) ]]; then
-            echo "hot verify: #$PR is $state${draft/true/ (draft)}; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
-          elif [[ "$live" != "$HEAD_SHA" && ( "$merged_at" == - || "$merge_sha" != "$HEAD_SHA" ) ]]; then
-            echo "hot verify: #$PR moved to ${live:0:12}; its own run looks at it" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
-          fi
-          {
-            echo "ok=$ok"
-            echo "pr=$PR"
-            echo "head=$HEAD_SHA"
-            echo "pr_head=$live"
-            [[ ",$LAYERS," == *,web,* ]] && echo "web=true" || echo "web=false"
-            [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
-            echo "layers=$LAYERS"
-            echo "kind=$KIND"
-            echo "attempt=$ATTEMPT"
-            echo "event_at=$EVENT_AT"
-          } >> "$GITHUB_OUTPUT"
-      - name: Checkout the result reader
-        if: ${{ inputs.look_result != '' && steps.check.outputs.ok == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: |
-            /scripts/cmux-next/hot-verify-ci.py
-          sparse-checkout-cone-mode: false
-      # The step's result, as data: it must name this PR and head. No out.tar (the step was lost, never queued,
-      # or queued past the controller's bound): `look again` once. An out.tar: `post the look`.
-      - name: Read the look's result
-        id: result
-        if: ${{ inputs.look_result != '' && steps.check.outputs.ok == 'true' }}
-        env:
-          LOOK_RESULT: ${{ inputs.look_result }}
-          PR: ${{ inputs.pr }}
-          HEAD_SHA: ${{ inputs.head }}
-        run: |
-          set -euo pipefail
-          python3 scripts/cmux-next/hot-verify-ci.py result --pr "$PR" --head "$HEAD_SHA" > "$RUNNER_TEMP/result.out"
-          url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
-          echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
-          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
+          bash scripts/cmux-next/hot-verify-pr.sh
 
   # The PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
   # build job runs the PR's web build with no secret; its publish job holds its own credentials). Nothing waits
@@ -360,7 +346,7 @@ jobs:
     name: web layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -381,13 +367,17 @@ jobs:
     name: rust layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -421,7 +411,7 @@ jobs:
     needs: [target, rust]
     # After the rust job: skipped when the change has no rust layer.
     if: ${{ !cancelled() && inputs.look_result == '' && needs.target.outputs.ok == 'true' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -433,49 +423,34 @@ jobs:
         run: |
           echo "hot verify: the build fleet runs the look of #$PR at ${HEAD_SHA:0:12}${TREE:+ once its cmux-tui tree is published}; its result starts a run of this workflow that posts it" >> "$GITHUB_STEP_SUMMARY"
 
-  # One more look when this one returned no out.tar: the look never judged the change, the fleet lost it (a lent
-  # Mac's disk decline, a worker that stopped renewing its lease, a step queued past the controller's 3 h bound).
-  # On 2026-11-16 nothing started such a look again, so each was lost for good. A look's own verdict (needs a build,
-  # failed shots) comes back in out.tar and is never retried. Once: the retry carries attempt=1.
-  again:
-    name: look again
-    needs: target
-    if: ${{ !cancelled() && inputs.look_result != '' && needs.target.outputs.ok == 'true' && needs.target.outputs.tar == 'false' && inputs.attempt != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch one more look
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ needs.target.outputs.pr }}
-          HEAD_SHA: ${{ needs.target.outputs.head }}
-          LAYERS: ${{ inputs.layers }}
-          EVENT_AT: ${{ inputs.event_at }}
-          KIND: ${{ inputs.kind }}
-        run: |
-          set -euo pipefail
-          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
-          echo "hot verify: the look returned no out.tar; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
-
+  # The result run: the build fleet controller's dispatch with look_result when the look's step ended. ONE job, so
+  # a result waits for one Linux runner, not two in a row: on 2026-11-19 every result run's `target` sat queued for
+  # the shared 4 vCPU Linux runners, and its `publish` or `again` queued again after it. It reads the PR (the same
+  # check as `target`) and the step's result, as data: it must name this PR and head. An out.tar is checked and
+  # posted. No out.tar means the look never judged the change: the fleet lost it (a lent Mac's disk decline, a
+  # worker that stopped renewing its lease, a step queued past the controller's 3 h bound). On 2026-11-16 nothing
+  # started such a look again, so each was lost for good; now one more look starts, once (attempt=1). A look's own
+  # verdict (needs a build, failed shots) comes back in out.tar and is never retried.
   # Every write goes through .github/actions/pr-media-publish (the private-terms list, OCR, the shared privacy
   # check) from this protected branch's own scripts; out.tar is data from a fleet worker.
   publish:
     name: post the look
-    needs: target
-    if: ${{ !cancelled() && inputs.look_result != '' && needs.target.outputs.ok == 'true' && needs.target.outputs.tar == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
-    # pull-requests: write edits or posts the one comment; actions: read finds a gallery run on the head.
+    # pull-requests: write edits or posts the one comment; actions: write starts one more look and finds a
+    # gallery run on the head.
     permissions:
       contents: write
       pull-requests: write
-      actions: read
+      actions: write
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -489,12 +464,56 @@ jobs:
             scripts/ci/pr_media_ocr_tesseract.py
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/hot-verify-ci.py
+            scripts/cmux-next/hot-verify-pr.sh
+            scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
+      - name: Read the pull request
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          LAYERS: ${{ inputs.layers }}
+          KIND: ${{ inputs.kind }}
+          ATTEMPT: ${{ inputs.attempt }}
+          EVENT_AT: ${{ inputs.event_at }}
+        run: |
+          bash scripts/cmux-next/hot-verify-pr.sh
+      - name: Read the look's result
+        id: result
+        if: ${{ steps.check.outputs.ok == 'true' }}
+        env:
+          LOOK_RESULT: ${{ inputs.look_result }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/hot-verify-ci.py result --pr "$PR" --head "$HEAD_SHA" > "$RUNNER_TEMP/result.out"
+          url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
+          echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
+          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
+      - name: Dispatch one more look
+        if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          LAYERS: ${{ inputs.layers }}
+          EVENT_AT: ${{ inputs.event_at }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
+          echo "hot verify: the look returned no out.tar; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
       # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
       # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
+        if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'true' }}
         env:
-          URL: ${{ needs.target.outputs.url }}
+          URL: ${{ steps.result.outputs.url }}
         run: |
           set -euo pipefail
           [[ "$URL" == https://* ]] || { echo "::error::the look's out.tar link is not https"; exit 1; }
@@ -502,9 +521,10 @@ jobs:
           curl -fsS --retry 3 --max-time 600 --max-filesize 629145600 "$URL" -o "$RUNNER_TEMP/artifact/out.tar"
       - name: Unpack and stage
         id: stage
+        if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'true' }}
         env:
-          PR: ${{ needs.target.outputs.pr }}
-          HEAD_SHA: ${{ needs.target.outputs.head }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
         run: |
           set -euo pipefail
           out="$(python3 scripts/cmux-next/hot-verify-ci.py unpack "$RUNNER_TEMP/artifact/out.tar" "$RUNNER_TEMP/out")"
@@ -523,7 +543,7 @@ jobs:
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ needs.target.outputs.head }}
+          HEAD_SHA: ${{ inputs.head }}
         run: |
           set -uo pipefail
           count="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gallery-advisory.yml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=1" --jq .total_count 2>/dev/null || echo 0)"
@@ -539,8 +559,8 @@ jobs:
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         uses: ./.github/actions/pr-media-publish
         env:
-          PR: ${{ needs.target.outputs.pr }}
-          HEAD_SHA: ${{ needs.target.outputs.head }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}
           GALLERY: ${{ steps.gallery.outputs.gallery }}
           EVENT_AT: ${{ inputs.event_at }}

@@ -451,7 +451,8 @@ public final class HoverCardCoordinator {
             MotionTrace.measure("hoverCard.present") {
                 panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                               themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                              cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+                              cornerRadius: body.cornerRadius, entrance: body.entrance, retarget: body.retarget,
+                              applyTheme: body.applyTheme)
             }
             // `present` lets an interactive card take the mouse; off the card it gives it back now.
             updateCardMouse()

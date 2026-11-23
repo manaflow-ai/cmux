@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use cmux_message_preview::{MessagePreview, Words};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{AgentClass, Message, Part, Participant, ParticipantKind, Summary, WorkStatus};
@@ -72,6 +73,9 @@ pub struct HomeInboxInput<'a> {
     /// conversation leaves the list, on every device that reads it, as Delete
     /// Chief promises.
     pub deleted_chiefs: BTreeSet<String>,
+    /// The words a preview says for a table or pictures alone, in the
+    /// person's language ([`Words::for_locale`]).
+    pub preview_words: Words,
 }
 
 /// One row of the Home list.
@@ -127,7 +131,7 @@ fn is_chief(summary: &Summary, id: &str, input: &HomeInboxInput<'_>) -> bool {
 fn is_deleted_chiefs_direct(
     summary: &Summary,
     input: &HomeInboxInput<'_>,
-    channels: &BTreeSet<&str>,
+    channels: &BTreeSet<String>,
 ) -> bool {
     matches!(others(summary, input.me).as_slice(), [one] if input.deleted_chiefs.contains(*one))
         && !channels.contains(summary.id.as_str())
@@ -143,9 +147,15 @@ fn others<'s>(summary: &'s Summary, me: &str) -> Vec<&'s str> {
         .collect()
 }
 
+/// Most characters of a Markdown message the preview reads: a table's header
+/// and the first lines fit well inside, and a long reply costs no more.
+const PREVIEW_SOURCE_CHARS: usize = 4096;
+
 /// The text a row previews: the text parts, else the file names; nothing
-/// for a deleted message.
-pub fn preview_of(message: &Message) -> Option<String> {
+/// for a deleted message. `markdown` (an agent's text, [`is_markdown`]): its
+/// words, never its syntax ([`MessagePreview`]): a table by its columns, a
+/// link by its label, pictures alone by their count, in `words`.
+pub fn preview_of(message: &Message, markdown: bool, words: &Words) -> Option<String> {
     if message.retracted_at.is_some() {
         return None;
     }
@@ -157,8 +167,12 @@ pub fn preview_of(message: &Message) -> Option<String> {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join(" ");
-    let text = text.trim();
+        .join(if markdown { "\n" } else { " " });
+    let flat = markdown.then(|| {
+        let head: String = text.chars().take(PREVIEW_SOURCE_CHARS).collect();
+        MessagePreview::new(&head).text(words)
+    });
+    let text = flat.as_deref().unwrap_or(&text).trim();
     let shown = if text.is_empty() {
         message
             .parts
@@ -175,6 +189,16 @@ pub fn preview_of(message: &Message) -> Option<String> {
     (!shown.is_empty()).then(|| shown.chars().take(PREVIEW_CHARS).collect())
 }
 
+/// Whether `message`'s text is Markdown, as the apps read it (`HomeMapping`):
+/// an agent's text without mentions. A person's text stays as typed.
+pub fn is_markdown(summary: &Summary, message: &Message) -> bool {
+    participant(summary, &message.author).is_some_and(|p| p.kind == ParticipantKind::Agent)
+        && !message.parts.iter().any(|part| match part {
+            Part::Text { runs: Some(runs), .. } => runs.iter().any(|run| run.mention.is_some()),
+            _ => false,
+        })
+}
+
 fn last_work(message: &Message) -> Option<WorkStatus> {
     message.parts.iter().find_map(|part| match part {
         Part::Work { status, .. } => Some(*status),
@@ -185,9 +209,22 @@ fn last_work(message: &Message) -> Option<WorkStatus> {
 /// The Home rows of `summaries` for `input.me`, in list order: pinned rows
 /// by pin position, then the rest by newest activity; ties by id.
 pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<HomeRow> {
-    let me = input.me;
-    // A second conversation with the same one participant that has a title
-    // is a channel (the person made it as one); the oldest stays the direct.
+    let channels = channels_of(summaries.iter(), input.me);
+    let mut rows: Vec<HomeRow> = summaries
+        .iter()
+        .filter(|summary| !is_deleted_chiefs_direct(summary, input, &channels))
+        .map(|summary| build_row(summary, input, &channels))
+        .collect();
+    rows.sort_by(order);
+    rows
+}
+
+/// A second conversation with the same one participant that has a title is a
+/// channel (the person made it as one); the oldest stays the direct.
+pub(crate) fn channels_of<'s>(
+    summaries: impl Iterator<Item = &'s Summary>,
+    me: &str,
+) -> BTreeSet<String> {
     let mut channels = BTreeSet::new();
     let mut by_member: BTreeMap<&str, Vec<&Summary>> = BTreeMap::new();
     for summary in summaries {
@@ -199,79 +236,98 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
         list.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
         for later in list.iter().skip(1) {
             if !later.title.is_empty() {
-                channels.insert(later.id.as_str());
+                channels.insert(later.id.clone());
             }
         }
     }
-    let mut rows: Vec<HomeRow> = summaries
-        .iter()
-        .filter(|summary| !is_deleted_chiefs_direct(summary, input, &channels))
-        .map(|summary| {
-            let others = others(summary, me);
-            let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
-            let chief = direct.then(|| others[0]).filter(|id| is_chief(summary, id, input));
-            let kind = match (direct, chief.is_some(), summary.title.is_empty()) {
-                (true, true, _) => HomeKind::Chief,
-                (true, false, _) => HomeKind::Direct,
-                (false, _, false) => HomeKind::Channel,
-                (false, _, true) => HomeKind::Group,
-            };
-            let name = chief
-                .and_then(|id| input.chief_names.get(id).filter(|name| !name.is_empty()).cloned())
-                .or_else(|| (!summary.title.is_empty()).then(|| summary.title.clone()))
-                .unwrap_or_else(|| {
-                    // A participant with no name is left out: an id is never a name.
-                    others
-                        .iter()
-                        .filter_map(|id| {
-                            participant(summary, id)
-                                .map(|p| p.display_name.clone())
-                                .filter(|name| !name.is_empty())
-                                .or_else(|| (chief == Some(*id)).then(|| CHIEF_NAME.to_string()))
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                });
-            let last = summary.last_message.as_ref();
-            let mut cursor = summary.read_cursors.get(me).copied().unwrap_or(0);
-            if let Some(last) = last.filter(|last| last.author == me) {
-                cursor = cursor.max(last.seq);
-            }
-            let live = last.filter(|last| last.retracted_at.is_none());
-            let chief_state = chief.map(|id| {
-                let active = |map: &HashMap<String, Vec<String>>| {
-                    map.get(&summary.id).is_some_and(|ids| ids.iter().any(|t| t == id))
-                };
-                let typing = active(&input.typing) || active(&input.running);
-                let work = live.filter(|last| last.author == id).and_then(last_work);
-                match (typing, work) {
-                    (true, _) | (false, Some(WorkStatus::Running)) => ChiefState::Working,
-                    (false, Some(WorkStatus::Waiting)) => ChiefState::Waiting,
-                    _ => ChiefState::Idle,
-                }
-            });
-            let state = input.states.get(&summary.id).copied().unwrap_or_default();
-            HomeRow {
-                id: summary.id.clone(),
-                owner: crate::OWNER_LOCAL,
-                kind,
-                name,
-                unread: summary.last_seq.saturating_sub(cursor),
-                activity_at: last
-                    .map_or_else(|| summary.updated_at.clone(), |last| last.created_at.clone()),
-                preview: last.and_then(preview_of),
-                last_author: live.map(|last| last.author.clone()),
-                chief: chief.map(str::to_string),
-                chief_state,
-                pinned: state.pinned,
-                pin_position: state.pin_position.filter(|_| state.pinned),
-                marked_unread: state.marked_unread,
-                muted: false,
-            }
-        })
-        .collect();
-    rows.sort_by(order);
-    rows
+    channels
+}
+
+/// Whether `summary` is in the list at all (a deleted Chief's direct is not).
+pub(crate) fn listed(
+    summary: &Summary,
+    input: &HomeInboxInput<'_>,
+    channels: &BTreeSet<String>,
+) -> bool {
+    !is_deleted_chiefs_direct(summary, input, channels)
+}
+
+/// The row's time: the last message's (a deleted one too), else `updated_at`.
+pub(crate) fn activity_of(summary: &Summary) -> &str {
+    summary
+        .last_message
+        .as_ref()
+        .map_or(summary.updated_at.as_str(), |last| last.created_at.as_str())
+}
+
+/// One conversation's Home row (`channels`: [`channels_of`] the whole list).
+pub(crate) fn build_row(
+    summary: &Summary,
+    input: &HomeInboxInput<'_>,
+    channels: &BTreeSet<String>,
+) -> HomeRow {
+    let me = input.me;
+    let others = others(summary, me);
+    let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
+    let chief = direct.then(|| others[0]).filter(|id| is_chief(summary, id, input));
+    let kind = match (direct, chief.is_some(), summary.title.is_empty()) {
+        (true, true, _) => HomeKind::Chief,
+        (true, false, _) => HomeKind::Direct,
+        (false, _, false) => HomeKind::Channel,
+        (false, _, true) => HomeKind::Group,
+    };
+    let name = chief
+        .and_then(|id| input.chief_names.get(id).filter(|name| !name.is_empty()).cloned())
+        .or_else(|| (!summary.title.is_empty()).then(|| summary.title.clone()))
+        .unwrap_or_else(|| {
+            // A participant with no name is left out: an id is never a name.
+            others
+                .iter()
+                .filter_map(|id| {
+                    participant(summary, id)
+                        .map(|p| p.display_name.clone())
+                        .filter(|name| !name.is_empty())
+                        .or_else(|| (chief == Some(*id)).then(|| CHIEF_NAME.to_string()))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        });
+    let last = summary.last_message.as_ref();
+    let mut cursor = summary.read_cursors.get(me).copied().unwrap_or(0);
+    if let Some(last) = last.filter(|last| last.author == me) {
+        cursor = cursor.max(last.seq);
+    }
+    let live = last.filter(|last| last.retracted_at.is_none());
+    let chief_state = chief.map(|id| {
+        let active = |map: &HashMap<String, Vec<String>>| {
+            map.get(&summary.id).is_some_and(|ids| ids.iter().any(|t| t == id))
+        };
+        let typing = active(&input.typing) || active(&input.running);
+        let work = live.filter(|last| last.author == id).and_then(last_work);
+        match (typing, work) {
+            (true, _) | (false, Some(WorkStatus::Running)) => ChiefState::Working,
+            (false, Some(WorkStatus::Waiting)) => ChiefState::Waiting,
+            _ => ChiefState::Idle,
+        }
+    });
+    let state = input.states.get(&summary.id).copied().unwrap_or_default();
+    HomeRow {
+        id: summary.id.clone(),
+        owner: crate::OWNER_LOCAL,
+        kind,
+        name,
+        unread: summary.last_seq.saturating_sub(cursor),
+        activity_at: activity_of(summary).to_string(),
+        preview: last
+            .and_then(|last| preview_of(last, is_markdown(summary, last), &input.preview_words)),
+        last_author: live.map(|last| last.author.clone()),
+        chief: chief.map(str::to_string),
+        chief_state,
+        pinned: state.pinned,
+        pin_position: state.pin_position.filter(|_| state.pinned),
+        marked_unread: state.marked_unread,
+        muted: false,
+    }
 }
 
 /// `Summary.owner`-style name of the Cloud owner's rows.
@@ -362,25 +418,52 @@ pub fn merge_rows(mut rows: Vec<HomeRow>, cloud: Vec<HomeRow>) -> Vec<HomeRow> {
 }
 
 fn order(a: &HomeRow, b: &HomeRow) -> Ordering {
-    match (a.pinned, b.pinned) {
-        (true, false) => return Ordering::Less,
-        (false, true) => return Ordering::Greater,
-        (true, true) => {
-            let position = |row: &HomeRow| row.pin_position.unwrap_or(u64::MAX);
-            let by = position(a).cmp(&position(b));
-            if by != Ordering::Equal {
-                return by;
-            }
+    SortKey::of_row(a).cmp_list(&SortKey::of_row(b))
+}
+
+/// What a row's place in the list depends on, and nothing else: a window is
+/// cut by these alone, before any row is built (`home_window.rs`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SortKey<'a> {
+    pub(crate) pinned: bool,
+    pub(crate) pin_position: Option<u64>,
+    pub(crate) activity_at: &'a str,
+    pub(crate) id: &'a str,
+}
+
+impl<'a> SortKey<'a> {
+    fn of_row(row: &'a HomeRow) -> Self {
+        Self {
+            pinned: row.pinned,
+            pin_position: row.pin_position,
+            activity_at: &row.activity_at,
+            id: &row.id,
         }
-        (false, false) => {}
     }
-    activity_key(b).cmp(&activity_key(a)).then_with(|| a.id.cmp(&b.id))
+
+    /// List order: pinned rows by pin position, then the rest by newest
+    /// activity; ties by id.
+    pub(crate) fn cmp_list(&self, b: &Self) -> Ordering {
+        let a = self;
+        match (a.pinned, b.pinned) {
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            (true, true) => {
+                let position = |key: &Self| key.pin_position.unwrap_or(u64::MAX);
+                let by = position(a).cmp(&position(b));
+                if by != Ordering::Equal {
+                    return by;
+                }
+            }
+            (false, false) => {}
+        }
+        activity_key(b.activity_at).cmp(&activity_key(a.activity_at)).then_with(|| a.id.cmp(b.id))
+    }
 }
 
 /// A time's sort key: RFC 3339 UTC text sorts as text once its fraction has
 /// exactly three digits (the Cloud owner may leave them out or write more).
-fn activity_key(row: &HomeRow) -> std::borrow::Cow<'_, str> {
-    let at = row.activity_at.as_str();
+pub(crate) fn activity_key(at: &str) -> std::borrow::Cow<'_, str> {
     let Some(body) = at.strip_suffix('Z').filter(|body| body.len() >= 19) else {
         return std::borrow::Cow::Borrowed(at);
     };

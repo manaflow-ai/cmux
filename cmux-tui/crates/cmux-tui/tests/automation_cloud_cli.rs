@@ -27,6 +27,12 @@ static CREATES: AtomicUsize = AtomicUsize::new(0);
 /// A fake app: one Cloud Chief; the first `automation.create` succeeds, the
 /// second answers the free plan's refusal with a checkout link.
 fn answer(request: &Value) -> Value {
+    if request["method"] == "cloud.machines" {
+        return json!({"id": request["id"], "ok": true, "result": {"machines": [
+            {"id": "vm_abcdefghij0123456789", "title": "scout", "status": "running"},
+            {"id": "vm_zzzzzzzzzzzzzzzzzzzz", "title": "spare", "status": "stopped"}
+        ]}});
+    }
     if request["method"] != "cloud.automation" {
         return json!({"id": request["id"], "ok": true, "result": {"pong": true}});
     }
@@ -35,6 +41,14 @@ fn answer(request: &Value) -> Value {
         "chief.list" => json!({"ok": true, "value": {"chiefs": [
             {"id": "agent_01J0000000000000000000000A", "is_default": true, "archived_at": null, "main_conversation": "conv_main"}
         ], "tombstones": []}}),
+        "automation.create" if p["params"]["body"]["type"] == "steps" => {
+            json!({"ok": true, "value": {"id": "auto_cccccccccccccccccccc", "name": p["params"]["name"], "enabled": true,
+                   "triggers": [{"spec": p["params"]["triggers"][0]}], "next_run_at": null}})
+        }
+        "run.get" => {
+            json!({"ok": true, "value": {"run": {"id": p["params"]["run"], "state": "failed",
+            "body": {"type": "chief", "chief": "agent_x", "conversation": "c", "prompt": "x"}}}})
+        }
         "automation.create" => {
             if CREATES.fetch_add(1, Ordering::SeqCst) == 0 {
                 json!({"ok": true, "value": {"id": "auto_aaaaaaaaaaaaaaaaaaaa", "name": p["params"]["name"], "enabled": true,
@@ -49,6 +63,15 @@ fn answer(request: &Value) -> Value {
         ]}}),
         "automation.run" => {
             json!({"ok": true, "value": {"id": "run_bbbbbbbbbbbbbbbbbbbb", "state": "queued"}})
+        }
+        "automation.secret.set" => {
+            json!({"ok": true, "value": {"name": p["params"]["name"], "hint": null,
+            "generation": 1, "updated_at": 1, "updated_by": "user_1"}})
+        }
+        "automation.secret.list" => {
+            json!({"ok": true, "value": {"automation": p["params"]["automation"], "secrets": [
+                {"name": "GH_TOKEN", "hint": "wxyz", "generation": 1, "updated_at": 1, "updated_by": "user_1"}
+            ]}})
         }
         other => {
             json!({"ok": false, "error": {"code": "automation.op_not_allowed", "message": other}})
@@ -160,11 +183,73 @@ fn cloud_create_list_run_and_the_plan_refusal() {
     assert!(run.status.success(), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("run_bbbbbbbbbbbbbbbbbbbb"));
 
-    // Local-only schedules and shell commands are refused before any call.
+    // A shell command runs on the Cloud machine `--machine` names (by id, after the command
+    // word, where the global `--machine` once swallowed it): a steps body that checks out the
+    // branch's newest head, then waits for the command.
+    let scout = cmux(
+        &dir,
+        &socket,
+        &[
+            "automation",
+            "create",
+            "models-scout",
+            "--target",
+            "cloud",
+            "--machine",
+            "vm_abcdefghij0123456789",
+            "--command",
+            "bash scripts/models/run-scout.sh",
+            "--repo",
+            "manaflow-ai/cmux",
+            "--ref",
+            "feat-cmux-next",
+            "--every",
+            "6h",
+            "--timeout",
+            "20m",
+            "--catch-up",
+            "latest",
+        ],
+    );
+    assert!(scout.status.success(), "{}{}", text(&scout.stdout), text(&scout.stderr));
+    assert!(text(&scout.stdout).contains("vm_abcdefghij0123456789"), "{}", text(&scout.stdout));
+    // A prompt run has no machine log.
+    let logs = cmux(
+        &dir,
+        &socket,
+        &["automation", "logs", "run_dddddddddddddddddddd", "--target", "cloud"],
+    );
+    assert_eq!(logs.status.code(), Some(2), "{}", text(&logs.stderr));
+
+    // Local-only schedules and what a Cloud command cannot take are refused before any call.
     for args in [
-        &["automation", "create", "X", "--target", "cloud", "--prompt", "x", "--every", "30m"][..],
-        &["automation", "create", "X", "--target", "cloud", "--command", "true", "--daily", "9:00"],
-        &["automation", "logs", "X", "--target", "cloud"],
+        &["automation", "create", "X", "--target", "cloud", "--prompt", "x", "--every", "7m"][..],
+        &[
+            "automation",
+            "create",
+            "X",
+            "--target",
+            "cloud",
+            "--command",
+            "true",
+            "--daily",
+            "9:00",
+            "--repo",
+            "nope",
+        ],
+        &[
+            "automation",
+            "create",
+            "X",
+            "--target",
+            "cloud",
+            "--command",
+            "true",
+            "--daily",
+            "9:00",
+            "--timeout",
+            "300m",
+        ],
         // Conditions, watches and guardrails run on this Mac only.
         &[
             "automation",
@@ -239,6 +324,25 @@ fn cloud_create_list_run_and_the_plan_refusal() {
         .filter(|r| r["method"] == "cloud.automation")
         .map(|r| &r["params"])
         .collect();
+    let command = ops
+        .iter()
+        .find(|p| p["op"] == "automation.create" && p["params"]["body"]["type"] == "steps")
+        .unwrap();
+    let steps = command["params"]["body"]["steps"].as_array().unwrap();
+    assert_eq!(
+        steps.len(),
+        1 + 5,
+        "a start step, then waits of at most 280 s that cover 20 minutes"
+    );
+    assert!(steps.iter().all(|s| s["machine"] == "vm_abcdefghij0123456789"));
+    assert!(steps[0]["command"].as_str().unwrap().contains("fetch --quiet origin feat-cmux-next"));
+    assert_eq!(command["params"]["catch_up"], "latest");
+    assert_eq!(command["params"]["concurrency"], json!({"max": 1, "on_limit": "skip"}));
+    let every = command["params"]["triggers"][0]["expr"].as_str().unwrap();
+    // Every 6 h from now as a cron: one minute, four hours a day.
+    let fields: Vec<&str> = every.split(' ').collect();
+    assert_eq!((fields.len(), &fields[2..]), (5, &["*", "*", "*"][..]), "{every}");
+    assert_eq!(fields[1].split(',').count(), 4, "{every}");
     let create = ops.iter().find(|p| p["op"] == "automation.create").unwrap();
     assert_eq!(
         create["params"]["body"],
@@ -258,5 +362,69 @@ fn cloud_create_list_run_and_the_plan_refusal() {
             .filter(|p| p["op"] == "chief.list" || p["op"] == "automation.list")
             .all(|p| p.get("idempotency_key").is_none())
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `automation secret set` reads the value from stdin (never argv) and sends it once, keyed;
+/// `list` prints names and hints only; a value given as an argument is refused before any call.
+#[test]
+fn cloud_secret_set_reads_stdin_and_list_shows_no_value() {
+    let dir = temp_dir("autosecret");
+    let socket = dir.join("app.sock");
+    let done = Arc::new(AtomicBool::new(false));
+    let app = fake_app(&socket, done.clone());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .arg("--app-socket")
+        .arg(&socket)
+        .args(["automation", "secret", "set", "Morning brief", "GH_TOKEN", "--target", "cloud"])
+        .env("LC_ALL", "C")
+        .env("HOME", &dir)
+        .env("CMUX_AUTOMATIONS_DIR", dir.join("store"))
+        .env_remove("CMUX_SOCKET_PATH")
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"ghp_secret value\n").unwrap();
+    let set = child.wait_with_output().unwrap();
+    assert!(set.status.success(), "{}{}", text(&set.stdout), text(&set.stderr));
+    assert!(!text(&set.stdout).contains("ghp_secret"), "{}", text(&set.stdout));
+
+    let list = cmux(
+        &dir,
+        &socket,
+        &["automation", "secret", "list", "Morning brief", "--target", "cloud"],
+    );
+    assert!(list.status.success(), "{}", text(&list.stderr));
+    assert!(text(&list.stdout).contains("GH_TOKEN"), "{}", text(&list.stdout));
+
+    let in_argv = cmux(
+        &dir,
+        &socket,
+        &[
+            "automation",
+            "secret",
+            "set",
+            "Morning brief",
+            "GH_TOKEN",
+            "ghp_in_argv",
+            "--target",
+            "cloud",
+        ],
+    );
+    assert_eq!(in_argv.status.code(), Some(2), "{}", text(&in_argv.stderr));
+    assert!(!text(&in_argv.stderr).contains("ghp_in_argv"));
+
+    done.store(true, Ordering::Relaxed);
+    let received = app.join().unwrap();
+    let sets: Vec<&Value> =
+        received.iter().filter(|r| r["params"]["op"] == "automation.secret.set").collect();
+    assert_eq!(sets.len(), 1, "{received:?}");
+    assert_eq!(sets[0]["params"]["params"]["value"], "ghp_secret value");
+    assert_eq!(sets[0]["params"]["params"]["automation"], "auto_aaaaaaaaaaaaaaaaaaaa");
+    assert!(sets[0]["params"]["idempotency_key"].as_str().is_some_and(|k| !k.is_empty()));
     let _ = std::fs::remove_dir_all(&dir);
 }
