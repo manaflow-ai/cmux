@@ -14,6 +14,10 @@
 import { classifyFrames, type FrameRecord, type FrameRow } from "./firstLoadFrames";
 import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
 
+/// The performance mark App.tsx sets when it first tells the host the page shows the chat
+/// (`pane.painted`): the host shows the page from then, so what moves after it is what the reader saw.
+export const PANE_PAINTED_MARK = "cmux-chat:painted";
+
 /// The longest a first load is watched, from navigation.
 export const WATCH_MS = 20_000;
 /// A first load is over once nothing in view changed this long, with no copy over the page.
@@ -22,6 +26,9 @@ export const QUIET_MS = 2_000;
 /// What the record says: `copy` whether a drawn copy showed first; `first` when content first painted and
 /// `settled` when the final state first painted (ms from navigation); `shifts` frames that moved the
 /// composer or the bottom row; `blank` frames with no row after content; `why` the first shift's kind.
+/// `painted` when the page told the host it shows the chat (ms from navigation, -1 before it never
+/// did); `seen` the shift frames from then on, the ones the reader saw (the host covers the page
+/// until then); `seenWhy`, `seenAt` (ms after `painted`) and `seenPx` (how far, rounded) of the first.
 export type FirstLoadFields = {
   copy: boolean;
   frames: number;
@@ -30,7 +37,20 @@ export type FirstLoadFields = {
   shifts: number;
   blank: number;
   why: string;
+  painted: number;
+  seen: number;
+  seenWhy: string;
+  seenAt: number;
+  seenPx: number;
 };
+
+/// How far a shift reason's box moved: its trailing coordinate pair ("... 120.0 -> 98.5"). A row
+/// replaced, or the composer coming or going, names no distance: 0. Row ids hold digits too, so only
+/// the pair around the arrow is read.
+function movedPx(why: string): number {
+  const pair = /(-?\d+(?:\.\d+)?) -> (-?\d+(?:\.\d+)?)$/.exec(why);
+  return pair ? Math.round(Number(pair[2]) - Number(pair[1])) : 0;
+}
 
 /// The kind of a shift reason, with no row id in it.
 function kindOf(why: string | undefined): string {
@@ -39,11 +59,18 @@ function kindOf(why: string | undefined): string {
   return why.includes("replaced") ? "bottom row replaced" : "bottom row moved";
 }
 
-/// The judged load from its frames, or undefined when no content ever painted.
-export function firstLoadFields(frames: FrameRecord[]): FirstLoadFields | undefined {
+/// The judged load from its frames, or undefined when no content ever painted. `painted`: when the
+/// page told the host it shows the chat (PANE_PAINTED_MARK), if it did.
+export function firstLoadFields(frames: FrameRecord[], painted?: number): FirstLoadFields | undefined {
   const metrics = classifyFrames(frames);
   if (metrics.firstContentMs === null) return undefined;
+  const seen = painted === undefined ? [] : metrics.shiftAt.filter((shift) => frames[shift.index]!.t >= painted);
   return {
+    painted: painted === undefined ? -1 : Math.round(painted),
+    seen: seen.length,
+    seenWhy: kindOf(seen[0]?.why),
+    seenAt: seen[0] && painted !== undefined ? Math.round(frames[seen[0].index]!.t - painted) : -1,
+    seenPx: seen[0] ? movedPx(seen[0].why) : 0,
     copy: frames.some((frame) => frame.copyShown),
     frames: metrics.frames,
     first: Math.round(metrics.firstContentMs),
@@ -120,7 +147,8 @@ export function watchFirstLoad(win: Window, record: (fields: FirstLoadFields) =>
     if (pending !== undefined) win.cancelAnimationFrame(pending);
     pending = undefined;
     for (const stop of stops) stop();
-    const fields = firstLoadFields(frames);
+    const painted = win.performance.getEntriesByName?.(PANE_PAINTED_MARK, "mark")[0]?.startTime;
+    const fields = firstLoadFields(frames, painted);
     if (fields) record(fields);
   };
   const over = (now: number) => now >= WATCH_MS || (content && !copyShown && now - changedAt >= QUIET_MS);
