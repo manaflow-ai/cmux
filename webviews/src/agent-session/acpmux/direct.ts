@@ -102,7 +102,15 @@ import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
 import { noteReplaced } from "./sessionIndex";
-import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  formerNamesOf,
+  hostKind,
+  sessionEntry,
+  sessionTitle,
+  summaryActivityAt,
+  text,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
@@ -244,7 +252,7 @@ import {
 import { markOneRowChange } from "./rowChanges";
 import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
-import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
+import { parseHarnessIconSpec, parseSessionIcon, rememberHarnessIcons } from "../shared/harnessIcons";
 import { liveModes, permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
@@ -11908,6 +11916,9 @@ export class AcpmuxDirectClient {
           additionalDirectories: summaryExtraFolders(summary.additionalDirectories),
           title: summary.title,
           name: summary.name,
+          displayName: text(summary.displayName),
+          formerNames: formerNamesOf(summary.formerNames),
+          icon: parseSessionIcon(summary.icon),
           goal: taskGoal(summary.goal),
           taskList: (this.publishedTaskList = chatTaskListOf(summary.taskList, this.publishedTaskList)),
           harness: summary.harness,
