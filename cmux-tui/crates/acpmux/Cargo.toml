@@ -92,6 +92,8 @@ cmux-build-space.workspace = true
 # The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.
 cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
 cmux-cloud-client.workspace = true
+# The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
+cmux-cloud-wire.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
 # A browser's own email-code sign-in on the web listener (`server/web_device.rs`).
@@ -134,6 +136,7 @@ cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
