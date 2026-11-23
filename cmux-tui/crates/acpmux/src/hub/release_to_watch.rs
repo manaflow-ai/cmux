@@ -314,6 +314,13 @@ impl Hub {
         gone: &crate::store::TerminalDriver,
     ) {
         let _turn = session.turn_lock.lock().await;
+        let ours = session.meta().watching.and_then(|w| w.terminal).as_ref() == Some(driver);
+        if ours {
+            // What acpmux itself still held to type into the terminal goes first, with why: once
+            // off, nothing is written into that terminal. Before the binding clears, or the
+            // typing loop, woken in between, fails it as "the terminal stopped running this chat".
+            self.drop_typed(session);
+        }
         let cleared = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.watching.as_mut() {
@@ -363,6 +370,13 @@ impl Hub {
         driver: &crate::store::TerminalDriver,
     ) {
         let _turn = session.turn_lock.lock().await;
+        let ours = session.meta().watching.and_then(|w| w.terminal).as_ref() == Some(driver);
+        if ours {
+            // What acpmux itself still held to type into the terminal goes first, with why: once
+            // off, nothing is written into that terminal. Before the binding clears, or the
+            // typing loop, woken in between, fails it as "the terminal stopped running this chat".
+            self.drop_typed(session);
+        }
         let cleared = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.watching.as_mut() {
@@ -376,9 +390,6 @@ impl Hub {
         if cleared {
             self.save_meta(session);
             self.unmark_terminal_driven(session);
-            // What acpmux itself still held to type into the terminal goes, with why: once off,
-            // nothing is written into that terminal.
-            self.drop_typed(session);
         }
     }
 
