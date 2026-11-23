@@ -1542,6 +1542,12 @@ impl Overlay {
 
     /// Copies lower `path` (entry `index`) into the upper layer, unless it is there already.
     fn copy_up(&self, path: &str, index: u32) -> Result<(), i32> {
+        self.copy_up_keeping(path, index, true)
+    }
+
+    /// Copies `path` up; with `bytes` false a file lands empty, never fetched: an open that
+    /// truncates throws the old bytes away, so it must not fail because the Mac changed them.
+    fn copy_up_keeping(&self, path: &str, index: u32, bytes: bool) -> Result<(), i32> {
         let _claim = self.claim((index, COPY_UP));
         if self.upper.stat(path).is_ok() {
             return Ok(());
@@ -1562,9 +1568,9 @@ impl Overlay {
         }
         let temp = self.scratch_path();
         let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
-        if entry.size <= CHUNK {
+        if bytes && entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
-        } else {
+        } else if bytes {
             let chunks = entry.size.div_ceil(CHUNK);
             for chunk in 0..chunks {
                 let chunk = u32::try_from(chunk).map_err(|_| EIO)?;
@@ -1603,7 +1609,12 @@ impl Overlay {
         let path = self.path_of(ino)?;
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
-            self.ensure_upper(&path)?;
+            match self.node(&path).ok_or(ENOENT)? {
+                Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
+                    self.copy_up_keeping(&path, index, false)?;
+                }
+                _ => self.ensure_upper(&path)?,
+            }
         }
         let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
             Node::Upper(stat) if stat.format() == libc::S_IFREG => {
@@ -2050,7 +2061,13 @@ impl Overlay {
             return self.getattr(ino);
         }
         if let Some(path) = &path {
-            self.ensure_upper(path)?;
+            match self.node(path) {
+                // Truncated to nothing: the old bytes are dropped, so none are fetched.
+                Some(Node::Lower(index)) if set.size == Some(0) => {
+                    self.copy_up_keeping(path, index, false)?;
+                }
+                _ => self.ensure_upper(path)?,
+            }
         }
         if let Some(size) = set.size {
             match (&file, &path) {
