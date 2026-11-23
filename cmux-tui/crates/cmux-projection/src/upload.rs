@@ -162,13 +162,18 @@ impl<S: Source + Sync> Uploader<S> {
 
     /// The next file to put: an untried file beside a recent fault (most recent first), so a
     /// session's new folder goes up next, else the next untried file of the base order.
+    /// A fault whose folder has nothing left untried is forgotten, so each folder is scanned
+    /// to its end once, not once per file put.
     fn next(&self, order: &[u32], at: &mut usize) -> Option<u32> {
-        let state = self.lock();
-        let latest: Vec<u32> = state.recent.iter().rev().copied().collect();
-        if let Some(pick) =
-            beside(&self.manifest, &latest).into_iter().find(|index| !state.done.contains(index))
-        {
-            return Some(pick);
+        let mut state = self.lock();
+        while let Some(fault) = state.recent.back().copied() {
+            let pick = beside(&self.manifest, &[fault])
+                .into_iter()
+                .find(|index| !state.done.contains(index));
+            if pick.is_some() {
+                return pick;
+            }
+            state.recent.pop_back();
         }
         while let Some(index) = order.get(*at).copied() {
             *at += 1;
