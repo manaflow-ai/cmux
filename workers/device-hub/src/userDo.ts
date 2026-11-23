@@ -1229,7 +1229,7 @@ export class UserDO extends DurableObject<Env> {
     if (c.scope !== "full" && this.sameMachine(me.id).includes(viewerId)) {
       throw new ApiError(403, "machine_scope", "a machine's session is never a viewer");
     }
-    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    if (!sharesScreen(host)) throw new ApiError(403, "not_shared", "the host does not share its screen");
     const perm = this.permission(hostId, viewerId);
     if (perm === "none") throw new ApiError(403, "permission_none", "the host does not allow this device");
     if (!this.online(hostId)) throw new ApiError(409, "host_offline", "the host is not connected");

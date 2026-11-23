@@ -150,6 +150,20 @@ describe("sharing with your own devices by default (remote.shareWithOwnDevicesBy
     expect((await viewer.call("POST", "/v1/sessions", { hostId: mac.id, scope: "view" })).json.error.code).toBe("permission_none");
   });
 
+  it("on: the Mac pushes its screen to an own device, the same as that device asking", async () => {
+    const account = await signIn();
+    const mac = await host(account, "Studio", true);
+    await mac.connect();
+    const laptop = await device(account, "Laptop", OTHER_MAC);
+    await laptop.connect();
+    const res = await mac.call("POST", "/v1/sessions", { hostId: mac.id, viewerId: laptop.id, scope: "view" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(res.json.session).toMatchObject({ state: "approved", hostId: mac.id, viewerId: laptop.id });
+    // Off: the push is refused like a request.
+    await mac.share(false);
+    expect((await mac.call("POST", "/v1/sessions", { hostId: mac.id, viewerId: laptop.id, scope: "view" })).json.error.code).toBe("not_shared");
+  });
+
   it("on, then the setting turned off: the next registration stops the default", async () => {
     const account = await signIn();
     const mac = await host(account, "Studio", true);
