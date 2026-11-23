@@ -47,6 +47,8 @@ public final class MacPairRequests {
 
     @ObservationIgnored private var sources: [String: Source] = [:]
     @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
+    /// Which poll of each Mac is current: a cancelled one ending late leaves a newer one's slot alone.
+    @ObservationIgnored private var pollGeneration: [String: Int] = [:]
     /// The last link open, foreground or shown card of each Mac: the slow poll runs for a while after it.
     @ObservationIgnored private var lastActive: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var backgrounded = false
@@ -56,6 +58,8 @@ public final class MacPairRequests {
     /// `macID`'s link is served (its pairing passed): list it now and keep listing.
     func linkServed(macID: String, source: Source) {
         sources[macID] = source
+        // A replaced link: the old link's poll ends, and the new link is listed now.
+        polls.removeValue(forKey: macID)?.cancel()
         kick(macID)
     }
 
@@ -99,9 +103,12 @@ public final class MacPairRequests {
         lastActive[macID] = .now
         guard !backgrounded, polls[macID] == nil, sources[macID] != nil else { return }
         // task-owner: polls[macID]; ends on its own (Rust stop rule, link gone, unsupported) or on background().
+        let generation = (pollGeneration[macID] ?? 0) + 1
+        pollGeneration[macID] = generation
         polls[macID] = Task { [weak self] in
             await self?.poll(macID)
-            self?.polls[macID] = nil
+            guard let self, self.pollGeneration[macID] == generation else { return }
+            self.polls[macID] = nil
         }
     }
 
