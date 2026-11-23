@@ -511,8 +511,18 @@
   cursor: default;
   user-select: none;
 }
+/* In the tab row it is an accessory of the row (tabRow.ts TAB_ROW_ACCESSORY): one width while it shows, the room
+   useTabRowTools leaves it (never more than the half of the row the tabs give up, less the tools), so a new summary
+   moves nothing; its text keeps to the tools' side. No room: it hides whole, the tools stay where they are. */
 .acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
+  flex: none;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  width: min(300px, var(--acpmux-tab-row-accessory-room, 0px));
+  max-width: none;
+}
+[data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
+  display: none;
 }
 .acpmux-chat-summary__text {
   flex: 0 1 auto;
