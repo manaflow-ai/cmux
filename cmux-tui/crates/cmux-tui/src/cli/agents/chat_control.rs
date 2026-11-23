@@ -647,6 +647,10 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
     }
     if chat.peer.is_none() {
         meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(workspace_key)}));
+    } else if chat.name.is_some() {
+        // On another machine it keeps its name: a taken one gets a `-N` suffix there, never the
+        // agent's name (acpmux `NewRequest::suffix_taken_name`).
+        meta.insert("ifNameTaken".into(), json!("suffix"));
     }
     meta
 }

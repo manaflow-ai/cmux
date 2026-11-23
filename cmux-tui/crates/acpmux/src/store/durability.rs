@@ -54,7 +54,19 @@ pub struct Durability {
     /// and this returns true; when the writer is only slow (a sync under way on a saturated disk)
     /// it logs the wait and returns false, and the line keeps waiting.
     pub stalled: Arc<dyn Fn(std::time::Duration) -> bool + Send + Sync>,
+    /// While the store is in its full-disk state (`journal_store/space.rs`), the refusal its
+    /// writes get (`disk.full`); else None. A line that waited [`FULL_WAIT`] for the journal
+    /// while it is full is answered with it (a reply) or never sent (any other line), instead of
+    /// waiting for space that may not come (`server/durable_gate.rs`).
+    pub full: Arc<dyn Fn() -> Option<String> + Send + Sync>,
 }
+
+/// How long a reply waits for the journal while the disk is full before it is answered with the
+/// store's `disk.full` refusal instead: the writer's first retries (100 ms, then 200 ms) write the
+/// records already appended into the room the freed reserve leaves, so a reply usually goes out
+/// with its real answer within it; past it the disk had no room for them either, and every
+/// waiter gets its refusal at once rather than waiting for space without bound.
+pub const FULL_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// A streamed agent line: a `Stream` record, synced with the next acked batch or a second later,
 /// and shown at once (DESIGN.md C4). Every other line is acknowledged (`Ack`). The hub's tap logs
