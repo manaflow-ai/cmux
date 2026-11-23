@@ -1,0 +1,147 @@
+// Linen: a soft, consumer chat look, light (the default). A white page with one centered reading
+// column, a soft gray (#fcfcfc) history sidebar with no line beside it, near-black text, prompts in
+// gray pills on the right, a black round Send, rounded menus, a quiet "Thinking" and a spinner while
+// work runs, and gentle motion.
+// Every value was sampled or measured from the pixels of the references in the README.
+{
+  "name": "Linen",
+  "description": "A soft consumer chat: white page, #fcfcfc history sidebar, gray prompt pills, a black Send.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take this file's colors, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  // background: the white page. foreground: #0d0d0d. selection: a pale blue under the text.
+  // accent: black, the round Send button and focus, with white on it: the look has no brand hue.
+  // The terminal's blue is the unread dot's, its green the "link copied" toast's, its red Delete's.
+  "colors": {
+    "background": "#ffffff",
+    "foreground": "#0d0d0d",
+    "selection": "#cfe0fc",
+    "accent": "#0d0d0d",
+    "1": "#d1352b",
+    "2": "#00852e",
+    "3": "#a35200",
+    "4": "#2d6be0",
+    "9": "#d1352b",
+    "10": "#00852e",
+    "11": "#a35200",
+    "12": "#2d6be0",
+    // The terminal palette, whole: the slots above as sampled, the rest at a plain chroma, each
+    // solved in OKLCH over the page (5.2:1, the bright ones 4.7:1, 7 4.8:1, 8 the dim gray 3.4:1),
+    // and the cursor in the accent.
+    "0": "#0d0d0d",
+    "5": "#925891",
+    "6": "#04787e",
+    "7": "#6e7279",
+    "8": "#878b93",
+    "13": "#a45997",
+    "14": "#05808b",
+    "15": "#939599",
+    "cursor": "#0d0d0d"
+  },
+  "appearance.accent": "theme",
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face, as the chat's code blocks
+  // use.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // No wallpaper, no glass: plain fills.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "browser.omnibar.glass": "off",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: flat, no line between the sidebar and the chat (the gray alone parts them), the title
+  // bar in the page's white, one pane at a time with no ring.
+  "appearance.chromeStyle": "flat",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+  // Pending cmux#46780: a side panel's tab is a rounded pill with its close button.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected history row is a gray rounded fill (#ececec), not the accent.
+  // "appearance.selection": "neutral",
+
+  // Proportions: a 52 pt header, the 260 pt history sidebar with 32 pt rows, 14 pt sidebar text,
+  // tabs at 13 pt in a 36 pt strip, a 1 pt divider, no gutter.
+  "appearance.metrics.titlebarHeight": 52,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 14,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 220,
+  "appearance.metrics.tabMinActiveWidth": 120,
+  "appearance.metrics.tabMinInactiveWidth": 96,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: the soft #fcfcfc gray, no edge line, quiet gray headings ("Pinned", "Threads").
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#fcfcfc",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "quiet",
+
+  // The content: white everywhere a person reads; code and diffs on the #fcfcfc of a code block.
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#ffffff",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.terminal.color": "#ffffff",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#fcfcfc",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#fcfcfc",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#ffffff",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#ffffff",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#ffffff",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#e3e3e3",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: the white sheet.
+  "appearance.surfaces.settings.color": "#ffffff",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#ffffff",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#ffffff",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#ffffff",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a thin spinning ring while a chat works (the composer's Stop spinner), also on tabs.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.thickness": 1.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // Motion: soft, at the standard speed; colors ease in and out over 250 ms.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 250,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): 36 pt round toolbar buttons with a 10 pt gray
+  // fill on hover, no hairline under the header, history rows inset 6 pt with a 10 pt rounded
+  // fill, a pill composer at least 52 pt tall.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 48,
+  // "appearance.metrics.sidebarRowInset": 6,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 36,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 10,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.06,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 52,
+  // "appearance.metrics.spacingScale": 1.1,
+}

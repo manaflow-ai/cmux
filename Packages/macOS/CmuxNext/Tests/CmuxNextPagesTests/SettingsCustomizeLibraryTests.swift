@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Settings > Personalization > Customization Library's host: each page call becomes one
+/// Settings > Appearance > Customization Library's host: each page call becomes one
 /// `cmux --json customize library` run with the name as its own argument, a change runs only on the
 /// person's gesture, and a refusal comes back as the CLI's envelope for the page to word.
 @MainActor @Suite struct SettingsCustomizeLibraryTests {

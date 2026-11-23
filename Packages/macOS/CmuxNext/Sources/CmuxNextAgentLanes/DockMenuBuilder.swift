@@ -64,13 +64,13 @@ enum DockMenuBuilder {
 
 /// The Dock menu's words (Resources/Localizable.xcstrings).
 nonisolated enum DockMenuStrings {
-    static var newChat: String { String(localized: "dockMenu.newChat", defaultValue: "New Chat", bundle: .module) }
-    static var newChatIn: String { String(localized: "dockMenu.newChatIn", defaultValue: "New Chat in", bundle: .module) }
-    static var unread: String { String(localized: "dockMenu.unread", defaultValue: "Unread", bundle: .module) }
-    static var recent: String { String(localized: "dockMenu.recent", defaultValue: "Recent", bundle: .module) }
-    static var more: String { String(localized: "dockMenu.more", defaultValue: "More", bundle: .module) }
+    static var newChat: String { String(localized: "dockMenu.newChat", defaultValue: "New Chat", bundle: .localizedModule) }
+    static var newChatIn: String { String(localized: "dockMenu.newChatIn", defaultValue: "New Chat in", bundle: .localizedModule) }
+    static var unread: String { String(localized: "dockMenu.unread", defaultValue: "Unread", bundle: .localizedModule) }
+    static var recent: String { String(localized: "dockMenu.recent", defaultValue: "Recent", bundle: .localizedModule) }
+    static var more: String { String(localized: "dockMenu.more", defaultValue: "More", bundle: .localizedModule) }
 
     static func continueChat(_ title: String) -> String {
-        String(format: String(localized: "dockMenu.continue", defaultValue: "Continue “%@”", bundle: .module), title)
+        String(format: String(localized: "dockMenu.continue", defaultValue: "Continue “%@”", bundle: .localizedModule), title)
     }
 }

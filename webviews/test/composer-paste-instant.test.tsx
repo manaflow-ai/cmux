@@ -612,8 +612,9 @@ test("a recording the host makes for the chat loads at the caret and stays there
     const id = node()!.getAttribute("data-inline-attachment");
     // It fails: the tile says so where it is, with Retry.
     await act(async () => makes[0]!(undefined));
-    await until(() => node()?.querySelector(".acpmux-md-inline-retry") != null, "Retry on the tile");
-    act(() => node()!.querySelector<HTMLElement>(".acpmux-md-inline-retry")!.click());
+    const retry = () => node()?.querySelector<HTMLElement>(".acpmux-attachment-retry");
+    await until(() => retry() != null, "Retry on the tile");
+    act(() => retry()!.click());
     await until(() => makes.length === 2, "the second make");
     expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
     // Made: the chip is the tile's, at the tile's place.

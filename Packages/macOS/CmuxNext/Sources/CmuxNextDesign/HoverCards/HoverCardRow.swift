@@ -119,6 +119,10 @@ extension HoverCardAccessory {
 public final class HoverCardRowView: NSView {
     /// The default icon column: 13 pt, a step above the 10.5 pt caption.
     public static var iconSize: CGFloat { 13 }
+    /// The gap from the icon column to the text: `Metrics.space2` in whole points. A density scale (#44449) can make
+    /// `space2` fractional, and a stack view snaps a half-point gap to a pixel that frame-laid rows beside it do not,
+    /// so the text columns part.
+    public static var iconGap: CGFloat { Metrics.space2.rounded() }
 
     /// This row's icon column; a card sized by its own tokens (the sidebar's workspace card) sets it.
     public var iconSide: CGFloat = HoverCardRowView.iconSize {
@@ -163,7 +167,7 @@ public final class HoverCardRowView: NSView {
         stack.setViews([accessoryView], in: .trailing)
         stack.orientation = .horizontal
         stack.alignment = .firstBaseline
-        stack.spacing = Metrics.space2
+        stack.spacing = Self.iconGap
         stack.setCustomSpacing(Metrics.space1, after: additionsLabel)
         stack.setCustomSpacing(Metrics.space3, after: deletionsLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false

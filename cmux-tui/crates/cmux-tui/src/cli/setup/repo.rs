@@ -253,7 +253,8 @@ impl Drop for Checkout {
 }
 
 /// `git` with no prompt, no hooks and no system config: the repo is data.
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+/// `config` (`-c` pairs) comes after cmux's own.
+fn git(dir: &Path, config: &[&str], args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -266,6 +267,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
             "-c",
             "protocol.https.allow=always",
         ])
+        .args(config)
         .args(args)
         .output()
         .map_err(|error| format!("git: {error}"))?;
@@ -276,8 +278,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Fetches `reference` at its ref (the default branch when none) and checks
-/// out that one commit. Any git host: a shallow fetch of the commit.
+/// out that one commit. Any git host: a shallow fetch of the commit, and of
+/// a setup in a folder only that folder's files.
 fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
+    fetch_from(reference, &reference.clone_url(), &[])
+}
+
+/// [`fetch`] from `url`, with `config` on every git call (the tests' repo on
+/// disk needs the file protocol).
+fn fetch_from(reference: &Reference, url: &str, config: &[&str]) -> Result<Checkout, Failure> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_nanos());
@@ -285,15 +294,36 @@ fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
     std::fs::create_dir_all(&dir).map_err(|error| refused("setup.fetch", error.to_string()))?;
     let mut checkout = Checkout { dir, commit: String::new() };
     let wanted = reference.git_ref.as_deref().unwrap_or("HEAD");
-    let url = reference.clone_url();
-    let fetched = git(&checkout.dir, &["init", "-q"])
-        .and_then(|_| {
-            git(&checkout.dir, &["fetch", "-q", "--depth", "1", "--no-tags", &url, wanted])
+    let run = |args: &[&str]| git(&checkout.dir, config, args);
+    // A setup in a folder (a look in a monorepo) fetches the commit's trees
+    // with no file contents, then checks out only its folder: the checkout
+    // fetches that folder's files from `origin` in one batch. A host with no
+    // filter support sends the whole commit, as before.
+    let sparse = (!reference.path.is_empty()).then(|| format!("/{}/", reference.path));
+    let fetch_args: &[&str] = if sparse.is_some() {
+        &["fetch", "-q", "--depth", "1", "--filter=blob:none", "--no-tags", "origin", wanted]
+    } else {
+        &["fetch", "-q", "--depth", "1", "--no-tags", "origin", wanted]
+    };
+    let fetched = run(&["init", "-q"])
+        .and_then(|_| run(&["remote", "add", "origin", url]))
+        .and_then(|_| run(fetch_args))
+        .and_then(|_| match &sparse {
+            // The setting and pattern file every git with partial clone reads
+            // (`sparse-checkout set --no-cone` needs 2.35).
+            Some(folder) => run(&["config", "core.sparseCheckout", "true"]).and_then(|_| {
+                let info = checkout.dir.join(".git/info");
+                std::fs::create_dir_all(&info)
+                    .and_then(|()| {
+                        std::fs::write(info.join("sparse-checkout"), format!("{folder}\n"))
+                    })
+                    .map(|()| String::new())
+                    .map_err(|error| format!("sparse-checkout: {error}"))
+            }),
+            None => Ok(String::new()),
         })
-        .and_then(|_| {
-            git(&checkout.dir, &["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"])
-        })
-        .and_then(|_| git(&checkout.dir, &["rev-parse", "HEAD"]));
+        .and_then(|_| run(&["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]))
+        .and_then(|_| run(&["rev-parse", "HEAD"]));
     match fetched {
         Ok(commit) if commit.len() == 40 => {
             checkout.commit = commit;

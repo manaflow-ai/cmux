@@ -112,6 +112,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             stop_condition,
+            restricted,
             person,
             wait_start,
             throwaway,
@@ -228,6 +229,17 @@ impl Hub {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
         };
+        // Every model a chat starts on, from any entry point (`new -m`, `exec -m`, ACP and MCP
+        // starts, a preset, the defaults, a saved pick), as the catalog names it: `fable-5.2`
+        // runs as `claude-fable-5-2` (`model_alias.rs`).
+        let model_rewrite = match &model {
+            Some(m) => Some(self.canonical_model_for(agent, &profile, m)?).filter(|c| c.changed()),
+            None => None,
+        };
+        let model = match model_rewrite.as_ref() {
+            Some(c) => Some(c.model.clone()),
+            None => model,
+        };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
             (false, Some(start)) => (Some(start.value), true),
@@ -294,6 +306,14 @@ impl Hub {
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
         }
+        // Claude Code takes a plain start effort on its command line (`--effort`), as it takes
+        // the model: set after `initialize` it cost one `apply_flag_settings` round trip
+        // (213-271 ms on a Linux lane VM) before the chat could take its first prompt. Anything
+        // else (another harness, "default", Ultracode) is still set live below.
+        meta.effort_request = effort
+            .clone()
+            .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
+            .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -301,6 +321,11 @@ impl Hub {
         // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
             stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
+        // Read-only in a folder not trusted (`restricted.rs`): only a harness that can keep it.
+        if restricted && !super::restricted::kept_by(&profile) {
+            return Err(super::restricted::unsupported(&meta.harness));
+        }
+        meta.restricted = restricted;
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -312,21 +337,28 @@ impl Hub {
         // then takes it instead of starting cold. Never with this session's own env, route or
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
-        // for the person's next chat, which never waits behind a lane's start.
+        // for the person's next chat, which never waits behind a lane's start. A Claude Code chat
+        // only the person made: a pooled one started for the person (`pool/start.rs`) and asked
+        // for a next-prompt suggestion after every turn, which Claude Code decides once, at
+        // `initialize` (`host_level.rs` `start_params`).
         let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
+            && (profile.kind != crate::config::HarnessKind::ClaudeStdio
+                || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && meta.stop_condition.is_none()
+            && !meta.restricted
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
         // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
+        let mut asked = None;
         let pooled = if shaped {
-            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref()).await
+            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref(), &mut asked).await
         } else {
             None
         };
@@ -395,7 +427,14 @@ impl Hub {
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
             let session = self.make_session(meta);
+            *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
+            // A chat that records no creator (an adopt, a move's target) is the person's only
+            // when the person asked for it: its first start says so (`host_level.rs`).
+            if session.read_meta(|m| m.created_by.is_none()) {
+                let start_for = super::host_level::start_for_creator(person);
+                session.start_for.store(start_for, Ordering::SeqCst);
+            }
             // Before the session is published, so its first spawn already has it; memory only.
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -436,6 +475,9 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(c) = &model_rewrite {
+            self.record_model_rewrite(&session, c, "new");
+        }
         // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
         cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
@@ -514,7 +556,17 @@ impl Hub {
                         }
                     }
                 }
-            if let Some(e) = &effort {
+            // A process spawned on this effort (`effort_request`), as it reported it, is not
+            // asked again; one that runs another (a pooled agent, which starts on the harness's
+            // own level) is switched live.
+            let spawned_on = |e: &str| {
+                let m = session.meta();
+                m.effort_request.as_deref() == Some(e) && current_effort(&m).as_deref() == Some(e)
+            };
+            if let Some(e) = effort.as_deref().filter(|e| spawned_on(e)) {
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).effort =
+                    Some(e.to_owned());
+            } else if let Some(e) = &effort {
                 match self.set_config(&session, "effort", json!(e)).await {
                     Ok(_) => {}
                     Err(err) if effort_soft => {
@@ -633,7 +685,7 @@ impl Hub {
         super::full_access_bound::operation_entry(self);
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
-        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let head_ok = super::repo_sync::gates_its_tools(profile);
         let cwd = session.meta().cwd;
         let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
@@ -723,6 +775,14 @@ impl Hub {
         self.wake_ended(session, wake, None);
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
+        // A Codex that went ahead at the head but started without the repository hook gets no
+        // prompt before the whole checkout is in (repo_sync.rs).
+        if super::repo_sync::start_waits_for_all(head_ok, profile, &child) {
+            let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+                session.stops.load(Ordering::SeqCst) != stops
+            })
+            .await?;
+        }
         Ok(child)
     }
 
@@ -1208,6 +1268,7 @@ impl Hub {
                 let mut m = session.meta.lock().unwrap();
                 m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
+                m.claude_unstored_work = false;
             }
             if !untouched {
                 session.rehydrate.store(true, Ordering::SeqCst);
@@ -1227,7 +1288,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
+            let effort = spawn_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
                 &meta,
@@ -1293,18 +1354,23 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The translator starts in the mode the process runs in, also over a profile that
+            // pins its own: Claude Code reports it only with the first turn's `system/init`.
+            let run_mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
             plan.args.extend(super::stop_condition::claude_args(&meta));
+            // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
+            plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
                 let translator = crate::agent_host::TranslatorSpec {
                     acp_session_id: session.id.clone(),
-                    mode: mode.clone(),
+                    mode: run_mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
@@ -1324,7 +1390,7 @@ impl Hub {
             } else {
                 let tr = crate::claude_stdio::Translator::new(
                     session.id.clone(),
-                    &mode,
+                    &run_mode,
                     &model,
                     &effort,
                 );
@@ -1406,7 +1472,7 @@ impl Hub {
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
-        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+        let init = match child.request(method::INITIALIZE, self.start_params(session)).await {
             Ok(v) => v,
             Err(e) => {
                 // An agent CLI that refuses to start signed out exits before it answers
@@ -1480,6 +1546,7 @@ impl Hub {
                 };
                 m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
+                m.claude_unstored_work = false;
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
                 }
@@ -1520,12 +1587,15 @@ impl Hub {
             }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
+            self.note_start_level(session, &child, true);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
             return Ok(child);
         }
         let existing = session.meta().agent_session_id;
+        // This start's answer for the person's own `cmux` entry (`record_spawn_inputs`).
+        let codex_answer = session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // What the user had chosen before; replayed after load or new.
         let saved = session.meta();
         let loaded = match existing {
@@ -1535,7 +1605,14 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
+                        self.acp_params(
+                            &session.id,
+                            &meta,
+                            profile,
+                            Some(&sid),
+                            &child,
+                            &codex_answer,
+                        ),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -1573,7 +1650,7 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child),
+                    self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer),
                 )
                 .await
             {
@@ -1616,6 +1693,7 @@ impl Hub {
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        self.note_start_level(session, &child, true);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
@@ -1782,7 +1860,7 @@ impl Hub {
                 let meta = session.meta();
                 let cfg = self.config.read().await;
                 super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(&p))
             }
         };
         let cwd = session.meta().cwd;

@@ -1,7 +1,10 @@
 {
   "schema": "checkout-lean/v1",
   "about": "Full-tree `filter: blob:none` checkouts leave out the paths below: the job reads none of them, and each checkout otherwise downloads their blobs (about 470 MB of media and QA evidence under cmux-next-ios/verify/). actions/checkout runs before any repository file exists, so a composite action cannot hold the patterns; this file does, and tests/test_ci_checkout_lean.py keeps every listed step's `sparse-checkout` equal to it and fails on a new full-tree blob:none checkout that is in neither list.",
-  "sparse_checkout": ["/*", "!/cmux-next-ios/verify/"],
+  "sparse_checkout": [
+    "/*",
+    "!/cmux-next-ios/verify/"
+  ],
   "lean": {
     "backend.yml": {
       "deploy-staging": "works in backend/; worker-release.ts globs backend/apps/api only",
@@ -66,8 +69,8 @@
     "cmux-next-car-guards.yml": {
       "linux": "runs tests/test_ci_fleet_rule_lints.py, whose allowlist names cmux-next-ios/verify/ scripts; with them absent its git grep skips them and it reports 20 stale entries"
     },
-    "ci-guard-attribution.yml": {
-      "analyze": "runs the CI guards (the fleet rule lints among them) in scratch worktrees that would inherit the patterns; it checks out main, which has no cmux-next-ios/, so leaving it out saves nothing"
+    "cloud-vm-image-roll.yml": {
+      "promote": "images/cmux-vm/image-roll-push.sh commits the roll and rebases it onto feat-cmux-next before the push; the production push keeps the full tree it was proven with rather than a sparse index"
     }
   }
 }

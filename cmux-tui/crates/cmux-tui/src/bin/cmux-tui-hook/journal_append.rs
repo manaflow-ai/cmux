@@ -404,11 +404,11 @@ fn check_receipt(reply: &[u8], request_id: &str) -> Result<(), Try> {
 }
 
 /// `encoded` (one request line) without its memory-only fields (`live_prompt`, `live_reply`,
-/// `live_question`); nil when it has none.
+/// `live_question`, `live_approval`); nil when it has none.
 fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
     let mut request: Value = serde_json::from_slice(encoded).ok()?;
     let params = request.get_mut("params")?.as_object_mut()?;
-    let removed = ["live_prompt", "live_reply", "live_question"]
+    let removed = ["live_prompt", "live_reply", "live_question", "live_approval"]
         .into_iter()
         .filter(|field| params.remove(*field).is_some())
         .count();

@@ -76,6 +76,10 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
 The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
 --artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
 every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
+The bundle's defaults are set aside for the run and emptied at each condition's start (a new HOME is not enough:
+cfprefsd keeps them in the account's real preferences, with the app's last launch snapshot path); each launch
+records what it read (`defaults_before`: key names and cmuxNext.launchSnapshotPath.* values) per condition and on
+each relaunched and restore open.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 
@@ -110,6 +114,8 @@ import chat_open_frames as cof  # noqa: E402
 import bench_page_engine  # noqa: E402
 from chat_open_summary import cell, engine_of, invalid_reason, judge_engine, page_engines, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "ci"))
+import fresh_home_launch_smoke as smoke  # noqa: E402  (DefaultsAside, defaults_before: the bundle's real defaults)
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -176,8 +182,6 @@ SUBAGENTS = opts.subagents or max(opts.runs + 1, 3)
 SUBAGENT_CASES = {"subagent", "subagent_column"}
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
-# The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
-TAG_DIR = os.path.join("tags", opts.tag)
 BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
 CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
@@ -436,9 +440,13 @@ class Run:
         self.pid = None
         self.sock = None
         self.scratch = None
+        self.defaults_before = {}
 
     def launch(self, trace_launch=False, record=None):
         env = dict(self.env)
+        # What this launch reads from the bundle's defaults (main sets the domain aside for the run and empties it
+        # at each condition's start): a relaunch's keys are this run's own.
+        self.defaults_before = smoke.defaults_before(BUNDLE_ID) if BUNDLE_ID else {}
         if self.scratch is None:
             self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
             self.env["HOME"] = os.path.join(self.scratch, "home")
@@ -484,26 +492,52 @@ class Run:
             bm.end_bundle(APP)
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
 
-    def saved_pictures(self):
+    def saved_pictures(self, since=0.0):
         """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages).
 
         In the build's folder under Application Support (SidebarSnapshotFile.buildDirectory), which
         Foundation resolves from the account's own home, not the scratch HOME; both are read."""
         import pwd
-        homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
-        found = []
-        # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
-        for home in homes:
-            for parent in ("cmux-next", "cmux"):
-                for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", parent)):
-                    if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
-                        found += sorted(files)
-        return found
+        return tag_pictures([os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir], opts.tag, since)
 
     def end(self):
         bm.end_bundle(APP)
         if self.scratch:
             shutil.rmtree(self.scratch, ignore_errors=True)
+
+
+def tag_pictures(homes, tag, since=0.0):
+    """The launch pictures under each home's `tags/<tag>/.../agent-pane-images` written at or after `since` (wall
+    seconds). The account's home outlives this run: its folder is this tag's only (another tag that starts with
+    this one's name, `chatopen2` for `chatopen`, is not it), and a picture older than `since` (the condition's
+    start, when wipe_state removed this tag's folder) is another run's."""
+    found = []
+    # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
+    for home in homes:
+        for parent in ("cmux-next", "cmux"):
+            top = os.path.join(home, "Library", "Application Support", parent)
+            for folder, _dirs, files in os.walk(top):
+                parts = os.path.relpath(folder, top).split(os.sep)
+                ours = any(parts[i:i + 2] == ["tags", tag] for i in range(len(parts) - 1))
+                if os.path.basename(folder) != "agent-pane-images" or not ours:
+                    continue
+                for name in sorted(files):
+                    try:
+                        if os.stat(os.path.join(folder, name)).st_mtime >= since:
+                            found.append(name)
+                    except OSError:
+                        pass
+    return found
+
+
+def bundle_id_of(app):
+    import plistlib
+    with open(os.path.join(app, "Contents", "Info.plist"), "rb") as handle:
+        return plistlib.load(handle)["CFBundleIdentifier"]
+
+
+# The app's bundle id, read in main: Run.launch records the defaults domain each launch reads.
+BUNDLE_ID = None
 
 
 def recorded(folder):
@@ -1005,6 +1039,20 @@ def write_results(results):
 
 
 def main():
+    """The run inside the bundle's defaults set aside (fresh_home_launch_smoke.DefaultsAside): an A/B is one run per
+    arm, and both arms share one bundle id, whose defaults cfprefsd keeps in the account's real preferences whatever
+    HOME says. The app stores its last launch snapshot's path there (cmuxNext.launchSnapshotPath.<session>), so a
+    launch would open the snapshot an earlier run or arm left. The account's own defaults come back after the run."""
+    global BUNDLE_ID
+    BUNDLE_ID = bundle_id_of(APP)
+    try:
+        with smoke.DefaultsAside(BUNDLE_ID, tempfile.gettempdir()) as aside:
+            measure(aside)
+    except smoke.CannotRun as error:
+        raise SystemExit(f"chat-open: {error}")
+
+
+def measure(aside):
     root = tempfile.mkdtemp(prefix="chat-open-")
     results = {"host": socket.gethostname(), "ncpu": NCPU, "app": APP,
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
@@ -1025,9 +1073,13 @@ def main():
             # The wipe also keeps a worker's earlier run of this tag from restoring into this one.
             if run:
                 run.end()
+            condition_start = time.time()
             wipe_state(APP)
+            if aside.tool:
+                aside.clear()  # the defaults an earlier condition's launches wrote; fails when a key stays
             run = Run(root, home)
             run.launch()
+            results.setdefault("defaults_before", {})[condition] = run.defaults_before
             if opts.page_engine == "cef" and "chromium" not in results:
                 # One read, at the first launch: an app with no Chromium can give no open in the asked engine, so
                 # the bench stops here and not after each case ran to its end.
@@ -1089,6 +1141,7 @@ def main():
                     run.launch()
                     time.sleep(5)  # test script: let launch work end before the measured open, as at the start
                     record = judged(traced(run, lambda: open_workspace(run, session)))
+                    record["defaults_before"] = run.defaults_before
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} relaunched {index}: first_content_ms={record.get('first_content_ms')} "
@@ -1101,7 +1154,7 @@ def main():
                     # The shown workspace is the last chat opened (a big one when it ran): it restores.
                     run.quit()
                     record_dir = os.path.join(frames_root, f"{condition}-restore-{index}") if opts.record_launch else None
-                    pictures = run.saved_pictures()
+                    pictures = run.saved_pictures(condition_start)
                     run.launch(trace_launch=True, record=record_dir)
                     record = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000,
                                                                "settle_ms": 600, "page_timing": True}, timeout=40) or {}
@@ -1109,6 +1162,7 @@ def main():
                     record["first_image_ms"] = first_of(record.get("frames"), ("image",))
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     record["saved_pictures"] = pictures
+                    record["defaults_before"] = run.defaults_before
                     if record_dir:
                         # The recording runs on the app's clock from its first window frame and writes
                         # frames.json when it ends: the next quit waits for that (bounded), not a guess.

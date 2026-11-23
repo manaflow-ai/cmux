@@ -1,4 +1,5 @@
 @testable import CmuxNextMacScreen
+import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -44,6 +45,20 @@ struct MacScreenFrameTimingsTests {
         #expect(timings.present.summary == MacScreenRollingSamples.Summary(count: 4, p50: 1, p95: 4, max: 4))
     }
 
+    /// A frame on the glass gives the viewer's Decode (release to decoded), Present (decoded to
+    /// the glass) and their sum; times out of order (another clock) are left out.
+    @Test func shownFramesGiveDecodeAndPresentStages() throws {
+        var timings = MacScreenFrameTimings()
+        let ms: UInt64 = 1_000_000
+        timings.shown(RemoteViewerFrameTimes(frame: 1, releasedAtNanos: 100 * ms, decodedAtNanos: 103 * ms, presentedAtNanos: 111 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 2, releasedAtNanos: 200 * ms, decodedAtNanos: 202 * ms, presentedAtNanos: 206 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 3, releasedAtNanos: 0, decodedAtNanos: 302 * ms, presentedAtNanos: 306 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 400 * ms, decodedAtNanos: 402 * ms, presentedAtNanos: 401 * ms))
+        #expect(timings.decode.summary == MacScreenRollingSamples.Summary(count: 2, p50: 2, p95: 3, max: 3))
+        #expect(timings.glass.summary == MacScreenRollingSamples.Summary(count: 2, p50: 4, p95: 8, max: 8))
+        #expect(timings.decodePresent.summary == MacScreenRollingSamples.Summary(count: 2, p50: 6, p95: 11, max: 11))
+    }
+
     /// The counter the pane's decoder ticks keeps the same timings, at most a window of samples.
     @Test func theCounterStaysBounded() {
         let counter = MacScreenFrameCounter()
@@ -75,6 +90,21 @@ struct MacScreenConnectTimingsTests {
         timings.connectStarted(at: Date(), start + .seconds(5))
         #expect(timings.firstFrameMs == nil && timings.rtt.count == 0)
     }
+
+    /// Each stage ends once, when the connect first gets past it; a skipped stage ends with the later one.
+    @Test func eachConnectStageEndsOnce() {
+        var timings = MacScreenConnectTimings()
+        let start = ContinuousClock.now
+        timings.reached(.link, at: start)
+        #expect(timings.stageMs.isEmpty, "no connect yet")
+        timings.connectStarted(at: Date(), start)
+        timings.reached(.link, at: start + .milliseconds(120))
+        timings.reached(.link, at: start + .milliseconds(400))
+        timings.reached(.shown, at: start + .milliseconds(510))
+        #expect(timings.stageMs == [.answer: 120, .link: 510, .frame: 510])
+        timings.connectStarted(at: Date(), start + .seconds(5))
+        #expect(timings.stageMs.isEmpty)
+    }
 }
 
 @MainActor
@@ -103,7 +133,10 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
@@ -115,17 +148,35 @@ struct MacScreenStateControlTests {
         session.frameCounter = counter
         _ = counter.tick(frame: 1)
         _ = counter.tick(frame: 4)
+        let ms: UInt64 = 1_000_000
+        counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
         session.framesCounted(MacScreenFrameCounter())
+        // The host answered, the link came up, a picture showed.
+        session.reach(.link)
+        session.reach(.frame)
+        session.framePresented(size: CGSize(width: 1920, height: 1080))
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
+        // A picture showed: the read names the stage it reached and when each stage before it ended.
+        #expect(live["connect_stage"]?.stringValue == "shown")
+        let stages = try #require(live["connect_stage_ms"]?.objectValue)
+        #expect(Set(stages.keys) == ["answer", "link", "frame"])
+        let answer = try #require(stages["answer"]?.doubleValue)
+        let link = try #require(stages["link"]?.doubleValue)
+        let frame = try #require(stages["frame"]?.doubleValue)
+        #expect(answer <= link && link <= frame && frame < 10_000)
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)
         #expect(live["frames_dropped"]?.doubleValue == 2)
         #expect(live["rtt_ms_window"]?.objectValue?["p50"]?.doubleValue == 18)
         #expect(live["frame_interval_ms"]?.objectValue?["count"]?.doubleValue == 1)
+        #expect(live["decode_ms"]?.objectValue?["p50"]?.doubleValue == 3)
+        #expect(live["glass_ms"]?.objectValue?["p50"]?.doubleValue == 8)
+        #expect(live["decode_present_ms"]?.objectValue?["p50"]?.doubleValue == 11)
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")

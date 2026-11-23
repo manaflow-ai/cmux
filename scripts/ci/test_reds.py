@@ -27,7 +27,8 @@ short). It reads only what the steps printed, never the runner's echo of a step'
 
     test_reds.py runner --job JOB.json [--annotations ANNOTATIONS.json] [--log LOG]
 
-says whether a failed job lost its runner (lost_runner: infra, no verdict, re-run it; exit 0) or has a verdict (exit 1).
+says whether a failed job lost its runner or was shut down under (lost_runner: infra, no verdict, re-run it;
+exit 0) or has a verdict (exit 1).
 `classify` prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2
 when the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
 
@@ -527,9 +528,10 @@ FAILURE_MARKERS = (
 )
 # Each runner's reported failure total, where its summary counts what failed_names names one line per (#41166's
 # review F2: a log with one parsed name and one unparsed failure counted as fully identified, since an unnamed failure
-# was recorded only when no name at all was read). Per invocation: each summary is compared with the lines its own
-# runner's pattern named since that runner's previous summary, so a run that names more never covers one that names
-# fewer:
+# was recorded only when no name at all was read). Per runner, cumulatively over the step: each summary's total is
+# drawn from the names that runner printed which no earlier summary of its accounted for, so a step with several
+# summaries is judged on the sum of its totals against the union of its names (runner_unnamed says why), while a
+# summary reporting more than its runner has left over is still unnamed:
 # - cargo `test result: FAILED. X passed; N failed;` per test binary, against its `test NAME ... FAILED` lines;
 # - unittest `FAILED (failures=N, errors=M, unexpected successes=K)` (each a test or subtest, none of them named by
 #   anything but a `FAIL:` / `ERROR:` line; an unexpected success is named by none), against those lines;
@@ -547,6 +549,12 @@ FAILURE_MARKERS = (
 # an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
 # cannot be read.
 CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+# cargo's closing list, right above its summary: `failures:`, then each failing test indented four spaces. It names
+# what the summary counts even where a test ran a nested `cargo test` of itself, whose own `running 1 test` ... `test
+# result:` printed inside the parent's output and took the parent's `... FAILED` lines as its own (cmux#50445 at
+# fb4bd6c4, run 45036997271: bwrap's real_second_home_mount_hides_denied_names re-ran itself, and acpmux's lib
+# summary `12 failed` read as naming none though its list named all 12).
+CARGO_LISTED = re.compile(r"^    (\S+)$")
 UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
 UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
 PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
@@ -557,8 +565,9 @@ SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
 
 def unnamed_failures(lines: list[str], steps: list[list[str]] | None = None) -> list[str]:
     """The runner lines of LINES (a step's output, lines_of) that report more failures than that runner's lines name
-    (see above), each summary against the names its runner printed since its previous summary: a failure no parser
-    names, which no comparison can tell from another."""
+    (see above), each summary against the names its runner printed that no earlier summary of its accounted for, so
+    the step is judged on the sum of its summaries: a failure no parser names, which no comparison can tell from
+    another."""
     bun = Result()
     read_bun(lines, bun, steps)
     return runner_unnamed(lines) + bun.unnamed
@@ -579,9 +588,16 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
+    cargo_listed: set | None = None  # the names under cargo's last `failures:` heading, while only names follow it
     for text in lines:
         if text.startswith(TAP_MARKER):
             continue
+        if text.strip() == "failures:":
+            cargo_listed = set()
+        elif cargo_listed is not None and (match := CARGO_LISTED.match(text)):
+            cargo_listed.add(match.group(1))
+        elif text.strip() and not CARGO_FAILED_TOTAL.match(text):
+            cargo_listed = None
         if listing:
             if XCODEBUILD_FAILED.match(text):
                 xc_family += 1
@@ -602,6 +618,8 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         if FAILURE_MARKERS[0].search(text):
             runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
             reported = int(match.group(1)) if match else None
+            since[runner] = max(since[runner], len(cargo_listed or ()))
+            cargo_listed = None
         elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
                                                               or UNITTEST_COUNTED.search(match.group(1))):
             counts = UNITTEST_COUNTED.findall(match.group(1))
@@ -614,10 +632,34 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         elif FAILURE_MARKERS[3].search(text):
             xc_summaries.append(text)
         if runner:
-            # A count that cannot be read is unnamed unless its runner named something since its last summary.
-            if (reported is None and not since[runner]) or (reported is not None and reported > since[runner]):
+            # Cumulative, per runner, across the whole step: each summary's total is drawn from every name that
+            # runner printed and no earlier summary of its has already accounted for, so a step with N summaries is
+            # judged on the sum of its totals against the union of its names, never on the last summary alone. One
+            # `cargo test` command over several targets prints one summary per test binary, and cargo buffers each
+            # binary's block, so the blocks do not line up one-to-one with the names between two summaries: with a
+            # per-summary reset, a small rerun summary (`0 passed; 1 failed; 6945 filtered out`) swallowed the 16
+            # names the lib target had printed and left its own `15 failed` summary with none, which made every
+            # multi-target cargo job inexcusable by arithmetic alone (cmux#50814, run 45075034049, job
+            # `acpmux tests (lib, hub_integration)`). A surplus of names carries forward; a deficit never does, so a
+            # failure no parser names is still unnamed at the summary that reports it (#41166's review F2). Names are
+            # counted per line and never deduplicated by test name across the step, for two measured reasons. Two
+            # test binaries of one invocation can each fail a test of the same path, and that is two failures. And
+            # where a run does print one failure twice (nextest's `failure-output = "immediate-final"`, cmux-tui/
+            # .config/nextest.toml `[profile.ci]`), it prints that failure's `test result:` summary twice as well, so
+            # the duplication is symmetric and a per-line count against summed totals balances exactly; a dedupe
+            # would compare one name against a total of two and refuse a one-test run
+            # (tests/test_test_reds.py EveryRustStepShapeIsNamed).
+            if reported is None:
+                # A count that cannot be read is unnamed unless its runner has a name left unaccounted for; how many
+                # it would draw is unknown, so it draws the whole pool.
+                if not since[runner]:
+                    found.append(text)
+                since[runner] = 0
+            elif reported > since[runner]:
                 found.append(text)
-            since[runner] = 0
+                since[runner] = 0
+            else:
+                since[runner] -= reported
     if not xc_family:
         found.extend(xc_summaries)
     return found
@@ -1000,7 +1042,7 @@ def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
 # head's log with up to BASE_WINDOW base logs and re-classifies the whole window each time it grows, and classify,
 # classify_any, observations and flaky_failures each read the head again: 50 reads of 6 logs. A `cmux-next daemon
-# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and merge_hold's 120 s
+# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and land-judge's 120 s
 # bound on the classifier refused the merge three times. A read depends only on the log's text and BUN, so its result
 # is kept by text: each caller gets its own copy, and at most KEEP_PARSED texts are kept (the window's logs, which
 # the judge holds anyway, plus the head), the oldest dropped first.
@@ -1152,13 +1194,46 @@ LOST_RUNNER = re.compile(r"lost communication with the server|The runner has rec
                          r"The hosted runner encountered an error")
 BLOB_NOT_FOUND = re.compile(r"\bBlobNotFound\b|The specified blob does not exist")
 
+# The same shutdown, seen from the log instead of an annotation. GitHub sends the job's process group SIGTERM and
+# then prints this line, so the step it was in fails with exit 143 (128 + 15) and the job keeps a failed step: the
+# `job with a failed step keeps its verdict` rule below then read the shutdown as the change's own crash. 2026-11-22,
+# cmux#49751's `build / build x86_64-unknown-linux-musl` (run 44986426867, job 137098396057): "Process completed with
+# exit code 143." directly above "The runner has received a shutdown signal.", on a tree whose diff is two
+# cmux-tui/crates/acpmux files, read as "the test process crashed (signal 15)" in a job that runs no tests at all.
+# Three pull requests sat on that reading at once (cmux#49751, cmux#49030 at exit 137, cmuxterm-hq#17509).
+RUNNER_SHUTDOWN = re.compile(r"The runner has received a shutdown signal")
+# 128 + a signal no process raises on itself: SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9, SIGTERM 15. Someone sent it
+# (the runner shutting down, a cancel, a preemption, the kernel's OOM killer); a fault raises SIGSEGV, SIGABRT,
+# SIGBUS, SIGILL, SIGFPE or SIGTRAP instead, and those keep their verdict wherever they appear.
+SENT_SIGNAL_EXITS = {129: 1, 130: 2, 131: 3, 137: 9, 143: 15}
+
+
+def runner_shut_down(log: str) -> str | None:
+    """Why LOG says the runner was shut down under this job, rather than the job failing, or None.
+
+    Both halves are required: the runner's own shutdown notice, and a step that ended on a signal nobody raises on
+    itself. A test quoting either phrase cannot produce the other -- PROCESS_EXIT matches only the runner's own
+    `##[error]`/`::error` exit annotation, never a test's line."""
+    # log_lines, like every other reader here: the job-logs endpoint prefixes each line with its job, step and
+    # timestamp, and PROCESS_EXIT is anchored at the line's start.
+    lines = log_lines(log)
+    if not any(RUNNER_SHUTDOWN.search(text) for text in lines):
+        return None
+    for text in lines:
+        if (match := PROCESS_EXIT.match(text)) and (number := SENT_SIGNAL_EXITS.get(int(match.group(1)))):
+            return (f"the runner was shut down under it and its step ended with exit {match.group(1)} "
+                    f"(128 + signal {number}, which nothing raises on itself): the job was cut short")
+    return None
+
 
 def lost_runner(job, annotations=(), log=None):
     """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
     annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
     its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
     a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
-    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict."""
+    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict, except
+    the one case where the failed step is the shutdown itself (runner_shut_down): the runner's notice in LOG plus a
+    step that ended on a sent signal."""
     if (job or {}).get("conclusion") != "failure":
         return None
     for note in annotations or ():
@@ -1170,6 +1245,8 @@ def lost_runner(job, annotations=(), log=None):
             message = str(note)
         if LOST_RUNNER.search(message):
             return "its runner was lost: " + " ".join(message.split())[:200]
+    if isinstance(log, str) and (why := runner_shut_down(log)):
+        return why
     steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
     if any(step.get("conclusion") == "failure" for step in steps):
         return None
@@ -1271,6 +1348,9 @@ def _observations(log: str | None) -> list[dict]:
 TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-health/tap-tests.json"
 TAP_MIN_OBSERVATIONS = 8
 TAP_MIN_FLIP_RATE = 0.2
+# The producer's bar for a timing flake: a row under TAP_MIN_FLIP_RATE that it quarantined anyway because its fails
+# differ only in their numbers or stand apart (hq tools/fleet-reconcilers/tap_flakes.py TIMING_MIN_RATE, hq#14483).
+TAP_TIMING_MIN_FLIP_RATE = 0.06
 TAP_MAX_AGE = timedelta(hours=48)
 # Keep the consumer bound to the producer's public snapshot limits. A bounded
 # list prevents malformed state from turning into an unbounded comparison,
@@ -1312,6 +1392,20 @@ def _tap_time(value) -> datetime | None:
         return when.astimezone(timezone.utc) if when.tzinfo else None
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _numberless(signature: str) -> str:
+    """A diagnostic with its numbers taken out: what stays the same when only a measured value moves."""
+    return re.sub(r"\d+(?:\.\d+)?", "#", signature)
+
+
+def _tap_signature_matches(signature: str, quarantined: list[str]) -> bool:
+    """The exact quarantined diagnostic, or a timing flake's: two or more quarantined signatures that differ only in
+    their numbers also cover the same assertion missed by another amount, never other words."""
+    if signature in quarantined:
+        return True
+    forms = {_numberless(value) for value in quarantined}
+    return len(quarantined) >= 2 and len(forms) == 1 and _numberless(signature) in forms
 
 
 def _tap_quarantine_signatures(value) -> list[str] | None:
@@ -1369,9 +1463,10 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
         historical_signatures = row.get("failure_signatures")
         quarantine_signatures = _tap_quarantine_signatures(
             quarantine.get("signatures") if isinstance(quarantine, dict) else None)
-        if (rate < TAP_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
+        # Under TAP_MIN_FLIP_RATE only the producer's timing-flake rows carry a quarantine; the floor stays its own.
+        if (rate < TAP_TIMING_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
                 or not all(isinstance(value, str) and value for value in historical_signatures)
-                or quarantine_signatures is None or signature not in quarantine_signatures):
+                or quarantine_signatures is None or not _tap_signature_matches(signature, quarantine_signatures)):
             continue
         if not isinstance(quarantine, dict):
             continue
@@ -1852,6 +1947,8 @@ def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: s
                           f"{'; '.join(left)[:600]}"], shared)
 
 
+# (Until 2026-11-21; the post-merge batch tier, cmux-next-post-merge.yml, now runs the base web checks and bisects
+# its own reds, so no new `web bisect` lines come. bisect_report still reads the old runs.)
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
@@ -1898,6 +1995,8 @@ GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has
 GALLERY_SLOW = "over its ready-time budget"
 # A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
 GALLERY_SHIFT = "past its layout-shift baseline"
+# A state with a layout move the layout-motion contract does not declare (undeclared-baseline.ts).
+GALLERY_UNDECLARED = "makes an undeclared layout move"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -1933,6 +2032,8 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
     for item in found.get("shifted") or []:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("undeclared") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_UNDECLARED}")
     for item in found.get("geometry") or []:
         for violation in item.get("violations") or []:
             result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
