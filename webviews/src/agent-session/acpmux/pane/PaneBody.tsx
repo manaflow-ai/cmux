@@ -32,6 +32,7 @@ import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { jumpSide } from "../jumpPlace";
+import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
@@ -194,6 +195,7 @@ export type PaneBodyDeps = NewTabShown &
     summaryCard: ReturnType<typeof useSummaryCard>;
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
+    composerPlaceArm: ComposerPlace;
     trayHandle: TrayHandleSide;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
@@ -482,6 +484,7 @@ export function drawPaneBody({
   summaryCard,
   previewBeside,
   jumpPlaceArm,
+  composerPlaceArm,
   trayHandle,
   chatMinimapBeside,
   hasBottomAsk,
@@ -779,7 +782,8 @@ export function drawPaneBody({
           }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
+          // The composer-place experiment's `outside` arm keeps it in flow there too.
+          data-dock={!reviewing && !freshView && !inspectorOpen && composerPlaceArm === "over" ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.

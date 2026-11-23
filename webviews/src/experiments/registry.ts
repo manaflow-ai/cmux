@@ -109,6 +109,7 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
+import { composerPlace } from "../agent-session/acpmux/composerPlace.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
@@ -228,6 +229,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpPairLook,
   jumpLatestPlace,
   dockBand,
+  composerPlace,
   outcomeAsk,
   glassToolbarLook,
   composerV2Look,

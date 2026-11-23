@@ -101,6 +101,7 @@ import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
+import { composerPlace } from "./composerPlace.experiment";
 import { githubFolderRepo } from "./githubRepos";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { shownTemplate } from "./newtab/templates";
@@ -2527,6 +2528,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Where the jump stack stands over the composer (jumpPlace.experiment.ts; Leo, 2026-11-21: "didn't
   // we say we wanted to move these to the side or smth?"): beside the hat's handle, never on it.
   const [jumpPlaceArm] = useState(() => experimentArm(jumpLatestPlace));
+  // Whether the bottom stack lies over the transcript's foot (today) or sits outside the scroller
+  // (composerPlace.experiment.ts, clean-slate design): off by default.
+  const [composerPlaceArm] = useState(() => experimentArm(composerPlace));
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -8581,6 +8585,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   focusComposer={() => composerHandle.current?.focus()}
                                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                                   dock={quick ? undefined : dock}
+                                                                  stackOutside={!quick && composerPlaceArm === "outside"}
                                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                                   queueIds={quick ? undefined : queueIds}
                                                                   queuedTail={queuedRows}
@@ -9603,6 +9608,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     summaryCard,
     previewBeside,
     jumpPlaceArm,
+    composerPlaceArm,
     trayHandle,
     chatMinimapBeside,
     hasBottomAsk,
