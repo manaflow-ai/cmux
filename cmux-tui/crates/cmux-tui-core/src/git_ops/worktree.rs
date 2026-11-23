@@ -336,7 +336,8 @@ fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     }
     let main = place.main_root.as_deref();
     let resolved = worktree_recipe::resolve(mux, main, main.unwrap_or(common_dir));
-    worktree_setup::start(place, resolved.recipe)
+    let consent = resolved.consent();
+    worktree_setup::start(place, resolved.recipe, consent)
 }
 
 /// A linked worktree's own git folder, from its `.git` file. The file is
