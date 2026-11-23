@@ -58,6 +58,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize library refresh             Every code layer against what is published and this app; with
+                                              --if-app-changed only when the app's commit changed (cmux runs it at start)
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
