@@ -211,7 +211,6 @@ const scripts = (dir: string) =>
 /// entrance anywhere under webviews/src fails until it is listed here, so a menu cannot be given
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
-  "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/ChatUnavailableState.tsx": {
     count: 3,
     what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
@@ -231,6 +230,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
     count: 1,
     what: "a prompt coach card arriving under a turn",
   },
+  "src/agent-session/acpmux/pane/PaneBody.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },

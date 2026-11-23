@@ -1378,8 +1378,9 @@
    BULLSHIT"): the model's name in the row's muted ink, its effort one step back of it (secondary
    ink, in every theme and on hover), no edge and no capsule at rest. Hover draws the row's soft pill, as the mic's. Keyboard focus
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
-   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 68%, transparent); }
+   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
+   most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {

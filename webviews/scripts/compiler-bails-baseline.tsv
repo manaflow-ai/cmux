@@ -56,7 +56,7 @@ src/agent-session/acpmux/conversation/SelectionReply.tsx	1
 src/agent-session/acpmux/conversation/SentMessageLine.tsx	1
 src/agent-session/acpmux/conversation/SentUIPick.tsx	1
 src/agent-session/acpmux/conversation/skillWords.ts	1
-src/agent-session/acpmux/conversation/ThoughtRow.tsx	2
+src/agent-session/acpmux/conversation/ThoughtRow.tsx	1
 src/agent-session/acpmux/conversation/ToolGroupRow.tsx	3
 src/agent-session/acpmux/conversation/ToolOutputBody.tsx	1
 src/agent-session/acpmux/conversation/ToolRow.tsx	1
