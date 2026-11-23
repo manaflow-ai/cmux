@@ -18,6 +18,8 @@ mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
 mod scaffold;
 mod scene;
 mod scene_type;
@@ -71,7 +73,7 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
-                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               newtab (a view over the New Tab composer, picked in tabs.newTabApp),
                                widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
