@@ -2834,7 +2834,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
-      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 2, memory_mb: 4096, disk_mb: 20480 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);

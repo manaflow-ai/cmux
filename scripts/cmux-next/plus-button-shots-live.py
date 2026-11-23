@@ -16,6 +16,7 @@ import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -174,12 +175,23 @@ try:
     added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     safe_print("newTab", json.dumps(added)[:200], flush=True)
     wait(lambda: len((first_pane().get("tab_slots") or [])) >= 2, 15)
+    before = top()
     group = rpc("action.run", {"action": "newWorkspaceGroup", "origin": "script"})
     safe_print("newWorkspaceGroup", json.dumps(group)[:200], flush=True)
-    time.sleep(1.5)  # capture harness: the group's header row lands in the list
+    # The group's header row lands in the list: the sidebar frames change, then settle.
+    if not wait_until(lambda: top() != before, "the group header row in the sidebar frames", timeout=10, raise_on_timeout=False):
+        safe_print("the sidebar frames did not change after newWorkspaceGroup", flush=True)
+    wait_stable(top, "the sidebar frames after newWorkspaceGroup", timeout=10, raise_on_timeout=False)
+    applied = densities[0]  # the app launched with the first density
     for density in densities:
+        before = top()
         write_config(density)
-        time.sleep(1.5)  # capture harness: the config watcher applies the density
+        # The config watcher applies the density: the frames change (unless it is already applied), then settle.
+        if density != applied and not wait_until(lambda: top() != before, f"density {density} in the sidebar frames",
+                                                 timeout=10, raise_on_timeout=False):
+            safe_print(f"the sidebar frames did not change for density {density}", flush=True)
+        wait_stable(lambda: (top(), chrome()), f"the frames at density {density}", timeout=10, raise_on_timeout=False)
+        applied = density
         win = chrome()
         scale = win.get("scale") or 2
         pane, frames = first_pane(win), top()

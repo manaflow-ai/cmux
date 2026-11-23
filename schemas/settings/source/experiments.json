@@ -60,6 +60,30 @@
           ]
         },
         {
+          "key": "experiments.hoverLook",
+          "note": "Taste prototype: one restyled look for every tooltip and hover card in the web UI (Base UI tooltips, title tooltips, toolbar hints, hover cards): a frostier glass with a crisp hairline ring and a soft two-layer shadow, painted by the page instead of the App's glass (webviews useExperimentSwitch(\"hoverLook\"), ui/hoverLook.css; arms in ui/hoverLook.experiment.ts). Paint only: sizes, padding and type do not change. Off by default; off keeps today's tooltips.",
+          "title": {
+            "key": "settings.experiments.hoverLook",
+            "text": "Tooltip Refresh"
+          },
+          "help": {
+            "key": "settings.experiments.hoverLook.help",
+            "text": "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "tooltip",
+            "tooltips",
+            "hover",
+            "card",
+            "glass"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
