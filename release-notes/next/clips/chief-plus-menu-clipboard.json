@@ -1,0 +1,20 @@
+{
+  "caption": "Copy something, then click the + beside the Chief's message box: your recent copies are there to add with a click.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A fixed window for the + click", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
+    {
+      "title": "Copy a line in a terminal",
+      "rpc": {"method": "action.run", "params": {"action": "newTab", "args": {"name": "Notes", "command": "printf 'Draft the release notes for Friday' | pbcopy; exec /bin/cat"}, "focus": true, "wait": true}},
+      "wait": 1.5
+    },
+    {"title": "Open Home", "cmux": ["action", "run", "home.show"], "wait": 3},
+    {"title": "Click the + beside the message box", "rpc": {"method": "debug.mouse", "params": {"action": "click", "x": 300, "y": 770}}, "wait": 2, "clip": true},
+    {"title": "The menu lists the copy under Clipboard", "wait": 1, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.1, 0.45, 0.5, 0.55],
+  "lead": 0.6,
+  "hold": 1.2
+}
