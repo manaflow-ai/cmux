@@ -44,6 +44,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-hub-host",
  "cmux-image-linear",
+ "cmux-intent",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -2096,6 +2097,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
@@ -2837,6 +2847,7 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-install-check",
+ "cmux-intent",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
