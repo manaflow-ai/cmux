@@ -356,6 +356,10 @@ path = "tests/test_known_red.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lan_dial.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lan_product_source.py"
 lane = "linux-guard"
 

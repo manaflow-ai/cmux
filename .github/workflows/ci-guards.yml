@@ -574,6 +574,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
 
+      - name: Test lan-dial relay protocol
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_lan_dial.py
+
       # release-notary is the group cmux-next-guards.yml runs on every
       # feat-cmux-next pull request and push, where these files live.
       - name: Test What's New highlights and release notes
