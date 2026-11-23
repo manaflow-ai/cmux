@@ -69,6 +69,8 @@ import {
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isCloudIntroEnabled } from "../../../../services/billing/cloudIntro";
+import { CloudIntroPass, cloudIntroCopy } from "../next/pricing/cloud-intro-pass";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -134,6 +136,14 @@ export default async function PricingPage({
     goPlanEnabled: false,
     pending: true,
   };
+  // The $1 pass shows only where its checkout is on.
+  const intro = isCloudIntroEnabled() ? (
+    <CloudIntroPass
+      copy={cloudIntroCopy(await getTranslations({ locale, namespace: "nextPricing" }))}
+      layout="a"
+      slot="beforePlans"
+    />
+  ) : null;
   const personalize = (section: "individual" | "team" | "comparison") => (
     <Suspense fallback={<PricingContent {...fallback} section={section} />}>
       <PersonalizedPricing
@@ -147,6 +157,7 @@ export default async function PricingPage({
     <PricingView surface="public_pricing">
       <PricingContent
         {...fallback}
+        intro={intro}
         personalization={{
           individual: personalize("individual"),
           team: personalize("team"),
@@ -194,6 +205,7 @@ function PricingContent({
   pending = false,
   section,
   personalization,
+  intro,
 }: {
   t: PricingTranslations;
   query: PricingQuery;
@@ -206,6 +218,8 @@ function PricingContent({
     team: ReactNode;
     comparison: ReactNode;
   };
+  /** The cmux Cloud $1 pass, above the plans, when its checkout is on. */
+  intro?: ReactNode;
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
   // The current plan's one action: Resume while a cancellation is scheduled,
@@ -568,12 +582,13 @@ function PricingContent({
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
         {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
-          <ProWelcomeBanner />
+          <ProWelcomeBanner cloudIntro={isCloudIntroEnabled()} />
         </Suspense>
 
         <>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+          {intro}
           <PricingAudienceSelector
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
