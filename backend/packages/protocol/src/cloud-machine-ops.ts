@@ -518,6 +518,64 @@ export const CloudMigrationStart = cloudMutation(
   true
 )
 
+/**
+ * Cloud surge (cmux-platform RFD 0025, src/server/cloud/Surge.ts): a bounded, expiring burst of team
+ * machines through the team's Cloud provider. Platform-only: cmux-api's forwarder sends these ops to
+ * cmux-platform because they are in this catalog (platform-forward.ts). Same shapes as cmux-platform
+ * src/server/cloud/domain/SurgeOps.ts.
+ */
+export const SURGE_CAP = 8
+// The operation catalog reads input fields from the top-level schema, so leave this struct inline.
+export const SurgeRequest = Schema.Struct({
+  count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_CAP })),
+  ttl_seconds: Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 3600 }))
+})
+
+const SurgePreview = Schema.Struct({
+  ...SurgeRequest.fields,
+  provider: Schema.NullOr(Schema.String),
+  available: Schema.Boolean,
+  reason: Schema.String,
+  estimated_cost_usd: Schema.NullOr(Schema.Number)
+}).annotate({ identifier: "CloudSurgePreview" })
+
+const SurgeSlot = Schema.Struct({
+  index: Schema.Int,
+  status: Schema.Literals(["created", "queued", "refused"]),
+  machine_id: Schema.NullOr(MachineId),
+  provider: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  retryable: Schema.Boolean
+}).annotate({ identifier: "CloudSurgeSlot" })
+
+const SurgeReceipt = Schema.Struct({
+  ...SurgeRequest.fields,
+  slots: Schema.Array(SurgeSlot)
+}).annotate({ identifier: "CloudSurgeReceipt" })
+
+export const CloudSurgePreview = cloudRead(
+  "cloud.surge.preview",
+  SurgeRequest,
+  SurgePreview,
+  [],
+  "Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.",
+  "cloud surge preview"
+)
+
+export const CloudSurgeCreate = {
+  ...cloudMutation(
+    "cloud.surge.create",
+    "money",
+    SurgeRequest,
+    SurgeReceipt,
+    ["cloud.surge.unavailable", "cloud.surge.capacity"],
+    "Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted.",
+    "cloud surge create",
+    true
+  ),
+  principals: ["session"] as const
+}
+
 export const cloudMachineOps = [
   CloudMachineList,
   CloudMachineGet,
@@ -542,5 +600,7 @@ export const cloudMachineOps = [
   CloudBillingCheckout,
   CloudShellOpen,
   CloudMigrationStatus,
-  CloudMigrationStart
+  CloudMigrationStart,
+  CloudSurgePreview,
+  CloudSurgeCreate
 ] as const

@@ -8,6 +8,7 @@ import { RunMark, useNow } from "./RunCard";
 import { chiefTasks, nextExpiry, type ChiefTask } from "./chiefTasks";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { RunBook } from "./runs";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export type ChiefTaskHatLook = "rows" | "chips" | "summary";
 
@@ -77,11 +78,16 @@ function TaskRow({ task, now, strings, chip }: { task: ChiefTask; now: number; s
   const live = task.state === "running" || task.state === "stalled";
   const meta = live ? formatDuration(Math.max(0, now - task.startedAt)) : strings.t(`run.status.${status}`);
   return (
-    <li className="lg-task-hat__row" data-state={task.state} title={task.result ?? task.title}>
+    <li className="lg-task-hat__row" data-state={task.state}>
       <RunMark status={status} />
-      <span className="lg-task-hat__title" dir="auto">
-        {task.title}
-      </span>
+      {/* A cut title, and a chip's result it leaves out, show on the title's hover card. */}
+      <WithFacts facts={[{ value: task.title }, { value: chip ? (task.result ?? "") : "" }]}>
+        {(facts) => (
+          <span {...facts} className="lg-task-hat__title" dir="auto">
+            {task.title}
+          </span>
+        )}
+      </WithFacts>
       {!chip && task.result && (
         <span className="lg-task-hat__result" dir="auto">
           {task.result}

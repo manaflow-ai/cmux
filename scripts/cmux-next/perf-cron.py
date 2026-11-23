@@ -13,6 +13,8 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     once and whose Mac parts wait for its tree), else one bisect step of an open regression. While a nightly
                     or dev build waits for a Mac on GitHub, a Mac part runs only on cmux20-bench (it runs no
                     CI job); a measurement pinned to another host waits, and gives that host up after 2 h.
+                    A Mac part with no reading yet goes first; a tip that predates one ends its Mac parts so the
+                    newest commit with a tree measures it (supersede_for_unread).
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
                     then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
@@ -37,8 +39,8 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, tempfile, time, urllib.error
-import urllib.parse, urllib.request, zipfile
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -76,6 +78,16 @@ OFFLINE_REASONS = ("is not a controller worker", "is not healthy", "has not been
 # host (its rows are host-keyed; split-spring.sh --app-cache builds on a cache miss); a bisect step ends without
 # blaming its commit (its rows are judged only on that host). The host is not pinned again for as long.
 HOST_WAIT_HOURS = 2
+# The controller route runs a measurement's Mac parts back to back (cmuxterm-hq perf_cron_batch.go): the request job
+# prints them as one BATCH_PREFIX line, the requested part first, at most BATCH_MAX, and every result comes back in one
+# result run when the last part ends. Leo, 2026-11-22, on the perf cron's 2 h bench window: "does it need to take it for
+# 2h tho? cant it be faster?" One part per round trip took a tip measurement 3 to 14 h (each part waited for a plan,
+# a request and a result run on the shared Linux queue); its Mac parts back to back take about 1.5 h. No result comes
+# while the batch runs, so the host's silence is bounded by the batch's own deadline on top of HOST_WAIT_HOURS: every
+# listed part's run_seconds plus BATCH_SLACK_HOURS (the controller's perfCronBatchSlack).
+BATCH_PREFIX = "perf-cron-batch: "
+BATCH_MAX = 32
+BATCH_SLACK_HOURS = 1
 # A Mac host that ran no part for this long while Mac parts ran on other hosts is gone (it left the fleet, or it is
 # never idle): its open regressions close as not judged, since it can neither confirm nor clear them (12 tip
 # measurements at TIP_EVERY_HOURS went to other hosts meanwhile).
@@ -86,8 +98,11 @@ STALE_HOURS = 24
 # cron feeds gets a pass within STALE_HOURS: the goals in cmuxterm-hq's NOW (terminal-throughput reads
 # terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
 PART_STALE_HOURS = 20
+SUPERSEDE_AFTER_HOURS = 24  # a tip measurement younger than this keeps its Mac parts for an unread part (supersede_for_unread)
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
+# A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
+CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
@@ -205,6 +220,11 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # Tabs and terminals as they grow (Leo 2026-11-10: "opening/closing tabs was p important to lawrence ... we defo need
+    # to encode and warn sometimes if those get slow"): tab switch at 2 and 30 tabs, 20 quick Cmd-W on terminal and chat
+    # tabs, Cmd-T and Ctrl-` at 10 and 30 workspaces. Not timed yet: 25 minutes, as the other multi-bench parts.
+    {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tab_scale,tab_close,surfaces_scale"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs", "run_seconds": 1500},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
@@ -222,6 +242,24 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Late frames and the frame's commit time while a pane divider drags and the window zooms beside a Chromium page
+    # (cef-resize-cron.py: cef-resize-sync-bench.py's light bench on the build as it ships): cef_resize.<action>.<layout>
+    # .missed (budget 0) and .commit_p95_ms (budget half a display frame), from plans/cmux-next/cef-layer-hosting-DESIGN.md
+    # "Live resize". The bench build, like memory-agents and throughput: the frames people see are Release frames.
+    {"name": "cef-resize", "args": [*MEASURE, "--config=bench", "--suite=cef-resize"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "cef-resize",
+     "run_seconds": 1800},  # 156 s with the bench app cached (step 5574ba49fb74, 2026-11-19); a cold bench build adds ~800 s
+    # Terminal key to echo (scripts/cmux-next/typing-frame-bench.py, the cron's run of bench-typing.py's probe): one
+    # key at a time typed into a `zsh -f` prompt, from the key event's timestamp to the frame Ghostty reports shown on
+    # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle, 3
+    # rounds of 80 keys pooled: row terminal.key_to_echo.idle, target p95 TYPING_KEY_TO_ECHO_MS. The load phase is not
+    # in the part yet: on cmux23 (2026-11-19) the agent chats it opens kept the window's keyboard, so no terminal had
+    # focus and it measured no key. The bench configuration, like the throughput part next to it (one build serves
+    # both): an optimized app is the latency people feel.
+    {"name": "typing", "args": [*MEASURE, "--config=bench", "--suite=typing-frame", "--surfaces=terminal",
+                                "--phases=idle", "--rounds=3", "--samples=80"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing", "needs": "typing",
+     "run_seconds": 2700},  # cmux23 2026-11-19: 2225 s with a cold bench build (about 1950 s) and idle plus load
     # Power (scripts/cmux-next/power-cron.py, bench_power.py): the app and every process it owns in mW, idle with one
     # terminal, idle with one Chromium page and scrolling a page, and standalone Ghostty idle in the same step. The
     # terminal row's budget is that Ghostty number; the page rows' are the best other browser's in the checked-in
@@ -279,12 +317,20 @@ PARTS = [
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Scrolling up a long chat page by page (webviews/bench/transcript-scroll-up-scale.bench.ts) at 1k, 10k and 100k
+    # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
+    # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
+    {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
     {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
+    # A fast fling and clicks along the prompt rail in a long chat with 200, 500 and 1,000 listed sessions
+    # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
+    # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
+    {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -317,19 +363,28 @@ PARTS = [
     # listing, fan-out p50/p95/max, controller CPU and RSS per session and their slope over N. Its rows are
     # webui.coord_sim.*.
     {"name": "coord-sim", "where": "linux", "kind": "webui", "needs": "coord-sim"},
+    # Full-text chat search (cmux-tui/crates/acpmux/tests/chats_search_bench.rs, goal chat-history-search in
+    # cmuxterm-hq's NOW): phrases typed a key at a time into the Cmd-K chats page's window
+    # (`_acpmux/chats_window {query, content: true}`) on a
+    # 2,000-chat fixture sized like real stores; the p95 per keystroke (chat_search.keystroke) and, report-only, the
+    # scan through `_acpmux/chats_search` (chat_search.scan_keystroke). The release build runs first under its own cap.
+    {"name": "chat-search", "where": "linux", "kind": "webui", "needs": "chat-search"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
 ROW_PARTS = [
-    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
+    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"),
+    (r"^(cmd_t|ctrl_backtick)\.idle_\d+ws\.", "tabs"), (r"^tab_switch\.terminal\.(2|30)\.", "tabs"), (r"^tab_close\.", "tabs"),
+    (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
+    (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
@@ -338,11 +393,15 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
+    (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
+    (r"^webui\.chat_search\.", "chat-search"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -355,11 +414,13 @@ ROW_PARTS = [
 # but tracks the runner (100 to 185 ms for the same code, goal chat-attach-p95); attach_per_dcl beside it, the same
 # rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression. The power
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
-# Ghostty's mW as budget).
+# Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
+# keystroke row: shown, not judged.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
-                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$)")
+                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
+                                r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -370,6 +431,9 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
+# Terminal key to echo's target p95 (ms): plans/cmux-next/perf-lead.md's "Key to frame (terminal, Home composer,
+# omnibar) p95 < 8 ms", whose proof is bench-typing.py's probe. Under the generic LATENCY_TARGET_MS on purpose.
+TYPING_KEY_TO_ECHO_MS = 8.0
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
                        "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
                        # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
@@ -407,6 +471,34 @@ def load_budgets_module():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+_BUDGET_TABLE = {}
+
+
+def budget_table():
+    """perf-budget-table.py and its table, loaded once a process: (module, rows)."""
+    if "rows" not in _BUDGET_TABLE:
+        spec = importlib.util.spec_from_file_location("perf_budget_table", os.path.join(HERE, "perf-budget-table.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BUDGET_TABLE.update(mod=mod, rows=mod.load_table())
+    return _BUDGET_TABLE["mod"], _BUDGET_TABLE["rows"]
+
+
+def budget_report(state, now):
+    """The budget of every producer from the state (perf-budget-table.py): (module, result), or (None, error text) when
+    the table does not load. Reported, never judged: it opens, closes and fails nothing."""
+    try:
+        mod, rows = budget_table()
+        return mod, mod.evaluate(rows, state, now)
+    except (OSError, ValueError, re.error) as error:
+        return None, f"Budget: the table did not load ({error})"
+
+
+def budget_issue_lines(state, now):
+    mod, result = budget_report(state, now)
+    return mod.issue_lines(result) if mod else [f"**{result}.**"]
 
 
 def animation_budgets(budgets_mod):
@@ -727,6 +819,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
             version = versions.get(bench)
             out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
                 + 100 * DIFF_LOAD_VERSION
+    elif part["kind"] == "typing":
+        out.update(typing_rows(report, budgets_mod))
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -740,6 +834,28 @@ def rows_of_part(part, report, budgets_mod, budgets):
             # god_chat_replay_ratio_max reads webui.god_ratio.transcript_replay.long.{heap_mb,thought_ms,token_ms}).
             paired = report.get("paired") if isinstance(report.get("paired"), dict) else {}
             out.update(paired_ratio_rows(paired.get("rounds") or []))
+    return out
+
+
+def typing_rows(report, budgets_mod):
+    """{terminal.key_to_echo.<phase>: row} of a typing-frame-bench.py report (pure): every round's measured keys of
+    the terminal surface pooled per session and phase, p50 and p95 of key to echoed frame, target
+    TYPING_KEY_TO_ECHO_MS. The light session's rows carry no session; another session's (STRESS, a backdrop) name it.
+    A run without `key_to_frame_values` (a bench before the cron's part) gives no row."""
+    pooled = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or run.get("surface") != "terminal":
+            continue
+        values = [v for v in run.get("key_to_frame_values") or [] if isinstance(v, (int, float))]
+        session = re.sub(r"[^a-z0-9_]+", "_", str(run.get("session") or "light").lower())
+        phase = re.sub(r"[^a-z0-9_]+", "_", str(run.get("phase") or "idle").lower())
+        name = f"terminal.key_to_echo.{phase}" if session == "light" else f"terminal.key_to_echo.{session}.{phase}"
+        pooled.setdefault(name, []).extend(values)
+    out = {}
+    for name, values in pooled.items():
+        if values:
+            out[name] = {"p50": round(budgets_mod.pct(values, 0.5), 2), "p95": round(budgets_mod.pct(values, 0.95), 2),
+                         "unit": "ms", "budget": TYPING_KEY_TO_ECHO_MS, "floor": 1.0, "n": len(values)}
     return out
 
 
@@ -950,7 +1066,7 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch, web UI and main-thread rows their budget (a web UI row without a target has none)."""
+    0; diff, launch, web UI, CEF resize, terminal key-to-echo and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
@@ -958,7 +1074,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.", "cloud.")):
+    if name.startswith(("diff.", "launch.", "webui.", "cloud.", "terminal.key_to_echo.", "cef_resize.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1066,9 +1182,14 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scroll-up":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"],
+                          os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scroll":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
@@ -1084,6 +1205,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["python3", os.path.join(root, CLOUD_CLAIM)], root or ".", {})}
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "chat-search":
+        script = os.path.join(root, CHAT_SEARCH)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
@@ -1185,20 +1309,83 @@ def with_build(parts):
     return (["build"] if fleet else []) + [p for p in parts if p != "build"]
 
 
+def unread_parts(state):
+    """The Mac parts (build aside) that never produced a reading in the state (pure): no stored rows
+    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history']."""
+    read = set(state.get("part_stored") or {}) if isinstance(state.get("part_stored"), dict) else set()
+    for key in ("part_rows", "row_history"):
+        if isinstance(state.get(key), dict):
+            read |= {part_for_row(name) for name in state[key] if isinstance(name, str)}
+    return [p["name"] for p in PARTS if p["name"] != "build" and not is_linux_part(p["name"]) and p["name"] not in read]
+
+
+def unread_missing(state, cur):
+    """The unread Mac parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
+    Empty unless it still has a Mac part to do."""
+    if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
+        return []
+    return [p for p in unread_parts(state) if p not in cur.get("parts", {}) and p not in cur.get("parts_todo", [])]
+
+
+def supersede_for_unread(state, t, newest, supported_parts):
+    """End the Mac parts still to do of the tip measurement in flight as 'superseded' when a part that never produced a
+    reading (unread_missing) runs at newest, the newest measurable commit with a published cmux-tui tree (plan): the
+    measurement finishes with the parts that ran, as after no_host_for_tip, and the next tip, which has the part,
+    measures it first (part_order). Once per part: every newer tip has it. A measurement younger than
+    SUPERSEDE_AFTER_HOURS keeps its parts. Returns why, or None.
+
+    2026-11-22: tip 9a55953f had measured 24 of its 28 parts in 165 h, and chat-size (cmux#48916, merged after it)
+    had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
+    cur = state.get("current")
+    missing = unread_missing(state, cur)
+    if not missing or not newest:
+        return None
+    # Only a measurement a day old gives way: parts land most days, so giving way at once restarted every Mac pass
+    # before it finished (tip 12aa19c2, 2026-11-22: 4 Mac parts done, 17 superseded for tabs and typing 12 h in,
+    # chat-size among them). Wall time, not active_hours: the stall this fixes was yielding to the fleet.
+    if hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
+        return None
+    have = [p for p in missing if p in supported_parts(newest)]
+    if not have:
+        return None
+    why = f"{', '.join(have)} never produced a reading; {newest[:12]} has it"
+    for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+        cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"].remove(name)
+    cur.pop("host_asked_since", None)
+    end_yield(cur, t)
+    cur["superseded"] = {"by": newest, "why": why}
+    return why
+
+
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
-    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
-    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
+    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
+    yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
+    38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
+    ran (2026-11-21)."""
     stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
-    stale = []
+    never, stale = [], []
     for i, name in enumerate(todo):
+        if name == "build":
+            continue
         e = stored.get(name)
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
-        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+        if not at:
+            never.append(name)
+        elif hours_between(at, t) > PART_STALE_HOURS:
             stale.append((at, i, name))
-    first = [n for _, _, n in sorted(stale)]
+    # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
+    # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
+    # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    if never:
+        names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
+            | set(state.get("part_rows") or {})
+        seen = {part_for_row(n) for n in names}
+        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
+    first = never + [n for _, _, n in sorted(stale)]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
@@ -1272,11 +1459,16 @@ def host_last_seen(state, host):
     return parse_iso(info.get("last_part_at") or info.get("at") or info.get("absent_since") or None)
 
 
-def host_gone(state, host, t):
-    """host left the fleet (pure): the controller said it has no such worker (gone_at, a host_gone result), or it ran
-    no part for HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+def host_retired(state, host):
+    """The controller said it has no such worker (gone_at, a host_gone result), and the host ran no part since (pure)."""
     info = host_info(state, host)
-    if info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]):
+    return bool(info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]))
+
+
+def host_gone(state, host, t):
+    """host left the fleet (pure): the controller said it has no such worker (host_retired), or it ran no part for
+    HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+    if host_retired(state, host):
         return True
     seen = host_last_seen(state, host)
     return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
@@ -1308,7 +1500,10 @@ def drop_dead_measurement(state, t, measurable):
     (give_up_host)."""
     cur = state.get("current")
     why = None
-    if cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS):
+    over = cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS)
+    if over and close_at_bound(cur, t):
+        return "closed at its bound"
+    if over and not (cur.get("closed_at") and hours_between(parse_iso(cur["closed_at"]), t) <= CLOSE_GRACE_HOURS):
         why = "abandoned"
     elif cur and needs_mac(cur) and not measurable(cur["sha"]):
         why = "unmeasurable"
@@ -1326,11 +1521,50 @@ def drop_dead_measurement(state, t, measurable):
     return why
 
 
+def close_at_bound(cur, t):
+    """A tip measurement that reached its bound with a part done ends with what it has (pure on cur): each part
+    still to do is recorded as not run (state 'not_run', its reason the bound), so the next decide finishes it and
+    the report judges its rows; the measurement ends incomplete instead of abandoned. Returns whether it closed.
+    Abandoning threw the whole measurement away: from 2026-11-15 08:03Z the cron finished none for 165 h while each
+    one ran 8 to 20 of its 27 parts and was dropped at ABANDON_HOURS. A bisect step still abandons (its verdict needs
+    its parts), and so does a measurement with no part done (nothing to judge). cur['closed_at'] holds the close: the
+    finish gets CLOSE_GRACE_HOURS before the abandon applies again."""
+    if cur.get("kind") != "tip" or not cur.get("parts_todo") or cur.get("closed_at"):
+        return False
+    if not any(isinstance(p, dict) and p.get("state") == "done" for p in (cur.get("parts") or {}).values()):
+        return False
+    reason = (f"not run: the measurement reached its bound ({ABANDON_HOURS} h active or {ABANDON_WALL_HOURS} h in "
+              "all) and ended with the parts it had")
+    for name in cur["parts_todo"]:
+        cur["parts"][name] = {"state": "not_run", "reason": reason}
+    cur["parts_todo"] = []
+    cur["closed_at"] = iso(t)
+    return True
+
+
 def commit_failed(cur):
     """A part of the measurement failed on its commit (pure): its build failed, or a part ran and failed. A part
     refused for its host (it carries a reason: another host, or no host on record) is the fleet's, not the commit's."""
     return any(isinstance(p, dict) and (p.get("state") == "build_failed" or (p.get("state") == "failed" and not p.get("reason")))
                for p in (cur.get("parts") or {}).values())
+
+
+def batch_parts(state, cur, first, t):
+    """The Mac parts a controller request lists after first, in part_order (pure): [first] and the measurement's
+    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other."""
+    rest = [p for p in part_order(state, cur["parts_todo"], t) if p != first and not is_linux_part(p)]
+    return [first, *rest][:BATCH_MAX]
+
+
+def host_wait_hours(cur):
+    """How long the measurement's host may stay silent before give_up_host and no_host_for_tip (pure): HOST_WAIT_HOURS,
+    plus the deadline of the batch asked for (cur['batch']), whose results all come when its last part ends."""
+    batch = cur.get("batch") if isinstance(cur.get("batch"), dict) else {}
+    parts = [p for p in batch.get("parts") or [] if p in PART_BY_NAME]
+    if len(parts) < 2:
+        return HOST_WAIT_HOURS
+    run = sum(PART_BY_NAME[p].get("run_seconds", PART_RUN_SECONDS) for p in parts)
+    return HOST_WAIT_HOURS + BATCH_SLACK_HOURS + run / 3600
 
 
 def give_up_host(state, t):
@@ -1347,12 +1581,14 @@ def give_up_host(state, t):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
     offline = host_unreachable(state, host, t)
-    if not offline and not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    wait = host_wait_hours(cur)
+    if not offline and not (asked and hours_between(asked, t) > wait):
         return None
-    why = f"{host} is offline" if offline else f"{host} took no part for {HOST_WAIT_HOURS} h"
+    why = f"{host} is offline" if offline else f"{host} took no part for {round(wait, 1):g} h"
     if not offline:
         mark_host(state, host, waited_at=iso(t))
     cur.pop("host_asked_since", None)
+    cur.pop("batch", None)
     if cur["kind"] == "bisect":
         state.setdefault("history", []).append({"sha": cur["sha"], "kind": "bisect", "status": "waited", "at": iso(t),
                                                 "parts": sorted(cur.get("parts", {})), "note": why})
@@ -1379,13 +1615,14 @@ def no_host_for_tip(state, t):
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
-    if not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    wait = host_wait_hours(cur)
+    if not (asked and hours_between(asked, t) > wait):
         return None
     host = cur.get("host")
     if host and not cur.get("gave_up"):
         return None
     tried = sorted({g.get("host") for g in cur.get("gave_up") or [] if isinstance(g, dict) and g.get("host")} | {host} - {None})
-    why = f"no measure host took a Mac part for {HOST_WAIT_HOURS} h" + (f" (gave up {', '.join(tried)})" if tried else "")
+    why = f"no measure host took a Mac part for {round(wait, 1):g} h" + (f" (gave up {', '.join(tried)})" if tried else "")
     if host:
         mark_host(state, host, waited_at=iso(t))
         cur.pop("host")
@@ -1393,24 +1630,32 @@ def no_host_for_tip(state, t):
         cur["parts"][name] = {"state": "no_host", "reason": why}
         cur["parts_todo"].remove(name)
     cur.pop("host_asked_since", None)
+    cur.pop("batch", None)
     end_yield(cur, t)
     cur["no_host"] = {"at": iso(t), "why": why}
     return why
 
 
-def tip_pin_host(state, t):
+def tip_pin_host(state, t, idle_hosts=None):
     """The Mac host a new tip measurement is pinned to (pure): the host of the oldest Mac row waiting for its confirming
     run (state['pending']: only a run there can confirm or clear it, so its run comes first), else of the earliest open regression of a Mac row,
     unless that host is avoided now (offline, or a measurement just gave it up: host_avoided) or gone (host_gone). A
     host's rows are judged only on that host, so a tip measured elsewhere can never confirm or clear them. None: any
-    idle measure host."""
+    idle measure host.
+
+    idle_hosts: the measure hosts the controller called idle this tick (controller_idle_hosts), or None when it was not
+    read. With it, a host not in it is not pinned: the tip goes to any idle measure host. Every Mac row was
+    @cmux20-bench, so every tip pinned there; it refused claims for 3.5 days from 2026-11-18 and was leased about 80 % of
+    2026-11-22, and each time give_up_host waited HOST_WAIT_HOURS before letting go, then supersede_for_unread dropped
+    the parts done (cmuxterm-hq docs/findings/2026-11-22-perf-cron-coverage.md: 2 of 21 Mac parts in 5 days)."""
     pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
     waiting = sorted((str((v or {}).get("at") or ""), n) for n, v in pending.items() if isinstance(n, str))
     regs = [r for r in state.get("regressions") or [] if isinstance(r, dict) and isinstance(r.get("name"), str)]
     regs.sort(key=lambda r: (str((r.get("first_bad") or {}).get("measured_at") or ""), r["name"]))
     for name in [n for _, n in waiting] + [r["name"] for r in regs]:
         host = mac_host(name)
-        if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t):
+        if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t) \
+                and (idle_hosts is None or host in idle_hosts):
             return host
     return None
 
@@ -1455,7 +1700,7 @@ def wait_for_tree(cur, t, tree_ready):
 
 
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
-           controller_route=False, tree_ready=lambda sha: True):
+           controller_route=False, tree_ready=lambda sha: True, newest=None, idle_hosts=None):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
@@ -1470,10 +1715,15 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
     that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
     (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
-    tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree)."""
+    tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree). newest: the newest
+    measurable commit with a published tree, given while the tip in flight lacks a part that never produced a reading
+    (unread_missing); its Mac parts then end so the next tip measures that part first (supersede_for_unread).
+    idle_hosts: the measure hosts the controller called idle (controller_idle_hosts), or None; a new tip pins only to
+    one of them (tip_pin_host). A bisect step keeps its host: its rows are judged only there."""
     drop_dead_measurement(state, t, measurable)
     no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
+    superseded = None if mac_disabled else supersede_for_unread(state, t, newest, supported_parts)
     cur = state.get("current")
     if not cur and bisect and not (candidate and tip_due(state, t)):
         regressed = {part_for_row(name) for name in bisect["rows"]}
@@ -1485,7 +1735,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
                 cur["host"] = hosts.pop()  # the regressed rows' host: a bisect step compares only on it
     if not cur and candidate:
         state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
-        pin = tip_pin_host(state, t)
+        pin = tip_pin_host(state, t, idle_hosts)
         if pin:
             cur["host"] = pin
     if cur and mac_disabled:
@@ -1496,7 +1746,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
                                             "was measured, and no regression range to bisect"}
     if not cur["parts_todo"]:
         return {"action": "finish", "sha": cur["sha"],
-                "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
+                "reason": (f"its Mac parts have no host ({no_host}); report only" if no_host else
+                           f"its Mac parts gave way ({superseded}); report only" if superseded else "every part ran; report only")}
     todo = part_order(state, cur["parts_todo"], t)  # a part past PART_STALE_HOURS goes first
     linux = next((p for p in todo if is_linux_part(p)), "")
     fleet = "" if tree_wait else next((p for p in todo if not is_linux_part(p)), "")
@@ -1509,8 +1760,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # at every tick, and no Mac part ran while the bench host could have taken each one.
     # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
     # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
+    # Only the controller's word retires the bench host here (host_retired), never its silence: host_gone's
+    # HOST_GONE_HOURS clause assumes Mac parts ran elsewhere meanwhile, and with the bench host the only measure host
+    # none did. From 2026-11-18 cmux20-bench refused every claim (not isolated) for 3.5 days; once repaired, it was
+    # "gone" by silence, so every tick a nightly waited for a Mac held its parts back and no Mac row could refresh.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_retired(state, BENCH_WORKER))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
@@ -1597,6 +1852,30 @@ def controller_url():
         except (OSError, ValueError):
             pass
     return "http://100.89.225.106:18765"
+
+
+# The controller's public idle-host feed (cmuxterm-hq#19352: GET /perf-cron/hosts.json, beside results.json):
+# {"at": RFC 3339, "hosts": {"<worker>": {"idle": bool, "why": "leased" | "running a step" | ...}}}. The plan job runs on
+# a runner off the tailnet, so /v1/workers is not readable from it.
+CONTROLLER_HOSTS_URL = "https://gh-events.cmux.com/perf-cron/hosts.json"
+
+
+def idle_hosts_from(raw):
+    """The workers the hosts feed calls idle, or None when the answer has no hosts map (pure)."""
+    hosts = raw.get("hosts") if isinstance(raw, dict) else None
+    if not isinstance(hosts, dict):
+        return None
+    return {name for name, h in hosts.items() if isinstance(name, str) and isinstance(h, dict) and h.get("idle") is True}
+
+
+def controller_idle_hosts(url=None, timeout=10):
+    """The measure hosts the controller calls idle now, or None when the feed was not read (no route yet, a timeout,
+    a bad answer): then nothing changes and tip_pin_host pins as before."""
+    try:
+        return idle_hosts_from(http_json(url or os.environ.get("PERF_CRON_HOSTS_URL") or CONTROLLER_HOSTS_URL, timeout=timeout))
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        print(f"perf-cron: the controller's idle hosts were not read ({error!r}); a tip pins as before")
+        return None
 
 
 def http_json(url, timeout=30):
@@ -2041,78 +2320,105 @@ def tree_published(sha):
     return False
 
 
+# A plan takes about a minute. Each path check is bounded: in a partial clone `cat-file -e` can fetch a missing object
+# from the remote, and a fetch that never answers held the plan step until its 75-minute cap (run 44731310755,
+# 2026-11-20: no output for 74 minutes after fetch-state). No prompt either: the checkout has no credentials.
+PATH_CHECK_TIMEOUT_S = 60
+
+
+def has_path(sha, path):
+    """sha's tree holds path; False when git says no, fails, or takes past PATH_CHECK_TIMEOUT_S (logged)."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True,
+                              timeout=PATH_CHECK_TIMEOUT_S, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).returncode == 0
+    except subprocess.TimeoutExpired:
+        print(f"perf-cron: git cat-file {sha[:12]}:{path} took past {PATH_CHECK_TIMEOUT_S} s; counted as absent", flush=True)
+        return False
+
+
 def supported_parts_at(sha):
     names = []
     for p in PARTS:
         need = p.get("needs")
         if need == "stress":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/perf-stress-session.py"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"scripts/cmux-next/perf-stress-session.py")
         elif need == "diff-viewer":
-            ok = all(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True).returncode == 0
+            ok = all(has_path(sha, f"{path}")
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{WEBUI_SUITE}")
         elif need == "web-ui-scale":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{UPDATE_ONE_BENCH}")
         elif need == "web-ui-god":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{GOD_FIXTURE}")
         elif need == "web-ui-growth":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{FLAT_100K_BENCH}")
+        elif need == "web-ui-scroll-up":
+            ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
+        elif need == "web-ui-scroll":
+            ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
         elif need == "web-ui-typing":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "infinite-items":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_DISK}")
         elif need == "cloud-claim":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CLOUD_CLAIM}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CLOUD_CLAIM}")
+        elif need == "typing":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--suite=typing-frame" in text and '"key_to_frame_values"' in bench
         elif need == "terminal-scroll":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"{TERMINAL_SCROLL}")
         elif need == "daemon-restart":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{DAEMON_RESTART}")
         elif need == "coord-sim":
             # The harness, and a driver that is built (the crate landed with stub subcommands first).
-            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True)
-            ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
-                                                capture_output=True).returncode == 0,
+            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S)
+            ok = coord_sim_ready(has_path(sha, f"{COORD_SIM}"),
                                  drive.stdout if drive.returncode == 0 else None)
+        elif need == "chat-search":
+            ok = has_path(sha, f"{CHAT_SEARCH}")
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=terminal-throughput" in text
         elif need == "launch-dock":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
         elif need == "launch-cold":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
+        elif need == "tabs":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = '"surfaces_scale":' in text
         elif need == "idle-budget":
             # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "def cron_report(" in text
         elif need == "workspace-scaling":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
-            ok = "--suite=workspace-scaling" in text and subprocess.run(
-                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
-                capture_output=True).returncode == 0
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--suite=workspace-scaling" in text and has_path(sha, "scripts/cmux-next/workspace-scaling-bench.py")
         else:
             ok = True
         if ok:
@@ -2145,11 +2451,14 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
+CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
+CHAT_SEARCH = "scripts/measure/chat-search-linux.sh"
 TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 COORD_SIM = "scripts/measure/coord-sim-linux.sh"
@@ -2231,7 +2540,7 @@ def measure_version(sha):
     if not blob:
         return None
     if blob not in _versions_by_blob:
-        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True).stdout
+        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
         _versions_by_blob[blob] = measure_version_of(blob, text)
     return _versions_by_blob[blob]
 
@@ -2276,7 +2585,7 @@ def commit_on_branch(repo, tip, known=()):
         if not is_sha(sha):
             return False
         if sha not in cache:
-            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, timeout=PATH_CHECK_TIMEOUT_S).returncode == 0
             if have and is_ancestor(sha, tip):
                 cache[sha] = True
             else:
@@ -2389,6 +2698,7 @@ def issue_body(state, repo, now):
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
     else:
         lines.append("No confirmed regression.")
+    lines += ["", *budget_issue_lines(state, now)]
     unconfirmed = [u for u in state.get("unconfirmed") or [] if isinstance(u, dict)]
     if unconfirmed:
         lines += ["", f"**Unconfirmed ({len(unconfirmed)} row(s), not a regression):** a row is a regression only with "
@@ -3165,7 +3475,7 @@ def cmd_fetch_state(o):
                 raise
             print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
                   flush=True)
-            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)
+            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)  # sleep-ok: GitHub's named rate-limit reset time
             fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
@@ -3294,11 +3604,25 @@ def plan(o):
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
+    newest = None
+    gone_by = state.get("current") or {}
+    if not no_mac and unread_missing(state, gone_by):
+        # A part that never produced a reading (unread_parts) and that the tip in flight predates: the newest commit
+        # that can run it on the fleet (supersede_for_unread). Once per part: every later tip has it.
+        for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
+            if sha == gone_by["sha"] or is_ancestor(sha, gone_by["sha"]) or not fleet_runs(sha, tip_version):
+                break
+            if tree_ready(sha):
+                newest = sha
+                break
     busy, busy_known = None, False
     if not no_mac and (candidate or bisect or state.get("current")):
         busy, busy_known = github_busy(o.repo, o.yield_mode), True
+    controller_route = bool(getattr(o, "controller", False)) and not no_mac
+    # Read only when this tick may start a tip that could pin a host (tip_pin_host).
+    idle_hosts = controller_idle_hosts() if controller_route and candidate and not state.get("current") else None
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
-               controller_route=bool(getattr(o, "controller", False)) and not no_mac, tree_ready=tree_ready)
+               controller_route=controller_route, tree_ready=tree_ready, newest=newest, idle_hosts=idle_hosts)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if state.get("current") and isinstance(tip_version, int):
         # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
@@ -3323,12 +3647,18 @@ def plan(o):
             cur["linux_wait_yield"] = True
     elif cur and cur.pop("linux_wait_yield", None):
         end_yield(cur, t)
-    for requested in (d.get("part"), d.get("linux_part"), linux_request):
+    mac_parts = []
+    if d.get("part") and cur and getattr(o, "controller", False) and not no_mac:
+        # The controller runs these back to back (BATCH_PREFIX); the request job prints them.
+        mac_parts = batch_parts(state, cur, d["part"], t)
+        if len(mac_parts) > 1 and not (cur.get("batch") or {}).get("parts"):
+            cur["batch"] = {"parts": mac_parts, "asked_at": iso(t)}
+    for requested in (*mac_parts, d.get("part"), d.get("linux_part"), linux_request):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
-           "linux_request": linux_request,
+           "linux_request": linux_request, "mac_parts": " ".join(mac_parts) if len(mac_parts) > 1 else "",
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("linux_part"):
@@ -3676,6 +4006,41 @@ def webui_summary(report, prefix="webui"):
     return lines
 
 
+# Parts whose script builds cmux-tui, whose Zig terminal engine needs the ghostty-next submodule and Zig. The Linux job
+# checks out the measured commit with submodules: false and runs this file from the tip, so the tip prepares both
+# here: a measured commit whose script predates #50961 (which made the script do it) still builds instead of failing
+# every run with "suite: exit 101".
+GHOSTTY_PARTS = {"terminal-scroll"}
+
+
+def prepare_ghostty(root, env, run=run_capped, timeout=900):
+    """(env with CMUX_ZIG set, tail lines) for a GHOSTTY_PARTS part: checks out ghostty-next when it is empty and
+    installs Zig with the checkout's scripts/install-zig-ci.sh when none is on PATH. A step that fails is recorded in
+    the tail and the part runs anyway, so its own error shows too."""
+    tail = []
+    if not os.path.isfile(os.path.join(root, "ghostty-next", "build.zig")) and not env.get("CMUX_GHOSTTY_SRC"):
+        out, err, code = run(["git", "submodule", "update", "--init", "--depth", "1", "ghostty-next"], root, env, timeout)
+        tail += [f"ghostty-next checkout: exit {code if code is not None else f'timeout ({timeout} s)'}"]
+        if code != 0:
+            tail += (err.strip() or out).splitlines()[-5:]
+    installer = os.path.join(root, "scripts", "install-zig-ci.sh")
+    have_zig = env.get("ZIG") or env.get("CMUX_ZIG") or shutil.which("zig", path=env.get("PATH"))
+    if have_zig or not os.path.isfile(installer):
+        return env, tail
+    with tempfile.TemporaryDirectory() as tmp:
+        zig_env = os.path.join(tmp, "zig.env")
+        open(zig_env, "w").close()
+        out, err, code = run(["bash", installer], root, {**env, "GHOSTTY_ZIG_SOURCE": "ghostty-next",
+                                                         "GITHUB_ENV": zig_env, "GITHUB_PATH": os.devnull}, timeout)
+        tail += [f"zig install: exit {code if code is not None else f'timeout ({timeout} s)'}"]
+        if code != 0:
+            tail += (err.strip() or out).splitlines()[-5:]
+        zig = [line.split("=", 1)[1].strip() for line in open(zig_env) if line.startswith("CMUX_ZIG=")]
+    if zig:
+        env = {**env, "CMUX_ZIG": zig[-1]}
+    return env, tail
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -3688,6 +4053,8 @@ def cmd_run_linux_part(o):
     runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
     load = {}
+    if part in GHOSTTY_PARTS:
+        env, tail = prepare_ghostty(ROOT, env)
     for name, (argv, cwd, extra) in runs.items():
         if name == "paired":
             report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
@@ -3698,7 +4065,8 @@ def cmd_run_linux_part(o):
         value = last_json_object(stdout) if code is not None else None
         if code is None:
             code = f"timeout ({LINUX_RUN_SECONDS} s)"
-        tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        # A script that prints its error to stdout (no stderr) still shows it.
+        tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
@@ -3877,6 +4245,7 @@ def record_part(cur, part, result, run_url, t=None):
         asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
+        cur.pop("batch", None)  # ...and the batch asked for ended (or never started): the next request lists again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
@@ -4217,7 +4586,13 @@ def report(o, t=None):
     nxt = next_now(state, fleet_done)
     if nxt:
         line += "; a measure host is idle: the next tick starts now"
+    # The budget of every producer, each tick (perf-budget-table.py): one summary line, then each row over or not measured.
+    mod, budget = budget_report(state, t)
+    budget_lines = mod.text_lines(budget) if mod else [budget]
+    line += f"; {budget_lines[0]}"
     print(f"perf-cron report: {line}")
+    for text in budget_lines:
+        print(f"perf-cron budget: {text}")
     write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
                              "next_now": "true" if nxt else "false",
                              "not_measuring": (not_measuring or "").replace("\n", " ")})
@@ -4288,8 +4663,7 @@ def linux_route(cur, part, t, controller, has_script):
 
 def commit_has(sha, path):
     """Whether commit SHA has PATH (the clone the plan runs in)."""
-    return bool(sha) and subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"],
-                                        capture_output=True).returncode == 0
+    return bool(sha) and has_path(sha, path)
 
 
 def linux_step_files(artifact, result):
@@ -4332,6 +4706,23 @@ def controller_result(raw):
     return value
 
 
+def controller_results(raw):
+    """The controller's perf_result as a list of results (pure): one result (controller_result), or a batch's
+    {"results": [...]} (perfCronDispatchBatch), each kept only when it is a result. Empty when none is."""
+    one = controller_result(raw)
+    if one is not None:
+        return [one]
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    listed = value.get("results") if isinstance(value, dict) else None
+    if not isinstance(listed, list):
+        return []
+    out = [controller_result(json.dumps(v)) for v in listed[:BATCH_MAX + 1]]  # the parts and the one pre-empted
+    return [v for v in out if v is not None]
+
+
 def result_refusal(state, value):
     """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
     measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
@@ -4353,17 +4744,29 @@ def result_refusal(state, value):
 
 
 def result_plan(o, state, t):
-    """A run the controller started with a part's result: plan nothing new; the report job stores the part
-    (result_refusal says which results it drops)."""
-    value = controller_result(o.perf_result)
-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
-    why = result_refusal(state, value)
-    if why:
-        out["reason"] = why
+    """A run the controller started with a part's result, or a batch's results: plan nothing new; the report job
+    stores the parts (result_refusal says which results it drops). result_parts: the parts it stores, in the order
+    they ran; part: the first of them."""
+    values = controller_results(o.perf_result) or [None]
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "result_parts": "", "frame_pacing": "false",
+           "stale_hours": round(stale_hours(state, t), 1)}
+    kept, refused = [], []
+    for value in values:
+        why = result_refusal(state, value)
+        if not why and value["part"] in {v["part"] for v in kept}:
+            why = f"the controller's batch has a second result of part {value['part']}; dropped"
+        (refused.append(why) if why else kept.append(value))
+    for why in refused:
+        print(f"perf-cron plan: {why}")
+    if not kept:
+        out["reason"] = "; ".join(refused)
     else:
-        out.update({"action": "result", "sha": value["sha"], "part": value["part"],
-                    "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
-                              f" (step {value.get('step_id') or '?'})"})
+        first = kept[0]
+        what = (f"the controller's {first['state']} result of part {first['part']} at {first['sha'][:12]}"
+                f" (step {first.get('step_id') or '?'})") if len(kept) == 1 else \
+            (f"the controller's batch at {first['sha'][:12]}: " + ", ".join(f"{v['part']} {v['state']}" for v in kept))
+        out.update({"action": "result", "sha": first["sha"], "part": first["part"],
+                    "result_parts": " ".join(v["part"] for v in kept), "reason": what})
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
@@ -4382,12 +4785,28 @@ def result_files(value):
 
 def cmd_fetch_result(o):
     """The report job's side of the controller route: result.json, and report.json from the step's signed artifact
-    URL. A done step whose artifact cannot be read is a failed part (its rows would be missing)."""
+    URL, in --out, or for each part in --out/PART with --each (a batch's results; the first of a part is kept). A
+    done step whose artifact cannot be read is a failed part (its rows would be missing)."""
+    if getattr(o, "each", False):
+        values = controller_results(o.result)
+        if not values:
+            print("perf-cron fetch-result: no result; nothing written")
+        for value in values:
+            out = os.path.join(o.out, value["part"])  # an allowlisted name (controller_result), never a path
+            if not os.path.exists(out):
+                write_result(value, out)
+        return
     value = controller_result(o.result)
-    os.makedirs(o.out, exist_ok=True)
     if value is None:
+        os.makedirs(o.out, exist_ok=True)
         print("perf-cron fetch-result: not a result; nothing written")
         return
+    write_result(value, o.out)
+
+
+def write_result(value, out):
+    """cmd_fetch_result's files for one result in the directory out."""
+    os.makedirs(out, exist_ok=True)
     result = result_files(value)
     if value["state"] == "done":
         url = str(value.get("artifact_url") or "")
@@ -4399,11 +4818,11 @@ def cmd_fetch_result(o):
             if is_linux_part(value["part"]):
                 report, result = linux_step_files(report, result)
             if report is not None:
-                with open(os.path.join(o.out, "report.json"), "w") as f:
+                with open(os.path.join(out, "report.json"), "w") as f:
                     json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
-    with open(os.path.join(o.out, "result.json"), "w") as f:
+    with open(os.path.join(out, "result.json"), "w") as f:
         json.dump(result, f)
     print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
 
@@ -4550,6 +4969,7 @@ def main(argv=None):
     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
     s.add_argument("--result", required=True, help="the perf_result JSON")
     s.add_argument("--out", required=True)
+    s.add_argument("--each", action="store_true", help="each result's files in OUT/PART (a batch's results)")
     s = sub.add_parser("replay-results", help="store the controller's done results into a reader's copy of the state")
     s.add_argument("--dir", required=True, help="fetch-state's directory")
     s.add_argument("--url", default=CONTROLLER_RESULTS_URL)

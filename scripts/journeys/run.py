@@ -744,6 +744,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                                f"{(launched.stdout + launched.stderr).decode(errors='replace').strip()[-400:]}")
         if hog_started:
             # The rest of the warm-up: the pressure builds before the journeys start.
+            # sleep-ok: HOG_WARMUP_SECONDS is a minimum time under memory pressure by design, not a wait for an event
             time.sleep(max(0.0, HOG_WARMUP_SECONDS - (time.monotonic() - hog_started)))
         budget = int(left(LEASE_SECONDS) - 45)
         if budget < 60:

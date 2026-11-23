@@ -216,32 +216,13 @@ export const DISK_HEALTH_MAX_AGE_MS = 15 * 60_000;
 
 export type DiskHealthState = "healthy" | "warning" | "stale" | "unknown";
 
-/** A report is actionable only while all capacity values are finite and non-negative. */
+/** The API validates capacity and computes the state. The client only tracks freshness. */
 export function diskHealthState(health: CloudDiskHealth | null | undefined, now = Date.now()): DiskHealthState {
   if (!health) return "unknown";
   if (!Number.isFinite(now) || !Number.isFinite(health.observed_at)) return "unknown";
   if (health.observed_at > now) return "unknown";
   if (now - health.observed_at > DISK_HEALTH_MAX_AGE_MS) return "stale";
-  if (
-    ![health.free_mb, health.used_mb, health.total_mb, health.floor_mb].every(
-      (value) => Number.isFinite(value) && value >= 0,
-    ) ||
-    health.total_mb < health.free_mb ||
-    health.total_mb < health.used_mb ||
-    health.free_mb + health.used_mb > health.total_mb ||
-    !Array.isArray(health.top_users) ||
-    health.top_users.some(
-      (user) =>
-        !user ||
-        typeof user.path !== "string" ||
-        user.path.length === 0 ||
-        !Number.isFinite(user.used_mb) ||
-        user.used_mb < 0,
-    )
-  ) {
-    return "unknown";
-  }
-  return health.free_mb <= health.floor_mb ? "warning" : "healthy";
+  return health.state === "healthy" || health.state === "warning" ? health.state : "unknown";
 }
 
 /** "4 CPU · 8 GB memory · 64 GB disk" from the machine record's size. */

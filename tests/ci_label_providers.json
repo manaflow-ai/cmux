@@ -1,0 +1,51 @@
+{
+  "$comment": [
+    "Who provides each runner label a cmux job can be routed to (tests/test_ci_label_has_provider.py).",
+    "A runs-on label is a promise nothing checks: GitHub queues a job on a label no runner carries for up to 24 h and never says why.",
+    "2026-11-19, cmux feat-cmux-next ae733ab0: 168 jobs waited on cmux-fleet-linux-x64 from 05:27Z with 'no runner carries this label'.",
+    "Its only provider, HQ's gha-runners reconciler, ran on the starved blacksmith-2vcpu-ubuntu-2404 pool, so it could not boot the runners that would have ended the outage.",
+    "Every label in a workflow's runs-on, in .github/runners.json, or in a FLEET_LINUX / runner / label constant of a workflow or scripts/ci matches one provider's `serves` (fnmatch).",
+    "kind: `vendor` is a hosted service that runs its own machines (Blacksmith, GitHub); `runner-set` is runners we register that stay registered; `reconciler` is a scheduled job that boots runners on demand.",
+    "A runner-set or reconciler names where it runs (`runs_on`). That place must not be Blacksmith, and must not be a RUNNER_POOLS read, which can resolve to Blacksmith, because the repair must not wait on the pool it repairs (cmuxterm-hq docs/handbook/repair-path-on-the-pool-it-repairs.md).",
+    "`blacksmith_exempt` says why one provider still runs there and what removes it. The test fails once the provider's runs_on no longer reaches Blacksmith, so the exemption cannot outlive the move."
+  ],
+  "providers": {
+    "blacksmith": {
+      "kind": "vendor",
+      "serves": ["blacksmith-*"],
+      "what": "Blacksmith's hosted Linux, macOS and Windows runners, under the org's vCPU cap."
+    },
+    "github-hosted": {
+      "kind": "vendor",
+      "serves": ["ubuntu-*", "macos-*", "windows-*"],
+      "what": "GitHub-hosted images: forks' runs, provenance, the overflow switch's hosted Linux."
+    },
+    "glaeda-minis": {
+      "kind": "runner-set",
+      "serves": ["glaeda-*"],
+      "what": "Persistent runner registrations of the glaeda daemon on the owned Macs (cmuxterm-hq build-fleet/mini-fleet.json): pool labels (glaeda-*-xcode-*), the nightly-only and signing labels, capability labels such as glaeda-ios-sim.",
+      "runs_on": ["owned Macs: glaeda's launchd service on each mini"]
+    },
+    "gcp-lane-build-runners": {
+      "kind": "runner-set",
+      "serves": ["cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64"],
+      "what": "Persistent ghrun runners on the owned GCP lane VMs (cmuxterm-hq build-fleet/swift-linux-builder/lane-build-runners).",
+      "runs_on": ["owned GCP lane VMs: systemd runner units under ghrun"]
+    },
+    "ci-controller-mac-grants": {
+      "kind": "reconciler",
+      "serves": ["cmux-mac", "cmux-*-*-mac"],
+      "what": "The CI controller's Mac asker (CI v2 step 9, scripts/ci/mac_grants.py): a Mac with free capacity asks the controller and registers a one-job JIT runner carrying the granted job's labels, plain cmux-mac or the per-run cmux-<run_id>-<attempt>-mac, beside xcode-<version>.",
+      "runs_on": ["owned Macs: the CI controller's asker on each Mac"]
+    },
+    "gha-runners": {
+      "kind": "reconciler",
+      "serves": ["cmux-fleet-linux-x64", "cmux-gcp-*-jit-x64", "cmux-linux"],
+      "what": "cmuxterm-hq tools/fleet-reconcilers/gha_runners.py and runner_pool.py: boots one-job JIT runners on GCP VMs for jobs queued on cmux-fleet-linux-x64 and the reserved cmux-gcp-*-jit-x64 labels (nightly, repair, pr-control, deploy, autoland), and keeps the persistent cmux-runner-pool-* runners on cmux-linux.",
+      "workflow": "manaflow-ai/cmuxterm-hq .github/workflows/fleet-reconciler-gha-runners.yml",
+      "runs_on": ["${{ fromJSON(vars.RUNNER_POOLS || '{}').small || 'blacksmith-2vcpu-ubuntu-2404' }}"],
+      "blacksmith_exempt": "2026-11-19: being moved onto the build controller, off HQ's small Blacksmith pool (fleet-capacity-routing-2). The day's 168-job outage was this route. Write the new route here when it lands and delete this line. Until then NOW's LABEL PROVIDER DOWN (cmuxterm-hq now_runner_starve.py) pages within minutes when it happens again."
+    }
+  },
+  "not_runner_labels": {}
+}

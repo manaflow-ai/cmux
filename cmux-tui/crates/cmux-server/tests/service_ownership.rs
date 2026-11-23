@@ -41,8 +41,18 @@ fn stopped(runner: &RecordingRunner) {
     );
 }
 
+/// Services of the session service. Its binary is created when missing
+/// and its home folder exists (tests of a missing home keep it missing):
+/// uninstall needs it to end the session's terminals.
 fn services<'a>(layout: &'a Layout, runner: &'a RecordingRunner, binary: &Path) -> Services<'a> {
     stopped(runner);
+    // The sweep's `daemon ensure` starts a daemon (tests answer otherwise).
+    runner.answer_always("daemon ensure", daemon_says("started", "main", 777));
+    runner.answer_always("--end-terminals", daemon_says("stopped", "main", 777));
+    let home = binary.ancestors().nth(3);
+    if !binary.exists() && home.is_some_and(Path::is_dir) {
+        session_binary_at(binary);
+    }
     Services {
         layout,
         runner,
@@ -600,10 +610,13 @@ fn uninstall_checks_the_unit_source_right_before_each_stop() {
         }
     });
     let err = svc.uninstall().unwrap_err();
+    // The session service stops its daemon before the kill (the kill's
+    // SIGTERM does not end terminal hosts): nothing stops after the swap.
+    let lines = runner.lines();
+    let kill = lines.iter().position(|l| l.contains("kill --kill-whom=all")).unwrap();
     assert!(
-        !runner.lines().iter().any(|l| l.contains("disable --now cmux-server.service")),
-        "stopped a unit that is no longer cmux's: {:?} ({err})",
-        runner.lines()
+        !lines[kill..].iter().any(|l| l.contains("disable --now cmux-server.service")),
+        "stopped a unit that is no longer cmux's: {lines:?} ({err})"
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed the unit file");
 }
@@ -1539,4 +1552,554 @@ fn a_held_service_lock_file_with_an_acl_entry_is_left_for_the_user() {
     assert!(err.contains("chmod -N") && !err.contains("`rm "), "{err}");
     assert!(!lock.exists(), "kept a lock file others can open");
     svc.install(false).unwrap();
+}
+
+/// A session binary file where install places it (`.local/bin/cmux-tui`).
+fn session_binary(home: &Path) -> PathBuf {
+    let binary = home.join(".local/bin/cmux-tui");
+    session_binary_at(&binary);
+    binary
+}
+
+fn session_binary_at(binary: &Path) {
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(binary, b"#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// Terminal hosts run in sessions of their own and ignore a SIGTERM that is
+/// not from PID 1, so launchd's bootout and `systemctl --user kill` both left
+/// the shells (seen on a fleet Mac and a Linux runner: a later install's
+/// daemon adopted them). Once the manager stopped the service, uninstall
+/// starts the session's daemon outside it, which adopts them, and stops it
+/// with `--end-terminals`; then it removes the unit file.
+#[test]
+fn uninstall_ends_the_sessions_terminals_after_the_service_stopped() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let path = svc.unit_path().unwrap();
+        svc.uninstall().unwrap();
+        assert!(!path.exists(), "{platform:?}: the unit file is left");
+        let lines = runner.lines();
+        let at = |needle: &str| {
+            lines.iter().position(|l| l.contains(needle)).unwrap_or_else(|| {
+                panic!("{platform:?}: no `{needle}` in {lines:#?}");
+            })
+        };
+        let stopped = at(stop_step(platform));
+        let ensure = at(&format!("{} daemon ensure --session main", binary.display()));
+        let stop = at(&format!("{} daemon stop --session main --end-terminals", binary.display()));
+        assert!(stopped < ensure && ensure < stop, "{platform:?}: {lines:#?}");
+        if platform == Platform::Linux {
+            // Whatever is left is signalled after, then checked to be gone.
+            let kill = at("kill --kill-whom=all");
+            assert!(stop < kill, "{lines:#?}");
+        }
+        // With the HOME the manager gives the service (the user database's),
+        // not this process's: the daemon's state, and so its terminals, live
+        // under it.
+        let home = cmux_server::sys::home_dir(uid()).unwrap();
+        for at in [ensure, stop] {
+            let cmd = &runner.commands()[at];
+            assert!(
+                cmd.env.iter().any(|(k, v)| k == "HOME" && Path::new(v) == home),
+                "{}: {:?}",
+                cmd.display(),
+                cmd.env
+            );
+        }
+    }
+}
+
+/// A stop that could not end the terminals leaves the unit file: the shells
+/// may still run, and the next uninstall must still know the session to end
+/// them.
+#[test]
+fn uninstall_removes_nothing_when_the_terminals_did_not_end() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        runner.answer("--end-terminals", Output { code: Some(1), ..Output::default() });
+        let err = svc.uninstall().unwrap_err();
+        assert!(err.to_string().contains("removed nothing"), "{platform:?}: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}: it went");
+        // Run again, it ends them and removes the unit file.
+        svc.uninstall().unwrap();
+        assert!(!path.exists(), "{platform:?}");
+    }
+}
+
+/// A session binary that is gone cannot start the daemon that ends the
+/// terminals (the hosts may run on from the deleted file): uninstall refuses
+/// before it stops anything, and says how to put it back.
+#[test]
+fn uninstall_changes_nothing_when_the_session_binary_is_gone() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        let inode = std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&path).unwrap());
+        std::fs::remove_file(&binary).unwrap();
+        let before = runner.lines().len();
+        let err = svc.uninstall().unwrap_err().to_string();
+        assert!(err.contains("is gone") && err.contains("cmux server install"), "{err}");
+        assert!(err.contains("nothing was changed"), "{platform:?}: {err}");
+        let lines = &runner.lines()[before..];
+        assert!(
+            !lines.iter().any(|l| l.contains(stop_step(platform)) || l.contains("kill")),
+            "{platform:?}: stopped something: {lines:#?}"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}");
+        // Not even renewed: the refusal comes before every change.
+        let now = std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&path).unwrap());
+        assert_eq!(now, inode, "{platform:?}: the unit file was rewritten");
+    }
+}
+
+/// Another account that may write the folder of the session binary could
+/// swap the file uninstall runs: uninstall refuses before it stops anything.
+#[test]
+fn uninstall_changes_nothing_when_the_session_binary_folder_is_shared() {
+    if skip_as_root() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt as _;
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let path = svc.unit_path().unwrap();
+        let folder = binary.parent().unwrap();
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let before = runner.lines().len();
+        let err = svc.uninstall().unwrap_err().to_string();
+        assert!(err.contains("nothing was changed") && err.contains("mode 777"), "{err}");
+        let lines = &runner.lines()[before..];
+        assert!(
+            !lines.iter().any(|l| l.contains(stop_step(platform)) || l.contains("daemon ensure")),
+            "{platform:?}: {lines:#?}"
+        );
+        assert!(path.exists(), "{platform:?}");
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// The service's daemon got the state variables of its manager (or of a
+/// unit drop-in), not of the shell that runs uninstall (a
+/// `CMUX_TUI_STATE_DIR` exported there would point the sweep at other,
+/// empty state). With no daemon running, the sweep takes them as the
+/// manager now gives a service, byte for byte: systemd quotes a value with
+/// special characters (`$'...'`), launchd ends it with a newline.
+#[test]
+fn uninstall_ends_the_terminals_with_the_state_env_of_the_service_manager() {
+    if skip_as_root() {
+        return;
+    }
+    let want = "/srv/cmux state's ";
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        runner.answer_always(
+            "show-environment",
+            shows("PATH=/usr/bin\nCMUX_TUI_STATE_DIR=$'/srv/cmux state\\'s '\n"),
+        );
+        runner.answer_always("launchctl getenv CMUX_TUI_STATE_DIR", shows(&format!("{want}\n")));
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        svc.uninstall().unwrap();
+        let commands = runner.commands();
+        let sweeps: Vec<_> = commands.iter().filter(|c| c.display().contains(" daemon ")).collect();
+        assert_eq!(sweeps.len(), 2, "{platform:?}: {:#?}", runner.lines());
+        let home = cmux_server::sys::home_dir(uid()).unwrap();
+        for cmd in sweeps {
+            let env = |key: &str| cmd.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+            assert_eq!(env("CMUX_TUI_STATE_DIR"), Some(want.into()), "{platform:?}");
+            assert_eq!(env("HOME"), Some(home.clone().into()), "{platform:?}");
+            assert!(
+                cmd.env_remove.iter().any(|k| k == "XDG_STATE_HOME")
+                    && env("XDG_STATE_HOME").is_none(),
+                "{platform:?} {}: an unset variable must not come from this shell: {:?}",
+                cmd.display(),
+                cmd.env_remove
+            );
+        }
+    }
+}
+
+/// The pid the service manager names for the session daemon, and what
+/// `daemon status` answers on the session's socket.
+fn run_daemon(runner: &RecordingRunner, svc: &Services<'_>, platform: Platform, pid: u32) {
+    match platform {
+        Platform::MacOs => {
+            let print = shows(&format!(
+                "gui/501/com.cmux.server = {{\n\tpath = {}\n\tstate = running\n\tpid = {pid}\n}}\n",
+                svc.unit_path().unwrap().display()
+            ));
+            // The source checks, then the pid (one spare is read by the wait
+            // for the bootout, which then sees the job gone).
+            for _ in 0..3 {
+                runner.answer("launchctl print", print.clone());
+            }
+        }
+        _ => runner.answer("--property=MainPID", shows(&format!("{pid}\n"))),
+    }
+}
+
+fn daemon_says(status: &str, session: &str, pid: u32) -> Output {
+    shows(&format!("{{\"status\":\"{status}\",\"session\":\"{session}\",\"pid\":{pid}}}\n"))
+}
+
+/// While the service's daemon runs, it ends its own terminals: uninstall
+/// asks it over the session's socket (`daemon status` must answer with the
+/// pid the manager names), has it stop with `--end-terminals`, and only then
+/// has the manager stop the service. The daemon knows its own state, so
+/// uninstall reads nothing of its process (no process scanning:
+/// plans/cmux-next/pty-holder.md section 4) and sets no state variable.
+#[test]
+fn uninstall_has_the_running_daemon_end_its_terminals_before_the_service_stops() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        runner.answer_always("show-environment", shows("CMUX_TUI_STATE_DIR=/srv/manager\n"));
+        runner.answer_always("launchctl getenv CMUX_TUI_STATE_DIR", shows("/srv/manager\n"));
+        let binary = session_binary(tmp.path());
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let path = svc.unit_path().unwrap();
+        run_daemon(&runner, &svc, platform, 4242);
+        runner.answer("daemon status --session main", daemon_says("running", "main", 4242));
+        runner.answer("--end-terminals", daemon_says("stopped", "main", 4242));
+        svc.uninstall().unwrap();
+        assert!(!path.exists(), "{platform:?}: the unit file is left");
+        let lines = runner.lines();
+        let at = |needle: &str| {
+            lines.iter().position(|l| l.contains(needle)).unwrap_or_else(|| {
+                panic!("{platform:?}: no `{needle}` in {lines:#?}");
+            })
+        };
+        let status = at(&format!("{} daemon status --session main --json", binary.display()));
+        let end =
+            at(&format!("{} daemon stop --session main --end-terminals --json", binary.display()));
+        let stopped = at(stop_step(platform));
+        assert!(status < end && end < stopped, "{platform:?}: {lines:#?}");
+        // Then what a daemon the manager restarted meanwhile started ends
+        // too (launchd restarts a KeepAlive job at once), with the manager's
+        // state variables: the ones that daemon got.
+        let ensure = at(&format!("{} daemon ensure --session main", binary.display()));
+        let sweep = lines
+            .iter()
+            .rposition(|l| l.contains("--end-terminals"))
+            .filter(|&i| i > ensure)
+            .unwrap_or_else(|| panic!("{platform:?}: no sweep after the stop: {lines:#?}"));
+        assert!(stopped < ensure, "{platform:?}: {lines:#?}");
+        let cmd = &runner.commands()[sweep];
+        assert!(
+            cmd.env.iter().any(|(k, v)| k == "CMUX_TUI_STATE_DIR" && v == "/srv/manager"),
+            "{platform:?}: {:?}",
+            cmd.env
+        );
+        for at in [status, end] {
+            let cmd = &runner.commands()[at];
+            // The daemon's own state: none set here, and no socket of a
+            // terminal this command may run in.
+            assert!(
+                !cmd.env.iter().any(|(k, _)| k == "CMUX_TUI_STATE_DIR" || k == "HOME"),
+                "{platform:?} {}: {:?}",
+                cmd.display(),
+                cmd.env
+            );
+            assert!(
+                ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"]
+                    .iter()
+                    .all(|k| cmd.env_remove.iter().any(|r| r == k)),
+                "{platform:?} {}: {:?}",
+                cmd.display(),
+                cmd.env_remove
+            );
+        }
+    }
+}
+
+/// The daemon that answers on the session's socket must be the one the
+/// manager runs for the service: another pid (a daemon of the session the
+/// app started, or the service's daemon behind a socket of its own), another
+/// session, or no answer (this shell reaches another socket folder) would
+/// leave the service's terminals or end others. Uninstall refuses before it
+/// changes anything.
+#[test]
+fn uninstall_changes_nothing_when_the_running_daemon_does_not_answer_as_the_services() {
+    if skip_as_root() {
+        return;
+    }
+    let unavailable = Output {
+        code: Some(3),
+        stdout: br#"{"code":"server.unavailable","message":"no daemon"}"#.to_vec(),
+        ..Output::default()
+    };
+    let answers = [
+        ("another pid", daemon_says("running", "main", 999)),
+        ("another session", daemon_says("running", "other", 4242)),
+        ("not running", daemon_says("not_running", "main", 0)),
+        ("unavailable", unavailable),
+    ];
+    for platform in [Platform::Linux, Platform::MacOs] {
+        for (case, answer) in &answers {
+            let tmp = tempfile::tempdir().unwrap();
+            let layout = layout_at(tmp.path(), platform);
+            let runner = RecordingRunner::new();
+            runner.answer_always("--property=LoadState", not_found());
+            runner.answer_always("launchctl print", not_loaded());
+            let binary = session_binary(tmp.path());
+            let svc = services(&layout, &runner, &binary);
+            svc.install(false).unwrap();
+            let (path, text) = svc.unit_files().unwrap().remove(0);
+            run_daemon(&runner, &svc, platform, 4242);
+            runner.answer("daemon status", answer.clone());
+            let before = runner.lines().len();
+            let err = svc.uninstall().unwrap_err().to_string();
+            assert!(
+                err.contains("pid 4242") && err.contains("nothing was changed"),
+                "{platform:?} {case}: {err}"
+            );
+            let lines = &runner.lines()[before..];
+            assert!(
+                !lines.iter().any(|l| l.contains(stop_step(platform))
+                    || l.contains("--end-terminals")
+                    || l.contains("daemon ensure")),
+                "{platform:?} {case}: {lines:#?}"
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?} {case}");
+        }
+    }
+}
+
+/// A running daemon that did not end its terminals (its stop failed, or
+/// another daemon answered it): the service is left as it is, unit files
+/// included, so the command can run again.
+#[test]
+fn uninstall_removes_nothing_when_the_running_daemon_did_not_end_its_terminals() {
+    if skip_as_root() {
+        return;
+    }
+    let failed = Output { code: Some(1), ..Output::default() };
+    for platform in [Platform::Linux, Platform::MacOs] {
+        for answer in [failed.clone(), daemon_says("stopped", "main", 999)] {
+            let tmp = tempfile::tempdir().unwrap();
+            let layout = layout_at(tmp.path(), platform);
+            let runner = RecordingRunner::new();
+            runner.answer_always("--property=LoadState", not_found());
+            runner.answer_always("launchctl print", not_loaded());
+            let binary = session_binary(tmp.path());
+            let svc = services(&layout, &runner, &binary);
+            svc.install(false).unwrap();
+            let (path, text) = svc.unit_files().unwrap().remove(0);
+            run_daemon(&runner, &svc, platform, 4242);
+            runner.answer("daemon status", daemon_says("running", "main", 4242));
+            runner.answer("--end-terminals", answer.clone());
+            let before = runner.lines().len();
+            let err = svc.uninstall().unwrap_err().to_string();
+            assert!(err.contains("removed nothing"), "{platform:?}: {err}");
+            let lines = &runner.lines()[before..];
+            assert!(
+                !lines.iter().any(|l| l.contains(stop_step(platform))),
+                "{platform:?}: {lines:#?}"
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}");
+        }
+    }
+}
+
+/// `disable --now` that left the daemon running (it failed, or the unit
+/// restarted): a daemon still running could start terminals after the
+/// sweep, which the kill then cannot end. Uninstall stops there and removes
+/// nothing.
+#[test]
+fn uninstall_ends_no_terminals_while_systemd_still_runs_the_daemon() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    let binary = session_binary(tmp.path());
+    let svc = services(&layout, &runner, &binary);
+    svc.install(false).unwrap();
+    let path = svc.unit_path().unwrap();
+    runner.answer("--property=ActiveState", shows("active\n"));
+    let err = svc.uninstall().unwrap_err().to_string();
+    assert!(err.contains("did not stop") && err.contains("removed nothing"), "{err}");
+    assert!(!runner.lines().iter().any(|l| l.contains("daemon ensure")), "{:#?}", runner.lines());
+    assert!(path.exists());
+}
+
+/// launchd could not say whether it runs the daemon (`launchctl print`
+/// failed once, after the source check passed): that must not read as "no
+/// daemon runs", or the sweep would take the manager's environment for the
+/// state of a daemon that has its own. Uninstall refuses before it changes
+/// anything.
+#[test]
+fn uninstall_changes_nothing_when_launchd_cannot_say_whether_the_daemon_runs() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let binary = session_binary(tmp.path());
+    let svc = services(&layout, &runner, &binary);
+    svc.install(false).unwrap();
+    let path = svc.unit_path().unwrap();
+    let inode = std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&path).unwrap());
+    // The source check, then the pid.
+    runner.answer("launchctl print", not_loaded());
+    runner.answer("launchctl print", Output { code: Some(5), ..Output::default() });
+    let before = runner.lines().len();
+    let err = svc.uninstall().unwrap_err().to_string();
+    assert!(
+        err.contains("cannot tell whether launchd runs") && err.contains("nothing was changed"),
+        "{err}"
+    );
+    let lines = &runner.lines()[before..];
+    assert!(!lines.iter().any(|l| l.contains("bootout") || l.contains(" daemon ")), "{lines:#?}");
+    let now = std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&path).unwrap());
+    assert_eq!(now, inode, "the unit file was rewritten");
+}
+
+/// `daemon ensure` swaps in, and first runs, a build staged beside the
+/// session binary: one another account may write is refused like the
+/// binary, before anything changes.
+#[test]
+fn uninstall_changes_nothing_when_a_staged_build_is_shared() {
+    if skip_as_root() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    let binary = session_binary(tmp.path());
+    let svc = services(&layout, &runner, &binary);
+    svc.install(false).unwrap();
+    let staged = binary.with_file_name("cmux-tui.staged");
+    std::fs::write(&staged, b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let before = runner.lines().len();
+    let err = svc.uninstall().unwrap_err().to_string();
+    assert!(err.contains("staged") && err.contains("nothing was changed"), "{err}");
+    let lines = &runner.lines()[before..];
+    assert!(
+        !lines.iter().any(|l| l.contains("disable --now") || l.contains(" daemon ")),
+        "{lines:#?}"
+    );
+}
+
+/// The sweep's `daemon ensure` found a daemon of the session it did not
+/// start (one the app started outside the service, or a wedged one it
+/// replaced): that daemon holds the terminals as its own, so the sweep
+/// leaves it and them, and uninstall goes on.
+#[test]
+fn uninstall_leaves_a_daemon_of_the_session_it_did_not_start() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        for status in ["running", "replaced"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let layout = layout_at(tmp.path(), platform);
+            let runner = RecordingRunner::new();
+            runner.answer_always("--property=LoadState", not_found());
+            runner.answer_always("launchctl print", not_loaded());
+            let binary = session_binary(tmp.path());
+            let svc = services(&layout, &runner, &binary);
+            svc.install(false).unwrap();
+            let path = svc.unit_path().unwrap();
+            runner.answer("daemon ensure", daemon_says(status, "main", 555));
+            let before = runner.lines().len();
+            svc.uninstall().unwrap();
+            let lines = &runner.lines()[before..];
+            assert!(
+                lines.iter().any(|l| l.contains("daemon ensure"))
+                    && !lines.iter().any(|l| l.contains("--end-terminals")),
+                "{platform:?} {status}: {lines:#?}"
+            );
+            assert!(!path.exists(), "{platform:?} {status}");
+        }
+    }
+}
+
+/// A state path relative to the daemon's working folder cannot be followed
+/// from another: with no daemon running, uninstall refuses a relative path
+/// the manager gives before it changes anything.
+#[test]
+fn uninstall_ends_no_terminals_with_a_relative_state_path() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    runner.answer_always("show-environment", shows("CMUX_TUI_STATE_DIR=srv/state\n"));
+    let binary = session_binary(tmp.path());
+    let svc = services(&layout, &runner, &binary);
+    svc.install(false).unwrap();
+    let before = runner.lines().len();
+    let err = svc.uninstall().unwrap_err().to_string();
+    assert!(err.contains("relative path") && err.contains("nothing was changed"), "{err}");
+    let lines = &runner.lines()[before..];
+    assert!(
+        !lines.iter().any(|l| l.contains("disable --now") || l.contains(" daemon ")),
+        "{lines:#?}"
+    );
 }

@@ -41,13 +41,18 @@ public final class TerminalModel {
     public internal(set) var connectionState: TerminalConnectionState
     /// Says when a dropped connection may show its line (after 10 s).
     @ObservationIgnored public let quietStatus: QuietStatusGate
-    /// The one quiet status line by the composer: nil while attached and for
-    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
-    /// showing its last frame meanwhile), then what is going on. Retry sits
-    /// beside it (``reconnect``).
+    /// What is going on with the connection: nil while attached and for the
+    /// first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile). It takes no row on the page: the
+    /// title pill's subtitle says the state, and the page menu offers
+    /// Reconnect (``reconnect``) only while this is set.
     public var connectionLine: String? {
         quietStatus.isShown ? connectionState.quietLine : nil
     }
+
+    /// The page menu's Reconnect: only past the quiet bound of an outage,
+    /// and only with a recovery to run.
+    public var offersReconnect: Bool { connectionLine != nil && reconnect != nil }
     var sticky = TerminalStickyModifiers()
 
     // Composer
@@ -85,6 +90,10 @@ public final class TerminalModel {
         return false
         #endif
     }
+    #if DEBUG
+    /// Set by `demoConnection`: the link state a demo holds.
+    @ObservationIgnored var demoHeldConnection: TerminalConnectionState?
+    #endif
     /// The terminal surface is first responder (keys go straight to the PTY).
     var surfaceFocused = false
     /// The terminal or its composer has focus.
@@ -287,7 +296,11 @@ public final class TerminalModel {
     }
 
     func ingest(_ event: TerminalSessionEvent) {
-        let connection = connectionState.applying(event)
+        var connection = connectionState.applying(event)
+        #if DEBUG
+        // A demo's link state holds while the mock shell keeps printing.
+        if let held = demoHeldConnection { connection = held }
+        #endif
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
@@ -509,7 +522,31 @@ public final class TerminalModel {
     /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
     /// for demos and UI tests.
     public internal(set) var ptyResizesSent = 0
+    /// Grids the page took on the primary screen whose columns were not the
+    /// phone's (the Mac's wide grid drawn on the phone: "uncompact"), for
+    /// the projection harness.
+    public internal(set) var wideGridsShown = 0
+    /// Mirror resets the page laid out again (each a replay).
+    public internal(set) var mirrorResets = 0
+    /// Back in the foreground: milliseconds from the app becoming active to
+    /// the first display frame that shows the terminal right (the phone's
+    /// width on the primary screen, no held frame, no replay or output
+    /// pending); -1 before the first return, -2 when none came in 5 s.
+    public internal(set) var lastReturnMs = -1
+    /// Display frames, during a soft keyboard transition and half a second
+    /// after it, whose terminal on the primary screen was narrower than the
+    /// phone ("i dont see the point of a narrower-than-iphone terminal").
+    public internal(set) var narrowKeyboardFrames = 0
+    /// Display frames of a soft keyboard transition in which the cursor's row
+    /// moved against the keyboard (down while it shows, up while it hides):
+    /// the terminal bouncing.
+    public internal(set) var keyboardBounces = 0
     #if DEBUG
+    /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
+    public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: posted when the terminal surface takes a key from the system keyboard
+    /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
+    public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
     #endif
@@ -738,6 +775,15 @@ public final class TerminalModel {
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
+    /// live session reports it. A state that is not attached holds until the
+    /// next `demoConnection`, so the mock shell's output (which a live link
+    /// reads as attached) does not end it.
+    public func demoConnection(_ state: TerminalConnectionState) {
+        demoHeldConnection = state.isAttached ? nil : state
+        ingest(.connection(state))
     }
 
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
