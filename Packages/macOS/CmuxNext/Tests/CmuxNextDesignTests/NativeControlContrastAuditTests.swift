@@ -294,14 +294,9 @@ import CmuxNextDesignTokens
 
     private static func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
 
-    /// The theme's glass tint at the menu level, as a menu panel tints its glass.
-    static func menuTint(_ tokens: ThemeTokens) -> ThemeRGB {
-        tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassMenuMaterial.level.tintStrength))
-    }
-
-    /// A menu panel's glass over `page`: the tint, then the theme veil (``GlassMenuMaterial/veil``).
+    /// A menu panel's glass over `page`: the tint, then the theme's veil (``GlassMenuMaterial/veil(for:)``).
     static func menuGlass(_ tokens: ThemeTokens, over page: ThemeRGB) -> ThemeRGB {
-        tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil)).composited(over: menuTint(tokens).composited(over: page))
+        GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: page)
     }
 
     /// Every shared button look, as the app constructs it.

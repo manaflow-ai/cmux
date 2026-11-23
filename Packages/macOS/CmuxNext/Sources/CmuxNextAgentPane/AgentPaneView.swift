@@ -182,6 +182,8 @@ public final class AgentPaneView: NSView {
     var holdsPageAway = false {
         didSet { page?.drawsWhileAway = holdsPageAway }
     }
+    /// A paint hold has the page drawn outside the window until the hold ends (``drawUnseenForPaintHold()``).
+    var drawsUnseenForHold = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
@@ -484,6 +486,8 @@ public final class AgentPaneView: NSView {
             page.frame = shown
             // Held away and back (an adopted chat drew), or resized: the native holes follow the page.
             if moved { applyNativeRects() }
+            // Out of sight for a paint hold: its window follows it there and it draws (a hidden Chromium page draws no frame).
+            if moved, drawsUnseenForHold { page.chromiumWindowMoved(); page.setChromiumVisibility(true) }
         } else { webView.frame = shown }
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
@@ -633,6 +637,9 @@ public final class AgentPaneView: NSView {
         themeFollower.rebind(); redraw.paneWired(self)
         // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
         if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
+        // Parked off screen or back in a pane, in the same window (no window move tells the probe): the socket
+        // hears whether anyone sees it (``AgentPaneFramePacer/parkedAway(_:)``).
+        transportPacer?.visibilityChanged()
         onNativeToolOwnerChange?()
     }
 
