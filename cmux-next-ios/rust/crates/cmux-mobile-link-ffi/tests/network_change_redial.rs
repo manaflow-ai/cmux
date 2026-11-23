@@ -561,6 +561,15 @@ impl App {
             };
             match connect.await {
                 Ok(Ok(link)) => {
+                    // Why the dial opened what it opened: every signaling mark, in order
+                    // (`signaling_reused`, `signaling_stale` then `signaling_open` is a stale retry).
+                    let marks: Vec<String> = link
+                        .timings()
+                        .into_iter()
+                        .filter(|mark| mark.name.starts_with("signaling"))
+                        .map(|mark| format!("{}@{:.0}", mark.name, mark.millis))
+                        .collect();
+                    println!("SETTLE_DIAL_MARKS generation={generation} marks={marks:?}");
                     let socket = link
                         .timings()
                         .into_iter()
@@ -645,9 +654,12 @@ async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     let mac_links = Arc::new(Mutex::new(Vec::<cmux_mobile_link::Link>::new()));
     let mac_sessions = Arc::new(AtomicU64::new(0));
+    // Mac sessions whose answer task is still running: a session the phone left behind holds
+    // the Mac until its own answer times out.
+    let mac_live = Arc::new(AtomicU64::new(0));
     {
-        let (mac_links, mac_sessions, stun) =
-            (Arc::clone(&mac_links), Arc::clone(&mac_sessions), stun.clone());
+        let (mac_links, mac_sessions, mac_live, stun) =
+            (Arc::clone(&mac_links), Arc::clone(&mac_sessions), Arc::clone(&mac_live), stun.clone());
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 mac_sessions.fetch_add(1, Ordering::SeqCst);
@@ -657,7 +669,16 @@ async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
                     session: session.events,
                 };
                 let (mac, mac_links, stun) = (mac.clone(), Arc::clone(&mac_links), stun.clone());
+                mac_live.fetch_add(1, Ordering::SeqCst);
+                let mac_live = Arc::clone(&mac_live);
                 tokio::spawn(async move {
+                    struct Live(Arc<AtomicU64>);
+                    impl Drop for Live {
+                        fn drop(&mut self) {
+                            self.0.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    }
+                    let _live = Live(mac_live);
                     let config = LinkConfig { foreground_probe: false, ..LinkConfig::default() };
                     if let Ok(connected) =
                         dial::answer(&mac, session.first, events, &shaped_options(&stun), config).await
@@ -775,6 +796,8 @@ async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
             link.close("done");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let left = mac_live.load(Ordering::SeqCst);
+        println!("SETTLE_MAC_LEFT path={name} settle_ms={settle_ms} mac_sessions_left={left}");
     }
     let sum = |values: &[f64]| values.iter().sum::<f64>();
     let max = |values: &[f64]| values.iter().copied().fold(0.0, f64::max);
