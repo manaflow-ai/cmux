@@ -21,6 +21,7 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    ComposerStatus,
 }
 
 impl Apart {
@@ -32,6 +33,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            "composerStatus" => Self::ComposerStatus,
             _ => return None,
         })
     }
@@ -44,6 +46,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::ComposerStatus => "composerStatus",
         }
     }
 }
@@ -140,6 +143,9 @@ pub struct PeerRow {
     apart: Arc<[(Apart, Box<str>)]>,
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
+    /// The `composerStatus` a list without tools shows (`composer_status::census`): None when it
+    /// shows none.
+    census_status: Option<Box<str>>,
     hot: Hot,
     /// A stale mark not yet written into the text (`PeerRow::stale_announced`): `Some(last_seen)`
     /// reads as `peer_cache::mark_stale` would write the row. Only a hub event holds one, so an
@@ -160,6 +166,14 @@ impl From<Value> for PeerRow {
     }
 }
 
+/// A whole `composerStatus` as a census row carries it (`composer_status::census`); None when a
+/// census row carries none.
+fn census_text(value: &Value) -> Option<Box<str>> {
+    use crate::protocol::composer_status::{ComposerStatus, census};
+    let status = <ComposerStatus as serde::Deserialize>::deserialize(value).ok()?;
+    census(status).map(|status| json_text(&status).into())
+}
+
 /// JSON text of `value`, compact.
 fn json_text(value: &impl serde::Serialize) -> String {
     let mut buf = Vec::new();
@@ -177,6 +191,7 @@ impl PeerRow {
         let mut base = String::from("{");
         let mut apart = Vec::new();
         let mut short_title = None;
+        let mut census_status = None;
         for (key, value) in map {
             if let Some(which) = Apart::of(key) {
                 if let (Apart::Title, Value::String(title)) = (which, value) {
@@ -184,6 +199,9 @@ impl PeerRow {
                     if short != *title {
                         short_title = Some(json_text(&short).into());
                     }
+                }
+                if which == Apart::ComposerStatus {
+                    census_status = census_text(value);
                 }
                 apart.push((which, json_text(value).into()));
                 continue;
@@ -196,7 +214,7 @@ impl PeerRow {
             base.push_str(&json_text(value));
         }
         base.push('}');
-        Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
+        Self { base: base.into(), apart: apart.into(), short_title, census_status, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
@@ -233,6 +251,10 @@ impl PeerRow {
                 Apart::PeerState if peer_state.is_some() => continue,
                 Apart::Tools | Apart::ToolsMutable if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
+                Apart::ComposerStatus if !tools => match &self.census_status {
+                    Some(census) => census,
+                    None => continue,
+                },
                 _ => value,
             };
             member(&mut out, which.key(), value);

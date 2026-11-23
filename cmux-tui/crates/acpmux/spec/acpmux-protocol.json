@@ -6376,7 +6376,7 @@
               "type": "null"
             }
           ],
-          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Absent from an older acpmux."
+          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the\nattached chat's `session_changed`); a census row carries it only with an item or a live\nfact, and without the facts that repeat its own fields (`composer_status::census`).\nAbsent from an older acpmux."
         },
         "configOptions": true,
         "createdAt": {
@@ -7168,7 +7168,7 @@
               "type": "null"
             }
           ],
-          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Absent from an older acpmux."
+          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the\nattached chat's `session_changed`); a census row carries it only with an item or a live\nfact, and without the facts that repeat its own fields (`composer_status::census`).\nAbsent from an older acpmux."
         },
         "createdAt": {
           "format": "uint64",

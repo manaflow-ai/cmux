@@ -213,6 +213,12 @@ impl FactKind {
         Self::Subagents,
         Self::Queued,
     ];
+
+    /// Its text repeats one of the summary row's own fields (`peer`, `cwd`, `gitBranch`,
+    /// `harness`, `model`): a census row leaves it out ([`census`]).
+    pub fn repeats_row(self) -> bool {
+        matches!(self, Self::Machine | Self::Folder | Self::Branch | Self::Harness | Self::Model)
+    }
 }
 
 /// One piece of the footer's quiet metadata.
@@ -405,6 +411,19 @@ fn stuck_word(reason: StuckReason) -> &'static str {
 
 fn words(kind: StatusKind, rest: &str) -> String {
     format!("{}.{rest}", kind.words_prefix())
+}
+
+/// `status` as a census row (a session list, a `session_changed` without tools) carries it: none
+/// when it has no item and no live fact, else without the facts that repeat the row's own fields.
+/// The open chat's whole status rides on the reads that carry tools (`_acpmux/attach`,
+/// `_acpmux/info`, and the `session_changed` of a chat the connection attached), so a list of
+/// 5,000 rows does not carry 5,000 copies of every row's folder, branch, harness and model twice.
+pub fn census(mut status: ComposerStatus) -> Option<ComposerStatus> {
+    if status.items.is_empty() && !status.facts.iter().any(|fact| fact.live) {
+        return None;
+    }
+    status.facts.retain(|fact| !fact.kind.repeats_row());
+    Some(status)
 }
 
 /// The session's composer footer from its summary's facts: at most one item per kind and nine
