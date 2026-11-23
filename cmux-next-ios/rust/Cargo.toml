@@ -30,8 +30,6 @@ cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
-# The `tabs` link service (tab manifest, deltas, snapshot blobs): the phone side reads the Mac's frames.
-cmux-tab-snapshots = { path = "../../cmux-tui/crates/cmux-tab-snapshots" }
 # The phone's own reflowed view of a Mac terminal it does not size.
 cmux-terminal-projection = { path = "../../cmux-tui/crates/cmux-terminal-projection" }
 # Follow mode of the screen-share viewer: the portrait crop that follows the Mac's focus.
