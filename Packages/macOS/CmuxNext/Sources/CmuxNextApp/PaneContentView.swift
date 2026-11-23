@@ -6,7 +6,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups

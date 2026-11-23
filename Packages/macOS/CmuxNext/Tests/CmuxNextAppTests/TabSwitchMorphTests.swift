@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-import CmuxNextPages
+import CmuxNextDesign
 
 @MainActor
 struct TabSwitchMorphTests {

@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// A tab switch that eases the pane's ground colour from the tab it leaves to the tab it shows (light to dark, dark to
 /// light) under the page, so the frames before the incoming page draws are a blend instead of a cut. A HYPOTHESIS from code
@@ -7,8 +7,13 @@ import CmuxNextDesign
 /// is unchanged: the fade is added after the swap and runs in Core Animation, so it adds no latency.
 @MainActor
 public enum TabSwitchMorph {
-    /// `PageTunables.tabSwitchMorph`.
-    public static var isOn: Bool { PageTunables.tabSwitchMorph.value }
+    /// Debug Settings > Panes and Columns > "Morph between tabs". Off by default (Leo, 2026-11-22, ask-5c771af51e: "ways to morph
+    /// between nearby web pages to reduce jarringness").
+    public static let tunable = Tunable<Bool>.toggle(
+        "pages.tabSwitchMorph", .panes, "Morph between tabs", help: "A tab switch eases the pane's background colour from the tab you leave to the tab you open (light to dark and back) instead of cutting. Adds no delay to the switch.",
+        default: false, code: "TabSwitchMorph.tunable")
+
+    public static var isOn: Bool { tunable.value }
 
     /// Whether a ground change is worth easing: both known and different.
     public static func eases(from: CGColor?, to: CGColor?) -> Bool {
