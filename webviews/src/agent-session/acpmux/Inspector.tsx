@@ -2,6 +2,8 @@
 // wire log, wire.ts) and the selected session's ACP event journal as acpmux
 // recorded it, with the connection and session state above them. It opens
 // over the transcript like the diff panel and reads nothing while closed.
+// A message that carries a Point at Element pick names the element on its row,
+// and Pointed shows only those rows (inspectorModel.ts pointedElements).
 import { useEffect, useRef, useState } from "react";
 import type { EventRecord } from "./direct";
 import { useT } from "./i18n";
@@ -81,14 +83,15 @@ export function Inspector({
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [pointedOnly, setPointedOnly] = useState(false);
   const entries = useWireEntries(wire);
   const stats = wire.stats();
   // The client's journal grows with each snapshot, which renders this again.
   const events = view === "session" ? sessionEvents() : [];
-  const rows = visibleRows(
-    view === "wire" ? entries.map((entry) => wireRow(entry, t)) : events.map((event) => sessionRow(event, t)),
-    filter,
-  );
+  const allRows =
+    view === "wire" ? entries.map((entry) => wireRow(entry, t)) : events.map((event) => sessionRow(event, t));
+  const anyPointed = allRows.some((row) => row.pointed);
+  const rows = visibleRows(allRows, filter, pointedOnly && anyPointed);
 
   const firstControlRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -230,6 +233,11 @@ export function Inspector({
               {view === "wire" && stats.dropped ? ` · ${t("inspector.olderDropped", { count: stats.dropped })}` : ""}
             </span>
             {notice && <output className="acpmux-inspector-count">{notice}</output>}
+            {anyPointed && (
+              <button type="button" aria-pressed={pointedOnly} onClick={() => setPointedOnly((on) => !on)}>
+                {t("inspector.pointed")}
+              </button>
+            )}
             <button type="button" onClick={() => void exportLog()}>
               {t("inspector.export")}
             </button>
@@ -259,6 +267,14 @@ export function Inspector({
                   </span>
                   <span className="acpmux-inspector-kind">{row.kind}</span>
                   <span className="acpmux-inspector-name">{row.name}</span>
+                  {row.pointed && (
+                    <span
+                      className="acpmux-inspector-pointed"
+                      title={t("inspector.pointedAt", { name: row.pointed.join(", ") })}
+                    >
+                      {row.pointed.join(", ")}
+                    </span>
+                  )}
                   {row.latencyMs !== undefined && (
                     <span className="acpmux-inspector-num">
                       {t("inspector.milliseconds", {
