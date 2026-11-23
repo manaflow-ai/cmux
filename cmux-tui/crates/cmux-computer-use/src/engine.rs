@@ -541,6 +541,17 @@ impl Engine {
         if self.stops.is_stopped(&ctx.session) {
             return self.refuse_stopped(ctx, tool, name);
         }
+        // A window named by its title or app instead of its id: the id, so
+        // the agent needs no list_windows turn first (engine_window_name.rs).
+        let named;
+        let args = match self.window_by_name(args) {
+            Ok(Some(resolved)) => {
+                named = resolved;
+                &named
+            }
+            Ok(None) => args,
+            Err(refused) => return refused,
+        };
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -1097,6 +1108,8 @@ impl Engine {
             }
             "wait" => self.wait(&config, ctx, args),
             "batch" => self.batch(ctx, args),
+            "list_alerts" => self.list_alerts(&config, ctx),
+            "dismiss_alert" => self.dismiss_alert(&config, ctx, args),
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
     }
@@ -1118,6 +1131,7 @@ impl Engine {
             "menus": config.menus.as_str(),
             "screen_locked": self.desktop.screen_locked(),
             "while_locked": config.while_locked,
+            "alerts": config.alerts,
             // Which binary answers, so `cmux computer-use doctor` can say
             // whether the staged, verified helper is the one running.
             "worker": {
@@ -2245,8 +2259,14 @@ mod observe_glue;
 #[path = "engine_batch.rs"]
 mod batch_glue;
 
+#[path = "engine_alerts.rs"]
+mod alerts_glue;
+
 #[path = "engine_record.rs"]
 mod record_glue;
+
+#[path = "engine_window_name.rs"]
+mod window_name;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -2267,6 +2287,10 @@ mod observe_tests;
 #[cfg(test)]
 #[path = "engine_batch_tests.rs"]
 mod batch_tests;
+
+#[cfg(test)]
+#[path = "engine_alerts_tests.rs"]
+mod alerts_tests;
 
 #[cfg(test)]
 #[path = "engine_record_tests.rs"]
