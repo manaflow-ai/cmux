@@ -136,10 +136,12 @@ jobs:
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
         working-directory: backend/apps/api
         # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
-        # of them, so vitest's default (one worker per vCPU) runs about 4x too many workerd isolates: cases pass their
-        # 20 s, hooks their 120 s and the pool its start timeouts (backend runs 45159322542, 45172479573). At most 3
-        # workers. A load timeout on a busy VM is not the code's: the shard runs once more and that run decides; a
-        # real failure fails both, and the first run's log stays above.
+        # 16, so vitest's default (one worker per vCPU) started 15 workerd isolates per job, 60 on 16 CPUs: imports took
+        # 40 to 100 s and 0.5 s cases ran past their 20 s bound (runs 45159322542, 45166603179, 45168037835,
+        # 45172851459). Measured on shard 2/6 pinned to 4 CPUs, 2026-11-23: 15 workers: 416 s, 2 files failed;
+        # 4 workers: 451 s, 228/228 passed. Even at 4, 6 shards still hit start and hook timeouts (45172479573), so:
+        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the shard runs once more and
+        # that run decides; a real failure fails both, and the first run's log stays above.
         run: |
           n=$(nproc); [ "$n" -gt 3 ] && n=3
           bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
