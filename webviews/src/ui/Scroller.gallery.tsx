@@ -28,7 +28,7 @@ function ScrollerGallery(_props: Props) {
     <div data-gallery-capture="" style={{ position: "relative", width: 240, height: 200 }}>
       <div data-testid={LIST} style={{ height: 200, overflowY: "auto", paddingRight: 4 }}>
         {Array.from({ length: 40 }, (_, index) => (
-          <div key={index} style={{ padding: "6px 10px" }}>
+          <div key={index} style={{ padding: "var(--ds-space-1) var(--ds-space-3)" }}>
             Row {index + 1}
           </div>
         ))}
