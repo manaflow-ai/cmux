@@ -7409,6 +7409,16 @@ a.cv-sha:focus-visible {
   max-width: 100%;
   height: auto;
 }
+/* A chart narrower than its card sits centered in it, as a reply's table and display math do
+   (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats"); the box
+   reserved before the library draws sits where the chart will, so nothing moves when it lands.
+   Mermaid's svg is the box's child; Vega draws into a div of its own. */
+.cv-diagram__chart > :is(svg, div),
+.cv-diagram__chart[data-reserve]:empty::before {
+  display: block;
+  width: fit-content;
+  margin-inline: auto;
+}
 /* A spec with a fixed size keeps its chart's box from the first frame (DiagramBlock chartBox): the
    library draws into it, so the reply never grows when the chart lands. It scales with the pane as
    the drawn svg does (max-width: 100%, height: auto). */
