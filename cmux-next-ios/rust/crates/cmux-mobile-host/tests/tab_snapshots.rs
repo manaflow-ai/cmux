@@ -385,7 +385,7 @@ async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_lea
         loop {
             let Some(incoming) = mac.accept().await else { return };
             let peer =
-                Peer { device_id: "p".into(), session_id: "s".into(), video: None, session_exposure: None };
+                Peer { device_id: "p".into(), session_id: "s".into(), video: None, session_exposure: None, path: None };
             tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));
         }
     });

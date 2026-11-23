@@ -117,7 +117,7 @@ impl Kind {
             "localhost" => Kind::Localhost,
             "appearance" | "appearance-wallpaper" => Kind::Appearance,
             "tabs" => Kind::Tabs,
-            "auth" | "echo" | "version" | "machine" | "needs-you" => Kind::Control,
+            "auth" | "echo" | "version" | "machine" | "needs-you" | "phone-frames" => Kind::Control,
             _ => Kind::Other,
         }
     }

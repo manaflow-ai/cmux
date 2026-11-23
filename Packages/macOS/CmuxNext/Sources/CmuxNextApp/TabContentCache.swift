@@ -57,7 +57,7 @@ final class TabContentCache {
     /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
-    var pageThumbnailVersions: [String: Int] = [:]
+    var pageThumbnailVersions: [String: Int] = [:], pageThumbnailURLs: [String: String] = [:] // URLs: hibernation's (none for a blank one)
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
@@ -521,7 +521,7 @@ final class TabContentCache {
         browserTabs.untrack(key)
         previews.remove(key); if displacing { lastFrames.remove(key) } // a closed tab's last frame goes with it (#32315)
         pageThumbnails.remove(key)
-        pageThumbnailVersions[key] = nil
+        pageThumbnailVersions[key] = nil; pageThumbnailURLs[key] = nil
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }
