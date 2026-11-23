@@ -263,7 +263,8 @@ function cssBlock(data) {
     "  }",
     "}",
   );
-  out.push(":root[data-reduce-transparency] {", ...still, "}", END);
+  // The host's Reduce Transparency, and Liquid Glass off (appearance.liquidGlass, data-glass="off").
+  out.push(':root:is([data-reduce-transparency], [data-glass="off"]) {', ...still, "}", END);
   return out.join("\n");
 }
 
