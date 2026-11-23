@@ -489,7 +489,7 @@ fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
     if agent.endpoint.is_none() {
         out.push_str(&format!(
-            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
+            " This Cloud machine's Claude has no model route (Claude home {}): your account has no Claude account or model gateway for Cloud yet. Click Sign in to Claude (Claude's own sign-in, on this machine), then send the message again.",
             tilde(&agent.home)
         ));
     } else {
@@ -619,6 +619,11 @@ mod tests {
         // The gateway is named only where the machine's team has it.
         assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
         assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
+        // A fresh account's machine runs the current image and still has no route on staging and
+        // production (`cloud_model_plane::machine_plane`): a new machine changes nothing, so the
+        // text never sends the person to make one; it names the card's sign-in.
+        assert!(!text.contains("new machine"), "{text}");
+        assert!(text.contains("Sign in to Claude"), "{text}");
         assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
         let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
         let text =
