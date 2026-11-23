@@ -38,6 +38,12 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         ["worktree", "create"] => return write::worktree_create(flags, &selectors, params),
         ["worktree", "apply"] => return write::worktree_apply(flags, &selectors, params),
         ["worktree", "remove"] => return write::worktree_remove(flags, &selectors, params),
+        ["worktree", "setup", "run"] => {
+            if let Some(value) = flags.take("approve") {
+                params.insert("approve".into(), Value::String(value));
+            }
+            Op::GitWorktreeSetupRun
+        }
         ["worktree", "setup"] => {
             if let Some(value) = flags.take("since") {
                 insert_decimal(&mut params, "since", "--since", value)?;
