@@ -1244,6 +1244,17 @@ export type AcpmuxTimeBreakdown = {
   spans: AcpmuxTimeSpan[];
 };
 
+/** acpmux's provenance of one harness's readiness (`harness_health/provenance.rs`). */
+export type AcpmuxHarnessProvenance = {
+  machine?: string;
+  account?: "default" | "profile" | "environment" | "unresolved" | "unknown";
+  accountName?: string;
+  credential?: "launcher" | "route" | "profile" | "environment" | "agentLogin" | "unknown";
+  config?: "managed" | "profileFile" | "cmuxJson" | "configFile" | "discovered" | "fixture" | "unknown";
+  configName?: string;
+  eligibility?: "eligible" | "notInstalled" | "signInNeeded" | "expired" | "notEntitled" | "unknown";
+};
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
@@ -1361,6 +1372,9 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
+    /// Where the harness's readiness comes from (acpmux `harness_health/provenance.rs`): fixed
+    /// words and sanitized names only, never a credential or a full path.
+    provenance?: AcpmuxHarnessProvenance;
     /// acpmux's structured limits, or a harness's own text for them.
     usageLimits?: AcpmuxUsageLimits | string;
     /// False when acpmux knows the sign-in has no plan usage limits (an API key, a cloud

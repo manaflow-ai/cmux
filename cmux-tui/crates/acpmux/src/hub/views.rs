@@ -1032,6 +1032,11 @@ impl Hub {
                 v.set("usageLimitsApply", json!(false));
             }
         }
+        // Where its readiness comes from (`harness_health/provenance.rs`): this machine, the
+        // account home, the credential's owner, the config and eligibility. Fixed words only.
+        if let Some(provenance) = self.session_provenance(&m) {
+            v.set("provenance", json!(provenance));
+        }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v.set("availableCommands", Value::clone(commands));

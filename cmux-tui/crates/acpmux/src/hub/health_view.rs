@@ -67,7 +67,104 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move { hub.auto_update_harnesses().await });
         }
+        let provenance = self.health_provenance(&rows).await;
+        let mut rows = serde_json::to_value(rows).map_err(|e| RpcError::internal(e.to_string()))?;
+        if let Some(list) = rows.as_array_mut() {
+            for (row, provenance) in list.iter_mut().zip(provenance) {
+                row.set("provenance", json!(provenance));
+            }
+        }
         Ok(json!({"harnesses": rows}))
+    }
+
+    /// Where chat `m`'s readiness comes from: its harness's health row and profile, and the
+    /// route its Claude agent started on. None while a config reload holds the config (the
+    /// next read answers) or its harness is no longer configured.
+    pub(crate) fn session_provenance(
+        &self,
+        m: &crate::store::SessionMeta,
+    ) -> Option<crate::harness_health::provenance::Provenance> {
+        use crate::harness_health::provenance::{self, ConfigSource, Inputs};
+        let cfg = self.config.try_read().ok()?;
+        let profile = cfg.harnesses.get(&m.harness)?;
+        let family = crate::config::derive_family(&m.harness, profile);
+        let fixed = self.health.fixed();
+        let (config, path) = if fixed {
+            (ConfigSource::Fixture, None)
+        } else {
+            provenance::config_source(&cfg, &m.harness)
+        };
+        let rows = self.health.rows();
+        let probe_error =
+            self.probe_errors.lock().unwrap_or_else(|e| e.into_inner()).get(&m.harness).cloned();
+        let login = if fixed {
+            Default::default()
+        } else {
+            crate::login_env::effective_for(Some(&family), &Default::default())
+        };
+        let routed = crate::claude_auth::spawned(&m.id).is_some_and(|s| s.routed);
+        let argv = m.spawn_argv.as_ref().unwrap_or(&m.harness_argv);
+        Some(provenance::of(&Inputs {
+            family: &family,
+            argv,
+            profile_env: &profile.env,
+            login_env: &login,
+            config,
+            config_path: path.as_deref(),
+            routed,
+            row: rows.iter().find(|r| r.id == m.harness),
+            probe_error: probe_error.as_deref(),
+            machine: &crate::pairing::machine_name(),
+        }))
+    }
+
+    /// Where each row's readiness comes from (`harness_health/provenance.rs`), in row order.
+    pub(crate) async fn health_provenance(
+        &self,
+        rows: &[crate::harness_health::HarnessHealth],
+    ) -> Vec<crate::harness_health::provenance::Provenance> {
+        use crate::harness_health::provenance::{self, ConfigSource, Inputs};
+        let fixed = self.health.fixed();
+        let cfg = self.config.read().await;
+        let probe_errors = self.probe_errors.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let families: std::collections::BTreeSet<String> = rows
+            .iter()
+            .filter_map(|r| {
+                cfg.harnesses.get(&r.id).map(|p| crate::config::derive_family(&r.id, p))
+            })
+            .collect();
+        // A fixture reads nothing from this machine, its login env included.
+        let login = if fixed {
+            Default::default()
+        } else {
+            provenance::login_envs(families.iter().map(String::as_str))
+        };
+        let machine = crate::pairing::machine_name();
+        let empty = std::collections::BTreeMap::new();
+        rows.iter()
+            .map(|row| {
+                let profile = cfg.harnesses.get(&row.id);
+                let family =
+                    profile.map(|p| crate::config::derive_family(&row.id, p)).unwrap_or_default();
+                let (config, path) = if fixed {
+                    (ConfigSource::Fixture, None)
+                } else {
+                    provenance::config_source(&cfg, &row.id)
+                };
+                provenance::of(&Inputs {
+                    family: &family,
+                    argv: profile.map(|p| p.argv.as_slice()).unwrap_or_default(),
+                    profile_env: profile.map(|p| &p.env).unwrap_or(&empty),
+                    login_env: login.get(&family).unwrap_or(&empty),
+                    config,
+                    config_path: path.as_deref(),
+                    routed: false,
+                    row: Some(row),
+                    probe_error: probe_errors.get(&row.id).map(String::as_str),
+                    machine: &machine,
+                })
+            })
+            .collect()
     }
 
     /// `_acpmux/harness/update {ids?}` (Update Everything, cx-1mbnu): checks
