@@ -381,6 +381,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     // MARK: Chords
 
     var chords = ChordTracker()
+    private(set) lazy var keyModes = KeyModeLayer(registry: registry)  // a user key mode (design/key-modes.md)
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer()
