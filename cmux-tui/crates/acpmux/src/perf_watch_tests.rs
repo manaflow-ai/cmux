@@ -1,24 +1,14 @@
-use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 use super::*;
 
-thread_local! {
-    static NOW: Cell<u64> = const { Cell::new(1_000_000) };
-}
-
-fn clock() -> u64 {
-    NOW.with(Cell::get)
-}
-
-fn advance(ms: u64) {
-    NOW.with(|now| now.set(now.get() + ms));
-}
+/// Where a test watch's clock starts.
+const START_MS: u64 = 1_000_000;
 
 fn watch_on() -> Watch {
-    let watch = Watch::with_clock(clock);
+    let watch = Watch::with_clock(START_MS);
     watch.set(true, None);
     watch
 }
@@ -37,7 +27,7 @@ fn notes(watch: &Watch) -> Vec<String> {
 
 #[test]
 fn off_records_nothing() {
-    let watch = Watch::with_clock(clock);
+    let watch = Watch::with_clock(START_MS);
     watch.bytes(channel::IPC, "reply to _acpmux/sessions", 10 << 20);
     watch.span("new chat", Some("chat.first_token"), 9_000.0, &[], Value::Null);
     watch.log_read("chat-1", 9_000, 9 << 20, true, Duration::from_millis(8));
@@ -79,7 +69,7 @@ fn a_span_over_budget_says_so_with_its_slowest_part_and_one_under_stays_quiet() 
     assert!(said[0].contains("higher than expected"), "{}", said[0]);
     assert!(said[0].contains("slowest part: agent start 2.9 s"), "{}", said[0]);
 
-    advance(60_000);
+    watch.advance(60_000);
     watch.span("new chat", Some("chat.first_token"), 900.0, &parts, Value::Null);
     assert_eq!(notes(&watch).len(), 1, "a span under budget said something");
     let spans: Vec<Value> = events(&watch).into_iter().filter(|e| e["kind"] == "span").collect();
@@ -93,10 +83,10 @@ fn a_note_is_said_once_per_quiet_window_and_the_minute_has_a_cap() {
     let watch = watch_on();
     for _ in 0..5 {
         watch.span("switch", Some("workspace.switch"), 400.0, &[], Value::Null);
-        advance(1_000);
+        watch.advance(1_000);
     }
     assert_eq!(notes(&watch).len(), 1, "the same note was said again within its quiet window");
-    advance(NOTE_QUIET_MS);
+    watch.advance(NOTE_QUIET_MS);
     watch.span("switch", Some("workspace.switch"), 400.0, &[], Value::Null);
     assert_eq!(notes(&watch).len(), 2);
 
@@ -106,7 +96,7 @@ fn a_note_is_said_once_per_quiet_window_and_the_minute_has_a_cap() {
         watch.span(&format!("span {i}"), Some("page.load"), 5_000.0, &[], Value::Null);
     }
     assert_eq!(notes(&watch).len(), NOTES_PER_MINUTE);
-    advance(61_000);
+    watch.advance(61_000);
     watch.span("later", Some("page.load"), 5_000.0, &[], Value::Null);
     let last = events(&watch).into_iter().rev().find(|e| e["kind"] == "note").unwrap_or_default();
     assert_eq!(last["quietedBefore"], 7, "the next note says how many were quieted");
@@ -118,7 +108,7 @@ fn a_send_that_reads_the_whole_chat_log_three_times_is_named() {
     let watch = watch_on();
     for _ in 0..3 {
         watch.log_read("019a5f3e-coordinator", 7_338, 4 << 20, true, Duration::from_micros(7_700));
-        advance(2);
+        watch.advance(2);
     }
     let said = notes(&watch);
     assert!(
@@ -146,7 +136,7 @@ fn the_meter_ranks_hot_zones_and_names_a_reply_far_larger_than_its_view() {
     for _ in 0..10 {
         watch.bytes(channel::IPC, "reply to _acpmux/sessions \u{2192} acpmux-ls", 4 << 20);
         watch.bytes(channel::PEER, "session/update \u{2192} cloud-1", 2_000);
-        advance(1_000);
+        watch.advance(1_000);
     }
     let snap = watch.snapshot();
     let top = snap["meter"].as_array().cloned().unwrap_or_default();
@@ -161,7 +151,7 @@ fn the_meter_ranks_hot_zones_and_names_a_reply_far_larger_than_its_view() {
     );
     assert!(said.iter().any(|n| n.starts_with("hot zone: reply to _acpmux/sessions")), "{said:?}");
     // Past a minute the old seconds fall out of the ranking.
-    advance(61_000);
+    watch.advance(61_000);
     watch.bytes(channel::IPC, "small", 10);
     let top = watch.snapshot()["meter"].as_array().cloned().unwrap_or_default();
     assert_eq!(top.len(), 1);
@@ -261,7 +251,7 @@ fn reads_follow_by_seq_and_a_waiting_read_wakes_on_the_next_event() {
 fn the_tail_file_gets_each_event_as_a_line() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let path = dir.path().join("perf-watch.jsonl");
-    let watch = Watch::with_clock(clock);
+    let watch = Watch::with_clock(START_MS);
     let status = watch.set(true, Some(path.clone()));
     assert_eq!(status["file"], path.display().to_string());
     watch.span("page load", Some("page.load"), 2_000.0, &[], Value::Null);
@@ -316,7 +306,7 @@ fn a_full_meter_gives_an_idle_label_s_slot_to_a_new_one() {
             .collect()
     };
     assert!(!labels(&watch).contains(&"new client".to_owned()), "every label is still busy");
-    advance(61_000);
+    watch.advance(61_000);
     watch.bytes(channel::IPC, "new client", 10);
     assert_eq!(labels(&watch), ["new client"]);
 }
@@ -327,7 +317,7 @@ fn the_tail_file_is_its_owner_s_only() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let path = dir.path().join("perf-watch.jsonl");
-    let watch = Watch::with_clock(clock);
+    let watch = Watch::with_clock(START_MS);
     watch.set(true, Some(path.clone()));
     let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
     assert_eq!(mode, 0o600);
