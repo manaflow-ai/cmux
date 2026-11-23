@@ -1,4 +1,4 @@
-//! The hub's answer to `GET /v1/vault/machine`, read without I/O.
+//! The hub's answer to `GET /v1/vault/machine`, read without I/O (the request is the generated client's).
 //!
 //! Only `env` is read. A `harnessCredentials` list (an older hub shape) is
 //! never decoded: the vault never carries a Claude or ChatGPT subscription
@@ -10,12 +10,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 
-/// The machine's vault route on the hub origin.
-pub const MACHINE_PATH: &str = "/v1/vault/machine";
-/// The query that tells the hub this machine runs the egress proxy: without
-/// it a proxy entry is `withheld` (an older machine would put the value in
-/// the agent env).
-pub const DELIVERY_QUERY: &str = "delivery=proxy.v1";
+/// The `delivery` query value that tells the hub this machine runs the egress
+/// proxy: without it a proxy entry is `withheld` (an older machine would put
+/// the value in the agent env).
+pub const DELIVERY: &str = "proxy.v1";
 /// The 403 code of a machine whose person has not granted it the vault.
 pub const NOT_GRANTED: &str = "vault.not_granted";
 /// Largest value accepted, in bytes (the machine.env reader's limit).

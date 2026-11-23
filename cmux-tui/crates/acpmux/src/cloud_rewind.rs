@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
+use cmux_cloud_client::types;
+
 const MAX_COMPONENT: usize = 256;
 
 /// A short-lived owner capability supplied by the authenticated app/broker.
@@ -121,21 +123,104 @@ impl CloudTurnClient {
         Ok(())
     }
 
-    fn route(&self, turn: &str, operation: &str) -> Result<reqwest::Url> {
+    /// `POST .../turns/{turn}/capability`: the one turn route the vendored spec does not
+    /// describe yet, so it is the one call here that is still built by hand.
+    fn capability_route(&self, turn: &str) -> Result<reqwest::Url> {
         valid_component("turn", turn)?;
         let mut url = self.origin.clone();
         url.set_path(&format!(
-            "/v1/workspaces/{}/machine/turns/{}/{}",
-            self.workspace, turn, operation
+            "/v1/workspaces/{}/machine/turns/{}/capability",
+            self.workspace, turn
         ));
         Ok(url)
     }
 
-    fn state_route(&self, turn: &str) -> Result<reqwest::Url> {
+    /// The generated Cloud client for one call: the owner capability is minted per call, so
+    /// the bearer rides on a client built for it (never stored), with the same build space,
+    /// no redirects and the timeouts this transport always had.
+    fn api(&self, token: &str) -> Result<cmux_cloud_client::Client> {
+        let mut headers = cmux_build_space::headers()?;
+        let mut bearer = reqwest::header::HeaderValue::try_from(format!("Bearer {token}"))
+            .context("owner capability is not a valid header")?;
+        bearer.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, bearer);
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("build cloud turn HTTP client")?;
+        Ok(cmux_cloud_client::Client::new_with_client(
+            self.origin.as_str().trim_end_matches('/'),
+            http,
+        ))
+    }
+
+    fn owner_token(&self) -> Result<Zeroizing<String>> {
+        let token = self.auth.bearer().context("owner capability unavailable")?;
+        anyhow::ensure!(!token.is_empty(), "owner capability is empty");
+        Ok(token)
+    }
+
+    /// Reads a generated call's answer as JSON, or its refusal as `cloud turn {what} failed
+    /// ({status}): {message}`.
+    async fn answer<T: Serialize>(
+        what: &str,
+        result: Result<
+            cmux_cloud_client::ResponseValue<T>,
+            cmux_cloud_client::Error<cmux_cloud_client::ByteStream>,
+        >,
+    ) -> Result<Value> {
+        match result {
+            Ok(reply) => serde_json::to_value(reply.into_inner())
+                .with_context(|| format!("decode cloud turn {what}")),
+            Err(error) => {
+                let error = cmux_cloud_client::ApiError::from_api(error).await;
+                match error.status {
+                    Some(status) => bail!("cloud turn {what} failed ({status}): {}", error.message),
+                    None => Err(anyhow::anyhow!("{}", error.message))
+                        .with_context(|| format!("cloud turn {what} request failed")),
+                }
+            }
+        }
+    }
+
+    /// One owner-authorized turn operation (`snapshot`, `start`, `finish`, `rewind`) through the
+    /// generated client. `body` is the operation's request, in the platform's field names.
+    async fn turn_op<R: for<'de> Deserialize<'de>>(
+        &self,
+        turn: &str,
+        operation: &str,
+        body: &impl Serialize,
+    ) -> Result<R> {
         valid_component("turn", turn)?;
-        let mut url = self.origin.clone();
-        url.set_path(&format!("/v1/workspaces/{}/machine/turns/{}", self.workspace, turn));
-        Ok(url)
+        let token = self.owner_token()?;
+        let api = self.api(token.as_str())?;
+        let bad = |what: &str| move |e: String| anyhow::anyhow!("cloud {what} is malformed: {e}");
+        let ws = self.workspace.as_str();
+        let body = serde_json::to_value(body)?;
+        macro_rules! call {
+            ($method:ident) => {{
+                let ws = ws
+                    .parse()
+                    .map_err(|e: types::error::ConversionError| bad("workspace")(e.to_string()))?;
+                let turn = turn
+                    .parse()
+                    .map_err(|e: types::error::ConversionError| bad("turn")(e.to_string()))?;
+                let body =
+                    serde_json::from_value(body).context("cloud turn request is malformed")?;
+                Self::answer(operation, api.$method(&ws, &turn, &body).await).await?
+            }};
+        }
+        let value = match operation {
+            "snapshot" => call!(workspace_machines_capture_turn),
+            "start" => call!(workspace_machines_start_turn),
+            "finish" => call!(workspace_machines_finish_turn),
+            "rewind" => call!(workspace_machines_rewind_turn),
+            other => bail!("cloud turn operation {other} is unknown"),
+        };
+        serde_json::from_value(value).context("decode cloud turn response")
     }
 
     async fn post<T: Serialize, R: for<'de> Deserialize<'de>>(
@@ -148,7 +233,7 @@ impl CloudTurnClient {
         anyhow::ensure!(!token.is_empty(), "owner capability is empty");
         let response = self
             .http
-            .post(self.route(turn, operation)?)
+            .post(self.capability_route(turn)?)
             .bearer_auth(token.as_str())
             .json(body)
             .send()
@@ -239,44 +324,32 @@ impl CloudTurnClient {
     /// old process state, so a local socket reconnect is not proof of freshness.
     pub async fn state(&self, turn: &str, session: &str) -> Result<SnapshotReply> {
         valid_component("session", session)?;
-        let token = self.auth.bearer().context("owner capability unavailable")?;
-        anyhow::ensure!(!token.is_empty(), "owner capability is empty");
-        let mut url = self.state_route(turn)?;
-        url.query_pairs_mut().append_pair("session", session);
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(token.as_str())
-            .send()
-            .await
-            .context("cloud turn state request failed")?;
-        let status = response.status();
-        let bytes = response.bytes().await.context("read cloud turn state")?;
-        if !status.is_success() {
-            bail!("cloud turn state failed ({})", status.as_u16());
-        }
-        serde_json::from_slice(&bytes).context("decode cloud turn state")
+        valid_component("turn", turn)?;
+        let token = self.owner_token()?;
+        let api = self.api(token.as_str())?;
+        let bad = |what: &str, e: types::error::ConversionError| {
+            anyhow::anyhow!("cloud {what} is malformed: {e}")
+        };
+        let workspace = self.workspace.parse().map_err(|e| bad("workspace", e))?;
+        let turn = turn.parse().map_err(|e| bad("turn", e))?;
+        let session = session.parse().map_err(|e| bad("session", e))?;
+        let value = Self::answer(
+            "state",
+            api.workspace_machines_turn_state(&workspace, &turn, &session).await,
+        )
+        .await?;
+        serde_json::from_value(value).context("decode cloud turn state")
     }
 
     /// Reads the workspace gate and immutable captures after reconnect.
     pub async fn captures(&self) -> Result<TurnLedgerState> {
-        let token = self.auth.bearer().context("owner capability unavailable")?;
-        anyhow::ensure!(!token.is_empty(), "owner capability is empty");
-        let mut url = self.origin.clone();
-        url.set_path(&format!("/v1/workspaces/{}/machine/turns", self.workspace));
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(token.as_str())
-            .send()
-            .await
-            .context("cloud turn list request failed")?;
-        let status = response.status();
-        let bytes = response.bytes().await.context("read cloud turn list")?;
-        if !status.is_success() {
-            bail!("cloud turn list failed ({})", status.as_u16());
-        }
-        serde_json::from_slice(&bytes).context("decode cloud turn list")
+        let token = self.owner_token()?;
+        let api = self.api(token.as_str())?;
+        let workspace = self.workspace.parse().map_err(|e: types::error::ConversionError| {
+            anyhow::anyhow!("cloud workspace is malformed: {e}")
+        })?;
+        let value = Self::answer("list", api.workspace_machines_turns(&workspace).await).await?;
+        serde_json::from_value(value).context("decode cloud turn list")
     }
 
     pub async fn snapshot(
@@ -288,7 +361,7 @@ impl CloudTurnClient {
     ) -> Result<SnapshotReply> {
         let client_key = Self::client_key(session)?;
         self.check_machine(expected_machine)?;
-        self.post(
+        self.turn_op(
             turn,
             "snapshot",
             &SnapshotRequest { session, client_key, expected_machine, expected_generation },
@@ -324,7 +397,7 @@ impl CloudTurnClient {
     ) -> Result<SnapshotReply> {
         Self::client_key(session)?;
         self.check_machine(expected_machine)?;
-        self.post(
+        self.turn_op(
             turn,
             "start",
             &TurnBarrierRequest { session, expected_machine, expected_generation },
@@ -341,7 +414,7 @@ impl CloudTurnClient {
     ) -> Result<SnapshotReply> {
         Self::client_key(session)?;
         self.check_machine(expected_machine)?;
-        self.post(
+        self.turn_op(
             turn,
             "finish",
             &TurnBarrierRequest { session, expected_machine, expected_generation },
@@ -358,7 +431,7 @@ impl CloudTurnClient {
     ) -> Result<RewindReply> {
         self.check_machine(expected_machine)?;
         let client_key = Self::client_key(session)?;
-        self.post(
+        self.turn_op(
             turn,
             "rewind",
             &RewindRequest { session, client_key, expected_machine, expected_generation },
@@ -556,12 +629,13 @@ pub struct SnapshotReply {
     pub turn: String,
     pub machine_id: String,
     pub machine_generation: u64,
+    #[serde(default)]
     pub snapshot_id: String,
     pub status: String,
     #[serde(default)]
-    pub created_at: Option<String>,
+    pub created_at: Option<i64>,
     #[serde(default)]
-    pub updated_at: Option<String>,
+    pub updated_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -636,6 +710,7 @@ pub enum TurnGatePhase {
     Reserved,
     Running,
     Rewinding,
+    Mutation,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

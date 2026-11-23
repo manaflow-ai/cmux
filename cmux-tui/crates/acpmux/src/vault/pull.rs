@@ -193,32 +193,41 @@ pub fn lock(_home: &Path, _wait: bool) -> Result<Lock, &'static str> {
     Err("vault.unsupported")
 }
 
-/// Ask the hub. Network errors are a retry code.
+/// Ask the hub (through the generated Cloud client). Network errors are a retry code.
+///
+/// A 200 the generated types cannot read (an older hub's answer without `allowedHosts` or
+/// `delivery`) is still read by [`wire::parse`], which takes each entry on its own terms, from
+/// the bytes the client kept.
 pub async fn fetch(hub: &str, credential: &str) -> Answer {
-    let Ok(client) = crate::cli::cloud_join::http_client() else {
+    use cmux_cloud_client::Error;
+    let Ok(client) = crate::cli::cloud_join::hub_client(hub, Some(credential)) else {
         return Answer::Retry("vault.client".to_owned());
     };
-    let response = match client
-        .get(format!("{hub}{}?{}", wire::MACHINE_PATH, wire::DELIVERY_QUERY))
-        .bearer_auth(credential)
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(_) => return Answer::Retry("vault.hub_unreachable".to_owned()),
+    let body = match client.vault_machine_read(Some(wire::DELIVERY)).await {
+        Ok(answer) => {
+            let mut vault = answer.into_inner();
+            let bytes = zeroize::Zeroizing::new(serde_json::to_vec(&vault).unwrap_or_default());
+            for item in &mut vault.env {
+                if let Some(value) = item.value_base64.as_mut() {
+                    zeroize::Zeroize::zeroize(value);
+                }
+            }
+            bytes
+        }
+        Err(Error::InvalidResponsePayload(bytes, _)) => zeroize::Zeroizing::new(bytes.to_vec()),
+        Err(error) => {
+            let error = cmux_cloud_client::ApiError::from_api(error).await;
+            let Some(status) = error.status else {
+                return Answer::Retry("vault.hub_unreachable".to_owned());
+            };
+            let body = serde_json::json!({ "code": error.code });
+            return wire::parse(status, body.to_string().as_bytes());
+        }
     };
-    let status = response.status().as_u16();
-    if response.content_length().is_some_and(|n| n > MAX_BODY_BYTES as u64) {
+    if body.len() > MAX_BODY_BYTES {
         return Answer::Refused("vault.too_large".to_owned());
     }
-    match response.bytes().await {
-        Ok(body) if body.len() <= MAX_BODY_BYTES => {
-            let body = zeroize::Zeroizing::new(body.to_vec());
-            wire::parse(status, &body)
-        }
-        Ok(_) => Answer::Refused("vault.too_large".to_owned()),
-        Err(_) => Answer::Retry("vault.hub_unreachable".to_owned()),
-    }
+    wire::parse(200, &body)
 }
 
 /// Run `steps` against the store and record each success in `state`. A failed
