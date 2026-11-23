@@ -13042,7 +13042,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "adaptive",
+      "default" : "openai",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
