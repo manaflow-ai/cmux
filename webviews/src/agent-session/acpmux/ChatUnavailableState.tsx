@@ -30,6 +30,7 @@ export function ChatUnavailableState({
   now = Date.now(),
   onResumeMachine,
   resuming = false,
+  waking = false,
   error,
   onRemove,
   onReconnect,
@@ -47,6 +48,10 @@ export function ChatUnavailableState({
   now?: number;
   onResumeMachine?(): void;
   resuming?: boolean;
+  /// The resume in flight is the one opening the chat ran (useCloudChatRecovery `wake`): a paused
+  /// machine says it is waking, with no Resume machine to click. The button is the fallback, back
+  /// once that wake is refused.
+  waking?: boolean;
   error?: string;
   onRemove(): void;
   onReconnect(): void;
@@ -100,7 +105,9 @@ export function ChatUnavailableState({
   let title: string;
   let detail: string | undefined;
   let action: { label: string; run(): void; kind: string } | undefined;
-  if (unavailable.reason === "paused") {
+  if (unavailable.reason === "paused" && waking) {
+    title = t("composer.heldForWake");
+  } else if (unavailable.reason === "paused") {
     title = t("unavailable.paused.title");
     detail = t("unavailable.paused.detail", { machine: named ?? machine ?? "" });
     if (onResumeMachine)

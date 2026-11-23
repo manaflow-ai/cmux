@@ -252,7 +252,7 @@ import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
-import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
+import { cloudOpenWakes, cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
 import { PastChat } from "./PastChat";
 import { type PastTurn, readPastTurns } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
@@ -6614,9 +6614,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [wakeShownChat]);
   const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted";
   // A typing wake that failed stops; it is not tried again on the next key, and a send still wakes.
+  // So does an opening wake the platform refused: the paused card's Resume machine is left.
   useEffect(() => {
-    if (cloudWakeFailed) setCloudTypeWaking(false);
-  }, [cloudWakeFailed]);
+    if (cloudWakeFailed || cloudRecovery.wakeRefused) setCloudTypeWaking(false);
+  }, [cloudWakeFailed, cloudRecovery.wakeRefused]);
   useEffect(() => {
     if (!cloudWakeFailed || !trustHeldNow.current.wakingAny()) return;
     void giveBackTrustHeld.current(trustHeldNow.current.takeWaking());
@@ -10359,6 +10360,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudTypeWaking(true);
     cloudRecovery.resume();
   };
+  // Opening a Cloud chat whose machine reads paused wakes it then, with no click (cloudWake.ts
+  // `cloudOpenWakes`): the passive wake, once per sleep (the typing wake's `cloudTypeWoke`), only
+  // while this page shows. The paused card's Resume machine stays as the fallback for a refusal.
+  const [pageShown, setPageShown] = useState(() => document.visibilityState !== "hidden");
+  useEffect(() => {
+    const changed = () => setPageShown(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
+  const cloudOpenWakeChat = cloudOpenWakes({
+    ...cloudWakeState,
+    asleep: cloudRecovery.state === "paused" || chatMachine?.stage === "paused",
+    woke: cloudTypeWoke.current,
+    shown: pageShown,
+    deleted: cloudRecovery.state === "deleted",
+    watching: !!snapshot.summary?.watching,
+  });
+  const cloudOpenWake = useRef(cloudRecovery.wake);
+  cloudOpenWake.current = cloudRecovery.wake;
+  useEffect(() => {
+    if (!cloudOpenWakeChat || cloudTypeWoke.current === cloudOpenWakeChat) return;
+    cloudTypeWoke.current = cloudOpenWakeChat;
+    setCloudTypeWaking(true);
+    cloudOpenWake.current();
+  }, [cloudOpenWakeChat]);
   const cloudChat = summary?.hostKind === "cloud";
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
@@ -14236,6 +14262,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    waking={cloudRecovery.waking}
                     error={cloudRecovery.error}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
@@ -14318,6 +14345,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    waking={cloudRecovery.waking}
                     error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}

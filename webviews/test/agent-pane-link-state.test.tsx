@@ -146,7 +146,7 @@ test("the link is up for every emit reason but a lost or opening connection", as
 // rows and no `unavailable`: that is set only while no chat is selected) still reads its machine,
 // and a paused machine shows the Resume card. "failed" is not a lost link, but the chat was never
 // read, so cloud recovery treats it as one (#27031).
-test("a Cloud chat whose open failed on an open socket shows its paused machine's Resume card", async () => {
+async function openPausedCloudChat(prewarm: "ok" | "refused") {
   const { chat } = fixtures;
   const base = chat([]);
   const snapshot: Snapshot = {
@@ -173,7 +173,16 @@ test("a Cloud chat whose open failed on an open socket shows its paused machine'
               },
             });
           }
-          if (message.method === "cloudMachine.recoveryList") {
+          if (message.method === "cloudMachine.prewarm" || message.method === "cloudMachine.attach") {
+            reads.push(message.method);
+            // Refused: the platform stopped the passive wake (a plan or machine cap stop).
+            return Promise.resolve(
+              message.method === "cloudMachine.prewarm" && prewarm === "refused"
+                ? { ok: false, error: { code: "unavailable", message: "not run", retryable: false } }
+                : { ok: true, value: {} },
+            );
+          }
+          if (message.method === "cloudMachine.recoveryList" || message.method === "cloudMachine.list") {
             reads.push(message.method);
             return Promise.resolve({
               ok: true,
@@ -193,14 +202,40 @@ test("a Cloud chat whose open failed on an open socket shows its paused machine'
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
   const resume = () => dom.window.document.querySelector('[data-action="resumeMachine"]');
+  const title = () => dom.window.document.querySelector(".acpmux-unavailable-title")?.textContent;
+  await act(async () => root.render(<AcpmuxApp />));
+  return { root, reads, resume, title };
+}
+
+test("a Cloud chat whose open failed on an open socket shows its paused machine's Resume card when the open wake is refused", async () => {
+  const { root, reads, resume } = await openPausedCloudChat("refused");
   try {
-    await act(async () => root.render(<AcpmuxApp />));
     // The paused card shows once the pause has lasted RESUME_NOTE_DELAY_MS (afterDelay.ts): wait
     // for it, with a cap well past that threshold.
     const deadline = Date.now() + 5_000;
     while (!resume() && Date.now() < deadline) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(reads.length).toBeGreaterThan(0);
+    expect(reads).toContain("cloudMachine.recoveryList");
+    // Opening the chat tried the passive wake first; its refusal left the card's Resume machine.
+    expect(reads).toContain("cloudMachine.prewarm");
+    expect(reads).not.toContain("cloudMachine.attach");
     expect(resume()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Opening a Cloud chat whose machine is paused resumes it with no click (cloudWake.ts `cloudOpenWakes`):
+// the passive prewarm, never the gesture-taking attach, and the card says it is waking with no button.
+test("opening a Cloud chat whose machine is paused wakes it with no Resume machine click", async () => {
+  const { root, reads, resume, title } = await openPausedCloudChat("ok");
+  try {
+    const deadline = Date.now() + 5_000;
+    while (title() !== "Waking the machine…" && Date.now() < deadline)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(reads.filter((method) => method === "cloudMachine.prewarm")).toHaveLength(1);
+    expect(reads).not.toContain("cloudMachine.attach");
+    expect(title()).toBe("Waking the machine…");
+    expect(resume()).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

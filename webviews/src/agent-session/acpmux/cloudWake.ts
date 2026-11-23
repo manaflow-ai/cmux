@@ -38,3 +38,24 @@ export function cloudTypingWakes(
   const chat = cloudSendWakes(state);
   return chat !== state.woke ? chat : undefined;
 }
+
+/// Opening a Cloud chat whose machine reads paused wakes it then, with no click: the paused card's
+/// Resume machine was one more step on every attach, though typing and Send already woke it
+/// (cloudMachineMenu.ts says "opening the chat resumes it"). The wake is the passive one
+/// (`cloudMachine.prewarm`, useCloudChatRecovery `wake`): it takes no gesture, so a chat drawn in a
+/// pane no one sees (`shown` false: a restored tab behind another, a kept-mounted page) never wakes
+/// its machine. Once per stretch of sleep, shared with the typing wake (`woke`), and never for a
+/// deleted machine or a chat only watched. A wake the platform refuses (a plan or machine cap stop)
+/// leaves the paused card with Resume machine, whose click runs the person's own attach and says why.
+export function cloudOpenWakes(
+  state: CloudWakeState & {
+    asleep: boolean;
+    woke: string | undefined;
+    shown: boolean;
+    deleted: boolean;
+    watching: boolean;
+  },
+): string | undefined {
+  if (!state.shown || state.deleted || state.watching) return undefined;
+  return cloudTypingWakes(state);
+}
