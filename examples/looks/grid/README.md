@@ -4,6 +4,10 @@ A Swiss grid for the whole of cmux. Every corner is square. Panes, the sidebar a
 1 px rules, never by shadows, fills or glass. Every height sits on an 8 px grid. One accent colour does
 all the signalling, and type is a heavy grotesk. It ships three theme files:
 
+![Grid dark: the Chief chat, its composer and a yellow Continue button](screenshots/grid-dark.png)
+
+![Grid light: the same chat in black on white with a blue accent](screenshots/grid-light.png)
+
 | Theme | Page | Ink | The one accent |
 | --- | --- | --- | --- |
 | `grid` (the default) | black `#0a0a0a` | white `#f5f5f5` | signal yellow `#ffd400` |
