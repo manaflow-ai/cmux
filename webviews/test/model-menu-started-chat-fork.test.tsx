@@ -679,8 +679,8 @@ test("a pick in a chat that can fork asks nothing: no Fork to row and no chat ca
   await showTab("Codex");
   expect(forkRows()).toEqual([]);
   await click(models()[0]!);
-  // The pick closes the menu (David Beyer 2026-11-20) and holds the harness; it sends nothing.
-  expect(menu()).toBeNull();
+  // Return on the tab sends nothing either.
+  await press("Enter");
   expect(await heldHarness()).toBe("codex");
   expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
 });

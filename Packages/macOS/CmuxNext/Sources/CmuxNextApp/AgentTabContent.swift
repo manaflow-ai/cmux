@@ -49,6 +49,7 @@ struct AgentTabContent {
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: machine, line: line)
         }
+        view.model.onEditorsList = { [weak pane] in pane?.services.editorCatalog.pageList() ?? ["default": NSNull(), "others": [Any]()] }
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: chat, machine: machine) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(chat, machine: machine))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
             if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: chat, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }
@@ -59,7 +60,7 @@ struct AgentTabContent {
             if let opened = WebPageTab.openGitHub(url, from: pane, services: pane.services) { return opened }
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: machine)
-        }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let machine = pane.services.agentTabs.remoteMachineID(of: chat), let session = pane.services.machines.session(machine) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat) == machine else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
+        }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let remote = pane.services.agentTabs.remoteMachineID(of: chat, machine: machine), let session = pane.services.machines.session(remote) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat, machine: machine) == remote else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: chat, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
