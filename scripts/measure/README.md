@@ -44,6 +44,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
+| interactive-lateness | `interactive-lateness.sh` (`latency_probe.py`), `--host local-readonly` or anywhere | How interactive the machine is now: 10 ms timer lateness p50/p95/p99/max and share over 5 and 16 ms, CPU busy, memory free, swap used and swap-out rate, HID idle (RFD 0072, before and after one move). |
 
 
 ## Dev loop
@@ -93,6 +94,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `interactive-lateness.sh` | One JSON line: 10 ms timer lateness (p50/p95/p99, share over 5 and 16 ms), CPU busy, load, memory pressure, swap and its growth, thermal, HID idle; `latency_probe.py` is the probe. Before and after one move (RFD 0072). | RFD 0072 | 2026-11-23 | active |
 | `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. With `--bench=cmd-n-paint --screen`: one Cmd-T and one Cmd-N from the screen's own frames, alone and 100 ms after another key, in a session of many workspaces (the frame of the tab or row, of the page's first content and of the last change; a report with the kept pictures, no judgement). | - | 2026-11-18 | active |
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
