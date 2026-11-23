@@ -28,13 +28,18 @@ import Testing
         #expect(TeamInviteFailure(URLError(.notConnectedToInternet)) == .offline)
         #expect(TeamInviteFailure(URLError(.networkConnectionLost)) == .offline)
         #expect(TeamInviteFailure(URLError(.badServerResponse)) == .other)
+        #if os(iOS)
         #expect(TeamInviteFailure(CmuxMobileAuthModel.InviteError.requestFailed) == .other)
+        #endif
         #expect(TeamInviteFailure(TeamInviteFailure.expired) == .expired)
     }
 
+    // CmuxMobileAuthModel is iOS-only; `swift test` on macOS builds this suite without it.
+    #if os(iOS)
     @Test func theJoinedTeamIsTheOneTheListGained() {
         let a = AppStore.AccountTeam(id: "a", name: "Alpha"), b = AppStore.AccountTeam(id: "b", name: "Beta")
         #expect(CmuxMobileAuthModel.joinedTeam(before: ["a"], after: [a, b]) == b)
         #expect(CmuxMobileAuthModel.joinedTeam(before: ["a", "b"], after: [a, b]) == nil)
     }
+    #endif
 }
