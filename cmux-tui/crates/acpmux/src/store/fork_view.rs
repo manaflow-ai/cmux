@@ -99,7 +99,7 @@ pub struct ForkView {
     /// first, `hub/retention.rs`, `hub/cold_archive.rs`), then this, then the inner store's own
     /// locks (`LocalStore`'s writers', then its cold lock). This view takes no session lock under
     /// it, and nothing under the inner store's locks takes it.
-    dropping: RwLock<()>,
+    dropping: crate::worker_lock::RwLock<()>,
 }
 
 thread_local! {
@@ -173,7 +173,7 @@ impl ForkView {
             return Held::Nested;
         }
         #[cfg(test)]
-        if let Err(std::sync::TryLockError::WouldBlock) = self.dropping.try_write() {
+        if self.dropping.write_would_wait() {
             super::log_sync::note(&NOTE_DROPPING_WAIT, "waits");
         }
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
@@ -857,6 +857,15 @@ impl Store for ForkView {
     }
     fn is_cold(&self, id: &str) -> bool {
         self.inner.is_cold(id)
+    }
+    /// No `dropping` needed: the offload's commit runs under the inner store's cold lock and
+    /// skips a chat that has a segment again, so a fork's write of `id`'s history (which
+    /// rehydrates it first) between the upload and the commit leaves the archive in place.
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.offload_cold(id)
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        self.inner.register_cloud_root()
     }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         self.inner.on_rehydrate(hook)
