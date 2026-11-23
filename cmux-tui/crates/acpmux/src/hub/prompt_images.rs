@@ -22,6 +22,39 @@ fn dir() -> PathBuf {
     crate::config::home().join("attachments")
 }
 
+/// How old a half-written image (`<id>.<uuid>.partial`, [`keep_indexed`]) must be before
+/// [`sweep_partial`] deletes it: a write renames its file within the same call, so only a crash
+/// between the two leaves one.
+const PARTIAL_STALE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Deletes the half-written images under the attachments folder older than [`PARTIAL_STALE`] at
+/// `now_ms`; answers how many went. A kept image (a plain id) is never touched. Blocking.
+pub(super) fn sweep_partial(now_ms: u64) -> usize {
+    sweep_partial_in(&dir(), now_ms)
+}
+
+fn sweep_partial_in(dir: &std::path::Path, now_ms: u64) -> usize {
+    let cutoff = std::time::UNIX_EPOCH
+        + std::time::Duration::from_millis(now_ms).saturating_sub(PARTIAL_STALE);
+    let mut removed = 0;
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(id) = name.strip_suffix(".partial").and_then(|rest| rest.split('.').next()) else {
+            continue;
+        };
+        let stale = entry
+            .metadata()
+            .ok()
+            .filter(std::fs::Metadata::is_file)
+            .and_then(|m| m.modified().ok())
+            .is_some_and(|at| at < cutoff);
+        if valid_id(id) && stale && crate::home_fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// The records that name a prompt's images.
 const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
@@ -659,6 +692,33 @@ mod tests {
         validated_display_parts,
     };
     use serde_json::{Value, json};
+
+    /// CMUX-672: a half-written image a crash left goes after an hour; a kept image, however
+    /// old, and a write still under way stay.
+    #[test]
+    fn the_partial_sweep_deletes_only_stale_half_written_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = crate::store::now_ms();
+        let ago = |s: u64| std::time::SystemTime::now() - std::time::Duration::from_secs(s);
+        let id = "a".repeat(64);
+        let file = |name: String, secs: u64| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"img").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(ago(secs))
+                .unwrap();
+            path
+        };
+        let crashed = file(format!("{id}.{}.partial", uuid::Uuid::now_v7()), 2 * 3600);
+        let writing = file(format!("{id}.{}.partial", uuid::Uuid::now_v7()), 10);
+        let kept = file(id.clone(), 400 * 24 * 3600);
+        let other = file("notes.partial".into(), 2 * 3600);
+        assert_eq!(super::sweep_partial_in(dir.path(), now), 1);
+        assert!(!crashed.exists() && writing.exists() && kept.exists() && other.exists());
+    }
 
     #[test]
     fn a_kept_files_type_comes_from_its_magic_number() {

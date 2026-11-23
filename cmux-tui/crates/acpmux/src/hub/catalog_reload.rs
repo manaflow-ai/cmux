@@ -84,6 +84,7 @@ impl Hub {
                 web_asking_modes,
                 agent_start_timeout_ms,
                 uploads_max_age_days,
+                bundles_max_age_days,
                 silent_turn_ms,
                 queue_max_prompts,
                 queue_max_bytes,
@@ -168,6 +169,7 @@ impl Hub {
             // The start budget applies from the next start, like a restart would.
             current.agent_start_timeout_ms = agent_start_timeout_ms;
             current.uploads_max_age_days = uploads_max_age_days;
+            current.bundles_max_age_days = bundles_max_age_days;
             current.silent_turn_ms = silent_turn_ms;
             // The next prompt that would wait is held to the new queue limits.
             current.queue_max_prompts = queue_max_prompts;

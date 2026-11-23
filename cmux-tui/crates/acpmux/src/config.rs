@@ -1592,6 +1592,11 @@ pub struct Config {
     /// older than this many days (`hub/file_uploads.rs`). Default 30; 0 keeps them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uploads_max_age_days: Option<u64>,
+    /// `bundlesMaxAgeDays`: session bundles under `<home>/bundles` (`_acpmux/export` with no
+    /// `dest`) are deleted once nothing wrote or imported them for this many days
+    /// (`hub/transfer.rs`). Default 30; 0 keeps them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundles_max_age_days: Option<u64>,
     /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
     /// `initialize`, session load or new, config replay) may take. Past it
     /// the request fails with a `deadline_exceeded` error and the agent is

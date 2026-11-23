@@ -22,6 +22,12 @@
 //! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after), unless
 //! its chat is kept (pinned or starred, `_acpmux/uploads_keep`). Stored bytes go once no upload
 //! names them. A folder the daemon did not name that way is never deleted.
+//!
+//! An upload never finished (its `.part`) that no write or status call touched for
+//! [`ABANDONED_AFTER`] goes at the same sweep, whatever `uploadsMaxAgeDays` says and in a kept
+//! chat too ([`sweep_abandoned`]): no prompt was ever given its path, and a sender that comes
+//! back for it is told `upload.unknown` and starts it again from its file (`attach/upload.rs`).
+//! Abandoned `.part` files held 1 GB on a busy Mac.
 
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -179,9 +185,56 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     removed
 }
 
+/// How long an unfinished upload may go untouched (no write, no status call) before
+/// [`sweep_abandoned`] deletes it.
+pub(crate) const ABANDONED_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Deletes each unfinished upload under `root` (a UUIDv7 folder holding a `.part`) last written
+/// to or asked about before `now_ms - idle`, in every chat, kept or not; answers how many went
+/// and their bytes. Decided and deleted under `IN_USE` and the upload's own lock, as [`sweep`],
+/// so a write, status, finish or cancel never runs between. A finished upload (no `.part`) is
+/// [`sweep`]'s to judge, never this one's. Blocking: run it off the runtime.
+pub(crate) fn sweep_abandoned(root: &Path, now_ms: u64, idle: Duration) -> (usize, u64) {
+    let cutoff = now_ms.saturating_sub(u64::try_from(idle.as_millis()).unwrap_or(u64::MAX));
+    let real_dirs =
+        |dir: &Path| {
+            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+            })
+        };
+    let (mut removed, mut bytes) = (0, 0);
+    let chats = real_dirs(root).filter(|chat| !chat.file_name().to_string_lossy().starts_with('.'));
+    for session in chats {
+        for upload in real_dirs(&session.path()) {
+            let Some(name) = upload.file_name().to_str().map(str::to_owned) else { continue };
+            if made_at(&name).is_none() {
+                continue;
+            }
+            let _held = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _upload = hold(&name);
+            let Ok(part) = std::fs::symlink_metadata(upload.path().join(".part")) else {
+                continue;
+            };
+            if part.is_file()
+                && used_at(&upload.path()) < cutoff
+                && crate::home_fs::remove_dir_all(upload.path()).is_ok()
+            {
+                removed += 1;
+                bytes += part.len();
+            }
+        }
+        // Only an empty folder goes (`remove_dir` refuses any other).
+        let _ = crate::home_fs::remove_dir(session.path());
+    }
+    (removed, bytes)
+}
+
 impl super::Hub {
-    /// The age cap's sweep (module docs): at the start, then every day. `uploadsMaxAgeDays` is
-    /// read at each sweep, so a config reload applies from the next.
+    /// The daily sweeps of the daemon's own stores (module docs): at the start, then every day.
+    /// The uploads past `uploadsMaxAgeDays`, the abandoned unfinished uploads, the session
+    /// bundles past `bundlesMaxAgeDays` (`transfer.rs`) and the images half-written by a crash
+    /// (`prompt_images.rs`). Each cap is read at each sweep, so a config reload applies from
+    /// the next.
     pub fn start_upload_sweep(self: &Arc<Self>) {
         let hub = self.clone();
         tokio::spawn(async move {
@@ -189,11 +242,48 @@ impl super::Hub {
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 every.tick().await;
-                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
+                let (max_age, bundles_max_age) = {
+                    let config = hub.config.read().await;
+                    (config.uploads_max_age(), config.bundles_max_age())
+                };
                 let now = crate::store::now_ms();
-                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
+                let swept = tokio::task::spawn_blocking(move || {
+                    let aged = max_age.map_or(0, |max_age| sweep(&root(), now, max_age));
+                    let abandoned = sweep_abandoned(&root(), now, ABANDONED_AFTER);
+                    let bundles = bundles_max_age.map_or((0, 0), |max_age| {
+                        super::transfer::sweep_bundles(
+                            &super::transfer::bundles_dir(),
+                            now,
+                            max_age,
+                        )
+                    });
+                    let partial = super::prompt_images::sweep_partial(now);
+                    (aged, abandoned, bundles, partial)
+                })
+                .await;
+                match swept {
+                    Ok((aged, abandoned, bundles, partial)) => {
+                        if aged > 0 {
+                            tracing::info!(uploads = aged, "deleted uploads past the age cap");
+                        }
+                        if abandoned.0 > 0 {
+                            tracing::info!(
+                                uploads = abandoned.0,
+                                bytes = abandoned.1,
+                                "deleted abandoned unfinished uploads"
+                            );
+                        }
+                        if bundles.0 > 0 {
+                            tracing::info!(
+                                bundles = bundles.0,
+                                bytes = bundles.1,
+                                "deleted session bundles past the age cap"
+                            );
+                        }
+                        if partial > 0 {
+                            tracing::info!(images = partial, "deleted half-written prompt images");
+                        }
+                    }
                     Err(e) => tracing::warn!("the upload sweep failed: {e}"),
                 }
             }
@@ -1123,6 +1213,51 @@ mod tests {
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// CMUX-672: an unfinished upload nobody wrote to or asked about for a day goes, in a kept
+    /// chat too; one written to or asked about within the day stays, and so does every finished
+    /// upload, however old. A sender that comes back is told `upload.unknown`.
+    #[test]
+    #[cfg(unix)]
+    fn the_abandoned_sweep_deletes_only_unfinished_uploads_left_for_a_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let hour = 60 * 60 * 1000;
+        let now = crate::store::now_ms();
+        let ago = |ms: u64| std::time::UNIX_EPOCH + Duration::from_millis(now - ms);
+        let named = || uuid::Uuid::now_v7().to_string();
+        let part = |chat: &str, written: u64, bytes: usize| {
+            let upload = root.join(chat).join(named());
+            std::fs::create_dir_all(&upload).unwrap();
+            std::fs::write(upload.join(".meta"), b"{}").unwrap();
+            let file = std::fs::File::create(upload.join(".part")).unwrap();
+            file.set_len(bytes as u64).unwrap();
+            file.set_modified(ago(written)).unwrap();
+            upload
+        };
+        let left = part("chat-a", 25 * hour, 4096);
+        let kept_left = part("chat-k", 48 * hour, 4096);
+        store::set_kept(&root.join("chat-k"), true).unwrap();
+        let writing = part("chat-a", hour, 4096);
+        // Asked about within the day: its status marked it used (`touch`).
+        let asked = part("chat-b", 30 * hour, 4096);
+        std::fs::write(asked.join(USED), b"").unwrap();
+        // Finished long ago: no `.part`; the age sweep's to judge.
+        let finished = root.join("chat-a").join(named());
+        std::fs::create_dir_all(&finished).unwrap();
+        let file = std::fs::File::create(finished.join("f.bin")).unwrap();
+        file.set_modified(ago(90 * 24 * hour)).unwrap();
+        // A folder not named by the daemon is never read as an upload.
+        let other = root.join("chat-a").join("notes");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::File::create(other.join(".part")).unwrap().set_modified(ago(90 * hour)).unwrap();
+
+        let (removed, bytes) = sweep_abandoned(root, now, ABANDONED_AFTER);
+        assert_eq!((removed, bytes), (2, 8192));
+        assert!(!left.exists() && !kept_left.exists());
+        assert!(writing.exists() && asked.exists() && finished.exists() && other.exists());
+        assert_eq!(sweep_abandoned(root, now, ABANDONED_AFTER), (0, 0));
     }
 
     #[test]

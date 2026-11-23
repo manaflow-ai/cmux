@@ -12,6 +12,11 @@
 //!   refuses is a `refused` line with the error's code.
 //!
 //! Writing it never fails a send: an error is said on stderr once and the message goes on.
+//!
+//! The log is bounded: once it holds [`MAX_BYTES`], the next append renames it to
+//! `cross-host-audit.jsonl.1` (replacing the one before) and starts a new file, so the two hold
+//! at most about twice [`MAX_BYTES`] however long the machine sends (it grew 19 MB a day on a
+//! busy Mac and was never cut). [`read`] reads both, oldest first.
 
 use serde_json::{Value, json};
 use std::io::Write;
@@ -19,6 +24,16 @@ use std::path::PathBuf;
 
 /// The log's file name under the acpmux home.
 pub const FILE: &str = "cross-host-audit.jsonl";
+
+/// The size past which the log starts a new file and keeps one previous file ([`append_to`]).
+pub const MAX_BYTES: u64 = 16 << 20;
+
+/// The previous log's path beside `path`: `path` with `.1` added.
+fn previous(path: &std::path::Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".1");
+    PathBuf::from(name)
+}
 
 /// Where the log is: `ACPMUX_HOME` (or the default home)'s [`FILE`].
 pub fn path() -> PathBuf {
@@ -49,14 +64,52 @@ fn append(line: &Value) -> anyhow::Result<()> {
 }
 
 fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
+    append_capped(path, line, MAX_BYTES)
+}
+
+fn append_capped(path: &std::path::Path, line: &Value, max_bytes: u64) -> anyhow::Result<()> {
     if let Some(dir) = path.parent() {
         crate::config::private_state_dir(dir)?;
     }
     let mut file = crate::config::private_state_append(path)?;
+    if file.metadata().is_ok_and(|m| m.len() >= max_bytes) && rotate(path, &file) {
+        file = crate::config::private_state_append(path)?;
+    }
     let mut text = line.to_string();
     text.push('\n');
     file.write_all(text.as_bytes())?;
     Ok(())
+}
+
+/// Renames the full log `file` (open at `path`) to its previous name, so the next line starts a
+/// new file. The daemon and every CLI send append to the same file, so the rename is made under
+/// an exclusive lock on the open file and only while `path` still names that file: two writers
+/// that both saw it full rename it once, and the second never moves the new, short file over
+/// the full one. Answers whether `path` now names a new file. A failed rename is not an error:
+/// the line goes to the full file and the next append tries again.
+#[cfg(unix)]
+fn rotate(path: &std::path::Path, file: &std::fs::File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if file.lock().is_err() {
+        return false;
+    }
+    let same =
+        |a: &std::fs::Metadata, b: &std::fs::Metadata| a.dev() == b.dev() && a.ino() == b.ino();
+    let renamed = match (file.metadata(), crate::home_fs::symlink_metadata(path)) {
+        (Ok(open), Ok(named)) if same(&open, &named) => {
+            crate::home_fs::rename(path, previous(path)).is_ok()
+        }
+        // Another writer renamed it first: `path` names a new file already.
+        (Ok(_), Ok(_)) => true,
+        _ => false,
+    };
+    let _ = file.unlock();
+    renamed
+}
+
+#[cfg(not(unix))]
+fn rotate(_path: &std::path::Path, _file: &std::fs::File) -> bool {
+    false
 }
 
 /// The machine a sender name `HOST/NAME` names, when it is another machine than this one:
@@ -89,12 +142,22 @@ pub fn prompt_fields(params: &Value) -> Value {
     })
 }
 
-/// The lines of this home's log, oldest first (tests and `acpmux` diagnostics).
+/// The lines of this home's log, oldest first, the previous file's before the current one's
+/// (tests and `acpmux` diagnostics).
 pub fn read() -> Vec<Value> {
-    std::fs::read_to_string(path())
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
+    read_from(&path())
+}
+
+fn read_from(path: &std::path::Path) -> Vec<Value> {
+    [previous(path), path.to_path_buf()]
+        .iter()
+        .flat_map(|p| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| serde_json::from_str(l).ok())
+                .collect::<Vec<Value>>()
+        })
         .collect()
 }
 
@@ -134,6 +197,62 @@ mod tests {
         assert!(append_to(&log, &json!({"dir": "sent"})).is_err());
         assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CMUX-672: many caps' worth of sends keeps at most about twice the cap on disk in two
+    /// files, and the newest lines, at least one cap's worth, are read back in order.
+    #[cfg(unix)]
+    #[test]
+    fn the_log_keeps_one_previous_file_and_stays_under_twice_its_cap() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let log = dir.path().join(FILE);
+        let cap = 64 * 1024;
+        let line = json!({"dir": "sent", "to": "lane-2/chat", "pad": "x".repeat(150), "n": 0});
+        let line_bytes = line.to_string().len() as u64 + 8;
+        let lines = 4_000u64;
+        for n in 0..lines {
+            let mut l = line.clone();
+            l["n"] = json!(n);
+            append_capped(&log, &l, cap).unwrap();
+        }
+        let on_disk: u64 = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
+        let files = std::fs::read_dir(dir.path()).unwrap().count();
+        eprintln!(
+            "audit bound: {lines} lines, about {} bytes written, {on_disk} bytes on disk (cap {cap})",
+            lines * line_bytes
+        );
+        assert_eq!(files, 2, "the log and one previous file");
+        assert!(on_disk <= 2 * cap + 2 * line_bytes, "{on_disk} bytes on disk");
+        let ns: Vec<u64> = read_from(&log).iter().map(|v| v["n"].as_u64().unwrap()).collect();
+        assert_eq!(ns.last(), Some(&(lines - 1)), "the newest line is read");
+        assert!(ns.windows(2).all(|w| w[1] == w[0] + 1), "read oldest first, none missing");
+        assert!(ns.len() as u64 * line_bytes >= cap, "at least one cap's worth is kept");
+    }
+
+    /// Two writers that both found the log full rename it once: the second never moves the new
+    /// file over the full one.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_writer_that_saw_the_log_full_does_not_rename_the_new_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let log = dir.path().join(FILE);
+        std::fs::write(&log, "{\"n\":0}\n".repeat(10)).unwrap();
+        std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let first = crate::config::private_state_append(&log).unwrap();
+        let second = crate::config::private_state_append(&log).unwrap();
+        assert!(rotate(&log, &first));
+        append_capped(&log, &json!({"n": 1}), 1 << 20).unwrap();
+        // The second saw the same full file; `path` names the new one now, and it stays.
+        assert!(rotate(&log, &second));
+        assert_eq!(std::fs::read_to_string(previous(&log)).unwrap().lines().count(), 10);
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "{\"n\":1}\n");
     }
 
     #[test]
