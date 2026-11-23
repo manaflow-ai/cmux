@@ -7,6 +7,57 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::task::BriefsCmd;
 
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct AppOpenArgs {
+    /// The existing acpmux session to open in cmux.
+    pub session: String,
+    /// App-owned flags such as --target, --host, --focus or --group.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub options: Vec<String>,
+}
+
+/// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct MoveSessionsArgs {
+    /// The chats to move (ids or names); none with --all-idle.
+    #[arg(required_unless_present = "all_idle")]
+    pub sessions: Vec<String>,
+    /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
+    /// (never a reserved one), one machine per checkout. `--host` still works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
+    pub host: String,
+    /// Every open chat here that is between turns.
+    #[arg(long, conflicts_with = "sessions")]
+    pub all_idle: bool,
+    /// Stop a running turn instead of refusing the move.
+    #[arg(long, conflicts_with = "after_turn")]
+    pub interrupt: bool,
+    /// Let a running turn end on its own, then move: nothing is stopped or refused while it
+    /// runs, and prompts sent meanwhile move with the chat.
+    #[arg(long)]
+    pub after_turn: bool,
+    /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
+    #[arg(long)]
+    pub leave_dirty: bool,
+    /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+    /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+    /// keys) stay on this machine.
+    #[arg(long, conflicts_with = "leave_dirty")]
+    pub carry_changes: bool,
+    /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
+    /// and no branch pushed. For a folder outside this machine's home.
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// Say where each chat would go and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// The machine the chats are on, when not this one: this machine drives the move over
+    /// ssh to it and to the target, so two machines that cannot reach each other trade
+    /// chats. With it, `--machine local` brings them here.
+    #[arg(long, value_name = "MACHINE")]
+    pub from: Option<String>,
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -18,6 +69,61 @@ pub struct Cli {
     pub suppress_reads: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+/// Whether the engine accepts this root command name or alias.
+pub fn owns_word(word: &str) -> bool {
+    use clap::CommandFactory as _;
+    Cli::command().find_subcommand(word).is_some() || matches!(word, "stop" | "--skill" | "--guide")
+}
+
+#[cfg(test)]
+mod agent_front_door_tests {
+    use super::owns_word;
+
+    #[test]
+    fn engine_root_aliases_share_the_command_grammar() {
+        for word in ["ls", "list-sessions", "grep", "prompt", "session", "pending", "bg", "notices"]
+        {
+            assert!(owns_word(word), "missing engine word {word}");
+        }
+        assert!(!owns_word("not-a-command"));
+    }
+}
+
+/// Clap derives the canonical-name lookup; these are the additional root spellings it accepts.
+pub(super) mod aliases {
+    macro_rules! root_aliases {
+        ($($command:ident => [$($alias:literal),+]),+ $(,)?) => {
+            $(pub(super) const $command: &[&str] = &[$($alias),+];)+
+
+            pub(in crate::cli) const GROUPS: &[&[&str]] = &[$($command),+];
+        };
+    }
+
+    root_aliases! {
+        RESOLVE => ["find"],
+        WHO_ELSE => ["whoelse", "overlap"],
+        LEDGER => ["cost", "spend"],
+        NEW => ["new-session", "run", "exec"],
+        WAIT => ["wait-for"],
+        SKILL => ["guide"],
+        PRESET => ["presets"],
+        LAST => ["reply"],
+        SEND => ["prompt", "send-keys"],
+        INBOX => ["team-inbox"],
+        LS => ["list", "list-sessions"],
+        ATTACH => ["a"],
+        MACHINE => ["host", "hosts", "peer"],
+        PROCESS => ["ps"],
+        WORKTREE => ["wt"],
+        SESSION => ["s"],
+        DAEMON => ["d"],
+        KILL => ["kill-session"],
+        RENAME => ["rename-session"],
+        SHUTDOWN => ["kill-server"],
+        SEARCH => ["grep"],
+    }
 }
 
 #[derive(Subcommand)]
@@ -35,6 +141,24 @@ pub enum Command {
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Start and inspect background tasks owned by this agent session.
+    #[command(subcommand)]
+    Bg(crate::cli::bg::BgCmd),
+    /// Read the current session's inbox notices and message threads.
+    Notices {
+        /// A session name or id when run by the person; defaults to this agent session.
+        session: Option<String>,
+        /// Read one thread, marking it read when --mark-read is given.
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long, requires = "thread")]
+        mark_read: bool,
+    },
+    /// Open a session through the cmux app's existing workspace action.
+    Open(AppOpenArgs),
+    /// Open a session as a tab through the cmux app's existing tab action.
+    #[command(name = "open-tab")]
+    OpenTab(AppOpenArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
@@ -44,19 +168,19 @@ pub enum Command {
     /// Find the session an agent link (a PR footer's cmux.com/deeplink/agent?... or
     /// cmux://agent/...), session id, harness session id or name names, here or on a peer, and
     /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
-    #[command(alias = "find")]
+    #[command(aliases = aliases::RESOLVE)]
     Resolve {
-        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
+        /// The link, an id, `HOST/NAME`, a name, a spoken handle, a bead id, or `@` for this session.
         query: String,
     },
     /// Who else works on these files: the other live and recent sessions, here and on peers, that
     /// read or edited them, share this worktree or branch, or work on the same topic. With no
     /// files, what the session this shell runs in edited lately.
-    #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
+    #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
-    #[command(alias = "cost", alias = "spend")]
+    #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
@@ -65,12 +189,12 @@ pub enum Command {
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
     /// in one step; running it again reuses everything and sends nothing.
-    #[command(alias = "new-session", alias = "run", alias = "exec")]
+    #[command(aliases = aliases::NEW)]
     New(Box<NewArgs>),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
     /// ended, 2 when a permission is waiting, 3 on timeout.
-    #[command(alias = "wait-for")]
+    #[command(aliases = aliases::WAIT)]
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
@@ -139,6 +263,16 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Search prompts and replies in every session here and on this machine's peers.
+    #[command(aliases = aliases::SEARCH)]
+    Search {
+        /// Words to find together in one prompt or reply, in any case or order.
+        #[arg(required = true)]
+        query: Vec<String>,
+        /// At most this many matching messages, newest first.
+        #[arg(long, short = 'n', default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=200))]
+        limit: u32,
+    },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
         /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
@@ -154,7 +288,7 @@ pub enum Command {
         timeout: Option<u64>,
     },
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
-    #[command(alias = "guide")]
+    #[command(aliases = aliases::SKILL)]
     Skill,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
@@ -175,7 +309,7 @@ pub enum Command {
     MachineAuth,
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
-    #[command(alias = "presets")]
+    #[command(aliases = aliases::PRESET)]
     Preset {
         name: Option<String>,
         /// key=value pairs: harness, model, effort, policy, description, env.KEY, args (a JSON list)
@@ -195,7 +329,7 @@ pub enum Command {
         clear: bool,
     },
     /// Print the last reply of a session (plain text).
-    #[command(alias = "reply")]
+    #[command(aliases = aliases::LAST)]
     Last {
         session: String,
         /// How many replies, newest last.
@@ -208,8 +342,7 @@ pub enum Command {
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
-        alias = "prompt",
-        alias = "send-keys",
+        aliases = aliases::SEND,
         after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
@@ -308,6 +441,7 @@ pub enum Command {
         notice: Box<SendNotice>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
+    #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
@@ -326,10 +460,10 @@ pub enum Command {
     },
     /// List sessions on every host: by default only live, named lanes, one short line each;
     /// `--json` with no filter is every session's full record.
-    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    #[command(aliases = aliases::LS, after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
-    #[command(alias = "a")]
+    #[command(aliases = aliases::ATTACH)]
     Attach {
         session: Option<String>,
         /// Plain text stream instead of the TUI.
@@ -383,15 +517,27 @@ pub enum Command {
         /// (stdin stays the prompt), for one that prints only to a terminal.
         #[arg(long)]
         tty: bool,
+        /// The program only prints a reply and changes nothing (a test or
+        /// echo program): say so at `initialize` (`asksBeforeTools`), so the
+        /// agent runs under a permission policy such as a remote start's
+        /// `ask`. acpmux believes it only from a harness entry of its own
+        /// config. Never for a program that edits files or runs commands.
+        #[arg(long)]
+        prints_only: bool,
         /// The program and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
     /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
     /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
-    /// Signs in with the token `unii login` keeps. In a profile:
-    /// `args = ["uniichat-agent"]`.
+    /// Signs in with the token `unii login` keeps; `uniichat-agent login`
+    /// makes that sign-in itself, so no `unii` program is needed. In a
+    /// profile: `args = ["uniichat-agent"]`.
     UniichatAgent {
+        /// `login`: sign in to the server (an email or @github, a link, a
+        /// code) and keep the token where the adapter reads it.
+        #[arg(value_parser = ["login"])]
+        action: Option<String>,
         /// The server; default `$UNII_URL`, else https://uniichat.com.
         #[arg(long)]
         url: Option<String>,
@@ -419,7 +565,7 @@ pub enum Command {
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
-    #[command(subcommand, name = "machine", aliases = ["host", "hosts", "peer"])]
+    #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -440,22 +586,24 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
+    /// Read-only local branch board (Labs > Show Preview Features). Also `cmux board --json`.
+    Board,
     /// Background processes agents left running (dev servers, watchers):
     /// list, show (everything one printed, live with --follow), kill,
     /// background (Ctrl-B: move a chat's running work there).
-    #[command(subcommand, alias = "ps")]
+    #[command(subcommand, aliases = aliases::PROCESS)]
     Process(crate::cli::process::ProcessCmd),
     /// This machine's git worktrees, cleaned up after the agents that made
     /// them: list, clean (archive work only there, then remove), restore,
     /// archives.
-    #[command(subcommand, alias = "wt")]
+    #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
     Group(crate::cli::group::GroupCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
-    #[command(subcommand, alias = "s")]
+    #[command(subcommand, aliases = aliases::SESSION)]
     Session(SessionCmd),
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
@@ -464,7 +612,7 @@ pub enum Command {
     #[command(subcommand)]
     ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
-    #[command(subcommand, alias = "d")]
+    #[command(subcommand, aliases = aliases::DAEMON)]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
     #[command(subcommand)]
@@ -504,6 +652,11 @@ pub enum Command {
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// The inbox relay for the Claude Code session that starts it, as an MCP stdio server with no
+    /// tools (`claude_inbox_relay.rs`): acpmux's messages into that session come from its own
+    /// child, so the session does not hold them (not for people).
+    #[command(hide = true)]
+    InboxRelay,
     /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
     /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
     /// (tools_mcp.rs; not for people).
@@ -521,15 +674,41 @@ pub enum Command {
         since: Option<String>,
     },
     #[command(hide = true)]
-    TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
+    TagCmd {
+        session: String,
+        assignments: Vec<String>,
+        #[arg(long)]
+        remove: Vec<String>,
+        #[arg(long)]
+        ttl: Option<u64>,
+    },
     #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
-    RulesCmd { session: String, rules: Option<String>, clear: bool },
+    RulesCmd {
+        session: String,
+        rules: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    LimitsCmd { session: String, max: Option<u32>, clear: bool },
+    LimitsCmd {
+        session: String,
+        #[arg(long)]
+        max: Option<u32>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    TurnCapCmd {
+        session: String,
+        #[arg(long)]
+        minutes: Option<u64>,
+        #[arg(long)]
+        off: bool,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true, subcommand)]
     QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
@@ -549,7 +728,7 @@ pub enum Command {
     },
     #[command(hide = true)]
     Cancel { session: String },
-    #[command(hide = true, alias = "kill-session")]
+    #[command(hide = true, aliases = aliases::KILL)]
     Kill {
         session: String,
         #[arg(long)]
@@ -572,8 +751,14 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    #[command(hide = true, alias = "rename-session")]
-    Rename { session: String, new_name: String },
+    #[command(hide = true, aliases = aliases::RENAME)]
+    Rename {
+        session: String,
+        new_name: String,
+        /// Rename the spoken handle.
+        #[arg(long)]
+        handle: bool,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -640,18 +825,10 @@ pub enum Command {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// `session move`'s flat form, also typed as `acpmux move-sessions`: the same grammar, one
+    /// struct, so the two spellings cannot drift apart again.
     #[command(hide = true)]
-    MoveSessions {
-        sessions: Vec<String>,
-        host: String,
-        all_idle: bool,
-        interrupt: bool,
-        leave_dirty: bool,
-        carry_changes: bool,
-        cwd: Option<String>,
-        dry_run: bool,
-        from: Option<String>,
-    },
+    MoveSessions(MoveSessionsArgs),
     #[command(hide = true)]
     Transfer {
         session: String,
@@ -663,6 +840,8 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         interrupt: bool,
+        #[arg(long)]
+        after_turn: bool,
     },
     #[command(hide = true)]
     Harnesses,
@@ -677,7 +856,12 @@ pub enum Command {
     },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    DaemonStart {
+        #[arg(long)]
+        person_key_fd: Option<i32>,
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon enroll`: give the running daemon the person key (the VM provisioning exec).
     #[command(hide = true)]
     DaemonEnroll { person_key_fd: i32 },
@@ -691,7 +875,7 @@ pub enum Command {
     /// App sign-out: clear peer tails without starting an agent or daemon.
     #[command(hide = true, name = "__clear-peer-snapshots")]
     ClearPeerSnapshots,
-    #[command(hide = true, alias = "kill-server")]
+    #[command(hide = true, aliases = aliases::SHUTDOWN)]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
@@ -1009,7 +1193,13 @@ pub enum SessionCmd {
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
     /// Rename a session.
-    Rename { session: String, new_name: String },
+    Rename {
+        session: String,
+        new_name: String,
+        /// Rename the spoken handle.
+        #[arg(long)]
+        handle: bool,
+    },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1086,41 +1276,7 @@ pub enum SessionCmd {
     /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
-    Move {
-        /// The chats to move (ids or names); none with --all-idle.
-        #[arg(required_unless_present = "all_idle")]
-        sessions: Vec<String>,
-        /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
-        /// (never a reserved one), one machine per checkout. `--host` still works.
-        #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
-        host: String,
-        /// Every open chat here that is between turns.
-        #[arg(long, conflicts_with = "sessions")]
-        all_idle: bool,
-        /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
-        interrupt: bool,
-        /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
-        #[arg(long)]
-        leave_dirty: bool,
-        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
-        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
-        /// keys) stay on this machine.
-        #[arg(long, conflicts_with = "leave_dirty")]
-        carry_changes: bool,
-        /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
-        /// and no branch pushed. For a folder outside this machine's home.
-        #[arg(long, value_name = "PATH")]
-        cwd: Option<String>,
-        /// Say where each chat would go and change nothing.
-        #[arg(long)]
-        dry_run: bool,
-        /// The machine the chats are on, when not this one: this machine drives the move over
-        /// ssh to it and to the target, so two machines that cannot reach each other trade
-        /// chats. With it, `--machine local` brings them here.
-        #[arg(long, value_name = "MACHINE")]
-        from: Option<String>,
-    },
+    Move(MoveSessionsArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1133,8 +1289,11 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
         /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "after_turn")]
         interrupt: bool,
+        /// Let a running turn end on its own, then move.
+        #[arg(long)]
+        after_turn: bool,
     },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
@@ -1492,7 +1651,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Rename { session, new_name, handle } => {
+                Command::Rename { session, new_name, handle }
+            }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
                 Command::ResumeQueue { session, open }
@@ -1518,30 +1679,10 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
-                Command::Transfer { session, to, cwd, name, interrupt }
+            SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+                Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
-            SessionCmd::Move {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            } => Command::MoveSessions {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            },
+            SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1775,6 +1916,37 @@ mod help_contract_tests {
         shapes
     }
 
+    // The session guide also contains cmux app commands (such as `agent open-tab`).
+    // Only engine commands share this clap surface.
+    fn documented_engine_commands(text: &str) -> Vec<Vec<String>> {
+        let mut commands = tokens(text, "acpmux");
+        commands.extend(tokens(text, "cmux").into_iter().filter_map(|mut words| {
+            match words.get(1)?.as_str() {
+                "acp" => {}
+                "agent"
+                    if !matches!(
+                        words.get(2)?.as_str(),
+                        "list"
+                            | "message"
+                            | "inbox"
+                            | "start"
+                            | "resume"
+                            | "report"
+                            | "hook"
+                            | "plugin"
+                            | "open"
+                            | "open-tab"
+                            | "help"
+                            | "--help"
+                    ) => {}
+                _ => return None,
+            }
+            words.remove(0);
+            Some(words)
+        }));
+        commands
+    }
+
     fn documented_shape(
         words: &[String],
         shapes: &HashMap<Vec<String>, HashSet<String>>,
@@ -1842,7 +2014,7 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let mut missing = Vec::new();
         for (source, text) in REMOTE_DOCS {
-            for words in tokens(text, "acpmux") {
+            for words in documented_engine_commands(text) {
                 let Some(path) = documented_shape(&words, &shapes) else {
                     missing.push(format!("{source}: {} (command)", words.join(" ")));
                     continue;
@@ -1890,7 +2062,7 @@ mod help_contract_tests {
                 .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
                 .map(|line| format!("{line}\n"))
                 .collect();
-            for words in tokens(&text, "acpmux") {
+            for words in documented_engine_commands(&text) {
                 let command: Vec<&str> = words
                     .iter()
                     .skip(1)
@@ -1913,6 +2085,94 @@ mod help_contract_tests {
              --machine:\n{}",
             stale.join("\n")
         );
+    }
+
+    /// `acpmux move-sessions` is `session move` spelled flat: both take `--machine` (`--host`)
+    /// and the same flags. The flat form had lost every `#[arg]`, so all nine fields became
+    /// positionals and `move-sessions CHAT --host H` failed with "HOST not provided".
+    #[test]
+    fn move_sessions_takes_the_same_flags_as_session_move() {
+        use super::{Command, MoveSessionsArgs, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let want = MoveSessionsArgs {
+            sessions: vec!["a".into(), "b".into()],
+            host: "huge-blue".into(),
+            all_idle: false,
+            interrupt: true,
+            after_turn: false,
+            leave_dirty: false,
+            carry_changes: true,
+            cwd: None,
+            dry_run: true,
+            from: Some("mini-3".into()),
+        };
+        for verb in [&["move-sessions"][..], &["session", "move"][..]] {
+            for machine in ["--machine", "--host"] {
+                let argv: Vec<&str> = ["acpmux"]
+                    .into_iter()
+                    .chain(verb.iter().copied())
+                    .chain(["a", "b", machine, "huge-blue", "--interrupt", "--carry-changes"])
+                    .chain(["--dry-run", "--from", "mini-3"])
+                    .collect();
+                match parse(&argv) {
+                    Ok(Command::MoveSessions(got)) => assert_eq!(got, want, "{argv:?}"),
+                    other => panic!("{argv:?} parsed as {:?}", other.map(|_| ()).err()),
+                }
+            }
+            let idle: Vec<&str> = ["acpmux"]
+                .into_iter()
+                .chain(verb.iter().copied())
+                .chain(["--all-idle", "--machine", "auto"])
+                .collect();
+            assert!(
+                matches!(
+                    parse(&idle),
+                    Ok(Command::MoveSessions(MoveSessionsArgs { all_idle: true, .. }))
+                ),
+                "{idle:?}"
+            );
+            let no_machine: Vec<&str> =
+                ["acpmux"].into_iter().chain(verb.iter().copied()).chain(["a"]).collect();
+            assert!(parse(&no_machine).is_err(), "{no_machine:?} parsed without a machine");
+        }
+    }
+
+    /// The class behind `move-sessions`' "HOST not provided": a command field with no `#[arg]`
+    /// is a positional, so a `bool` becomes a positional switch nobody can type and a value after
+    /// a list positional can never be reached. No command, hidden or shown, may have either: the
+    /// hidden flat forms (`tag-cmd`, `rules-cmd`, `limits-cmd`, `turn-cap-cmd`, `daemon-start`)
+    /// had them too, and clap refused to build their parsers at all.
+    #[test]
+    fn no_command_has_a_flag_shaped_positional_or_one_after_a_list() {
+        use clap::CommandFactory as _;
+        fn walk(cmd: &clap::Command, path: &str, bad: &mut Vec<String>) {
+            let mut after_list: Option<String> = None;
+            for arg in cmd.get_positionals() {
+                let id = arg.get_id().to_string();
+                if matches!(
+                    arg.get_action(),
+                    clap::ArgAction::SetTrue | clap::ArgAction::SetFalse | clap::ArgAction::Count
+                ) {
+                    bad.push(format!("{path}: positional switch <{id}>"));
+                }
+                if let Some(list) = &after_list
+                    && !arg.is_last_set()
+                {
+                    bad.push(format!("{path}: <{id}> follows the list <{list}>"));
+                }
+                if arg.get_num_args().is_some_and(|n| n.max_values() > 1) {
+                    after_list = Some(id);
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                walk(sub, &format!("{path} {}", sub.get_name()), bad);
+            }
+        }
+        let mut cmd = Cli::command();
+        cmd.build();
+        let mut bad = Vec::new();
+        walk(&cmd, "acpmux", &mut bad);
+        assert!(bad.is_empty(), "commands whose fields lost their #[arg]:\n{}", bad.join("\n"));
     }
 
     /// `send --class`: the four classes only (`prompt_class.rs`).

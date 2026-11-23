@@ -106,17 +106,24 @@
 .ui-btn[data-danger]:not([data-variant="solid"]) {
   color: var(--ds-color-danger);
 }
+/* Over the hover and pressed fills the danger ink leans 35% toward the text ink, the strongest ink on
+   every ground, and keeps 4.5:1 (test/control-contrast-N.test.ts: Revoke read 3.3:1 held in dark). */
+.ui-btn[data-danger]:not([data-variant="solid"], [data-disabled]):is(:hover, :active, [data-popup-open]) {
+  color: color-mix(in srgb, var(--ds-color-danger) 65%, var(--ds-color-fg));
+}
+/* A destructive solid is a fill, not text: it keeps the page's danger hue on glass too (glass.css
+   lifts --ds-color-danger toward the text only for words). */
 .ui-btn[data-danger][data-variant="solid"] {
-  background: var(--ds-color-danger);
+  background: var(--glass-hue-danger, var(--ds-color-danger));
   color: var(--ds-color-on-accent);
 }
 /* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
 .ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
 .ui-btn[data-danger][data-variant="solid"][data-popup-open] {
-  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+  background: color-mix(in srgb, var(--glass-hue-danger, var(--ds-color-danger)) 88%, var(--ds-color-on-accent));
 }
 .ui-btn[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 /* ui.css's dialog button spacing and keycap, at no specificity so ui.css and the rule below still win:
@@ -198,8 +205,12 @@
   border: 0;
   border-radius: calc(var(--ui-switch-h) / 2);
   background: var(--ds-color-pressed);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
-  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+  /* An off track's edge sits between the theme's tertiary (3:1) and secondary (4.5:1) inks (WebTheme),
+     so the switch reads in every theme and still reads disabled (test/control-contrast-N.test.ts: the
+     hairline separator read 1.3:1). */
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--cmux-text-tertiary, var(--ds-color-separator)) 50%, var(--cmux-text-secondary, var(--ds-color-separator)));
+  transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .ui-switch[data-size="sm"] {
   --ui-switch-h: var(--ds-icon-16);
@@ -218,7 +229,12 @@
   border-radius: 50%;
   background: var(--ds-color-surface);
   box-shadow: var(--elevation-1);
-  transition: translate var(--cmux-motion-quick) var(--cmux-ease-out);
+  /* The thumb is a selection that travels: it settles on the one spring over the large step (Leo
+     2026-11: "a toggle is nicer than a checkbox, just make it look better"), and its fill crosses
+     over as the track's does. */
+  transition:
+    translate var(--cmux-motion-large) var(--cmux-ease-spring),
+    background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .ui-switch[data-checked] {
   background: var(--ds-color-accent);
@@ -232,7 +248,7 @@
   translate: calc(var(--ui-switch-h) - var(--ui-switch-w)) 0;
 }
 .ui-switch[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 .ui-switch:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
@@ -259,6 +275,12 @@
 .ui-input::placeholder {
   color: var(--ds-color-faint);
 }
+/* Over a see-through window the field is clear glass over art or the desktop, where the tertiary ink
+   fell to 1.44:1 (Settings search on the Great Wave, dark; fleet capture, text-inputs-glass). The
+   placeholder takes the secondary tier there, as pageBase.css lifts tertiary text. */
+:root[data-cmux-see-through] .ui-input::placeholder {
+  color: var(--cmux-text-secondary, var(--ds-color-faint));
+}
 .ui-input[data-size="sm"] {
   height: var(--ds-control-compact);
   border-radius: var(--ds-radius-sm);
@@ -280,7 +302,7 @@
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-muted);
 }
 .ui-input[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 /* TABS: the active mark sits on the tab itself, so nothing measures or moves after first paint. */
@@ -316,7 +338,7 @@
   color: var(--ds-color-fg);
 }
 .ui-tabs-trigger[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 .ui-tabs-trigger:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);

@@ -288,7 +288,7 @@ enum ChiefInspectorStrings {
     }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
-               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again.",
+               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again.",
                table: "MiscHandlers", bundle: .module)
     }
     static var unreachable: String {

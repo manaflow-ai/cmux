@@ -1,0 +1,49 @@
+name: pr pipeline
+
+# The PR pipeline (the CI v2 design, "One step table"): a pull request's checks are steps of
+# ci/steps.toml, run by `ci/run` in a few jobs, not a workflow, a runner and a checkout apiece. This is
+# the `linux` job: one machine, one checkout of the merge commit, and every `linux` step the change
+# routes, side by side. Each step's output is one log group, a failed step is one annotation, and the
+# summary lists every step with its seconds.
+#
+# pr-router.yml starts it, and only when the change routes a step (scripts/ci/pr_router.json
+# `table_jobs`): a pull request that touches no step's inputs costs no runner here.
+#
+# Adding a check: add a step to ci/steps.toml. No new workflow, no router edit.
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  linux:
+    name: linux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Above setup (10 min), the bun and node downloads (3 min) and ten waves of the slowest step (6 min; nineteen
+    # steps, two at once on 2 CPUs), with room for the checkout, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the changed paths
+        # Every path the merge commit changes against the base tip, both sides of a rename (what the
+        # router read). With no merge commit there is no list, and ci/run then runs every step.
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every linux step runs."
+          fi
+      - name: Run the routed linux steps (ci/steps.toml)
+        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}

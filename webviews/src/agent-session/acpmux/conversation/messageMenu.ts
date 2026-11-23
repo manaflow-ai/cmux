@@ -102,6 +102,14 @@ export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFor
 /// (`forkToTarget`).
 export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
 
+/// Whether the Fork under a finished turn's footer or a prompt can show now. Claude and Codex fork
+/// through any finished turn (`forksAnyTurn`), also while a later turn runs: a turn an agent's
+/// message or a background finish started would otherwise hide every earlier turn's Fork until it
+/// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
+/// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
+export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot.summary?.family));
+
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
 /// acpmux, the connection or the chat's machine does not serve the fork, "nothingYet" before the
@@ -188,7 +196,7 @@ export function messageMenuTarget(
   // still owns the rail chapter marker shown by PinButton.
   const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    canFork(snapshot) &&
+    canForkTurn(snapshot) &&
     completedTurnSeq !== undefined &&
     (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
       ? completedTurnSeq

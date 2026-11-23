@@ -30,18 +30,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -51,6 +60,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -60,18 +70,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -81,6 +100,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -120,6 +140,8 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
       persistent: ${{ steps.pool.outputs.persistent }}
+      # Same-tree reuse (scripts/ci/same_tree_reuse.py): kit-tests already passed on this merge tree.
+      same_tree: ${{ steps.same-tree.outputs.same_tree }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -131,6 +153,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            scripts/ci/same_tree_reuse.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -214,9 +237,46 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
+      # Same-tree reuse: a pass of kit-tests on this exact merge tree and workflow file (a re-push of the same
+      # tree, a reopen, a re-run) is not run again; the Mac is never taken. The key is the merge commit's tree,
+      # the job and this file's blob; the receipt is an Actions cache entry kit-tests wrote on its pass, which
+      # only this pull request's runs and its base can write. 10% of hits still run in full
+      # (CI_SAME_TREE_AUDIT_PERCENT), and a red there names the receipt. CI_SAME_TREE_REUSE=0 turns it off.
+      - name: Same-tree keys
+        id: same-tree-keys
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
+        continue-on-error: true
+        run: python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests >> "$GITHUB_OUTPUT"
+      - name: Look up a same-tree pass of kit-tests
+        id: same-tree-kit-tests
+        if: ${{ steps.same-tree-keys.outputs.kit-tests != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # One relative path for the save and the restore: the cache version hashes it, and runner.temp differs
+          # between the Linux runner and the Mac.
+          path: .same-tree/kit-tests
+          enableCrossOsArchive: true
+          key: ${{ steps.same-tree-keys.outputs.kit-tests }}
+      - name: Same-tree decision
+        id: same-tree
+        if: ${{ steps.same-tree-keys.outputs.keys != '' }}
+        continue-on-error: true
+        env:
+          KEYS: ${{ steps.same-tree-keys.outputs.keys }}
+          HITS: kit-tests=${{ steps.same-tree-kit-tests.outputs.cache-hit }}
+          AUDIT_PERCENT: ${{ vars.CI_SAME_TREE_AUDIT_PERCENT }}
+        run: |
+          python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
+            --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
+
   kit-tests:
     needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -411,3 +471,24 @@ jobs:
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
           retention-days: 3
+
+      # A sampled audit of a same-tree hit ran in full and went red: the receipt it contradicts is named.
+      - name: Same-tree audit
+        if: ${{ failure() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].audit }}
+        env:
+          RECEIPT: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].receipt }}
+          KEY: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
+        run: echo "::error title=same-tree audit::kit-tests failed on the tree of $KEY, whose receipt $RECEIPT passed it"
+      - name: Write the same-tree receipt
+        if: ${{ success() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].record }}
+        env:
+          KEY: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
+        run: python3 scripts/ci/same_tree_reuse.py receipt --job kit-tests --key "$KEY" --out .same-tree/kit-tests
+      - name: Record the same-tree receipt
+        if: ${{ success() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].record }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/kit-tests
+          enableCrossOsArchive: true
+          key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}

@@ -18,15 +18,17 @@ extension SidebarModel {
                                document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
-            for await (items, placed) in ObservationStream({ [weak self] in
+            for await items in ObservationStream({ [weak self] in
                 // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
                 // rows, which its workspace membership filters, so every window's feed tells the same.
                 (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
-                    || document()?.placesItem(with: .builtIn(.chief)) == true)
+                    || document()?.placesItem(with: .builtIn(.chief)) == true,
+                 self.map { model in SidebarTransientItem.chiefAnchors.contains { model.layout.firstItem(with: $0) != nil } } == true)
             }) {
                 guard let self else { return }
-                if transientTopItems != items { transientTopItems = items }
-                if chief.isPlaced != placed { chief.isPlaced = placed }
+                if transientTopItems != items.0 { transientTopItems = items.0 }
+                if chief.isPlaced != items.1 { chief.isPlaced = items.1 }
+                if chief.showsThread != items.2 { chief.showsThread = items.2 }
             }
         }
     }

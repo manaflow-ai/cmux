@@ -100,7 +100,7 @@ fn notices(events: &mut tokio::sync::broadcast::Receiver<HubEvent>) -> Vec<(Stri
     let mut out = Vec::new();
     while let Ok(event) = events.try_recv() {
         if let Some(remote) = event.remote {
-            out.push((event.record.kind.clone(), remote.summary));
+            out.push((event.record.kind.clone(), remote.summary.value()));
         }
     }
     out

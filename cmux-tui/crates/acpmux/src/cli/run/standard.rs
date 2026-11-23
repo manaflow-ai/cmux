@@ -9,11 +9,16 @@ pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::Dispatch(..)
+            | Command::Bg(..)
+            | Command::Notices { .. }
+            | Command::Open(..)
+            | Command::OpenTab(..)
             | Command::Briefs(..)
             | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
             | Command::RulesCmd { .. }
@@ -32,6 +37,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
+            | Command::Board
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
@@ -51,6 +57,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Bg(cmd) => {
+            let client = connect(true).await?;
+            crate::cli::bg::run(client.as_ref(), cmd, json_out).await
+        }
+        Command::Notices { session, thread, mark_read } => {
+            let session = session
+                .or_else(|| std::env::var(crate::acpmux_mcp::SESSION_ENV).ok())
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    crate::cli::errors::AppError::usage(
+                        "notices needs a session, or ACPMUX_SESSION_ID inside an agent session",
+                    )
+                })?;
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(
+                client.as_ref(),
+                &session,
+                thread.as_deref(),
+                mark_read,
+                json_out,
+            )
+            .await
+        }
+        Command::Open(args) => crate::cli::app_bridge::run(args, false, json_out).await,
+        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
@@ -114,6 +145,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
         }
+        Command::Search { query, limit } => {
+            crate::cli::session_search::all(connect(true).await?, query.join(" "), limit, json_out)
+                .await
+        }
         Command::SessionSearch(args) => {
             crate::cli::session_search::run(connect(true).await?, args, json_out).await
         }
@@ -174,7 +209,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Schema => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.as_bytes());
+            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.inflate().as_bytes());
             Ok(())
         }
         Command::Defaults { family, pairs, clear } => {
@@ -396,7 +431,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         client =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
                     }
-                    found => break found?,
+                    // A machine this daemon has no peer for may still be reached by the
+                    // configured new relay (`new_relay.rs`).
+                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
+                    {
+                        Some((relay, machine, words)) => {
+                            return crate::cli::new_relay::start(
+                                relay, &machine, words, json_out, deadline,
+                            )
+                            .await;
+                        }
+                        None => return Err(error),
+                    },
+                    Ok(found) => break found,
                 }
             };
             let id = crate::cli::resolve::routed_id(&v)?;
@@ -480,8 +527,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
-                         use `acpmux send {name}` to give it more",
-                        session_id.get(..8).unwrap_or(session_id)
+                         use `{} send {name}` to give it more",
+                        session_id.get(..8).unwrap_or(session_id),
+                        crate::cli::entry::program()
                     );
                 }
                 return Ok(());
@@ -805,8 +853,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
             // more when config.json names a mesh hub: the hub delivers it (`server/mesh_send.rs`).
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
+            // The fan-out note runs beside the send and is never waited on (`send_fanout.rs`).
+            let fanout = Arc::new(std::sync::Mutex::new(None));
+            let fanout_slot = fanout.clone();
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                let note = note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref());
+                *fanout_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(note);
                 if harness_agent {
                     let named = prompt_id.from_agent.as_deref();
                     let sender = crate::cli::sender::sending_as_on(&client, named).await;
@@ -933,6 +987,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await
             }
             .await;
+            let note = fanout.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some(line) = note.and_then(fanout_warning_if_known) {
+                eprintln!("{line}");
+            }
             match (sent, relay) {
                 (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
                     crate::cli::send_relay::send_with_deadline(
@@ -951,6 +1009,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         && crate::cli::send_relay::no_such_session(&e)
                         && crate::mesh_http::configured() =>
                 {
+                    let client = before_deadline(deadline, &relay_session, connect(true)).await?;
+                    super::send_async::queue(
+                        &client,
+                        &relay_session,
+                        &relay_text,
+                        mesh_steer,
+                        &mesh_prompt,
+                        superseding,
+                        json_out,
+                        deadline,
+                    )
+                    .await
+                }
+                // The target's machine is down: the message goes to this daemon's outbox, which
+                // tries it again and, for an `ssh://` machine, carries it over ssh
+                // (`server/ssh_carry.rs`). Said, so the sender knows no reply is streamed.
+                (Err(e), _)
+                    if !no_wait
+                        && !attaching
+                        && crate::cli::errors::classify(&e).detail == "peer_unreachable" =>
+                {
+                    eprintln!(
+                        "acpmux: {relay_session}'s machine is unreachable; queued here instead of waiting for the reply (an ssh machine gets it over ssh)"
+                    );
                     let client = before_deadline(deadline, &relay_session, connect(true)).await?;
                     super::send_async::queue(
                         &client,
@@ -1015,7 +1097,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
-                    println!("More: acpmux inbox --before {next}");
+                    let program = crate::cli::entry::program();
+                    let verb = if program == "cmux agent" { "team-inbox" } else { "inbox" };
+                    println!("More: {program} {verb} --before {next}");
                 }
             } else if method == method::MUX_TEAM_READ {
                 println!(
@@ -1071,6 +1155,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
+        Command::Board => super::board::run(json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
@@ -1091,8 +1176,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
-            orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
-                .await
+            crate::cli::session_tail::tail(
+                connect(true).await?,
+                &session,
+                last,
+                since,
+                follow,
+                suppress_reads,
+            )
+            .await
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
@@ -1536,16 +1628,15 @@ fn held_messages(sessions: &[Value]) -> Vec<Value> {
             let mut row = h.clone();
             row.set("session", name.clone());
             row.set("sessionId", id.clone());
-            row.set("answer", json!(HELD_ANSWER));
+            row.set("answer", json!(format!(
+                "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with {} send",
+                crate::cli::entry::program()
+            )));
             out.push(row);
         }
     }
     out
 }
-
-/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
-/// release it, so it waits for that chat's approval or expires.
-const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
 
 /// One `pending` line for a held message.
 fn held_message_line(h: &Value) -> String {
@@ -1561,6 +1652,43 @@ fn held_message_line(h: &Value) -> String {
     )
 }
 
+/// Notes this send with the daemon (`send_fanout.rs`) on a task of its own, started before
+/// the send's own requests on the same connection and never waited on: the send adds no
+/// latency for it (the prompt's sha256 aside, microseconds). Its answer is read when the send is done ([`fanout_warning_if_known`]).
+fn note_fanout(
+    client: &Arc<crate::client::Client>,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+) -> tokio::task::JoinHandle<Option<String>> {
+    let params = json!({
+        "hash": crate::send_fanout::prompt_hash(text),
+        "session": session,
+        "machine": crate::send_fanout::machine_of(session),
+        "from": from,
+    });
+    let client = client.clone();
+    FANOUT_NOTES.spawn_named("send fan-out note", async move {
+        let reply = client.request(method::MUX_SEND_FANOUT, params).await.ok()?;
+        crate::send_fanout::warning(&reply)
+    })
+}
+
+/// The owner of the send's fan-out notes: the CLI process, which ends them when it exits.
+static FANOUT_NOTES: std::sync::LazyLock<cmux_scope::Scope> =
+    std::sync::LazyLock::new(|| cmux_scope::Scope::new("acpmux send fan-out notes"));
+
+/// The fan-out warning, if the daemon has already answered the note; else none, and the send
+/// does not wait for it (a daemon without the method answers an error: none too).
+fn fanout_warning_if_known(note: tokio::task::JoinHandle<Option<String>>) -> Option<String> {
+    use futures::FutureExt as _;
+    if !note.is_finished() {
+        // Dropped, not aborted: the note still reaches the daemon while the process lives.
+        return None;
+    }
+    note.now_or_never()?.ok().flatten()
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
@@ -1568,7 +1696,10 @@ fn team_receipt_line(receipt: &Value) -> String {
     let decision = receipt.get("startWork").and_then(Value::as_str).unwrap_or("information");
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
-    format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+    format!(
+        "{state} to {canonical}; startWork={decision} ({} send --status mesh:{id})",
+        crate::cli::entry::program()
+    )
 }
 
 /// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it
@@ -1639,6 +1770,26 @@ mod tests {
     }
     use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
     use serde_json::json;
+
+    /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
+    /// answered one its warning.
+    #[tokio::test]
+    async fn a_fanout_note_is_read_only_if_already_answered() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let pending = super::FANOUT_NOTES.spawn(async move {
+            let _ = rx.await;
+            Some("late".to_owned())
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(super::fanout_warning_if_known(pending), None);
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        drop(tx);
+        let done = super::FANOUT_NOTES.spawn(async { Some("warned".to_owned()) });
+        while !done.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(super::fanout_warning_if_known(done).as_deref(), Some("warned"));
+    }
 
     #[test]
     fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {

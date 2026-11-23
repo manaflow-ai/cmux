@@ -611,18 +611,22 @@ export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] =>
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
 export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
-  const local = sessions.filter((session) => {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
+    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) return;
     const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
-    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
+    if (!cwd || cwd === "~" || isAgentHome(cwd)) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(cwd);
+    if (!kept || at > kept.at) newest.set(cwd, { at, index });
   });
-  const folders = new Set<string>();
-  for (const session of byRecency(local)) {
-    folders.add(session.cwd!.replace(/\/+$/, ""));
-    if (folders.size >= limit) break;
-  }
-  return [...folders];
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([cwd]) => cwd);
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
@@ -654,11 +658,6 @@ export function projectLabel(cwd: string | undefined, t: Translate = translate):
 /** A folder for display, with a home folder's prefix written `~` as a shell prompt does. */
 export function homePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
-
-/** Newest first. */
-function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
@@ -709,4 +708,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }

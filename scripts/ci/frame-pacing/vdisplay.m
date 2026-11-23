@@ -1,5 +1,7 @@
 // vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS [main], or VDisplay probe. A copy of cmuxterm-hq's
+// Usage: VDisplay HZ HOLD_SECONDS [main|-] [WIDTHxHEIGHT] [hidpi|hidpi-points], or VDisplay probe. `hidpi` makes a
+// backing-scale-2 display of WIDTHxHEIGHT points (twice the pixels): the Liquid Glass Parity matrix's 2x
+// cells on a host whose own screen is 1x (scripts/measure/glass-parity.sh). A copy of cmuxterm-hq's
 // build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
 // `probe`, 2026-10-23).
 // `probe` creates no display: it prints "main DISPLAY_ID p50_ms" for the current main display (its measured
@@ -128,21 +130,65 @@ int main(int argc, char **argv) {
       printf("error: size %s is not WIDTHxHEIGHT within 640x480..3840x2400\n", argv[4]);
       return 2;
     }
+    // `hidpi-points` lists the 2x mode by its point size only (WIDTHxHEIGHT; the pixel size is twice that), the
+    // form DeskPad gives; `hidpi` lists the pixel size and the point size (scripts/measure/vdisplay-hidpi-probe.sh
+    // measures which a host takes).
+    BOOL hidpi = argc > 5 && strncmp(argv[5], "hidpi", 5) == 0;
+    BOOL pointModes = argc > 5 && strcmp(argv[5], "hidpi-points") == 0;
+    unsigned int factor = hidpi ? 2 : 1;
     [NSApplication sharedApplication];
     CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
     descriptor.queue = dispatch_get_main_queue();
     descriptor.name = [NSString stringWithFormat:@"mini-ops %.0f Hz", hz];
-    descriptor.maxPixelsWide = width;
-    descriptor.maxPixelsHigh = height;
+    descriptor.maxPixelsWide = width * factor;
+    descriptor.maxPixelsHigh = height * factor;
     descriptor.sizeInMillimeters = CGSizeMake(600, 600.0 * height / width);  // about 81 dpi, as 1920x1080 at 600 x 340
     descriptor.productID = 0x6d6f; descriptor.vendorID = 0x6d6f; descriptor.serialNum = 1;
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
     if (!display) { printf("error: CGVirtualDisplay unavailable\n"); return 1; }
     CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
-    settings.hiDPI = 0;
-    settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
+    settings.hiDPI = hidpi ? 1 : 0;
+    // HiDPI: the mode list holds the pixel size too, and the display is switched to the mode of WIDTHxHEIGHT points
+    // at twice the pixels (macOS starts it at its 1x mode of the largest size).
+    settings.modes = pointModes
+      ? @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
+      : hidpi
+      ? @[[[CGVirtualDisplayMode alloc] initWithWidth:width * 2 height:height * 2 refreshRate:hz],
+          [[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
+      : @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
-    waitForScreens(display.displayID, NO, 5.0);
+    // A HiDPI display (twice the pixels) comes online slower: fleet step 368e35ec listed it after more than 5 s.
+    waitForScreens(display.displayID, NO, hidpi ? 20.0 : 5.0);
+    if (hidpi) {
+      // The display's mode list fills in after AppKit lists it, a beat later on a busy host (fleet step b44f5987: no
+      // 2x mode on the first read, and the display stayed 1x): read it for up to 15 s, and say what it offered if no
+      // mode is WIDTHxHEIGHT points at twice the pixels.
+      NSDictionary *options = @{(__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES};
+      CGDisplayModeRef picked = NULL;
+      NSMutableString *offered = [NSMutableString string];
+      for (int attempt = 0; attempt < 150 && !picked; attempt++) {
+        if (attempt) [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        CFArrayRef modes = CGDisplayCopyAllDisplayModes(display.displayID, (__bridge CFDictionaryRef)options);
+        [offered setString:@""];
+        for (CFIndex i = 0; modes && i < CFArrayGetCount(modes); i++) {
+          CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+          [offered appendFormat:@" %zux%zu@%zux%zu", CGDisplayModeGetWidth(mode), CGDisplayModeGetHeight(mode),
+                                CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode)];
+          if (!picked && CGDisplayModeGetWidth(mode) == width && CGDisplayModeGetHeight(mode) == height
+              && CGDisplayModeGetPixelWidth(mode) == width * 2) picked = CGDisplayModeRetain(mode);
+        }
+        if (modes) CFRelease(modes);
+      }
+      CGDisplayConfigRef config;
+      if (!picked) fprintf(stderr, "vdisplay: no %ux%u mode at 2x pixels; modes (points@pixels):%s\n", width, height, offered.UTF8String);
+      else if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
+        CGConfigureDisplayWithDisplayMode(config, display.displayID, picked, NULL);
+        CGError error = CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
+        if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not switch to the 2x mode (CGError %d)\n", error);
+      }
+      if (picked) CGDisplayModeRelease(picked);
+      waitForScreens(display.displayID, NO, 5.0);
+    }
     if (wantMain && CGMainDisplayID() != display.displayID) {
       CGError error = makeMain(display.displayID);
       if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
@@ -151,8 +197,8 @@ int main(int argc, char **argv) {
     // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
     NSScreen *screen = screenFor(display.displayID);
     NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
-    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f\n", display.displayID, medianInterval(display.displayID),
-           CGMainDisplayID(), width, height, visible.size.width, visible.size.height);
+    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f scale=%.0f\n", display.displayID, medianInterval(display.displayID),
+           CGMainDisplayID(), width, height, visible.size.width, visible.size.height, screen ? screen.backingScaleFactor : 0);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }
   return 0;

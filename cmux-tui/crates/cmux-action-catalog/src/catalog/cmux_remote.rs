@@ -106,8 +106,26 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["mac", "screen", "sharing", "share", "screen share", "share screen", "remote desktop", "vnc", "host", "turn on", "enable", "allow", "device", "remote", "iphone"],
         category: "remote",
         symbol: "display",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        surfaces: PALETTE | CONTEXT_MENU,
+        // This Mac's sidebar header menu, beside its hover-only screen button (Leo 2026-11-14: "in
+        // screen sharing we also want the interaction pathways better"). The app shows the row only
+        // on the header whose screen button is Share (This Mac's).
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menus: &[Placement::at("machineSection", "connection", 150)], ..SurfacePlan::DEFAULT },
         cli_name: "remote share-this-mac",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "machine.viewScreen",
+        group: GROUP,
+        title: t("ActionCatalog", "action.machine.viewScreen", "View Screen"),
+        description: Some("Shows the machine's screen from its sidebar header's menu, as the header's View screen button does: a Cloud machine's desktop (cloudOpenDesktop), or a Mac's shared screen in a Screen Sharing tab. Offered only on a header that shows View screen: a Cloud machine, or a Mac with an online screen device; a Linux or unidentified SSH machine has none. The palette and CLI reach the same screens through cloud open-desktop and Screen Sharing."),
+        keywords: &["machine", "screen", "screen sharing", "screen share", "view", "remote desktop", "vnc", "desktop", "display"],
+        category: "remote",
+        symbol: "display",
+        surfaces: CONTEXT_MENU,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("duplicateOfDefault"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("machineSection", "connection", 151)], ..SurfacePlan::DEFAULT },
+        targets: &["machine"],
+        cli_name: "machine view-screen",
         ..Action::DEFAULT
     },
     Action {

@@ -4924,6 +4924,7 @@ class SendRequest:
     expect_agent: Union[SendExpectAgent, None, MissingType] = field(default=MISSING)
     expect_foreground: Union[str, None, MissingType] = field(default=MISSING)
     flow: Union[int, None, MissingType] = field(default=MISSING)
+    key: Union[str, None, MissingType] = field(default=MISSING)
     submit: Union[bool, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 

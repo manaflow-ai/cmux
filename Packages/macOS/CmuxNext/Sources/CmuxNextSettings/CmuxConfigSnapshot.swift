@@ -14,9 +14,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customDensities: [DensityTokens] = []
     /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
     public var customDensity: String?
-    /// The density the file selects: the custom one, else the built-in, else Default (`cozy`).
+    /// The active theme file's own density (``ThemeFileOverlay/density``): it wins over both, as the file's
+    /// settings win over cmux-next.json's.
+    public var themeDensity: DensityTokens?
+    /// The density in use: the theme file's, else the custom one, else the built-in, else Default (`cozy`).
     public var selectedDensity: DensityTokens {
-        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
+        themeDensity ?? DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
             ?? DensityPreset.cozy.tokens
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
@@ -75,18 +78,18 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeChiefPetEnabled = HomeChiefPetSetting.fallback, homeChiefPetMascot = HomeChiefPetSetting.mascotDefault
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
-    /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
-    public var chiefDockEdge = ChiefDockSetting.edgeDefault
+    /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``), `left` when unset; `home.chiefDock.sidePanel`: every window keeps it docked there (Chief in Side Panel), off when unset.
+    public var chiefDockEdge = ChiefDockSetting.edgeDefault, chiefDockSidePanel = ChiefDockSetting.sidePanelDefault
     /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
     public var chiefPanelStyle = ChiefDockSetting.styleDefault
-    /// `home.chiefPanel.seesScreen`: opening the floating Chief gives it one look at the screen; on when unset.
-    public var chiefPanelSeesScreen = ChiefDockSetting.seesScreenDefault
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
+    /// `labs.liveTree`: the opt-in live-tree status card in the agent pane; off when unset.
+    public var liveTree = CmuxConfigSnapshot.liveTreeDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
     /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches for a joined Mac (Add Device's
@@ -96,6 +99,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
+    /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
+    public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -201,6 +206,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
     /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
     public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
+    /// `appearance.agentGlow`: off when unset or invalid. On, the window background stays calm while
+    /// agents are idle and glows softly in the machine's color when an agent needs you.
+    public var agentGlow: Bool = AgentGlowSetting.fallback
+    /// `appearance.previousGlass`: off when unset or invalid. On, web pages draw the glass numbers
+    /// from before the one glass system (``PreviousGlassSetting``).
+    public var previousGlass: Bool = PreviousGlassSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -374,11 +385,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
+        snapshot.take(Self.parseLabsToggle(root, path: liveTreePath, fallback: liveTreeDefault), \.liveTree)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -424,6 +437,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
+        snapshot.take(PreviousGlassSetting.parse(root), \.previousGlass)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)

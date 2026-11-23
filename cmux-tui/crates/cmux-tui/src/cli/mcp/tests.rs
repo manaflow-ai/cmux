@@ -1689,6 +1689,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_connect;
 mod cloud_workspace_list;
 mod computer_use;
 mod keys;

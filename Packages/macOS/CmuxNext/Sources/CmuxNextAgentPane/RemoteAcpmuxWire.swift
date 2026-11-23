@@ -675,7 +675,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
         if method == "_acpmux/watch" { return watchPage }
         return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
-                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
+                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds,
+                                maxBytes: (params["maxBytes"] as? NSNumber)?.intValue)
     }
 
     // MARK: Pushes

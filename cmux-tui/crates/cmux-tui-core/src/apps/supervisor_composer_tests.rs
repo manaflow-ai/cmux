@@ -182,3 +182,70 @@ fn mention_completions_are_ranked_by_the_daemon() {
         "the label when no insert"
     );
 }
+
+/// Gives the app in `dir` the mention provider `prefix` with `items`
+/// (`[(id, label)]`) and, when `version` is set, that version.
+fn save_mentions(dir: &Path, prefix: &str, items: &[(&str, &str)], version: Option<&str>) {
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let items: Vec<Value> =
+        items.iter().map(|(id, label)| json!({ "id": id, "label": label })).collect();
+    manifest["implements"]["cmux.composer.mention/1"] =
+        json!({ "options": { "prefix": prefix, "items": items } });
+    if let Some(version) = version {
+        manifest["version"] = json!(version);
+    }
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// Saving the installed extension's mention items changes what the `@` menu
+/// is answered with no restart and no rebuild: the local reload swaps the
+/// catalog and says `apps-changed`, and the next `apps.composer.mentions`
+/// (the page asks on every keystroke of an `@` word) answers the new items.
+#[test]
+fn a_save_of_the_installed_extensions_mentions_updates_the_at_menu_live() {
+    let f = fixture();
+    save_mentions(&spy_dir(&f), "pr", &[("441", "441 Old title")], None);
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    let ask = || {
+        f.supervisor
+            .store_call(
+                CLIENT,
+                "apps.composer.mentions",
+                json!({ "query": "", "prefix": "pr" }),
+                Origin::User,
+            )
+            .unwrap()["mentions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                (m["id"].as_str().unwrap().to_string(), m["label"].as_str().unwrap().to_string())
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ask(), [("441".to_string(), "441 Old title".to_string())]);
+
+    save_mentions(
+        &spy_dir(&f),
+        "pr",
+        &[("441", "441 New title"), ("442", "442 Another")],
+        Some("1.0.1"),
+    );
+    f.supervisor.reload_local_apps(&prints);
+    f.wait("the reload's apps-changed", |e| {
+        e["event"] == "apps-changed"
+            && e["transaction"] == "local-reload"
+            && e["app"] == "local/spy"
+    });
+    assert_eq!(
+        ask(),
+        [
+            ("441".to_string(), "441 New title".to_string()),
+            ("442".to_string(), "442 Another".to_string())
+        ]
+    );
+    assert_eq!(list(&f)["mentions"][0]["items"], 2, "the provider's count follows the save");
+}

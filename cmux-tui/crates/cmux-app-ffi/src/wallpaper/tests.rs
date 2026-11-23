@@ -114,6 +114,20 @@ fn schedule_round_trips() {
 }
 
 #[test]
+fn reset_initializes_uninitialized_storage() {
+    // The C contract: `CmuxWallpaperPointer p; cmux_wallpaper_pointer_reset(&p);` with no zeroing first.
+    let mut slot = std::mem::MaybeUninit::<CmuxWallpaperPointer>::uninit();
+    // SAFETY: `slot` is writable storage for one CmuxWallpaperPointer; reset only writes it.
+    let p = unsafe {
+        cmux_wallpaper_pointer_reset(slot.as_mut_ptr());
+        slot.assume_init()
+    };
+    assert_eq!(p, CmuxWallpaperPointer::from(PointerState::default()));
+    // SAFETY: null is allowed.
+    unsafe { cmux_wallpaper_pointer_reset(std::ptr::null_mut()) };
+}
+
+#[test]
 fn frame_and_pointer_round_trip() {
     let mut p = CmuxWallpaperPointer::default();
     // SAFETY: `p` is valid and writable; `out` has the Frame's floats.

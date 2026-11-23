@@ -13,6 +13,7 @@ mod output_path;
 mod parser_failure;
 mod parser_order;
 mod parser_queue_memory;
+mod paste_submit;
 mod pty_reader_frames;
 mod pty_reader_stack;
 mod smart_viewer_exit;
@@ -142,6 +143,7 @@ fn exited_host_fixture_with_parser_at(
         master: Mutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
         command: Vec::new(),

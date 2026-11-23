@@ -13,7 +13,14 @@
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
+import { readingLook, readingLookValues } from "./readingLook.experiment";
+import {
+  HIGH_CONTRAST_CHAT_VARIABLES,
+  highContrastLook,
+  highContrastLookValues,
+  type HighContrastChatVariable,
+} from "./highContrastLook.experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
 import {
   CHAT_UI_FONT_KEY,
@@ -34,6 +41,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -130,7 +138,7 @@ export type TrayHandleSide = "left" | "middle" | "right";
 export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
-/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
@@ -398,18 +406,27 @@ let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
-let featureTipsOn = true;
+let featureTipsOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
+let highContrastArm: keyof typeof highContrastLook.arms = "off";
 /// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
 let appliedFacesKey = "";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
-export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void {
+export function applyChatDisplay(
+  root: HTMLElement,
+  display: ChatDisplay,
+  look: keyof typeof highContrastLook.arms = highContrastArm,
+): void {
   for (const [name, value] of Object.entries(chatDisplayVariables(display))) {
     if (value === null) root.style.removeProperty(name);
     else root.style.setProperty(name, value);
+  }
+  for (const name of Object.keys(HIGH_CONTRAST_CHAT_VARIABLES) as HighContrastChatVariable[]) {
+    if (look === "high") root.style.setProperty(name, HIGH_CONTRAST_CHAT_VARIABLES[name]);
+    else root.style.removeProperty(name);
   }
 }
 
@@ -417,8 +434,11 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureThinkingLook(raw);
   configureSenderIconLook(raw);
-  const next = resolveChatDisplay(raw);
+  const readingValues = readingLookValues(raw, experimentArm(readingLook));
+  const nextHighContrastArm = experimentArm(highContrastLook);
+  const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
@@ -430,10 +450,11 @@ export function setChatDisplay(value: unknown): void {
   const view = isTranscriptView(stored) ? stored : "normal";
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
-  const tips = raw[FEATURE_TIPS_KEY] !== false;
+  const tips = raw[FEATURE_TIPS_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
+  const sameLook = nextHighContrastArm === highContrastArm;
   // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
   // have loaded the estimate measures them (the measure stacks change), under a new look that has
   // the transcript measure every row again, as a bundled face's load does below.
@@ -449,6 +470,7 @@ export function setChatDisplay(value: unknown): void {
   appliedFacesKey = facesKey;
   if (
     same &&
+    sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
@@ -477,10 +499,13 @@ export function setChatDisplay(value: unknown): void {
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
+    highContrastArm = nextHighContrastArm;
+    if (typeof document !== "undefined") applyChatDisplay(document.documentElement, current, nextHighContrastArm);
     for (const listener of listeners) listener();
     return;
   }
   current = next;
+  highContrastArm = nextHighContrastArm;
   // A bundled face loads after this event: once it has, the estimate measures it (its measure
   // stack changes), and a new look (the same values) makes the transcript measure every row again,
   // offscreen ones too, as a new font does (App.tsx `measuredLook`).
@@ -490,7 +515,7 @@ export function setChatDisplay(value: unknown): void {
     current = { ...current };
     for (const listener of listeners) listener();
   });
-  if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
+  if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next, nextHighContrastArm);
   for (const listener of listeners) listener();
 }
 

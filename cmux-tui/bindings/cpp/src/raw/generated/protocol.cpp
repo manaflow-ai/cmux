@@ -33274,6 +33274,11 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("flow", std::move(encoded).value());
     }
+    if (!value.key.is_absent()) {
+        auto encoded = encode_value(value.key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("key", std::move(encoded).value());
+    }
     if (value.paste) {
         auto encoded = encode_value(*value.paste);
         if (!encoded) return std::move(encoded).error();
@@ -33344,6 +33349,16 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint64_t>(*field_flow);
             if (!decoded) return std::move(decoded).error();
             result.flow = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_key = value.find("key");
+    if (field_key) {
+        if (field_key->is_null()) {
+            result.key = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_key);
+            if (!decoded) return std::move(decoded).error();
+            result.key = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_paste = value.find("paste");
@@ -47509,9 +47524,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand225FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand232FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 6> kCommand232FieldRequirements{{
     {"expect_agent", 0U, "send-expect-agent-v1"},
     {"expect_foreground", 0U, "send-expect-foreground-v1"},
+    {"key", 0U, "send-key-v1"},
     {"paste", 7U, ""},
     {"submit", 0U, "send-expect-agent-v1"},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},

@@ -414,10 +414,18 @@ async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_paged_acp_list_costs_about_one_list_quiet_or_busy() {
     let hub = fleet_hub(20, 500).await;
-    let (quiet, pages) = timed_read(&hub, false).await;
-    let (busy, busy_pages) = timed_read(&hub, true).await;
-    assert!(pages >= 30 && busy_pages >= 30, "{pages} / {busy_pages} pages");
-    println!("ACP session/list 10,000 rows: quiet {quiet:?} ({pages} pages), busy {busy:?}");
+    let mut reads = Vec::new();
+    for _ in 0..3 {
+        let quiet = timed_read(&hub, false).await;
+        let busy = timed_read(&hub, true).await;
+        assert!(quiet.1 >= 30 && busy.1 >= 30, "{} / {} pages", quiet.1, busy.1);
+        reads.push((quiet.0, busy.0));
+    }
+    // A fleet runner can be descheduled for one whole read. Compare the best of three
+    // alternating reads so that one host-level scheduler spike cannot turn this growth check red.
+    let quiet = reads.iter().map(|(quiet, _)| *quiet).min().unwrap();
+    let busy = reads.iter().map(|(_, busy)| *busy).min().unwrap();
+    println!("ACP session/list 10,000 rows: quiet {quiet:?}, busy {busy:?}, reads={reads:?}");
     assert!(quiet < Duration::from_secs(10), "a quiet paged read took {quiet:?}");
     assert!(
         busy < quiet * 4 + Duration::from_secs(2),

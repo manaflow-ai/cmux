@@ -3,8 +3,8 @@
 // `unknown`, and a reply with no `plan` (an older app), never do, so a company or stub team is never
 // locked out by the page; the answer is always the server's, never read from a plan's name here.
 //   cloudMachine.list   { fresh?: true }    -> { …, plan: { state, id, max_size } } (fresh: read again, not kept)
-//   cloud.plan.subscribe { plan: next_pro | next_max | pro | max } -> { opened: true } (the host runs the upgrade)
-// A team with no plan is offered cmux NEXT's own plans (`next_pro`, `next_max`); a refusal that names the classic ones
+//   cloud.plan.subscribe { plan: next_plus | next_pro | next_max | pro | max } -> { opened: true } (the host runs the upgrade)
+// A team with no plan is offered cmux NEXT's own plans (`next_plus`, `next_pro`, `next_max`); a refusal that names the classic ones
 // (`pro`, `max`) still shows them.
 // A start the platform refuses for its size (`cloud_size_locked`) carries what it needed and what the plan
 // allows (`details`); the card names the needed size in vCPU and memory, never the ladder's name.
@@ -17,10 +17,10 @@ export type CloudSize = (typeof CLOUD_SIZES)[number];
 export type CloudPlanView = { state: CloudPlanState; id: string | null; maxSize: CloudSize | null };
 
 /// Every plan the cards may name: cmux NEXT's own, and the classic ones a server may still send.
-const CLOUD_PLAN_NAMES = ["next_pro", "next_max", "pro", "max"] as const;
+const CLOUD_PLAN_NAMES = ["next_plus", "next_pro", "next_max", "pro", "max"] as const;
 export type CloudPlanId = (typeof CLOUD_PLAN_NAMES)[number];
-/// The plans the pricing card offers a team with no plan, in its order.
-export const CLOUD_PLAN_IDS: readonly CloudPlanId[] = ["next_pro", "next_max"];
+/// The plans the pricing card offers a team with no plan, in its order (smallest first).
+export const CLOUD_PLAN_IDS: readonly CloudPlanId[] = ["next_plus", "next_pro", "next_max"];
 
 const UNKNOWN: CloudPlanView = { state: "unknown", id: null, maxSize: null };
 
@@ -34,17 +34,27 @@ const SIZE_SPECS: Record<CloudSize, { cpu: number; memory: number }> = {
 };
 
 /// What each plan offers: its name (a product name, never translated), its monthly price, and the largest
-/// machine it includes (cmux-platform domain/Plan.ts limits: Pro up to 8 vCPU and 16 GB, Max up to 32 and 64).
-export const CLOUD_PLANS: Record<CloudPlanId, { name: string; price: string; maxSize: CloudSize }> = {
+/// machine it includes in vCPUs and memory (GB), which need not be a ladder size (cmux-platform domain/Plan.ts
+/// limits: cmux NEXT Plus up to 4 vCPU and 16 GB, the machine every chat starts on; cmux NEXT Pro up to 8 and 32;
+/// classic Pro up to 8 and 16; Max up to 32 and 64).
+export const CLOUD_PLANS: Record<CloudPlanId, { name: string; price: string; cpu: number; memory: number }> = {
   // l10n-allow: a product name, never translated.
-  next_pro: { name: "cmux NEXT Pro", price: "$50", maxSize: "lg" },
+  next_plus: { name: "cmux NEXT Plus", price: "$20", cpu: 4, memory: 16 },
   // l10n-allow: a product name, never translated.
-  next_max: { name: "cmux NEXT Max", price: "$200", maxSize: "2xl" },
+  next_pro: { name: "cmux NEXT Pro", price: "$50", cpu: 8, memory: 32 },
   // l10n-allow: a product name, never translated.
-  pro: { name: "Pro", price: "$50", maxSize: "lg" },
+  next_max: { name: "cmux NEXT Max", price: "$200", cpu: 32, memory: 64 },
   // l10n-allow: a product name, never translated.
-  max: { name: "Max", price: "$200", maxSize: "2xl" },
+  pro: { name: "Pro", price: "$50", cpu: 8, memory: 16 },
+  // l10n-allow: a product name, never translated.
+  max: { name: "Max", price: "$200", cpu: 32, memory: 64 },
 };
+
+/// The largest machine a plan includes, in plain words ("4 vCPU and 16 GB memory"), in the person's language.
+export function cloudPlanMachineWords(plan: CloudPlanId, t: Translate = translate): string {
+  const offer = CLOUD_PLANS[plan];
+  return t("cloudStart.machineSize", { cpu: String(offer.cpu), memory: String(offer.memory) });
+}
 
 export function isCloudSize(value: unknown): value is CloudSize {
   return typeof value === "string" && (CLOUD_SIZES as readonly string[]).includes(value);

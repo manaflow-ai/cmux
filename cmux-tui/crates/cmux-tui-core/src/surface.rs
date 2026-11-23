@@ -860,6 +860,7 @@ impl Surface {
                     input_port::InputRoute::Hosted(attachment.input_route()),
                 ))),
                 input_port: port,
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

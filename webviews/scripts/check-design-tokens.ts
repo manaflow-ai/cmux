@@ -16,6 +16,10 @@
  *   font-weight  anything but 400/600 (`normal`); 700 for monograms is recorded in the baseline.
  *   duration     a literal transition/animation duration other than 0, not var(--cmux-motion-*).
  *   easing       cubic-bezier() or ease/ease-in/ease-out/ease-in-out, not var(--cmux-ease-out).
+ *   transition-all  `transition: all ...` or `transition-property: all`: it animates whatever property
+ *                changes next, layout ones included, so a later width or position change starts to move
+ *                with no one deciding it should. Name the properties (opacity, transform, a colour).
+ *                None today, so no baseline row holds one.
  *   motion-literal  a TS/TSX file (tests and galleries too) typing a motion-scale step or curve instead of
  *                importing it from motion/scale.generated.ts (see scriptMotionFindings).
  * Font sizes are the type-scale ratchet's job (scripts/cmux-next/check-type-scale.py), not this one's.
@@ -61,6 +65,9 @@ const LAYOUT_PROPERTY =
 const RADIUS_PROPERTY = /^border(?:-(?:top|bottom|start|end)-(?:left|right|start|end))?-radius$/;
 const DURATION_PROPERTY = /^(?:transition|animation)(?:-duration)?$/;
 const EASING_PROPERTY = /^(?:transition|animation)(?:-timing-function)?$/;
+const TRANSITION_PROPERTY = /^transition(?:-property)?$/;
+/** `all` as one transition's property: the first word of a comma-separated item. */
+const TRANSITION_ALL = /(?:^|,)\s*all(?![\w-])/i;
 const COLOR_FUNCTION = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi;
 /** Properties whose strings and idents are not colours (`content: "#1"`). */
 const NOT_COLOR_PROPERTY =
@@ -80,6 +87,7 @@ export interface Finding {
     | "font-weight"
     | "duration"
     | "easing"
+    | "transition-all"
     | "motion-literal"
     | "token-only"
     | "token-copy";
@@ -146,6 +154,7 @@ export function tokenLiteralKind(property: string, value: string): Finding["kind
     const weight = value.trim().toLowerCase();
     if (!WEIGHTS.has(weight) && !/^(?:var\(|inherit|initial|unset|revert)/.test(weight)) return "font-weight";
   }
+  if (TRANSITION_PROPERTY.test(property) && TRANSITION_ALL.test(withoutVars(value))) return "transition-all";
   if (DURATION_PROPERTY.test(property)) {
     const times = [...withoutVars(value).matchAll(/(?<![\w.-])(\d*\.?\d+)(ms|s)\b/gi)].map((m) => Number(m[1]));
     if (times.some((time) => time !== 0)) return "duration";

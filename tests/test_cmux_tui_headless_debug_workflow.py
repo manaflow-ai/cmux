@@ -86,7 +86,15 @@ class HeadlessDebugDaemon(unittest.TestCase):
             cache = step(job, "Cache the cmux-tui target dir")
             self.assertTrue(str(cache.get("uses", "")).startswith("Swatinem/rust-cache@"))
             self.assertLess(names.index("Cache the cmux-tui target dir"), names.index("Build exact headless cmux-tui"))
-            self.assertEqual(cache.get("if"), "${{ steps.headless-cache.outputs.cache-hit != 'true' }}")
+            # #46962: conformance gates its build steps on a green result for the same
+            # input tree as well, so its condition wraps the producer's.
+            self.assertIn(
+                cache.get("if"),
+                (
+                    "${{ steps.headless-cache.outputs.cache-hit != 'true' }}",
+                    "${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}",
+                ),
+            )
             return cache["with"]
 
         produced, consumed = target_cache(self.producer), target_cache(self.consumer)

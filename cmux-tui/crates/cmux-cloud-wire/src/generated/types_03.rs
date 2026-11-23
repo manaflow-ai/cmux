@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HostNetworkPeerInboundItemVariant1Protocol {
+        Tcp = "tcp",
+        Udp = "udp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostNetworkPeerInboundItemVariant1 {
     pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
@@ -896,11 +903,4 @@ pub struct TeamPolicyValues {
     pub agents_allowed_classes: Option<TeamPolicyValuesAgentsAllowedClasses>,
     #[serde(rename = "device.settings", default, skip_serializing_if = "Option::is_none")]
     pub device_settings: Option<TeamPolicyValuesDeviceSettings>,
-}
-
-wire_enum! {
-    TeamPolicyValuesGithubRepoScopeValue {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
 }

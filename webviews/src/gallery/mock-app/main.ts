@@ -153,7 +153,7 @@ const markOf = (session: AcpmuxSessionEntry) =>
 /** The native sidebar, approximated: the traffic lights, then the chats grouped by folder. */
 function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
   const list = el("div", "app-sidebar-list");
-  const ages = lookSetting(data.look, "sidebar.showTimestamps", false) === true;
+  const ages = lookSetting<boolean>(data.look, "sidebar.showTimestamps", false) === true;
   const groups = new Map<string, AcpmuxSessionEntry[]>();
   for (const session of data.sessions) {
     const name = folderName(session.cwd);

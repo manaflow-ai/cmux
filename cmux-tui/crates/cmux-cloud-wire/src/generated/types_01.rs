@@ -64,6 +64,18 @@ pub struct AutomationAuditEntry {
 /// An automation definition, owned by its team's SchedulerDO.
 pub type AutomationId = String;
 
+/// An environment variable name: capital letters, digits and _, starting with a letter (at most 64).
+pub type AutomationSecretName = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretState {
+    pub name: AutomationSecretName,
+    pub hint: Option<String>,
+    pub generation: i64,
+    pub updated_at: i64,
+    pub updated_by: UserId,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AutomationSettings {
     pub agent_run_default_seconds: Option<i64>,
@@ -841,6 +853,8 @@ wire_enum! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionResources {
     pub repos: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_by_github_id: Option<i64>,
 }
 
 /// One integration connection (a provider account linked to a team).
@@ -889,8 +903,3 @@ pub struct DeviceStatus {
 }
 
 pub type EgressHost = String;
-
-pub type EmailAddress = String;
-
-/// A lowercase DNS name such as acme.com.
-pub type EmailDomain = String;

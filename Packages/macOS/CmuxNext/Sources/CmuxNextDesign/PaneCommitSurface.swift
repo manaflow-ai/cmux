@@ -13,7 +13,8 @@ public import AppKit
 ///
 /// The pane's layout asks the pane's content for its surfaces in the change's own turn
 /// (`NSView.paneCommitSurfaces()`): the content's root view when it is one, else the surfaces the root names
-/// (``PaneCommitSurfaceHosting``). It walks no view tree, so a view the root does not name takes no part.
+/// (``PaneCommitSurfaceHosting``), else those of the top view of the root's content area (a browser's chrome, which
+/// names its shown page). It walks no view tree, so a view none of them names takes no part.
 ///
 /// A surface that hides or leaves its pane while it still owes a report calls `ready` then: it will not draw, and its
 /// pane shows its ground until every report it is owed came, or until its next commit finds the surface gone.
@@ -35,16 +36,20 @@ public protocol PaneCommitSurface: NSView {
 
 public extension NSView {
     /// The ``PaneCommitSurface``s of this view as the root of a pane's content: the view itself when it is one, else
-    /// the ones it names (``PaneCommitSurfaceHosting``), and none for any other view. A hidden view has none: it draws
-    /// nothing and takes its size when it shows.
+    /// the ones it names (``PaneCommitSurfaceHosting``), else those of the top view that fills its content area
+    /// (``paneCommitMotionTop``: the app's pane content puts a browser's chrome there), and none for any other view.
+    /// A hidden view has none: it draws nothing and takes its size when it shows.
     ///
     /// No walk of the subtree: a layout change asks each resized pane once, in its own turn, and a pane with no
-    /// surface costs two casts there.
+    /// surface costs a few casts and one look at its content area's views there.
     ///
     /// - Returns: The surfaces that take part in the pane's next commit.
     func paneCommitSurfaces() -> [any PaneCommitSurface] {
         guard !isHidden else { return [] }
         if let surface = self as? any PaneCommitSurface { return [surface] }
-        return (self as? any PaneCommitSurfaceHosting)?.commitSurfaces ?? []
+        if let hosting = self as? any PaneCommitSurfaceHosting { return hosting.commitSurfaces }
+        guard let top = paneCommitMotionTop, top !== self else { return [] }
+        if let surface = top as? any PaneCommitSurface { return [surface] }
+        return (top as? any PaneCommitSurfaceHosting)?.commitSurfaces ?? []
     }
 }

@@ -354,6 +354,8 @@ pub enum DesktopError {
     /// multi-window app in the background). Says what would work instead.
     Unsupported(String),
     Failed(String),
+    /// The screen is locked, so the call did nothing ([`crate::locked`]).
+    Locked(String),
 }
 
 impl std::fmt::Display for DesktopError {
@@ -365,7 +367,7 @@ impl std::fmt::Display for DesktopError {
                 write!(f, "element {e} is stale; call get_ui_tree again")
             }
             DesktopError::Unsupported(m) => write!(f, "unsupported: {m}"),
-            DesktopError::Failed(m) => write!(f, "{m}"),
+            DesktopError::Failed(m) | DesktopError::Locked(m) => write!(f, "{m}"),
         }
     }
 }
@@ -380,6 +382,7 @@ impl DesktopError {
             DesktopError::StaleElement(_) => "stale_element",
             DesktopError::Unsupported(_) => "unsupported",
             DesktopError::Failed(_) => "failed",
+            DesktopError::Locked(_) => crate::locked::CODE,
         }
     }
 }
@@ -486,6 +489,12 @@ pub trait Watch: Send {
 pub trait Desktop: Send + Sync {
     fn info(&self) -> PlatformInfo;
     fn permissions(&self) -> Permissions;
+    /// Whether the session's screen is locked now (macOS: the lock screen or
+    /// a display that dimmed into it). The engine reads it before every call
+    /// ([`crate::locked`]); a desktop with no lock screen says false.
+    fn screen_locked(&self) -> bool {
+        false
+    }
     fn list_apps(&self) -> DResult<Vec<App>>;
     /// All top-level windows (the engine filters by app and policy).
     fn list_windows(&self) -> DResult<Vec<Window>>;

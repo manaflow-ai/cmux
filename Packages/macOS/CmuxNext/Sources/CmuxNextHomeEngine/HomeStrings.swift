@@ -2,7 +2,11 @@ import Foundation
 
 /// Home strings (Resources/Home.xcstrings).
 public nonisolated enum HomeStrings {
-    public static var title: String { String(localized: "home.title", defaultValue: "Home", table: "Home", bundle: .module) }
+    /// The Chief's page (the Home dock's tab and workspace): "Chief", since the Chief replaces Home (2026-11-20).
+    public static var title: String { String(localized: "home.title", defaultValue: "Chief", table: "Home", bundle: .module) }
+    /// The title Home's tab and workspace had before (English; builds before 2026-11-20 wrote it), still read as
+    /// the default title, never as a name the person chose.
+    public static let legacyTitle = "Home"
     /// The chief's name (N1): the chief conversation's title and the mux's name.
     public static var chiefName: String { String(localized: "home.chief.name", defaultValue: "Chief", table: "Home", bundle: .module) }
     /// Chief's first message on a fresh install: its greeting (``ChiefWelcome``).

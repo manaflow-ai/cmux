@@ -110,7 +110,8 @@ export function mergeProcess(
 
 /// What the pane's acpmux client offers for them.
 export type ProcessSource = {
-  listProcesses(sessionId: string): Promise<unknown>;
+  /// With `recent`: the running ones and only the newest `recent` ended (direct.ts `listProcesses`).
+  listProcesses(sessionId: string, recent?: number): Promise<unknown>;
   /// Registers the `process_update` listener; returns its removal.
   watchProcesses(listener: (process: unknown) => void): () => void;
 };
@@ -121,19 +122,52 @@ export type ProcessRegistry = { processes: readonly SessionInfoProcess[]; listed
 
 const NO_PROCESSES: ProcessRegistry = { processes: [], listed: false };
 
+/// Ended processes a chat's page holds beside every running one (direct.ts `listProcesses`
+/// "recent"): the tray, the summary card and the counts read only these. Session Info and the
+/// Background tasks panel read the whole history while they are open.
+export const PROCESS_LIST_RECENT = 500;
+
+/// What a chat's page holds of `processes` while no list of the whole history shows: every running
+/// one and the newest `recent` ended, in their order (acpmux hub/processes.rs `recent_snapshot`).
+/// The same array while it holds no more, so an update to a short list copies nothing extra.
+export function recentProcesses(
+  processes: readonly SessionInfoProcess[],
+  recent: number = PROCESS_LIST_RECENT,
+): readonly SessionInfoProcess[] {
+  let ended = 0;
+  for (const process of processes) if (process.state !== "running") ended += 1;
+  if (ended <= recent) return processes;
+  let drop = ended - recent;
+  return processes.filter((process) => process.state === "running" || drop-- <= 0);
+}
+
 /// Chat `sessionId`'s background processes while `live`, and while one it knows still runs (so its
 /// end arrives), kept current from the registry's updates. A listing that fails leaves what the
 /// updates said. Going quiet keeps the last records, and the next listing replaces them, so a
 /// count does not drop to zero and back.
+///
+/// `all`: a list of the whole history shows (Session Info, the Background tasks panel), so every
+/// process is read. Otherwise only the running ones and the newest ended are read and kept
+/// (`recentProcesses`): the tray, the card and the counts need no more, and a god chat's history
+/// stays in acpmux rather than the page's heap.
 export function useProcessRegistry(
   source: ProcessSource | undefined,
   sessionId: string | undefined,
   live: boolean,
+  all = true,
 ): ProcessRegistry {
   const [state, setState] = useState<ProcessRegistry & { sessionId?: string }>(NO_PROCESSES);
   const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
   const on = live || running;
   useEffect(() => {
+    // Closing the history releases its older rows even when an idle chat needs no subscription.
+    if (!all) {
+      setState((known) => {
+        if (known.sessionId !== sessionId) return known;
+        const processes = recentProcesses(known.processes);
+        return processes === known.processes ? known : { ...known, processes };
+      });
+    }
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.
@@ -149,16 +183,18 @@ export function useProcessRegistry(
       setState((known) => {
         const processes = known.sessionId === sessionId ? known.processes : [];
         const listed = known.sessionId === sessionId && known.listed;
-        const next = mergeProcess(processes, value, sessionId);
+        const merged = mergeProcess(processes, value, sessionId);
+        const next = all || merged === processes ? merged : recentProcesses(merged);
         return next === processes && known.sessionId === sessionId ? known : { sessionId, processes: next, listed };
       });
     });
-    source.listProcesses(sessionId).then(
+    source.listProcesses(sessionId, all ? undefined : PROCESS_LIST_RECENT).then(
       (reply) => {
         if (!current) return;
         const listed = processesOf(reply, sessionId);
         // Buffered updates win over the stale list snapshot.
-        const reconciled = replayProcessUpdates(listed, pending);
+        const replayed = replayProcessUpdates(listed, pending);
+        const reconciled = all ? replayed : recentProcesses(replayed);
         awaitingList = false;
         pending.clear();
         setState({
@@ -179,7 +215,7 @@ export function useProcessRegistry(
       pending.clear();
       stop();
     };
-  }, [source, sessionId, on]);
+  }, [source, sessionId, on, all]);
   return state.sessionId === sessionId ? state : NO_PROCESSES;
 }
 

@@ -50,7 +50,7 @@ struct ContextMenuEssentialsTests {
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
-                               "closeWorkspace"])
+                               "workspace.toggleArchive", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -111,7 +111,7 @@ struct ContextMenuEssentialsTests {
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
     /// 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸, Pin, Mute; More;
-    /// Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
+    /// Archive, Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
     @Test func theSelectionMenuFollowsChromesMenuForSeveralTabs() {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
@@ -120,9 +120,11 @@ struct ContextMenuEssentialsTests {
         // not a second "Add to New Group" that does the same thing under another name.
         #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
-                          "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
+                          "More", "—", "workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
-        #expect(shown.filter { $0 != "—" }.count <= 12)
+        // 13, the one-row workspace menu's cap, now that Archive opens the closing section on both (#48595; Leo
+        // 2026-11-21: "there's no right click archive chat in the left bit").
+        #expect(shown.filter { $0 != "—" }.count <= 13)
         // The rest moved into More, not gone.
         for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.markWorkspaceUnread"] {
             #expect(allActions(menu).contains(id), "\(id)")

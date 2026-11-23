@@ -36,6 +36,27 @@ export function nextOrder(current: SortOrder | null, key: SortKey): SortOrder {
   return current?.key === key ? { key, ascending: !current.ascending } : { key, ascending: true };
 }
 
+const sameRow = (a: TaskManagerRow, b: TaskManagerRow) =>
+  a.host === b.host &&
+  a.pid === b.pid &&
+  a.task === b.task &&
+  a.name === b.name &&
+  a.cpu === b.cpu &&
+  a.cpuText === b.cpuText &&
+  a.memoryBytes === b.memoryBytes &&
+  a.memoryText === b.memoryText &&
+  a.refusal === b.refusal;
+
+/** A new sample's rows, each one the previous sample's object when nothing in it changed, so only
+ * the rows whose numbers moved draw again (a sample comes about once a second). */
+export function keptRows(previous: readonly TaskManagerRow[], next: readonly TaskManagerRow[]): TaskManagerRow[] {
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = byId.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  });
+}
+
 /** The selection after a new sample: kept while its process is listed, else none. */
 export function keptSelection(selected: string | null, rows: readonly TaskManagerRow[]): string | null {
   return selected !== null && rows.some((row) => row.id === selected) ? selected : null;

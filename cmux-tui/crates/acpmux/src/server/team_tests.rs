@@ -459,7 +459,8 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
     fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
     let (restarted, restarted_fake) = setup(true);
     assert!(restarted.outbox.open(&path).is_empty(), "receipt metadata never resumes as a prompt");
-    let origin = restarted.outbox.team_receipt(OWN_MESSAGE).unwrap();
+    let origin = restarted.outbox.mesh_origin(OWN_MESSAGE).unwrap();
+    assert!(origin.team_origin(), "a team send is recorded as a team origin");
     assert_eq!(origin.target, "@team/reviewer");
     assert!(origin.caller.is_none());
     assert!(restarted.outbox.get(&format!("mesh:{OWN_MESSAGE}")).is_none());

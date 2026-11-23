@@ -83,7 +83,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List every background process agents started", "acpmux process list"),
             ("List only coord's processes", "acpmux process list --session coord"),
+            ("List only the ones still running", "acpmux process list --running"),
         ],
+    ),
+    (
+        "process owner",
+        &[(
+            "Which session owns pid 4242, and whether it may be ended",
+            "acpmux process owner 4242",
+        )],
+    ),
+    (
+        "process left-behind",
+        &[("What ended agent hosts left running on this machine", "acpmux process left-behind")],
     ),
     (
         "process show",
@@ -101,9 +113,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "process kill",
+        &[
+            (
+                "Stop a dev server a Claude Code or Codex agent left running",
+                "acpmux process kill coord/b7x2k1q",
+            ),
+            ("End a pid that is yours or left behind (logged)", "acpmux process kill --pid 4242"),
+        ],
+    ),
+    (
+        "process start",
         &[(
-            "Stop a dev server a Claude Code or Codex agent left running",
-            "acpmux process kill coord/b7x2k1q",
+            "From an agent chat's shell: run a dev server as a task that outlives hibernation",
+            "acpmux process start --description 'dev server' -- 'npm run dev'",
         )],
     ),
     (

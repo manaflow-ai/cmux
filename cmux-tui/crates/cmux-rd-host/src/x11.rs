@@ -120,4 +120,8 @@ impl FrameSource for X11Frames {
     fn encoder_name(&self) -> String {
         self.enc.name()
     }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.enc.idr_cause()
+    }
 }

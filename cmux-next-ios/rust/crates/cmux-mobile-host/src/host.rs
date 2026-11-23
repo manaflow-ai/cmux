@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use cmux_mobile_link::api::{ApiClient, DeviceRegistration, IceCache, IceServer};
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::signaling::{SignalEnvelope, SignalPayload};
-use cmux_mobile_link::{DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
+use cmux_mobile_link::{BuildSpace, DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
@@ -39,6 +39,7 @@ pub enum IceSource {
     /// answer never waits on an HTTP round trip.
     Api {
         base_url: String,
+        build_space: Option<BuildSpace>,
         tokens: Arc<Tokens>,
         cache: Arc<IceCache>,
     },
@@ -52,15 +53,15 @@ const QUICK_RECONNECT: Duration = Duration::from_millis(150);
 const ICE_BUDGET: Duration = Duration::from_secs(5);
 
 impl IceSource {
-    pub fn api(base_url: String, tokens: Arc<Tokens>) -> Self {
-        Self::Api { base_url, tokens, cache: Arc::new(IceCache::new()) }
+    pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
+        Self::Api { base_url, build_space, tokens, cache: Arc::new(IceCache::new()) }
     }
 
     /// The servers and whether they came from the cache.
     pub(crate) async fn servers(&self) -> (Vec<IceServer>, bool) {
         match self {
             Self::Fixed(servers) => (servers.clone(), true),
-            Self::Api { base_url, tokens, cache } => {
+            Self::Api { base_url, build_space, tokens, cache } => {
                 if let Some(servers) = cache.fresh() {
                     return (servers, true);
                 }
@@ -71,7 +72,8 @@ impl IceSource {
                         return (Vec::new(), false);
                     }
                 };
-                cache.get(&ApiClient::new(base_url, &token), ICE_BUDGET).await
+                let api = ApiClient::new(base_url, &token).with_build_space(build_space.clone());
+                cache.get(&api, ICE_BUDGET).await
             }
         }
     }
@@ -107,12 +109,17 @@ impl IceSource {
 
 /// When a phone first registered (`GET /v1/me/devices` `createdAt`), for the
 /// pairing prompt. Every phone that may dial is the Mac owner's own device.
-fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing::RegistrationLookup {
+fn registration_lookup(
+    base_url: String,
+    build_space: Option<BuildSpace>,
+    tokens: Arc<Tokens>,
+) -> crate::pairing::RegistrationLookup {
     Arc::new(move |phone: String| {
-        let (base_url, tokens) = (base_url.clone(), Arc::clone(&tokens));
+        let (base_url, build_space, tokens) = (base_url.clone(), build_space.clone(), Arc::clone(&tokens));
         Box::pin(async move {
             let token = tokens.access_token().await.ok()?;
-            let devices = ApiClient::new(&base_url, &token).my_devices().await.ok()?;
+            let devices =
+                ApiClient::new(&base_url, &token).with_build_space(build_space).my_devices().await.ok()?;
             devices
                 .into_iter()
                 .find(|d| d.device_id.eq_ignore_ascii_case(&phone) && d.kind != "mac")
@@ -132,11 +139,15 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
-        pairing.registration = Some(registration_lookup(config.base_url.clone(), Arc::clone(&tokens)));
+        pairing.registration = Some(registration_lookup(
+            config.base_url.clone(),
+            config.build_space.clone(),
+            Arc::clone(&tokens),
+        ));
     }
     let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
-    let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
+    let ice = IceSource::api(config.base_url.clone(), config.build_space.clone(), Arc::clone(&tokens));
     let _notifications = if crate::notify::enabled() {
         // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
         let sealer = services.pairing.as_ref().map(|pairing| {
@@ -150,6 +161,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         });
         Some(AbortTask(tokio::spawn(crate::notify::run(
             config.base_url.clone(),
+            config.build_space.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
@@ -169,6 +181,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             device_id: config.device_id.clone(),
             device_name: config.device_name.clone(),
             base_url: config.base_url.clone(),
+            build_space: config.build_space.clone(),
             tokens: Arc::clone(&tokens),
             ice: ice.clone(),
             signaling: signaling_watch.clone(),
@@ -262,7 +275,7 @@ async fn connect_once(
         .clone()
         .or_else(|| claims(&token).sub)
         .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
-    let api = ApiClient::new(&config.base_url, &token);
+    let api = ApiClient::new(&config.base_url, &token).with_build_space(config.build_space.clone());
     let (machine_id, sibling_device_ids) = config.machine(&owner);
     let device = api
         .register_device(&DeviceRegistration {
@@ -277,9 +290,15 @@ async fn connect_once(
         .await
         .context("POST /v1/devices")?;
     tracing::info!(device = %device, "registered");
-    let signaling = SignalingClient::connect(&config.base_url, &token, &config.team_id, &config.device_id)
-        .await
-        .context("signaling connect")?;
+    let signaling = SignalingClient::connect_in(
+        &config.base_url,
+        &token,
+        &config.team_id,
+        &config.device_id,
+        config.build_space.as_ref(),
+    )
+    .await
+    .context("signaling connect")?;
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));

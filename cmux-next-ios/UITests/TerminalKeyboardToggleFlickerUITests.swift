@@ -2,11 +2,11 @@ import XCTest
 
 /// The terminal must not flicker when the keyboard shows or hides.
 ///
-/// - A full-screen app (vim) gets one PTY resize per settled toggle (R1-1);
-///   the Mac answers with its grid, a mirror reset and a replay. Until the
-///   new grid is drawn the old one stays pinned to the top (row 1 at the
-///   toolbar's edge, not moving), then it swaps in once, with no grid in
-///   between: no blank grid, no letterbox note, no torn frame.
+/// - A full-screen app (vim) never resizes for the keyboard either (Leo,
+///   2026-11-15: "i meant previously there was the thing that stopped the
+///   resizing when you closed the ios built in keyboard"): its grid keeps
+///   its rows, the Mac never redraws for a toggle, and the grid on screen
+///   never swaps: no blank grid, no letterbox note, no torn frame.
 /// - A shell never resizes for the keyboard; its rows ride the keyboard,
 ///   never against it, never blank, and never snap after it stops.
 ///
@@ -44,20 +44,18 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-system", defaults: ["CmuxMobileTerminalDemoToggle": "system"]))
     }
 
-    /// Shown, then hidden 80 ms later on a 150 ms link: the revert goes at
-    /// once and the page ends on its resting rows.
+    /// Shown, then hidden 80 ms later on a 150 ms link: still no resize, and
+    /// the page ends on its resting rows.
     @MainActor
     func testFullScreenAppToggleReversedBeforeTheMacAnswers() throws {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-reverse", defaults: ["CmuxMobileTerminalDemoToggle": "reverse",
-                                                                                          "CmuxMobileTerminalDemoMacMs": "150"]),
-                               exactResizes: false, reversed: true)
+                                                                                          "CmuxMobileTerminalDemoMacMs": "150"]))
     }
 
     /// Shown, hidden and shown again 100 ms apart.
     @MainActor
     func testFullScreenAppRapidDoubleToggle() throws {
-        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-double", defaults: ["CmuxMobileTerminalDemoToggle": "double"]),
-                               exactResizes: false)
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-double", defaults: ["CmuxMobileTerminalDemoToggle": "double"]))
     }
 
     /// A light terminal theme (the Mac's Solarized Light).
@@ -112,55 +110,35 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         checkShell(try runDemo(phase: "kbshell", name: "inline", defaults: ["CmuxMobileTerminalDemoShell": "inline"]), following: false)
     }
 
-    /// `exactResizes`: one resize per settled toggle (a reversed or doubled
-    /// toggle sends its revert at once, recorded, not asserted).
-    /// `reversed`: each show is taken back before the Mac answers (show and
-    /// hide end where they started), so a round swaps the grid 0 times.
-    private func checkFullScreenApp(_ values: [String: String], exactResizes: Bool = true, reversed: Bool = false) throws {
+    /// A full-screen app keeps its grid through every toggle: no resize, so
+    /// the Mac never redraws for the keyboard and the grid on screen never
+    /// swaps. With the keyboard up the grid's top is clipped and its body
+    /// moves down by whole rows (`TerminalGridSizing.keyboardPlacement`), so
+    /// the row-1 position checks of the old top-pinned layout do not apply.
+    private func checkFullScreenApp(_ values: [String: String]) throws {
         let steps = resizeSteps(values)
-        // The grid on screen changes once per toggle, straight to the end
-        // rows (a full reversal: never); no grid in between is drawn.
+        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
+        for (step, resizes) in steps {
+            XCTAssertEqual(resizes, 0, "the keyboard resized the full-screen app at \(step) (\(values["demo"] ?? "-"))")
+        }
         let swaps = counts(values["swapn"])
         XCTAssertEqual(swaps.count, 10, "swap counts for five shows and five hides (\(values["swapn"] ?? "-"))")
-        if reversed {
-            for round in 0..<5 {
-                XCTAssertEqual((swaps["show\(round)"] ?? -1) + (swaps["hide\(round)"] ?? -1), 0,
-                               "a reversed toggle swaps the grid 0 times (round \(round): \(values["swapn"] ?? "-"))")
-            }
-        } else {
-            for (step, count) in swaps.sorted(by: { $0.key < $1.key }) {
-                XCTAssertEqual(count, 1, "one swap for \(step) (\(values["swapn"] ?? "-"))")
-            }
+        for (step, count) in swaps.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(count, 0, "the grid swapped at \(step) (\(values["swapn"] ?? "-"))")
         }
         XCTAssertEqual(values["inter"], "0", "intermediate grids drawn: \(values["offlog"] ?? "?")")
-        // Row 1 stays where its grid first showed until the next swap, held
-        // still or live, whatever is drawn above it.
-        XCTAssertEqual(values["rowoff"], "0", "frames with row 1 off its place: largest \(values["rowmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
-        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
-        if exactResizes {
-            for (step, resizes) in steps {
-                XCTAssertEqual(resizes, 1, "one resize for the settled toggle \(step) (\(values["demo"] ?? "-"))")
-            }
-        }
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
         XCTAssertEqual(values["sized"], "0", "frames where the surface changed size")
-        // Through every toggle the grid stays pinned to the top: row 1 at the
-        // toolbar's edge on every frame (held stills included), never riding
-        // the composer.
-        XCTAssertEqual(values["topoff"], "0", "frames with row 1 off the toolbar's edge: largest \(values["topmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
-        XCTAssertEqual(values["topmove"], "0", "frames where the grid's top moved without a swap: \(values["offlog"] ?? "?")")
-        // Hiding, the gap below the old grid is background only.
+        // Hiding, the gap below the grid is background only.
         XCTAssertEqual(values["gaplive"], "0", "frames with live or stale rows below the grid: \(values["offlog"] ?? "?")")
-        // After the swap the bottom row rests on the composer.
-        XCTAssertEqual(values["off2"], "0", "frames with the swapped grid off the composer: largest \(values["off2max"] ?? "?") pt at \(values["offlog"] ?? "?")")
         // Ghostty never presents a grid of other rows than the area's without
         // a committed still over it (a torn frame).
         XCTAssertEqual(values["torn"], "0", "frames with the new grid in the old area: \(values["offlog"] ?? "?")")
-        // Measured, not asserted: the gap below the grid while hiding, the
-        // old grid after the composer stopped, toggle start to the swap.
-        XCTContext.runActivity(named: "gap below the grid: \(values["gapf"] ?? "?") frames, largest \(values["gappx"] ?? "?") pt; late \(values["late"] ?? "?"); swap \(values["swapms"] ?? "?") ms") { _ in }
+        // Measured, not asserted: row 1 against the toolbar's edge.
+        XCTContext.runActivity(named: "topoff \(values["topoff"] ?? "?") rowoff \(values["rowoff"] ?? "?") off2 \(values["off2"] ?? "?")") { _ in }
     }
+
 
     private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {
         let steps = resizeSteps(values)

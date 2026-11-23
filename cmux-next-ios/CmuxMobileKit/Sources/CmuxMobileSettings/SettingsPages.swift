@@ -25,6 +25,8 @@ struct AccountPage: View {
     let auth: CmuxMobileAuthModel
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
+    /// The account `methods` was loaded for.
+    @State private var methodsUserID: String?
     @State private var confirmsDeletion = false
     /// Apple's subscription page while the App Store warning is up.
     @State private var renewingSubscription: URL?
@@ -128,7 +130,7 @@ struct AccountPage: View {
         // the App Store. This alert stands in for the confirmation above, so
         // its Delete Account deletes.
         .alert(
-            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your App Store subscription will keep renewing", bundle: .module)),
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your subscription keeps renewing", bundle: .module)),
             isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
             presenting: renewingSubscription
         ) { manageURL in
@@ -138,7 +140,7 @@ struct AccountPage: View {
             Button("Delete Account", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store. Deleting your account also signs you out everywhere and can't be undone.", bundle: .module))
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent.", bundle: .module))
         }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -177,7 +179,12 @@ struct AccountPage: View {
     }
 
     private func loadMethods() async {
-        methods = .loading
+        // The page reloads each time it is shown again (a tab switch back to Settings): it keeps
+        // the rows it has instead of swapping them for "Loading" and back, as the Team page does.
+        // Only a first load or another account shows "Loading".
+        let userID = auth.user?.id
+        if case .loaded = methods, methodsUserID == userID {} else { methods = .loading }
+        methodsUserID = userID
         do {
             methods = .loaded(try await auth.signInMethods())
         } catch is CancellationError {

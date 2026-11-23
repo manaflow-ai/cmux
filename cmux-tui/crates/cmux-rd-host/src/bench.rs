@@ -168,6 +168,11 @@ struct Viewer {
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
     marker_at_ns: u64,
+    /// Linux `--present`: when the frame that showed the marker was on the X display (this
+    /// machine's clock, ns; `Presenter::show` returns once the server copied it), else 0.
+    marker_shown_ns: u64,
+    /// When the newest decoded frame was on the display (0: not shown).
+    last_shown_ns: u64,
     /// Host capture time (host monotonic us) of the frame that showed the marker.
     marker_capture_us: u64,
     /// The frame that showed the marker, when its first datagram arrived and when the
@@ -260,6 +265,7 @@ impl Viewer {
         }
         self.marker = Some(v);
         self.marker_at_ns = decoded_ns;
+        self.marker_shown_ns = self.last_shown_ns;
         self.marker_capture_us = t_capture_us;
         self.marker_frame = frame;
         self.marker_complete_ns = complete_ns;
@@ -380,9 +386,14 @@ impl Viewer {
                         match decoded {
                             Ok(Some(yuv)) => {
                                 #[cfg(target_os = "linux")]
-                                if let Some(p) = self.presenter.as_mut() {
-                                    if p.show(&yuv).is_err() {
-                                        self.present_errors += 1;
+                                {
+                                    self.last_shown_ns = 0;
+                                    if let Some(p) = self.presenter.as_mut() {
+                                        if p.show(&yuv).is_err() {
+                                            self.present_errors += 1;
+                                        } else {
+                                            self.last_shown_ns = now_ns();
+                                        }
                                     }
                                 }
                                 self.decoded_frames += 1;
@@ -447,7 +458,19 @@ impl Viewer {
             self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
                 timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
             });
-        wait_readable(&self.io.fds(), Some(timeout_ns))?;
+        #[allow(unused_mut)]
+        let mut fds = self.io.fds();
+        // A key typed into the `--present` window wakes the wait, so it leaves at once. Keys the
+        // connection already read (during a frame's put) wake nothing, so they go first.
+        #[cfg(target_os = "linux")]
+        if let Some(p) = &self.presenter {
+            fds.push(p.fd());
+        }
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
+        wait_readable(&fds, Some(timeout_ns))?;
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
         let mut arrived = Vec::new();
         self.io.receive(&mut arrived)?;
         for item in arrived {
@@ -487,6 +510,25 @@ impl Viewer {
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
         self.send_input()?;
+        Ok(())
+    }
+
+    /// Sends the keys typed into the `--present` window to the host, as the app's viewer does.
+    #[cfg(target_os = "linux")]
+    fn forward_present_keys(&mut self) -> Res<()> {
+        let Some(p) = self.presenter.as_mut() else {
+            return Ok(());
+        };
+        let mut any = false;
+        for (code, down) in p.take_keys()? {
+            if let Some(usage) = crate::keymap::x_to_hid(code) {
+                self.sender.push(InputEvent::Key { usage, down });
+                any = true;
+            }
+        }
+        if any {
+            self.send_input()?;
+        }
         Ok(())
     }
 
@@ -748,6 +790,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
+        marker_shown_ns: 0,
+        last_shown_ns: 0,
         marker_capture_us: 0,
         marker_frame: 0,
         marker_first_rx_ns: 0,
@@ -889,7 +933,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         "first_rx_ns": v.marker_first_rx_ns,
         "complete_ns": v.marker_complete_ns,
         "decoded_ns": v.marker_at_ns,
+        "presented_ns": v.marker_shown_ns,
     });
+    // `--present`: connect start to the first frame on the display, and key to the frame on it.
+    let first_frame_presented_ms = (v.marker_shown_ns >= start && v.marker_shown_ns > 0)
+        .then(|| (v.marker_shown_ns - start) as f64 / 1e6);
+    let mut presented = Vec::new();
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     // A stall is a run of lost samples: from the first lost key press to the next one
     // that showed. A link blip shows up here as its length plus the recovery time.
@@ -933,6 +982,9 @@ pub fn run(opts: &Opts) -> Res<()> {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }
                 g2g.push((v.marker_at_ns - t0) as f64 / 1e6);
+                if v.marker_shown_ns >= v.marker_at_ns && v.marker_shown_ns > 0 {
+                    presented.push((v.marker_shown_ns - t0) as f64 / 1e6);
+                }
                 to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
                 capture_to_decoded
                     .push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
@@ -943,6 +995,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                     "first_rx_ns": v.marker_first_rx_ns,
                     "complete_ns": v.marker_complete_ns,
                     "decoded_ns": v.marker_at_ns,
+                    "presented_ns": v.marker_shown_ns,
                 }));
                 break;
             }
@@ -967,6 +1020,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         "first_frame_times": first_frame_times,
         "stalls_ms": stalls_ms,
         "g2g_ms": pct(&mut g2g),
+        "presented_ms": pct(&mut presented.clone()),
+        "presented_n": presented.len(),
+        "first_frame_presented_ms": first_frame_presented_ms,
         "lost": lost,
         "same_clock_input_to_capture_ms": pct(&mut to_capture),
         "same_clock_capture_to_decoded_ms": pct(&mut capture_to_decoded),

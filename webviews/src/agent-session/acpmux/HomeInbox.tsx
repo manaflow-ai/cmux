@@ -10,12 +10,15 @@
 // command or details it asks about; the first such row also takes the permission shortcuts (⌥⌘1,
 // ⌥⌘3) unless the home's own chat shows a card that takes them. A refused answer says so on its
 // row, and the row answers again.
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useStableCallback } from "./stableCallback";
 
 import { AgentMark } from "../shared/AgentMark";
-import { age } from "./homeListsModel";
+import { useLabelClock } from "./clock";
+import { age, nextAge } from "./homeListsModel";
 import { type StringKey, useT } from "./i18n";
 import { askText } from "./needsYou/needsYouModel";
+import { sameItemRowProps } from "./needsYou/rowProps";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
 import { recommendedLabel } from "./question/model";
@@ -52,7 +55,6 @@ export function HomeInbox({
   actions,
   look = "list",
   shortcuts = true,
-  now = Date.now(),
 }: {
   /// The asks, newest first, without the home's own chat.
   items: readonly NeedsYouItem[];
@@ -61,7 +63,6 @@ export function HomeInbox({
   look?: HomeInboxLook;
   /// False when something else on the page takes the permission shortcuts.
   shortcuts?: boolean;
-  now?: number;
 }) {
   const t = useT();
   // Asks answered here, hidden until acpmux's change takes them off the list.
@@ -74,26 +75,40 @@ export function HomeInbox({
   const keyed = shortcuts
     ? shown.find((item) => inlineAnswers(item).some((answer) => answer.tone !== "choice"))?.id
     : undefined;
-  if (shown.length === 0) return null;
-  const row = (item: NeedsYouItem) => (
-    <InboxRow
-      key={item.id}
-      item={item}
-      session={byId.get(item.sessionId)}
-      look={look}
-      now={now}
-      keyed={item.id === keyed}
-      actions={actions}
-      onAnswered={() => setSent((before) => new Set(before).add(item.id))}
-      onRefused={() =>
-        setSent((before) => {
-          const next = new Set(before);
-          next.delete(item.id);
-          return next;
-        })
-      }
-    />
+  // One answer and open for every row, calling what `actions` holds now: a parent's new `actions`
+  // draws no row.
+  const answer = useStableCallback((item: NeedsYouItem, choice: NeedsYouAnswer) => actions.answer(item, choice));
+  const open = useStableCallback((item: NeedsYouItem) => actions.open(item));
+  const onAnswered = useCallback((id: string) => setSent((before) => new Set(before).add(id)), []);
+  const onRefused = useCallback(
+    (id: string) =>
+      setSent((before) => {
+        const next = new Set(before);
+        next.delete(id);
+        return next;
+      }),
+    [],
   );
+  if (shown.length === 0) return null;
+  // Each row gets its own data and the shared callbacks, never a closure of its own, so one ask's
+  // change, the keys moving or a minute passing draws only the rows it changes.
+  const row = (item: NeedsYouItem) => {
+    const session = byId.get(item.sessionId);
+    return (
+      <InboxRow
+        key={item.id}
+        item={item}
+        cwd={session?.cwd}
+        machine={session?.peer ? session.host || session.peer : undefined}
+        look={look}
+        keyed={item.id === keyed}
+        answer={answer}
+        open={open}
+        onAnswered={onAnswered}
+        onRefused={onRefused}
+      />
+    );
+  };
   const label = t("needsYou.title");
   return (
     <section className="acpmux-home-list acpmux-home-inbox" data-look={look} aria-label={label}>
@@ -129,25 +144,31 @@ function groups(
   return [...folders];
 }
 
-function InboxRow({
+/// One ask. Its own component, drawn again only when its props change: its item by value, the rest
+/// by identity (needsYou/rowProps.ts).
+const InboxRow = memo(function InboxRow({
   item,
-  session,
+  cwd,
+  machine,
   look,
-  now,
   keyed,
-  actions,
+  answer: send,
+  open,
   onAnswered,
   onRefused,
 }: {
   item: NeedsYouItem;
-  session?: AcpmuxSessionEntry;
+  /// The asking chat's folder.
+  cwd: string | undefined;
+  /// The computer the chat runs on, when it is another one.
+  machine: string | undefined;
   look: HomeInboxLook;
-  now: number;
   /// This row takes the permission shortcuts.
   keyed: boolean;
-  actions: HomeInboxActions;
-  onAnswered(): void;
-  onRefused(): void;
+  answer: HomeInboxActions["answer"];
+  open: HomeInboxActions["open"];
+  onAnswered(id: string): void;
+  onRefused(id: string): void;
 }) {
   const t = useT();
   const [sending, setSending] = useState<string>();
@@ -166,13 +187,13 @@ function InboxRow({
     setFailed(false);
     let reply: Promise<HomeInboxOutcome>;
     try {
-      reply = Promise.resolve(actions.answer(item, choice));
+      reply = Promise.resolve(send(item, choice));
     } catch (error) {
       reply = Promise.reject(error);
     }
     reply.then(
       (outcome) => {
-        if (outcome === "answered") return onAnswered();
+        if (outcome === "answered") return onAnswered(item.id);
         inFlight.current = false;
         setSending(undefined);
       },
@@ -180,7 +201,7 @@ function InboxRow({
         inFlight.current = false;
         setSending(undefined);
         setFailed(true);
-        onRefused();
+        onRefused(item.id);
       },
     );
   };
@@ -200,9 +221,7 @@ function InboxRow({
       for (const [event, handler] of events) window.removeEventListener(event, handler);
     };
   }, [keyed, allow, deny]);
-  const project = session?.cwd ? projectLabel(session.cwd, t) : undefined;
-  const machine = session?.peer ? session.host || session.peer : undefined;
-  const when = age(item.at, now, t);
+  const project = cwd ? projectLabel(cwd, t) : undefined;
   const ask = askText(item, t);
   const chat = item.who.chief ? t("needsYou.chief") : item.who.name;
   const where = [chat, look === "grouped" ? undefined : project, machine].filter(Boolean).join(" · ");
@@ -218,7 +237,7 @@ function InboxRow({
         className="acpmux-home-inbox-open"
         aria-label={`${ask}, ${where}`}
         title={t("needsYou.goToSource")}
-        {...pressToOpen(() => actions.open(item))}
+        {...pressToOpen(() => open(item))}
       >
         <span className="acpmux-home-inbox-mark">
           <AgentMark agent={item.who.harness} size={14} reserve />
@@ -239,7 +258,7 @@ function InboxRow({
             </span>
           )}
         </span>
-        {when && <span className="acpmux-home-meta">{when}</span>}
+        {item.at !== undefined && <HomeAge at={item.at} />}
       </button>
       {answers.length > 0 && (
         <fieldset
@@ -295,4 +314,13 @@ function InboxRow({
       )}
     </li>
   );
+}, sameItemRowProps);
+
+/// A home row's age ("5m ago"), on the pane's shared clock: it wakes only at a minute its text
+/// changes, and a tick draws this label, not its row.
+export function HomeAge({ at }: { at: number }) {
+  const t = useT();
+  const now = useLabelClock(at, nextAge);
+  const when = age(at, now, t);
+  return when ? <span className="acpmux-home-meta">{when}</span> : null;
 }

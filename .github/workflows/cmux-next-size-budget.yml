@@ -19,21 +19,28 @@ name: cmux-next size budget
 # from the pull request's merge commit, as every pull_request workflow is; a change to it shows in
 # the diff under review.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
+  # Started only by pr-router.yml (one router per push, RFD 0023), which lists the changed files once and
+  # calls this workflow when the change touches an input it measures (scripts/ci/pr_router.json
+  # `affects`). Its check runs report as `cmux-next size budget / ...`; when the router does not start it,
+  # one skipped `cmux-next size budget` check reports instead.
+  workflow_call:
 
 permissions: {}
 
+# The description only matters through its `size:` line. An edit with no `size:` line before or
+# after it (a title, a base, a HOLD line) measures nothing: it takes no runner and its own group,
+# so it never cancels a push's or a `size:` edit's run. GitHub's contains() ignores case, as the
+# checker's REASON_LINE does (pattern pr-edit-fans-out-ci in cmuxterm-hq docs/handbook: 130 HOLD-line
+# edits on 2026-11-17 queued this workflow 41 times).
 concurrency:
-  group: cmux-next-size-budget-${{ github.event.pull_request.number }}
+  group: cmux-next-size-budget-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   plan:
     name: cmux-next size budget (plan)
-    # An edit that leaves the description as it was (a title, a base) changes nothing measured.
-    if: ${{ github.event.action != 'edited' || github.event.changes.body != null }}
+    # An edit that adds, changes or removes no `size:` line changes nothing measured.
+    if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     permissions:
@@ -62,7 +69,7 @@ jobs:
             exit 0
           fi
           echo "tool=true" >> "$GITHUB_OUTPUT"
-          git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+          git worktree add -f -f --detach "$RUNNER_TEMP/base" HEAD^1
           mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
           if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
             echo "web=false" >> "$GITHUB_OUTPUT"
@@ -90,6 +97,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -122,6 +130,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -138,7 +147,9 @@ jobs:
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
 
   size-budget:
-    name: cmux-next size budget
+    # An edit with no `size:` line skips this job, and a skipped job reads as success for a check:
+    # that run publishes another name so it never replaces a red `cmux-next size budget`.
+    name: ${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && 'cmux-next size budget metadata edit (ignored)' || 'cmux-next size budget' }}
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}

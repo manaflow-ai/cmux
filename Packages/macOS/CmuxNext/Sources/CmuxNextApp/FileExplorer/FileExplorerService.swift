@@ -27,7 +27,7 @@ final class FileExplorerService {
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let id = UUID().uuidString
         let view = FileExplorerSectionView(
-            model: FileExplorerModel(),
+            model: services.map { FileExplorerModel(lister: $0.viewers.filesPanes.directoryLister) } ?? FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
             rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection, explorer: id) },

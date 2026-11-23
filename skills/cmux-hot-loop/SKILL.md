@@ -49,7 +49,11 @@ copy of APP, then writes before and after screenshots (light and dark), a click-
 | Web: your checkout | `cmux live start --worktree <checkout>` (hot reload on every save) | `cmux live stop` |
 | Terminal daemon, acpmux (`cmux-tui/` Rust), a merged commit | `scripts/cmux-next/hot-apply.py apply SHA` | `scripts/cmux-next/hot-apply.py rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
-| Swift, Rust the app links, resources, manifests | a build (`plan` names it) | |
+| Daemon Rust from your checkout, terminals kept | `cmux live start --rust` | `cmux live stop` |
+| Swift inside function bodies (CmuxNext modules, MessagesLabHome) | live code on a Debug base: `cmux live start --swift` ([live code](../../docs/cmux-next/live-code.md)) | `cmux live-code undo --all` |
+| String catalogs (`.xcstrings`), Cloud wire types (`clients/ts`) | `cmux app try .` (web pages take the change; Swift's translations wait for a build) | `cmux app try . --stop` |
+| Backend, images, workers, CI (no app change) | `cmux-ci test -- CMD` on Linux; Cloud calls from a copy: `cmux app try .`, then sign in from the copy | |
+| Swift signatures, stored properties, new types, Rust the app links, resources, manifests | a build (`plan` names it) | |
 
 Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
 newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).

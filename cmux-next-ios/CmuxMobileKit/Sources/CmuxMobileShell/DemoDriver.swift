@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -77,12 +77,12 @@ struct DemoDriver {
             // top bar (no link is dialed: the mock store marks the Mac's link failed).
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-home-failed":
             // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
-            MacHomeFeed.shared.setProblemForDemo("The Mac didn't answer.")
+            MacHomeFeed.shared.setProblemForDemo("Can't reach the Mac right now.")
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .connected
             shell.tab = .home
@@ -101,7 +101,7 @@ struct DemoDriver {
                 }
             }
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
@@ -139,6 +139,19 @@ struct DemoDriver {
             ChiefSources.shared.mac.macName = "Mac Studio"
             // The Mac Chief's row is its session's conversation, as on a real Mac's list.
             MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
+            shell.tab = .home
+        case "chief-list", "chief-list-placed", "chief-list-cloud-only":
+            // One Chief list (CmuxChiefList): the Mac's Chiefs and every Cloud Chief, tagged and with Main as the
+            // Mac's Home has them. -placed: the Chief on a paired server is the open one (Main · its server).
+            // -cloud-only: no Mac, so the default Cloud Chief is Main.
+            let chiefs: [(name: String, isDefault: Bool, server: String?)] = [
+                ("Atlas", true, nil), ("Ops", false, nil), ("Chief (Mac mini)", false, "cmux20"),
+            ]
+            ChiefSources.shared.showDemoCloudChiefs(chiefs, open: name == "chief-list-placed" ? 2 : 0)
+            if name != "chief-list-cloud-only" {
+                ChiefSources.shared.mac.macName = "Mac Studio"
+                MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
+            }
             shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).

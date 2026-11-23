@@ -100,10 +100,13 @@ impl Hub {
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
+                peer_wake,
                 btw,
                 titles,
+                summaries,
                 context_overrides,
                 send_relay,
+                new_relay,
                 artifacts,
                 composer_max_rows,
                 tui,
@@ -182,10 +185,16 @@ impl Hub {
             current.auto_resume_delays_ms = auto_resume_delays_ms;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
+            // The next wake of any peer runs the new command (`Peer::wake`).
+            *self.peer_wake.lock().unwrap_or_else(|e| e.into_inner()) =
+                peer_wake.as_ref().map(|w| w.argv.clone());
+            current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
+            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
             current.tui = tui;

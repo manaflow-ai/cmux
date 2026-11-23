@@ -18,7 +18,9 @@ mod publish;
 mod publish_tests;
 mod scaffold;
 mod scene;
+mod share;
 mod shot;
+mod source;
 #[cfg(test)]
 mod tests;
 
@@ -52,6 +54,10 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
+    pub const FETCH_FAILED: i32 = 7;
+    /// `ext share`: the folder cannot be shared yet.
+    pub const NOT_SHAREABLE: i32 = 8;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -78,6 +84,11 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext shot [DIR] [--out PNG] [--json]
                                one reload, then what it rendered: the view's outline and a
                                picture of the cmux window that shows it; exit 6 no picture
+  cmux ext add SOURCE [--no-install]
+                               add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
+                               /tree/REF/PATH link, URL#PATH, or a folder; again to update it
+  cmux ext share [DIR]         the link that adds yours (checks it is pushed and built)
+  cmux ext search [WORDS]      extensions people tagged cmux-extension on GitHub
   cmux ext reload [NAME]       read the extension folders again now and rerun NAME (local/NAME,
                                or every extension in a local folder): a save the watch missed
                                shows, and a script that does not load names file:line while the
@@ -119,6 +130,13 @@ pub(super) enum Request {
     },
     Dev(DevOptions),
     Shot(shot::ShotOptions),
+    Add(share::AddOptions),
+    Share {
+        dir: Option<PathBuf>,
+    },
+    Search {
+        query: Option<String>,
+    },
     List,
     Remove {
         app: String,
@@ -234,6 +252,34 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 options.dir = dir;
             }
             Ok(Request::Dev(options))
+        }
+        "add" => {
+            let mut source = None;
+            let mut install = true;
+            for word in rest {
+                match word.as_str() {
+                    "--no-install" => install = false,
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if source.is_some() => return Err(usage("ext add takes one SOURCE")),
+                    _ => source = Some(word.clone()),
+                }
+            }
+            let source = source.ok_or_else(|| usage("ext add needs a SOURCE"))?;
+            Ok(Request::Add(share::AddOptions { source, install }))
+        }
+        "share" => match rest {
+            [] => Ok(Request::Share { dir: None }),
+            [dir] if !dir.starts_with('-') => Ok(Request::Share { dir: Some(PathBuf::from(dir)) }),
+            _ => Err(usage("ext share takes one DIR")),
+        },
+        "search" => {
+            if let Some(flag) = rest.iter().find(|word| word.starts_with('-')) {
+                return Err(usage(&format!("unknown option {flag}")));
+            }
+            let query = (!rest.is_empty()).then(|| rest.join(" "));
+            Ok(Request::Search { query })
         }
         "shot" => {
             // One `ext dev --once` reload with no install card, plus where the picture goes.
@@ -452,6 +498,12 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                 dev::run_watch(global, &options, globals)
             }
         }
+        Request::Add(options) => share::run_add(global, &options, &globals, json_out),
+        Request::Share { dir } => {
+            let dir = absolute(dir.unwrap_or_else(|| PathBuf::from(".")));
+            share::run_share(&dir, json_out)
+        }
+        Request::Search { query } => share::run_search(query.as_deref(), json_out),
         Request::Shot(mut options) => {
             options.dev.dir = absolute(options.dev.dir);
             options.dev.bun = dev::find_bun();
@@ -542,6 +594,55 @@ fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
             code
         }
     }
+}
+
+/// How long a `customize` verb waits for the daemon to load the folder it
+/// rewrote. Past it the verb returns anyway: the daemon's watch still loads it.
+const CUSTOMIZE_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How the daemon took a customization folder a `customize` verb rewrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FolderLoad {
+    /// It read the folder: the views in it are what cmux shows now.
+    Loaded,
+    /// It refused the folder, with why (its views stay as they were).
+    Refused(String),
+    /// No daemon runs, it is in safe mode, it is older than
+    /// `apps-reload-local` or it did not answer in time: its watch loads the
+    /// folder when it can, as before.
+    NotAsked,
+}
+
+/// Asks the daemon to load the customization folder now and waits for its
+/// answer (`apps-reload-local`, the pass its folder watch runs): a
+/// `customize use` returns with the look's views (its New Tab page, its
+/// sidebar section) loaded, instead of seconds before the watch's late event
+/// on a loaded Mac, when a New Tab page opened at once found no app to show
+/// and showed cmux's own page for its whole life. Best effort: the verb
+/// is a file change and works with no daemon.
+pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Path) -> FolderLoad {
+    let (sender, wakes) = channel();
+    let Ok(mut daemon) = daemon::Daemon::connect(global, sender, wakes) else {
+        return FolderLoad::NotAsked;
+    };
+    let folder = folder.display().to_string();
+    let Ok(asked) = daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] })) else {
+        return FolderLoad::NotAsked;
+    };
+    let answer = daemon.wait(std::time::Instant::now() + CUSTOMIZE_LOAD_DEADLINE, |value| {
+        (value.get("id").and_then(Value::as_str) == Some(asked.as_str()))
+            .then(|| daemon::answer(value))
+    });
+    // An older daemon refuses the request it cannot parse: its watch loads the folder.
+    let Ok(Ok(data)) = answer else { return FolderLoad::NotAsked };
+    if data.field("safeMode").as_bool() == Some(true) {
+        return FolderLoad::NotAsked;
+    }
+    let refused = data.field("rejected").as_array().into_iter().flatten().find_map(|rejected| {
+        (rejected.field("dir").as_str() == Some(folder.as_str()))
+            .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
+    });
+    refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
 }
 
 /// The daemon's `apps-reload` answer, or an exit code and message.

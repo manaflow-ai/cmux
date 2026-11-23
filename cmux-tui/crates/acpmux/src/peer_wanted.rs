@@ -14,7 +14,7 @@
 
 use super::Peer;
 use crate::peer_link::{Backoff, SleepWatch};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
@@ -32,6 +32,14 @@ pub(super) const WAKE_FOR: Duration = Duration::from_secs(180);
 
 /// Set on the ssh of each connect attempt while the peer is marked to wake (`Peer::wake`).
 pub const WAKE_ENV: &str = "ACPMUX_PEER_WAKE";
+
+/// The daemon's `peerWake` argv (config `peerWake`), or none: the machine layer's resume for
+/// a peer's machine, whatever its provider. `Peer::wake` runs it with the peer's name appended.
+pub type WakeHook = Arc<StdMutex<Option<Vec<String>>>>;
+
+/// The longest one `peerWake` run may take before it is killed: a resume that has not come
+/// back within the wake window is no longer what the message waits on.
+pub(super) const WAKE_HOOK_FOR: Duration = WAKE_FOR;
 
 /// A link that ends sooner after its handshake is crash-looping: it keeps its backoff.
 pub(super) const READY_FOR: Duration = Duration::from_secs(10);
@@ -71,13 +79,62 @@ impl Peer {
     /// A message waits for this peer: for `WAKE_FOR` each connect attempt asks its route to
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
+    ///
+    /// The first message of a window (none marked it within `WAKE_FOR`) also runs the daemon's
+    /// `peerWake` command once ([`WakeHook`]), whatever route the peer has: an ssh route with no
+    /// ProxyCommand that wakes (a VM its idle guard powered off) is resumed by it too.
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
         let mut held = self.wanted.wake_until.lock().unwrap_or_else(|e| e.into_inner());
+        let opens = held.is_none_or(|was| was <= now);
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
+        if opens {
+            self.run_wake_hook();
+        }
+    }
+
+    /// Hands the peer the daemon's `peerWake` command (`hub/peers.rs`).
+    pub(crate) fn set_wake_hook(&self, hook: WakeHook) {
+        let _ = self.wake_hook.set(hook);
+    }
+
+    /// The `peerWake` argv for this peer (the peer's name appended), when one is configured.
+    pub(super) fn wake_argv(&self) -> Option<Vec<String>> {
+        let hook = self.wake_hook.get()?;
+        let mut argv = hook.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        if argv.first().is_none_or(|program| program.is_empty()) {
+            return None;
+        }
+        argv.push(self.name.clone());
+        Some(argv)
+    }
+
+    /// Runs `peerWake` once, as one of the peer's own tasks, detached from the request that
+    /// asked: bounded by `WAKE_HOOK_FOR` (a run past it is ended), its exit logged. The
+    /// command keeps its own log. The message itself waits in the sender's outbox and goes once
+    /// the link is back, as with a route that wakes.
+    fn run_wake_hook(&self) {
+        let Some(argv) = self.wake_argv() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let peer = self.name.clone();
+        self.scope.spawn_named("peer-wake", async move {
+            let started = std::time::Instant::now();
+            let outcome = tokio::task::spawn_blocking(move || {
+                crate::machine_wake::run_peer_wake(&argv, WAKE_HOOK_FOR)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("its task ended: {e}")));
+            let ms = started.elapsed().as_millis() as u64;
+            match outcome {
+                Ok(()) => tracing::info!(peer = %peer, ms, "peerWake: resumed for a message"),
+                Err(why) => tracing::warn!(peer = %peer, ms, "peerWake failed: {why}"),
+            }
+        });
     }
 
     /// Whether a connect attempt now asks its route to wake a paused machine.
@@ -335,6 +392,41 @@ mod tests {
         tokio::time::advance(WAKE_FOR).await;
         assert!(!peer.waking() && !peer.is_wanted(), "the mark lapses by itself");
         assert_eq!(wake_env(&peer), None);
+    }
+
+    #[tokio::test]
+    async fn a_message_runs_peer_wake_once_per_window_with_the_peer_name() {
+        let peer = peer();
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("woken");
+        let script = format!("printf '%s %s\\n' \"$ACPMUX_PEER_WAKE\" \"$1\" >> {}", log.display());
+        assert_eq!(peer.wake_argv(), None, "no hook handed over: nothing runs");
+        let hook: WakeHook = Arc::new(StdMutex::new(None));
+        peer.set_wake_hook(hook.clone());
+        assert_eq!(peer.wake_argv(), None, "no peerWake configured: nothing runs");
+        *hook.lock().unwrap() = Some(vec!["sh".into(), "-c".into(), script, "wake".into()]);
+        assert_eq!(peer.wake_argv().unwrap().last().map(String::as_str), Some("huge-blue"));
+        peer.wake();
+        peer.wake(); // the same window: no second run
+        let read = || std::fs::read_to_string(&log).unwrap_or_default();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while read().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "peerWake never ran");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(read(), "1 huge-blue\n");
+        // A window that lapsed opens again on the next message.
+        *peer.wanted.wake_until.lock().unwrap() = Some(Instant::now());
+        peer.wake();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while read().lines().count() < 2 {
+            assert!(std::time::Instant::now() < deadline, "the next window ran no peerWake");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // A reload that removes the key stops it at once (`catalog_reload.rs`).
+        *hook.lock().unwrap() = None;
+        assert_eq!(peer.wake_argv(), None);
     }
 
     #[tokio::test(start_paused = true)]

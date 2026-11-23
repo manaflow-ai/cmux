@@ -48,12 +48,20 @@ pub struct ForkParams {
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first: each still names it where no session
+    /// has it as its current name. Absent when it was never renamed, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub former_names: Vec<String>,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -169,7 +177,32 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
+    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub task_list: Option<crate::task_list::TaskListSummary>,
+    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rolling_summary: Option<crate::store::RollingSummary>,
     pub queued: u64,
+    /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+    /// a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub has_draft: bool,
+    /// Work runs below it with no turn open: a background subagent, a harness background process,
+    /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+    /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+    /// acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub working_below: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
@@ -178,6 +211,19 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub person_hold: Option<PersonHold>,
+    /// The account's rate limit holds every turn of this chat until this time (Unix ms): what
+    /// comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+    /// "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limited_until: Option<u64>,
+    /// Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+    /// it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+    /// retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+    /// on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limit_parked: Option<u64>,
     /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
     /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
     /// otherwise, and from a peer on an older acpmux.
@@ -779,13 +825,15 @@ pub struct RetrySummary {
 }
 
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
-/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
-/// agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
-/// is compacted, then continued at once).
+/// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+/// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+/// the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
     Capacity,
+    RateLimit,
     Transport,
     AgentExited,
     Context,
@@ -796,6 +844,7 @@ impl RetryReason {
     pub fn from_cause(cause: &str) -> Option<Self> {
         match cause {
             "capacity" => Some(Self::Capacity),
+            "rate_limit" => Some(Self::RateLimit),
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
@@ -806,6 +855,7 @@ impl RetryReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Capacity => "capacity",
+            Self::RateLimit => "rate_limit",
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
@@ -965,5 +1015,19 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+}
+
+/// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+/// one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+/// list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+/// reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+/// and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerRowsChanged {
+    pub peer: String,
+    pub count: u64,
+    pub after_seq: u64,
     pub list_seq: u64,
 }

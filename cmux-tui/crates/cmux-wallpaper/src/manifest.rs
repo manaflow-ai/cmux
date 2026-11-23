@@ -167,18 +167,23 @@ fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
 
 fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
     let n = v.as_f64().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be a number"))?;
-    if !n.is_finite() || n < min || n > max {
+    // Compare at the precision the value is stored in: a param's `min` of 0.1 is kept as
+    // 0.1f32 (0.10000000149...), so a `default` or variant value of 0.1 must compare as
+    // 0.1f32 too, or a valid endpoint reads as out of range.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "values are stored as f32; an n past the f32 range rounds to infinity and fails the check below"
+    )]
+    let stored = n as f32;
+    let at_f32 = f64::from(stored);
+    if !n.is_finite() || !stored.is_finite() || at_f32 < min || at_f32 > max {
         return Err(err(
             ManifestErrorKind::OutOfRange,
             at,
             format!("must be within {min} to {max}"),
         ));
     }
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "callers bound min and max to the f32 range, and the check above keeps n inside them"
-    )]
-    Ok(n as f32)
+    Ok(stored)
 }
 
 fn is_slug(s: &str) -> bool {
@@ -590,6 +595,20 @@ mod tests {
         let m = Manifest::from_value(&v).unwrap();
         assert_eq!(m.idle_after, 2.0);
         assert_eq!(Manifest::from_value(&m.to_json()).unwrap(), m);
+    }
+
+    #[test]
+    fn decimal_endpoints_are_in_range() {
+        // 0.1 and 0.3 are not exact in f32: a default or variant value at a decimal limit is valid.
+        let mut v = base();
+        v["params"][0] = json!({ "name": "speed", "default": 0.1, "min": 0.1, "max": 0.3 });
+        v["variants"][0]["params"] = json!({ "speed": 0.3 });
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!((m.params[0].min, m.params[0].max, m.params[0].default), (0.1, 0.3, 0.1));
+        v["variants"][0]["params"] = json!({ "speed": 0.1 });
+        Manifest::from_value(&v).unwrap();
+        v["variants"][0]["params"] = json!({ "speed": 0.31 });
+        assert_eq!(Manifest::from_value(&v).unwrap_err().kind, ManifestErrorKind::OutOfRange);
     }
 
     #[test]

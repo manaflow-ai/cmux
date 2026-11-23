@@ -57,7 +57,7 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         switch id {
         case "unii":
             String(localized: "home.chief.backend.uniiHint",
-                   defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .module)
+                   defaultValue: "Runs on your UniiChat account. Sign in first with `cmux harness login unii`.", bundle: .module)
         case "muse":
             String(localized: "home.chief.backend.museHint",
                    defaultValue: "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter.",

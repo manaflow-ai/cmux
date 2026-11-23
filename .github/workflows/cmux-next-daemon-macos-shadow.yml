@@ -14,15 +14,8 @@ name: cmux_next_ macOS-only daemon tests (shadow)
 # that owner gave up waiting, so failed-publication recovery stalled behind a
 # Mac queue. Here a red or queued run touches no promotion, publication or
 # marker (tests/test_cmux_tui_daemon_tests_gate.py).
+# Moved from every feat-cmux-next push touching cmux-tui to workflow_dispatch only on 2026-11-21 (ci-time-map: nothing waits for it, ~0.8k Mac-min a day).
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty-next"
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - ".github/actions/runner-cargo-home/**"
-      - ".github/workflows/cmux-next-daemon-macos-shadow.yml"
   workflow_dispatch:
 
 permissions: {}

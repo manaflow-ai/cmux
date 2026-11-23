@@ -686,6 +686,17 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            // `--no-focus` (the CLI's word: `workspace create`, `agent start`, `app open`): the run may not change
+            // what the app shows, said in the request (`focus: false`), never sent as an argument the action
+            // does not take. An agent's or a probe's `cloud start-session` passes it (cloud_start_chat.rs).
+            "no-focus" => {
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    arguments.insert("focus".into(), json!(false));
+                }
+                params.insert("focus".into(), json!(false));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
         // `--name value`, `--name=value`, or a bare `--name` (true) when no
@@ -889,6 +900,15 @@ pub(super) struct ConnectFailure {
 
 /// [`connect_command`] that says whether its failure may pass by waiting.
 pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
+    let stream = connect_command_or_wait_unchecked(global)?;
+    // Warns, once, when the app on the other end is older than this installed CLI.
+    if let Ok(socket) = command_socket(global) {
+        super::stale_app::warn_if_stale(global, &socket.path);
+    }
+    Ok(stream)
+}
+
+fn connect_command_or_wait_unchecked(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
     let fixed = |error| ConnectFailure { error, may_pass: false };
     let socket = command_socket(global).map_err(fixed)?;
     let uid = cmux_tui_core::platform::effective_uid();
@@ -1090,7 +1110,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 print!("{line}");
                 return Ran::Done(0);
             }
-            Ran::Done(super::wire::print_local_success(&value, global.output))
+            let code = super::wire::print_local_success(&value, global.output);
+            // A masked capture says what its grey areas are, so nobody reads one as a blank pane.
+            if global.output == OutputMode::Human
+                && let Some(note) = page::masked_note(&params, &value)
+            {
+                println!("{note}");
+            }
+            Ran::Done(code)
         }
         // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
         // action ran and its target names nothing, which goes to the caller as an error.
@@ -1181,6 +1208,10 @@ fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
 fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
     if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    // `--no-focus`: the run asked to leave the app's view alone, so nothing opens after it either.
+    if params.get("focus").and_then(Value::as_bool) == Some(false) {
         return None;
     }
     let result = value.get("result")?;

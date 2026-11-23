@@ -29,6 +29,7 @@ jobs:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -44,6 +45,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Cloud VM migration preflight
@@ -55,6 +57,7 @@ jobs:
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -73,6 +76,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -97,6 +101,7 @@ jobs:
   migrate-production:
     if: ${{ inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
@@ -115,6 +120,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials

@@ -61,6 +61,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var hybridEvents: [[String: Any]] = []
     /// `identify` lists agent-cli-hybrid-v1 and v2.
     var advertisesHybrid = false
+    /// `identify` lists send-key-v1 (`send` takes `key`).
+    var sendKeys = false
+    /// `identify` lists send-expect-agent-v1 (`send` takes `submit` with `paste`).
+    var pasteSubmit = false
+    /// `send` with `submit` is answered with an error (a daemon refusing the paste).
+    var refusesPasteSubmit = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -84,9 +90,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [reply()]
         case "send" where lock.withLock({ unansweredSends }):
             return []
+        case "send" where object["submit"] != nil && lock.withLock({ refusesPasteSubmit }):
+            return [Self.line(["id": id, "ok": false, "error": "send refused"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
-        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || lock.withLock({ advertisesHybrid }):
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || lock.withLock({ advertisesHybrid }):
             // Built in steps: one long `+` chain is too slow for the type checker.
             var capabilities: [String] = []
             if initialSize { capabilities.append("attach-initial-size") }
@@ -95,6 +103,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
             if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
             if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            if sendKeys { capabilities.append("send-key-v1") }
+            if pasteSubmit { capabilities.append("send-expect-agent-v1") }
             return [reply(["capabilities": capabilities])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]

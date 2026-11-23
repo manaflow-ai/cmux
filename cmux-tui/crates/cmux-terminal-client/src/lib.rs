@@ -2934,8 +2934,11 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
 ///
 /// The daemon adds the tab to the workspace's focused pane (the active pane of
 /// its active screen) and makes it that pane's selected tab; a workspace with
-/// no screen gets a new screen and pane. The session's focused workspace does
-/// not change. `workspace_id` must be an opaque `ws_` id: a name or `current`
+/// no screen gets a new screen and pane. When the focused pane is a chat dock
+/// or holds an agent chat, the tab goes to a pane on the chat's right instead
+/// when there is one; an agent chat that is not docked and is alone on its
+/// screen gets a new column there. The session's focused workspace does not
+/// change. `workspace_id` must be an opaque `ws_` id: a name or `current`
 /// is rejected before any request is sent, so it cannot select another
 /// workspace.
 ///

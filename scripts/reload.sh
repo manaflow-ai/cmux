@@ -2131,6 +2131,9 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
 fi
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+  live_code_copy_resource_bundles "$APP_PATH"
+fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 

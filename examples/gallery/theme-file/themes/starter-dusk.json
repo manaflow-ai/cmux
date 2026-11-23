@@ -1,0 +1,37 @@
+// Starter Dusk: a theme file is JSON with comments. Every key here is a setting a theme file may
+// carry (docs/cmux-next/theme-recipes.md); a key it leaves out stays what you had.
+{
+  "name": "Starter Dusk",
+  "description": "Dark: a dusk-blue page, a warm amber accent, a calm terminal palette.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // The four colors every surface is mixed from.
+  "colors": { "background": "#1a1b2e", "foreground": "#e4e4ef", "selection": "#34365a", "accent": "#f0a85a" },
+  "appearance.accent": "theme",
+  // The terminal: Ghostty config lines, the same page and ink, and the sixteen ANSI colors.
+  "ghostty": [
+    "background = #1a1b2e",
+    "foreground = #e4e4ef",
+    "cursor-color = #f0a85a",
+    "selection-background = #34365a",
+    "palette = 0=#2a2c45",
+    "palette = 1=#f07178",
+    "palette = 2=#9ece6a",
+    "palette = 3=#e0af68",
+    "palette = 4=#7aa2f7",
+    "palette = 5=#bb9af7",
+    "palette = 6=#7dcfff",
+    "palette = 7=#c0caf5",
+    "palette = 8=#565f89",
+    "palette = 9=#ff8a8f",
+    "palette = 10=#b4e08a",
+    "palette = 11=#f0c88a",
+    "palette = 12=#9ab8ff",
+    "palette = 13=#cdb4ff",
+    "palette = 14=#a4dcff",
+    "palette = 15=#e4e4ef"
+  ],
+  "appearance.chromeStyle": "card",
+  "appearance.density": "comfortable"
+}

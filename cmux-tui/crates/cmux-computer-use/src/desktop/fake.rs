@@ -137,6 +137,8 @@ pub struct FakeDesktop {
     pub type_calls: Mutex<usize>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
+    /// The screen is locked ([`Desktop::screen_locked`]).
+    pub locked: Mutex<bool>,
 }
 
 /// A fake watch: the signals the desktop's `signals` holds when read.
@@ -222,6 +224,7 @@ impl FakeDesktop {
             trees_from_walk: Mutex::new(Vec::new()),
             last_max_nodes: Mutex::new(0),
             reframed: Mutex::new(Vec::new()),
+            locked: Mutex::new(false),
             shows: Mutex::new(None),
             signals: std::sync::Arc::new(Mutex::new(None)),
             pasteboard: Mutex::new(0),
@@ -478,6 +481,9 @@ impl Desktop for FakeDesktop {
 
     fn info(&self) -> PlatformInfo {
         PlatformInfo { os: "fake".into(), display_server: "fake".into(), detail: String::new() }
+    }
+    fn screen_locked(&self) -> bool {
+        *lock(&self.locked)
     }
     fn permissions(&self) -> Permissions {
         Permissions {

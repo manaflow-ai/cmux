@@ -76,7 +76,7 @@ private final class TrafficDialer: MacLinkDialer, @unchecked Sendable {
 @MainActor
 @Suite struct LinkHeartbeatTrafficTests {
     private func controller(_ dialer: TrafficDialer, clock: LinkTestClock) -> LinkController {
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock) { _ in "token" }
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock, beat: .off) { _ in "token" }
         controller.endpoint = {
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: $0)
         }
@@ -84,29 +84,14 @@ private final class TrafficDialer: MacLinkDialer, @unchecked Sendable {
         return controller
     }
 
-    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
-                            sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        var deadline = AwakeDeadline(within)
-        while !condition(), deadline.hasTimeLeft() { try await Task.sleep(for: .milliseconds(5)) }
-        try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
-    }
-
-    /// Moves the clock to `end` in 100 ms steps, letting every woken timer
-    /// run and the heartbeat re-arm before the next step.
-    private func run(_ clock: LinkTestClock, until end: LinkTestClock.Instant, while going: () -> Bool = { true }) async throws {
-        while clock.now < end, going() {
-            clock.advance(by: .milliseconds(100))
-            for _ in 0..<20 { await Task.yield() }
-            try await eventually { clock.isSleeping(after: clock.now) || !going() }
-        }
-    }
-
-    private func linkUp(_ controller: LinkController, _ clock: LinkTestClock) async throws {
-        // The link-up probe answered and the first beat is armed.
-        try await eventually {
-            controller.phase == .connected(.wireGuard, .direct, rttMillis: 1)
-                && clock.isSleeping(until: clock.now.advanced(by: LinkController.heartbeat))
-        }
+    /// The link-up probe answered and the first beat is armed.
+    private func linkUp(_ controller: LinkController, _ clock: LinkTestClock,
+                        probeAnswers: @escaping (LinkTestClock.Instant) -> Bool = { _ in true }) async throws -> LinkClockDriver {
+        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: probeAnswers)
+        try await pollUntil { controller.phase == .connected(.wireGuard, .direct, rttMillis: 1) }
+        try await driver.settle()
+        #expect(clock.isSleeping(until: clock.now.advanced(by: LinkController.heartbeat)))
+        return driver
     }
 
     @Test func aLinkDeliveringFramesIsNotProbed() async throws {
@@ -114,10 +99,10 @@ private final class TrafficDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = TrafficDialer(clock: clock)
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await linkUp(controller, clock)
+        let driver = try await linkUp(controller, clock)
         let link = try #require(dialer.first)
         let before = link.probeCount
-        try await run(clock, until: clock.now.advanced(by: .seconds(60)))
+        try await driver.run(until: clock.now.advanced(by: .seconds(60)))
         let perMinute = link.probeCount - before
         print("LINK_HEARTBEAT busy_link_probes_per_min=\(perMinute)")
         #expect(perMinute == 0, "A link delivering a frame every 200 ms was probed \(perMinute) times in a minute")
@@ -133,10 +118,14 @@ private final class TrafficDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = TrafficDialer(clock: clock, framesStop: framesStop)
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await linkUp(controller, clock)
-        try await run(clock, until: framesStop.advanced(by: .seconds(5)), while: { dialer.dials == 1 })
-        try await eventually { dialer.dials >= 2 }
-        print("LINK_HEARTBEAT busy_then_silent_redial_ms=\(framesStop.duration(to: clock.now))")
-        #expect(clock.now <= framesStop.advanced(by: .seconds(5)))
+        var dropped: LinkTestClock.Instant?
+        controller.onSignal = { if case .dropped = $0, dropped == nil { dropped = clock.now } }
+        // A probe answers until the frames stop; then only its bound ends it.
+        let driver = try await linkUp(controller, clock) { $0 <= framesStop }
+        try await driver.run(until: framesStop.advanced(by: .seconds(5))) { dropped != nil }
+        let drop = try #require(dropped, "the silent link was not dropped by \(framesStop.advanced(by: .seconds(5)).offset)")
+        try await pollUntil { dialer.dials >= 2 }
+        print("LINK_HEARTBEAT busy_then_silent_redial_ms=\(framesStop.duration(to: drop))")
+        #expect(drop <= framesStop.advanced(by: .seconds(5)))
     }
 }

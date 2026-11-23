@@ -30,8 +30,9 @@
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
-    webviews_test_history.py heads SHARDS_DIR --count K --out DIR
-        join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
+    webviews_test_history.py heads SHARDS_DIR (--count K | --matrix JSON) --out DIR
+        join the K head shards' (or the matrix's: a pull request runs only the shards webviews_pr_shards.py picks)
+        react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
         results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
         shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
@@ -76,6 +77,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -119,6 +121,37 @@ def load(path: str | Path) -> list[dict]:
 EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
 
 
+# Where the webview suite's own code lives: a test, a helper, a bench or a webviews script there may read a repository
+# path at runtime (`path.resolve(repo, "Packages/macOS/CmuxNext/Sources")`, `schemas/theme/...json`) that no list
+# above routes.
+RUNTIME_READERS = ("webviews/test", "webviews/scripts", "webviews/bench")
+
+
+def runtime_reads(root: str) -> list[str]:
+    """Every repository path outside webviews/ that a file under RUNTIME_READERS names, as HEAD has it.
+
+    A test that reads the Swift sources, a schema or a plan's tool turns red when that path changes, so a base push's
+    verdict carries to the merge parent only when those paths match too. Names are found by text: a name split over
+    several arguments (`join(root, "Packages", "macOS")`) is not seen."""
+    tops = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    tops = [t for t in tops if t != "webviews"]
+    if not tops:
+        return []
+    pattern = r"(^|[^A-Za-z0-9_.-])(" + "|".join(re.escape(t) for t in tops) + r")/[A-Za-z0-9_./-]*[A-Za-z0-9_-]"
+    found = subprocess.run(["git", "-C", root, "grep", "-h", "-o", "-I", "-E", pattern, "HEAD", "--", *RUNTIME_READERS],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"webview test history: cannot read runtime reads: {found.stderr.strip()}")
+    names = {re.sub(r"^HEAD:", "", line).lstrip("\"'`( =,:").rstrip("/.") for line in found.stdout.splitlines()}
+    names = {n[n.index(t):] for n in names for t in tops if t + "/" in n}
+    if not names:
+        return []
+    present = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-t", "--name-only", "HEAD", "--", *sorted(names)],
+                             check=True, capture_output=True, text=True).stdout.split("\n")
+    return sorted(names & set(present))
+
+
 def inputs(root: str | Path = ".") -> str:
     """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
 
@@ -141,6 +174,10 @@ def inputs(root: str | Path = ".") -> str:
                             check=True, capture_output=True, text=True).stdout.split()
     listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
                              check=True, capture_output=True, text=True).stdout
+    named = runtime_reads(root)
+    if named:
+        listed += subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *named],
+                                 check=True, capture_output=True, text=True).stdout
     if "webviews" not in listed:
         raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
@@ -364,7 +401,7 @@ HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
 
-def join_heads(shards: Path, count: int, out: Path) -> str | None:
+def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
     all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
     maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
@@ -374,7 +411,7 @@ def join_heads(shards: Path, count: int, out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in range(1, count + 1):
+    for shard in (range(1, count + 1) if isinstance(count, int) else count):
         here = shards / HEAD_ARTIFACT.format(shard)
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
@@ -556,9 +593,11 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
-        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
-            return [], f"listing the {ARTIFACT} artifacts answered {status}", False
+            left = {k.lower(): v for k, v in (headers or {}).items()}.get("x-ratelimit-remaining")
+            quota = f" (rate limit remaining {left})" if left is not None else ""
+            return [], f"listing the {ARTIFACT} artifacts answered {status}{quota}", False
         found = newest(json.loads(body), branch)
         if found is None:
             return [], f"no {ARTIFACT} artifact from a push on {branch}", True
@@ -630,7 +669,9 @@ def main(argv: list[str]) -> int:
     fo.add_argument("--names", required=True)
     hd = sub.add_parser("heads")
     hd.add_argument("shards")
-    hd.add_argument("--count", type=int, required=True)
+    hd_count = hd.add_mutually_exclusive_group(required=True)
+    hd_count.add_argument("--count", type=int)
+    hd_count.add_argument("--matrix", help="the shard matrix JSON ([{\"shard\": I, ...}, ...]) of the shards that ran")
     hd.add_argument("--out", required=True)
     rf = sub.add_parser("rerun-fits")
     rf.add_argument("files")
@@ -713,7 +754,17 @@ def main(argv: list[str]) -> int:
             print(file)
         return 0
     if args.command == "heads":
-        why = join_heads(Path(args.shards), args.count, Path(args.out))
+        ran: "int | list[int]" = args.count
+        if args.matrix is not None:
+            try:
+                ran = sorted({int(entry["shard"]) for entry in json.loads(args.matrix)})
+            except (ValueError, TypeError, KeyError):
+                print(f"::error title=Webview head results::the shard matrix {args.matrix!r} is unreadable")
+                return 1
+            if not ran:
+                print("::error title=Webview head results::the shard matrix names no shard")
+                return 1
+        why = join_heads(Path(args.shards), ran, Path(args.out))
         if why:
             print(f"::error title=Webview head results::{why}: that head shard published no results to judge")
             return 1

@@ -152,6 +152,24 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case doreMosesTables = "dore-moses-tables"
     case doreEmpyrean = "dore-empyrean"
     case doreRaven = "dore-raven"
+    case hokusaiRedFuji = "hokusai-red-fuji"
+    case hokusaiStormBelowFuji = "hokusai-storm-below-fuji"
+    case hokusaiKajikazawa = "hokusai-kajikazawa"
+    case hiroshigeSuddenShower = "hiroshige-sudden-shower"
+    case hiroshigeKanbaraSnow = "hiroshige-kanbara-snow"
+    case hiroshigePlumGarden = "hiroshige-plum-garden"
+    case hiroshigeMoonPine = "hiroshige-moon-pine"
+    case korinIrises = "korin-irises"
+    case tohakuPineTrees = "tohaku-pine-trees"
+    case jakuchuMandarinDucks = "jakuchu-mandarin-ducks"
+    case fanKuanTravelers = "fan-kuan-travelers"
+    case guoXiEarlySpring = "guo-xi-early-spring"
+    case maYuanCloudsGreenSea = "ma-yuan-clouds-green-sea"
+    case zhangZeduanQingming = "zhang-zeduan-qingming"
+    case wangXimengThousandLi = "wang-ximeng-thousand-li"
+    case jeongSeonInwang = "jeong-seon-inwang"
+    case jeongSeonGeumgang = "jeong-seon-geumgang"
+    case kimHongDoSamgong = "kim-hong-do-samgong"
 
     /// The work's title in the user's language.
     public var title: String {
@@ -302,6 +320,24 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .doreMosesTables: String(localized: "backdrop.dore-moses-tables.title", defaultValue: "Moses Breaks the Tables of the Law", bundle: .module)
         case .doreEmpyrean: String(localized: "backdrop.dore-empyrean.title", defaultValue: "The Empyrean", bundle: .module)
         case .doreRaven: String(localized: "backdrop.dore-raven.title", defaultValue: "The Raven", bundle: .module)
+        case .hokusaiRedFuji: String(localized: "backdrop.hokusai-red-fuji.title", defaultValue: "Fine Wind, Clear Morning (Red Fuji)", bundle: .module)
+        case .hokusaiStormBelowFuji: String(localized: "backdrop.hokusai-storm-below-fuji.title", defaultValue: "Thunderstorm beneath the Summit", bundle: .module)
+        case .hokusaiKajikazawa: String(localized: "backdrop.hokusai-kajikazawa.title", defaultValue: "Kajikazawa in Kai Province", bundle: .module)
+        case .hiroshigeSuddenShower: String(localized: "backdrop.hiroshige-sudden-shower.title", defaultValue: "Sudden Shower over Shin-Ōhashi Bridge and Atake", bundle: .module)
+        case .hiroshigeKanbaraSnow: String(localized: "backdrop.hiroshige-kanbara-snow.title", defaultValue: "Night Snow at Kanbara", bundle: .module)
+        case .hiroshigePlumGarden: String(localized: "backdrop.hiroshige-plum-garden.title", defaultValue: "Plum Park in Kameido", bundle: .module)
+        case .hiroshigeMoonPine: String(localized: "backdrop.hiroshige-moon-pine.title", defaultValue: "Moon Pine, Ueno", bundle: .module)
+        case .korinIrises: String(localized: "backdrop.korin-irises.title", defaultValue: "Irises at Yatsuhashi", bundle: .module)
+        case .tohakuPineTrees: String(localized: "backdrop.tohaku-pine-trees.title", defaultValue: "Pine Trees", bundle: .module)
+        case .jakuchuMandarinDucks: String(localized: "backdrop.jakuchu-mandarin-ducks.title", defaultValue: "Mandarin Ducks in the Snow", bundle: .module)
+        case .fanKuanTravelers: String(localized: "backdrop.fan-kuan-travelers.title", defaultValue: "Travelers among Mountains and Streams", bundle: .module)
+        case .guoXiEarlySpring: String(localized: "backdrop.guo-xi-early-spring.title", defaultValue: "Early Spring", bundle: .module)
+        case .maYuanCloudsGreenSea: String(localized: "backdrop.ma-yuan-clouds-green-sea.title", defaultValue: "Clouds Rising from the Green Sea", bundle: .module)
+        case .zhangZeduanQingming: String(localized: "backdrop.zhang-zeduan-qingming.title", defaultValue: "Along the River During the Qingming Festival", bundle: .module)
+        case .wangXimengThousandLi: String(localized: "backdrop.wang-ximeng-thousand-li.title", defaultValue: "A Thousand Li of Rivers and Mountains", bundle: .module)
+        case .jeongSeonInwang: String(localized: "backdrop.jeong-seon-inwang.title", defaultValue: "Clearing after Rain on Mount Inwang", bundle: .module)
+        case .jeongSeonGeumgang: String(localized: "backdrop.jeong-seon-geumgang.title", defaultValue: "General View of Mount Geumgang", bundle: .module)
+        case .kimHongDoSamgong: String(localized: "backdrop.kim-hong-do-samgong.title", defaultValue: "Nature Better than the Official Ranks", bundle: .module)
         }
     }
 }

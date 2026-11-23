@@ -66,6 +66,8 @@ extension MacScreenPages {
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
         row["first_frame_ms"] = timings.firstFrameMs.map(JSONValue.number) ?? .null
+        // Connect start to the end of each stage passed (answer, link, frame), on a connected read too.
+        row["connect_stage_ms"] = .object(Dictionary(uniqueKeysWithValues: timings.stageMs.map { ($0.key.timingKey, JSONValue.number($0.value)) }))
         let stats = session.stats
         row["fps"] = .number((stats.fps * 10).rounded() / 10)
         row["target_fps"] = stats.targetFps.map { .number(Double($0)) } ?? .null
@@ -77,6 +79,10 @@ extension MacScreenPages {
         let frames = session.frameCounter?.timings
         row["frame_interval_ms"] = frames.map { summary($0.intervals) } ?? .null
         row["present_ms"] = frames.map { summary($0.present) } ?? .null
+        // The viewer's stages to the glass (design D8): Decode, Present and the two together.
+        row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
+        row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
+        row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
         return .object(row)
     }
 

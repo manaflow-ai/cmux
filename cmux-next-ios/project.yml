@@ -48,6 +48,13 @@ options:
 settings:
   base:
     CMUX_MOBILE_TAG: ""
+    # The dev tag the app's cloud requests carry as `X-Cmux-Build-Space: dev:<slug>` (Info.plist
+    # CmuxMobileDevTag; CMUXBuildSpace sanitizes it and drops the tag's leading "."), so a tagged
+    # dev build never sees another build's cloud data. Set only by the Debug configuration below.
+    # Demo stays empty: it is a shared, hand-installed demo build (demo-build.sh) that pairs with
+    # nightly Macs and must show the person's real data, so it sends no header. Production's fixed
+    # ".prod", Release, TestFlight, TestFlightStaging and AppStore send none either.
+    CMUX_MOBILE_DEV_TAG: ""
     CMUX_MOBILE_SOURCE_COMMIT: ""
     CMUX_MOBILE_DISPLAY_NAME: cmux
     # The cmux-mobile-api base URL baked into Info.plist (CmuxMobileAPIBase). DEBUG
@@ -120,6 +127,8 @@ settings:
     CMUX_MOBILE_KEYCHAIN_GROUP: $(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push
     CURRENT_PROJECT_VERSION: "1"
   configs:
+    Debug:
+      CMUX_MOBILE_DEV_TAG: $(CMUX_MOBILE_TAG)
     Release:
       # Release (the `xcodebuild archive` default) is a production build too.
       CMUX_MOBILE_API_BASE: https:/$()/mobile-api.cmux.dev
@@ -312,6 +321,7 @@ targets:
         CFBundleAllowMixedLocalizations: true
         LSRequiresIPhoneOS: true
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
+        CmuxMobileDevTag: $(CMUX_MOBILE_DEV_TAG)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
         CmuxMobileCloudAPIBase: $(CMUX_MOBILE_CLOUD_API_BASE)
         CmuxMobileStackEnvironment: $(CMUX_MOBILE_STACK_ENVIRONMENT)

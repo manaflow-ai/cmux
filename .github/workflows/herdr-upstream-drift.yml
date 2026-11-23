@@ -15,8 +15,6 @@
 name: herdr upstream drift
 
 on:
-  schedule:
-    - cron: "41 7 * * *"
   workflow_dispatch:
 
 concurrency:

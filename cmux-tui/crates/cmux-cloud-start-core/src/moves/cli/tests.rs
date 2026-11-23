@@ -141,6 +141,14 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
     assert_eq!(plan.machine.as_deref(), Some("vm-1"));
     assert_eq!((plan.create_key.as_str(), plan.tab_key.as_str()), ("c", "t"));
     assert!(plan.create_sent);
+    // A ledger that names no routes keeps none: every create of its send is the relay's.
+    assert_eq!((plan.create_route.as_deref(), plan.keeps_create_route), (None, false));
+    let routed = json!({"ok": true, "create_key": "c", "tab_key": "t", "create_sent": true,
+        "create_route": "direct", "create_routes": true})
+    .to_string();
+    let (answer, object) = parse(&output(&routed, "", 0));
+    let routed = start_chat_plan(answer, object.as_ref()).1;
+    assert_eq!((routed.create_route.as_deref(), routed.keeps_create_route), (Some("direct"), true));
     assert_eq!(plan.environment_id.as_deref(), Some("env-1"));
     let setup = plan.setup.unwrap();
     assert_eq!(
@@ -339,6 +347,14 @@ fn each_verb_carries_its_arguments() {
         ["link", "machine", "update", "--socket", "/s"]
     );
     assert_eq!(call(json!({"verb": "machine-pin"})).timeout_seconds, Some(150));
+    let gateway = call(json!({"verb": "inference-gateway-status"}));
+    assert_eq!(
+        (gateway.args, gateway.timeout_seconds),
+        (
+            vec!["inference".to_owned(), "gateway".into(), "status".into(), "--json".into()],
+            Some(10)
+        )
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(
@@ -402,6 +418,16 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    // A sent create names its route only when the App gives one; without it the words are as before.
+    let sent = |route: Option<&str>| {
+        let mut verb = json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"});
+        if let Some(route) = route {
+            verb["route"] = json!(route);
+        }
+        call(verb).args
+    };
+    assert_eq!(sent(None).last().map(String::as_str), Some("c"));
+    assert_eq!(sent(Some("direct"))[sent(None).len()..], ["--route", "direct"]);
     let strand =
         call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(

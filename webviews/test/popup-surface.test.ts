@@ -84,8 +84,8 @@ ${tooltips}
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
-<div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
-<div class="lg-palette" id="lg-palette">Search conversations</div>
+<div class="hc-msg-toolbar ui-glass ui-glass-floats ui-glass-transient" id="hc-msg-toolbar">React</div>
+<div class="ui-dialog lg-palette ui-glass ui-glass-floats ui-glass-transient" id="lg-palette">Search conversations</div>
 <div class="ui-dialog ui-glass ui-glass-floats lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
@@ -93,7 +93,7 @@ ${tooltips}
     // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
     // GLASS, SO JUST USE GLASS.").
     // Home's form dialogs are the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass).
-    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover", "lg-form"],
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover", "lg-form", "hc-msg-toolbar", "lg-palette"],
     surfaces: [
       "menu",
       "page-menu",
@@ -327,13 +327,14 @@ ${tooltips}`,
                 width: Math.round(node.getBoundingClientRect().width),
               };
             });
+            // TooltipMetrics.swift: radius 8, 12/16 text, padding 4 x 8 from the box's edge (the 1px rim inside it).
             expect({ id, ...look }).toEqual({
               id,
               ink: TEXT,
-              radius: "5px",
-              padding: "2px 8px",
+              radius: "8px",
+              padding: "3px 7px",
               border: `1px solid ${SEPARATOR}`,
-              font: "11px/14px",
+              font: "12px/16px",
               shadow: true,
               width: 320,
             });

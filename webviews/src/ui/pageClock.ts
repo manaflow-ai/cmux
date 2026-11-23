@@ -138,6 +138,23 @@ export function subscribePageDeadline(notify: () => void, next: () => number): (
 export const subscribePageSecond = sharedClock("elapsed", 1_000);
 export const subscribePageMinute = sharedClock("relative-time", 60_000, true);
 
+/** The wall time for one label that wakes only when its own words change: `next(now)` is when they
+ * next do (after `now`). Every such label shares the page's one deadline timer
+ * (`subscribePageDeadline`), so a list of "4 min" stamps draws only the stamps whose words moved,
+ * never their rows. `fixed` pins the time (a gallery, a test) and holds no timer. The time is read
+ * when the label mounts: key a label by the time it counts from, so a new one reads afresh. */
+export function useDeadlineNow(next: (now: number) => number, fixed?: number): number {
+  const [time, setTime] = useState(() => fixed ?? Date.now());
+  useEffect(() => {
+    if (fixed !== undefined) return;
+    return subscribePageDeadline(
+      () => setTime(Date.now()),
+      () => next(Date.now()),
+    );
+  }, [next, fixed]);
+  return fixed ?? time;
+}
+
 /** Keep injected/remote clocks at the label; share only their scheduling. Inactive labels retain
  * their last sample, and showing a live page catches up from wall time rather than tick counts. */
 export function usePageNow(running: boolean, now: () => number = Date.now): number {

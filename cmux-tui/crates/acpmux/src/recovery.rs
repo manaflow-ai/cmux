@@ -81,6 +81,18 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether a sign-in failure's `message` is about an API key a provider issued, not the agent's
+/// own login: it names an API key ("This API key has expired", `api_key_expired`, "Invalid API
+/// key · Fix external API key") and does not send the person to a login ("Invalid API key ·
+/// Please run /login" is Claude Code's own sign-in). A new key fixes it; signing in does not.
+pub fn says_api_key(message: &str) -> bool {
+    let m = message.to_lowercase();
+    let key = ["api key", "api_key", "apikey", "x-api-key"].iter().any(|k| m.contains(k));
+    let login =
+        ["/login", "auth login", "please log in", "run login"].iter().any(|k| m.contains(k));
+    key && !login
+}
+
 /// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
 /// has no key, so a Codex with no sign-in of its own (own mode with no login, or team mode with
 /// no placeholder) is signed out ([`auth_kind`]), and the chat shows Codex's Sign in card.
@@ -234,7 +246,12 @@ fn classify(
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.
     if let Some(kind) = auth_kind(message) {
-        let recovery = if kind == kind::AUTH_EXPIRED {
+        let recovery = if says_api_key(message) {
+            "The provider refused the agent's API key (expired or no longer valid), and signing in \
+             again does not renew it. Create a new key with that provider and enter it where the \
+             agent reads it (`cmux harness login <harness>`, or the harness's own login in a \
+             terminal on this machine), then send the message again."
+        } else if kind == kind::AUTH_EXPIRED {
             "The agent's sign-in expired. Sign in again with its login command (`cmux harness \
              login <harness>`, or the harness's own login in a terminal on this machine), then \
              send the message again."

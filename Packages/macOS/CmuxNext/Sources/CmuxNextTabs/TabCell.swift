@@ -51,13 +51,22 @@ final class TabCell {
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
-    var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
+    var isWindowVisible = true {
+        didSet {
+            guard oldValue != isWindowVisible else { return }
+            if item.isBusy { updateSpinner() }
+            updateNeedsYouGlowMotion()
+        }
+    }
     /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
     /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
     /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
     /// came while hidden runs when the strip shows again.
     var isStripShown = true {
-        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+        didSet {
+            if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() }
+            if isStripShown != oldValue { updateNeedsYouGlowMotion() }
+        }
     }
     /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
     var owesIndicatorResync = false
@@ -175,6 +184,7 @@ final class TabCell {
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
+    var needsYouGlowLayer: CALayer? // the waiting tab's halo in place of its mark (TabCell+NeedsYouGlow)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
@@ -367,6 +377,7 @@ final class TabCell {
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
+            applyNeedsYouGlowColor()
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
             applyMachineIcon()
@@ -476,6 +487,7 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         backgroundLayer.frame = bounds
+        layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a

@@ -102,7 +102,7 @@ public actor AcpmuxConnection {
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
         return try await LinkDeadline.run(
             timeout: timeout,
-            timeoutError: LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"),
+            timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
             operation: { try await self.sendAndWait(id: id, data: data) },
             onCancel: { await self.fail(id, CancellationError()) }
         )
@@ -186,7 +186,7 @@ public actor AcpmuxConnection {
         do {
             try await LinkDeadline.run(
                 timeout: timeout,
-                timeoutError: LinkError(code: "timeout", message: "The Mac didn't take (\(method))"),
+                timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
                 operation: { try await channel.send(data) },
                 onCancel: { await self.release(id) }
             )

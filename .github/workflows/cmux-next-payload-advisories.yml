@@ -13,8 +13,6 @@ name: cmux-next payload advisories
 # verdict: a notice, no issue change.
 
 on:
-  schedule:
-    - cron: "41 */6 * * *"
   push:
     branches: [feat-cmux-next]
     paths:

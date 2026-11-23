@@ -36,10 +36,10 @@ enum SidebarSectionStrings {
         String(localized: "sidebarSections.noSuchItem", defaultValue: "no such sidebar item", table: "SidebarSections", bundle: .module)
     }
     static var homeAlreadyShown: String {
-        String(localized: "sidebarSections.homeAlreadyShown", defaultValue: "Home is already in the sidebar", table: "SidebarSections", bundle: .module)
+        String(localized: "sidebarSections.homeAlreadyShown", defaultValue: "Chief is already in the sidebar", table: "SidebarSections", bundle: .module)
     }
     static var homeNotShown: String {
-        String(localized: "sidebarSections.homeNotShown", defaultValue: "Home is not in the sidebar", table: "SidebarSections", bundle: .module)
+        String(localized: "sidebarSections.homeNotShown", defaultValue: "Chief is not in the sidebar", table: "SidebarSections", bundle: .module)
     }
     static var alreadyOnTop: String {
         String(localized: "sidebarSections.alreadyOnTop", defaultValue: "this item is already at the top of the sidebar", table: "SidebarSections", bundle: .module)

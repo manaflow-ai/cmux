@@ -37,6 +37,7 @@ nonisolated extension SidebarLayout {
         // So does one holding archived workspaces (its "Archived (N)" row), and one longer than the row limit (its
         // "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !group.workspaces.contains(where: { o.settled.contains($0.id) }),
               !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
               !(o.archiveSection && (group.isArchived || group.workspaces.contains(where: \.isArchived))),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,

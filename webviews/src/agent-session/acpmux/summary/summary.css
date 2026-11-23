@@ -152,7 +152,7 @@
 /* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
    description and state stay visible; long lists use the View all row instead of hiding completed
    work behind an aggregate count. */
-.acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:var(--ds-radius-popup);background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
+.acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:var(--ds-radius-popup);background:var(--ds-surface-card)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:var(--ds-space-2)}
 .acpmux-summary-task>.acpmux-session-info-stop{margin-right:var(--ds-space-1)}
 /* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
@@ -171,7 +171,7 @@
 .acpmux-workflow__icon,.acpmux-workflow__agent-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--agent-accent)}
 .acpmux-workflow__title{font-weight:var(--weight-emphasis)}
 .acpmux-workflow__state{flex:none;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-workflow__detail{padding:var(--ds-space-2);border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 2%,transparent)}
+.acpmux-workflow__detail{padding:var(--ds-space-2);border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:var(--ds-surface-card)}
 .acpmux-workflow__warning{margin:0 0 var(--ds-space-2);padding:var(--ds-space-1) var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-status-warning) 12%,transparent);color:var(--agent-status-warning);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__columns{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(0,1.2fr);gap:var(--ds-space-2)}
 .acpmux-workflow__columns h4{margin:0 0 var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}

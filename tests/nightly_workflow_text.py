@@ -46,10 +46,11 @@ def nightly_text() -> str:
 
 
 STEP_ANCHOR = re.compile(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", re.MULTILINE)
-# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267): a
-# written-out copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the
-# copy's later `*name` reuses still read the first one.
-NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+$", re.MULTILINE)
+# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267), or a
+# scalar one, `key: &name value` (the Chromium engine fetch's `&r2a ${{ secrets... }}`, #45938): a written-out
+# copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the copy's later
+# `*name` reuses still read the first one.
+NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+(?=$| )", re.MULTILINE)
 
 
 def write_out_step_aliases(text: str) -> str:

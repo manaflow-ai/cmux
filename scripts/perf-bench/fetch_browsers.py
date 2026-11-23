@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fetch the browsers xbench.py compares, as vendor-signed copies in a worker cache.
 
-  fetch_browsers.py [--cache DIR] NAME...   NAME: chrome helium ardia dia cmux-nightly
+  fetch_browsers.py [--cache DIR] NAME...   NAME: chrome edge helium ardia dia cmux-nightly
 
 Prints one `NAME=BUNDLE` line per browser it has. Each copy comes from the
-vendor's own DMG (Chrome: Google's universal DMG; Helium and Ardia: their
+vendor's own DMG (Chrome: Google's universal DMG; Edge: Microsoft's stable universal DMG; Helium and Ardia: their
 latest GitHub release; Dia: diabrowser.com; cmux-nightly: the nightly-next
 appcast's DMG), must pass `codesign --verify --deep --strict` and is made
 read-only, so an updater cannot replace it mid-run. Never the installed apps.
@@ -43,6 +43,9 @@ def source(name: str) -> tuple[str, str]:
     """(version key, DMG URL) for a browser."""
     if name == "chrome":
         return time.strftime("%Y-%m-%d"), "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
+    if name == "edge":
+        # Microsoft's stable channel, universal (the link edge's own download page uses for macOS).
+        return time.strftime("%Y-%m-%d"), "https://go.microsoft.com/fwlink/?linkid=2069148"
     if name == "helium":
         return github_dmg("imputnet/helium-macos", r"_arm64-macos\.dmg$")
     if name == "ardia":
@@ -61,6 +64,11 @@ def install(name: str, url: str, dest: str):
     try:
         dmg = os.path.join(work, "app.dmg")
         subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", dmg, url], check=True, timeout=1800)
+        with open(dmg, "rb") as handle:
+            is_pkg = handle.read(4) == b"xar!"  # Edge ships a flat installer package, not a disk image
+        if is_pkg:
+            install_pkg(name, dmg, dest, work)
+            return
         mount = os.path.join(work, "mnt")
         os.makedirs(mount)
         subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg],
@@ -82,6 +90,30 @@ def install(name: str, url: str, dest: str):
         subprocess.run(["chmod", "-R", "a-w", bundle], check=True)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def install_pkg(name: str, pkg: str, dest: str, work: str):
+    """Unpacks a flat .pkg's payload (pkgutil --expand-full, no installer run, nothing in /Applications)
+    and keeps its one app, verified and read-only as a DMG's."""
+    expanded = os.path.join(work, "pkg")
+    subprocess.run(["pkgutil", "--expand-full", pkg, expanded], check=True, capture_output=True, timeout=900)
+    found = []
+    for root, dirs, _files in os.walk(expanded):
+        for entry in list(dirs):
+            if entry.endswith(".app"):
+                found.append(os.path.join(root, entry))
+                dirs.remove(entry)  # an app's own helper apps are not candidates
+    found.sort(key=lambda path: path.count(os.sep))
+    if not found:
+        raise RuntimeError(f"{name}: no .app in the package")
+    shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest)
+    bundle = os.path.join(dest, os.path.basename(found[0]))
+    subprocess.run(["ditto", found[0], bundle], check=True, timeout=600)
+    verified = subprocess.run(["codesign", "--verify", "--deep", "--strict", bundle], capture_output=True, text=True)
+    if verified.returncode != 0:
+        raise RuntimeError(f"{name}: codesign verify failed: {verified.stderr.strip()[:300]}")
+    subprocess.run(["chmod", "-R", "a-w", bundle], check=True)
 
 
 def bundle_in(dest: str) -> str | None:

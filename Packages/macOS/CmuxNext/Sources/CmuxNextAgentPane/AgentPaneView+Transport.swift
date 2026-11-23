@@ -6,7 +6,7 @@ import WebKit
 extension AgentPaneView {
     func refreshQuestionKeyBinding() {
         guard let page else { return }
-        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor else { return }
+        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, !page.isDrawnAway else { return }
         guard let session = model.sessionId, let connection = model.transport.connection else {
             if questionKeyBinding != nil { page.bindQuestionKeyTargets([]) { _ in } }
             questionKeyBinding = nil
@@ -87,14 +87,14 @@ extension AgentPaneView {
         refreshQuestionKeyBinding()
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
-            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
+            guard let self, self.isShownToPerson else { return answer(false) }
             let spec = Self.confirmationSpec(asked)
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
         // A folder harness profile: the user reads acpmux's prompt and enables it natively.
         model.onConfirmHarness = { [weak self] prompt, answer in
-            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
+            guard let self, self.isShownToPerson else { return answer(false) }
             _ = CmuxDialogCenter.shared.present(Self.harnessEnableSpec(prompt), in: .tab(self)) { reply in
                 answer(reply.button == "enable")
             }

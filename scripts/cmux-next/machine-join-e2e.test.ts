@@ -86,6 +86,7 @@ const VIEW_REPORT = {
 }
 
 interface Knobs {
+  doctor?: ChildResult
   /** What the --bench script prints and how it exits. */
   bench?: ChildResult
   mintStatus?: number
@@ -368,6 +369,9 @@ function world(k: Knobs = {}) {
   // Once the daemon runs: when each status read started and ended.
   const statusReads: Array<{ start: number; end: number }> = []
   const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal, timeoutMs = 60_000): Promise<ChildResult> => {
+    if (args.join(" ") === "host doctor --here --json") {
+      return k.doctor ?? { code: 1, stdout: JSON.stringify({ report: { steps: [] } }) + "\n", stderr: "" }
+    }
     if (args.join(" ") === "host join --status --json") {
       const delay = daemonUp ? (k.statusDelays?.[daemonStatusReads] ?? k.statusDelayMs) : undefined
       if (delay !== undefined) {
@@ -708,7 +712,7 @@ describe("the full run", () => {
     expect(e.reason).toBe("joined, heartbeat, listed, consent none, mode 600, revoked, no secrets found")
     expect(e.result).toBe("pass")
     expect(Object.keys(JSON.parse(w.evidenceText())).sort()).toEqual(
-      ["consent", "credentialFileMode", "hubOrigin", "joinTokenId", "list", "machineId", "name", "reason", "result", "revoke", "run", "secretScan", "status", "teamId"].sort()
+      ["consent", "credentialFileMode", "hubOrigin", "joinSeconds", "joinTokenId", "list", "machineId", "name", "reason", "result", "revoke", "run", "secretScan", "status", "teamId"].sort()
     )
     expect(e).toMatchObject({
       hubOrigin: DEV_PLATFORM,
@@ -722,6 +726,7 @@ describe("the full run", () => {
       secretScan: { home: { cmj: 0, cmm: 0, credentialFileCmm: 1 }, log: { cmj: 0, cmm: 0 }, evidence: { cmj: 0, cmm: 0 } },
       revoke: { revokedListed: true, statusRevoked: true }
     })
+    expect(e.joinSeconds).toBeGreaterThanOrEqual(0)
     expect(e.status.heartbeatAgeSeconds).toBeLessThan(90)
     assertNoSecretEscaped(w)
   })
@@ -758,6 +763,15 @@ describe("the full run", () => {
 })
 
 describe("failure paths", () => {
+  test("a missing doctor report fails and still revokes the machine", async () => {
+    const w = world({ doctor: { code: 64, stdout: "", stderr: "unknown command\n" } })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("doctor: no machine-readable report")
+    expect(e.revoke.revokedListed).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
   test("a refused mint fails without starting acpmux, and the install is revoked", async () => {
     const w = world({ mintStatus: 429 })
     const e = await runE2E(opts, env, w.deps)

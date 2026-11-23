@@ -17,7 +17,7 @@ enum RemoteStrings {
     static var placeholderConnect: String { String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module) }
     static var placeholderNoSnapshot: String { String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module) }
     static func terminalOn(_ machine: String) -> String { String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine) }
-    static var moveTabAcrossMachines: String { String(localized: "remote.tab.cannotMoveAcrossMachines", defaultValue: "Home, conversation and app tabs cannot move to a workspace on another machine.", table: "Remote", bundle: .module) }
+    static var moveTabAcrossMachines: String { String(localized: "remote.tab.cannotMoveAcrossMachines", defaultValue: "Chief, conversation and app tabs cannot move to a workspace on another machine.", table: "Remote", bundle: .module) }
     static func openRemoteHostNotFound(_ host: String) -> String { String(format: String(localized: "remote.openRemote.hostNotFound", defaultValue: "No machine named %@ is added. Add it first, or check the name.", table: "Remote", bundle: .module), host) }
     static func openRemoteBadRatio(_ text: String) -> String { String(format: String(localized: "remote.openRemote.badRatio", defaultValue: "The ratio %@ must be a number between 0 and 1.", table: "Remote", bundle: .module), text) }
     static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }

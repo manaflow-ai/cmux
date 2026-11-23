@@ -30,6 +30,8 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
+        // The fork copied the opener's WebAuthn refusal (InheritWebAuthnMode): the person's input takes it back.
+        tab.webAuthnRefused = opener?.webAuthnRefused ?? false
         // Opened by a page: past a new tab's first paint (PageBackground), and
         // Chromium, not us, drives its document, so its page area is its own.
         tab.reachedFirstRealPage(settled: true)

@@ -135,6 +135,8 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// The browser already knows the file's byte count before the host returns its path.
+  fileSize?: number;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
   /// fill, loading or failed, never a long strip with its name.
   video?: boolean;
@@ -446,32 +448,41 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
+    const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: again ?? crypto.randomUUID(),
-      name: file.name,
-      image: isImageFile(file),
-      ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
-      scope: batch.scope,
-    }));
+    const shown: PendingAttachment[] = files.map((file) => {
+      const video = isVideoName(file.name);
+      const image = isImageFile(file) && (video || !linkImages);
+      return {
+        id: again ?? crypto.randomUUID(),
+        name: file.name,
+        image,
+        ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
+        ...(video ? { video: true } : {}),
+        ...(!isMadeFile(file) && (image || video) ? { sizing: true } : {}),
+        scope: batch.scope,
+      };
+    });
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
-      const id = shown[index]!.id;
+      const { id, image, video, sizing } = shown[index]!;
+      if (!image && !video) return;
       // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
-      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
       // One that may show its own picture is held for it, not only for its header.
-      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      const waits = !video && Boolean(sizing) && mayShowAtOnce(file);
       // timeout: a picture that does not come in time must not hold its tile unseen.
       const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
-      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
-      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
-      else if (isMadeFile(file) && isImageFile(file))
-        void file.file.then(
-          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
-          () => {},
-        );
+      if (isMadeFile(file)) {
+        if (image)
+          void file.file.then(
+            (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
+            () => {},
+          );
+      } else if (sizing) {
+        if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+        else sizeFromHeader(file, (size) => sized(id, size, waits));
+      }
       void instantPreview(file).then((preview) => {
         clearTimeout(deadline);
         // No picture: the tile shows as it would have once its header answered.
@@ -943,10 +954,31 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (Array.isArray(once)) return void attach(once, uploads, kind);
       const { options } = live.current;
       const made = { scope: options.scope, options };
+      // The native record belongs to this drop. Ask for its full batch before a later drop can
+      // replace it while we compare the images.
+      const dropPaths = kind === "drop" ? options.localPaths?.(kind, files).catch(() => undefined) : undefined;
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        if (!dropPaths) return attach(kept, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, {
+          ...made,
+          options: {
+            ...options,
+            // Keep the returned paths aligned with the surviving files.
+            localPaths: async () => {
+              const paths = await dropPaths;
+              if (paths?.length !== files.length) return undefined;
+              if (kept.length === files.length) return paths;
+              let next = 0;
+              return paths.filter((_, index) => {
+                if (files[index] !== kept[next]) return false;
+                next += 1;
+                return true;
+              });
+            },
+          },
+        });
       });
     };
     const paste = (event: ClipboardEvent) => {

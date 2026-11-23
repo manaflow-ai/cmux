@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
@@ -312,6 +313,13 @@ public final class CEFEngine: BrowserEngine {
     public var chromePolicyID: @MainActor () -> String? {
         get { CEFRuntime.shared.chromePolicyIDSetting }
         set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
+    }
+
+    /// SECURITY: whether an input event is the person's own (the app's `PersonInputCheck`): only their click or key in
+    /// a Chromium page takes its WebAuthn back from an agent (``CEFTab/allowWebAuthnForPerson()``). None is until set.
+    public var personInput: @MainActor (NSEvent) -> Bool {
+        get { CEFRuntime.shared.windowRequests.linkClicks.isPerson }
+        set { CEFRuntime.shared.windowRequests.linkClicks.isPerson = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;

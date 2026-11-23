@@ -85,6 +85,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/deadline_http.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
+            *self.installed_sources(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -94,6 +95,16 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    @staticmethod
+    def installed_sources():
+        """Every scripts/ file the installer copies with `install`, so a new copy line never leaves the fixture behind.
+
+        #48396 added scripts/ci/workflow_job_bounds.py to the installer and every fixture install failed with
+        "cannot stat" until this list named it; reading the installer keeps the two in step.
+        """
+        text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
+        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

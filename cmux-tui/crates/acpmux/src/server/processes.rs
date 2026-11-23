@@ -49,7 +49,14 @@ pub(super) async fn dispatch(
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     if m == method::MUX_PROCESS_LIST {
         let paging = process_page_params(params)?;
+        let recent = recent_param(params)?;
+        if recent.is_some() && paging.is_some() {
+            return Err(RpcError::invalid_params("recent does not take limit or cursor"));
+        }
         return match params.get("sessionId").filter(|v| !v.is_null()) {
+            None if recent.is_some() => {
+                Err(RpcError::invalid_params("a recent process list requires a sessionId"))
+            }
             None if paging.is_some() => {
                 Err(RpcError::invalid_params("paged process lists require a sessionId"))
             }
@@ -59,6 +66,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .as_str()
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
+                if let Some(recent) = recent {
+                    return hub.list_recent_processes(&session, recent);
+                }
                 match paging {
                     Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),
                     None => Ok(hub.list_processes_reply(Some(&session))),
@@ -118,6 +128,17 @@ fn process_page_params(params: &Value) -> Result<Option<(usize, Option<&str>)>, 
         .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?;
     let bounded = usize::try_from(limit).unwrap_or(usize::MAX).min(1_000);
     Ok(Some((bounded, cursor)))
+}
+
+/// `recent`: how many ended processes a chat's page holds beside the running ones
+/// (`Hub::list_recent_processes`), a positive integer, at most 1,000.
+fn recent_param(params: &Value) -> Result<Option<usize>, RpcError> {
+    let Some(value) = params.get("recent").filter(|v| !v.is_null()) else { return Ok(None) };
+    let recent = value
+        .as_u64()
+        .filter(|&n| n > 0)
+        .ok_or_else(|| RpcError::invalid_params("recent must be a positive integer"))?;
+    Ok(Some(usize::try_from(recent).unwrap_or(usize::MAX).min(1_000)))
 }
 
 /// A byte count or offset: absent, null or a non-negative integer.

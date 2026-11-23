@@ -330,9 +330,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorModel.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/Import/MemorySource.swift": {
-  "JSON / property-list decode": 2
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
   "line split of a whole input": 1
  },
@@ -350,9 +347,6 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
-  "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseConsentHost.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {

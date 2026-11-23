@@ -11,18 +11,37 @@
 # leaves. Run 43558081148 of a22a4eb1 waited 23 min behind another build, started at 05:06 with 20 newer commits on
 # feat-cmux-next and failed; its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed.
 # With nothing promoted in YIELD_MINUTES the run builds its own commit, as before. A fresh push run never waits.
+# A push run's wait is the time before its first job was queued (from this attempt's start: run_started_at) plus
+# each started job's own queue time (created_at to started_at; a job is created when its needs end): its own decide
+# and resolve steps are not waiting. Counted from creation to this step, run 44893172356 of 89a0aaea (2026-11-21) read 6 min (1.4 min
+# of decide, 4.8 of "Build the tip while its tree publishes", in a group of its own: NIGHTLY_NEXT_ONE_JOB=on gives
+# every push run one), waited the whole YIELD_MINUTES for a promotion nothing asked for and built its commit 6 min late.
 # IN_SLOT=1: nightly-next-one's first step, once its group (nightly-next-one-push) admits it. A run that waited
 # YIELD_STALE_MINUTES or more at that slot (from resolve's end) is stale the same way, and one that leaves sets
 # LEFT_SLOT=1 in the job's env: every later build and publish step skips, so it ends green with nothing cancelled.
+# At the slot (IN_SLOT=1) a stale run waits for nothing on the signing Mac (2026-11-19). Of 83.0 Mac-minutes that 29
+# nightly-next runs with no feed held, 63.5 were this step waiting for main's next tick to promote (run 44014825385:
+# 24.7 min, partly gh_budget_wait.sh's hour-long rate-limit wait). Leo: "if i wait for the nightly then i might as well
+# just update to the thing". So it asks main's tick at once (gh workflow run nightly-next-tick.yml, bounded, fail-open)
+# and leaves with pending=true; wake-nightly-next-tick, on a nightly-only mini, then dispatches the loop's retry of
+# this commit unless nightly-next already moved (nightly-steps/slot-left-retry.sh). That retry waits for the promotion
+# in resolve (this script without IN_SLOT, off the signing Mac) and leaves to it, or builds this commit after
+# YIELD_MINUTES. The loop's last retry (LOOP_RETRY 2) has no retry after it, so at the slot it asks the tick and builds.
+# Every gh call here is bounded (timeout.sh) and never waits through a rate limit (GH_BUDGET_WAIT_MAX_SECONDS=0): a
+# refused or slow read is unknown, which keeps the slot and builds, as before.
 # Env: TIP_SHA, REPOSITORY, GH_TOKEN; LOOP_RETRY (nightly_next_loop_retry); SUPERSEDE_SKIP (vars.NIGHTLY_NEXT_SUPERSEDE_SKIP,
-# a push run leaves without waiting only with 1); YIELD_STALE_MINUTES (5), YIELD_MINUTES (6), YIELD_POLL_SECONDS (15).
+# a push run leaves without waiting only with 1); YIELD_STALE_MINUTES (5), YIELD_MINUTES (6), YIELD_POLL_SECONDS (15);
+# GH_CALL_SECONDS (30, each gh call's bound).
 set -euo pipefail
-next_head() { gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha 2>/dev/null || true; }
+export GH_BUDGET_WAIT_MAX_SECONDS=0
+here="$(dirname "${BASH_SOURCE[0]}")"
+gh_bounded() { bash "$here/../timeout.sh" "${GH_CALL_SECONDS:-30}" gh "$@"; }
+next_head() { gh_bounded api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha 2>/dev/null || true; }
 # The wait reads the ref with git ls-remote against the public repository: no API budget
 # (tests/test_ci_no_github_token_polling.py). It reads through origin-net.sh's remote_refs, one try per poll
 # (the loop is the retry): a remote that does not answer is named and reads as "not moved yet", never as a ref.
 # shellcheck source=scripts/cmux-next/lib/origin-net.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/lib/origin-net.sh"
+source "$here/../../cmux-next/lib/origin-net.sh"
 poll_head() {
   local refs
   if refs="$(ORIGIN_NET_TRIES=1 remote_refs . "${NIGHTLY_NEXT_REMOTE:-https://github.com/$REPOSITORY}" refs/heads/nightly-next)"; then
@@ -41,24 +60,53 @@ if moved "$current" && [[ -n "${LOOP_RETRY:-}" || "${SUPERSEDE_SKIP:-}" == 1 ]];
   leave "$current"
 fi
 minutes_since() { python3 -c 'import datetime as d,sys; print(int((d.datetime.now(d.timezone.utc)-d.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))).total_seconds()//60))' "$1" 2>/dev/null; }
+# Whole minutes from ISO time $1 to ISO time $2; nothing when either is not a time.
+minutes_between() { python3 -c 'import datetime as d,sys; t=lambda v: d.datetime.fromisoformat(v.replace("Z","+00:00")); print(int((t(sys.argv[2])-t(sys.argv[1])).total_seconds()//60))' "$1" "$2" 2>/dev/null; }
 stale=""
 if [[ -n "${IN_SLOT:-}" ]]; then
   # The wait at the slot: since this run's resolve job ended (nightly-next-one queued then). A retry's age was
   # already counted before the slot; here only the slot wait counts, so a run admitted at once builds at once.
-  if ended="$(gh api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" \
+  if ended="$(gh_bounded api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" \
       --jq '.jobs[] | select(.name == "resolve-nightly-cmux-tui-client") | .completed_at' 2>/dev/null)" \
     && waited="$(minutes_since "$ended")" && (( waited >= ${YIELD_STALE_MINUTES:-5} )); then
     stale="a run that waited $waited min at nightly-next-one's push slot"
   fi
 elif [[ -n "${LOOP_RETRY:-}" ]]; then
   stale="a loop retry of $TIP_SHA"
-elif created="$(gh api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}" --jq .created_at 2>/dev/null)" \
-  && waited="$(minutes_since "$created")" \
+elif created="$(gh_bounded api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}" --jq '.run_started_at // .created_at' 2>/dev/null)" \
+  && queued="$(gh_bounded api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" \
+    --jq '[.jobs[] | select(.started_at != null and .created_at != null)] | "\(map(.created_at) | min) \(map((.started_at | fromdateiso8601) - (.created_at | fromdateiso8601)) | add)"' 2>/dev/null)" \
+  && [[ "$queued" =~ ^([0-9T:Z-]+)\ ([0-9]+)$ ]] \
+  && before="$(minutes_between "$created" "${BASH_REMATCH[1]}")" \
+  && waited=$(( before + BASH_REMATCH[2] / 60 )) \
   && (( waited >= ${YIELD_STALE_MINUTES:-5} )); then
   stale="a push run that waited $waited min for the build slot"
 fi
-tip="$(gh api "repos/$REPOSITORY/git/ref/heads/feat-cmux-next" --jq .object.sha 2>/dev/null || true)"
+tip="$(gh_bounded api "repos/$REPOSITORY/git/ref/heads/feat-cmux-next" --jq .object.sha 2>/dev/null || true)"
 if [[ -z "$stale" || ! "$tip" =~ ^[0-9a-f]{40}$ || "$tip" == "$TIP_SHA" ]]; then
+  echo "superseded=false" >> "$GITHUB_OUTPUT"
+  exit 0
+fi
+if [[ -n "${IN_SLOT:-}" ]]; then
+  # Already promoted: the newer push's run builds it.
+  current="$(poll_head)"
+  moved "$current" && leave "$current"
+  # Main's tick, now: it counts this run as building nothing (LEAVE_ONE_STEP) and promotes the newest buildable commit.
+  if gh_bounded workflow run nightly-next-tick.yml --repo "$REPOSITORY" --ref main; then
+    echo "asked main's nightly-next tick to promote the newest buildable commit"
+  else
+    echo "::warning::could not ask main's nightly-next tick; wake-nightly-next-tick asks again when this job ends"
+  fi
+  tries=0
+  if [[ "${LOOP_RETRY:-}" =~ ^[0-9]+$ ]]; then tries="$LOOP_RETRY"; fi
+  if (( tries < 2 )); then
+    echo "superseded=true" >> "$GITHUB_OUTPUT"
+    echo "pending=true" >> "$GITHUB_OUTPUT"
+    echo "LEFT_SLOT=1" >> "$GITHUB_ENV"
+    echo "::notice title=Left the slot::$stale, and feat-cmux-next is at $tip: the signing Mac is free now. Main's tick promotes the newest buildable commit; wake-nightly-next-tick retries $TIP_SHA (retry $(( tries + 1 )) of 2) unless nightly-next moves"
+    exit 0
+  fi
+  echo "$stale, and feat-cmux-next is at $tip, but this is the loop's last retry: building $TIP_SHA now"
   echo "superseded=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi

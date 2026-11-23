@@ -10,8 +10,6 @@ name: cmux-next perf bench
 # which only hands the step to the controller with `cmux-ci run`.
 
 on:
-  schedule:
-    - cron: "17 9 * * *"
   workflow_dispatch:
     inputs:
       rounds:
@@ -47,12 +45,12 @@ jobs:
     timeout-minutes: 420
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients (glaeda GATEWAY_JOBS), and this
-      # job needs only the feat-cmux-next tip's sha. The bench mini checks the tree out itself.
+      # job needs only the measured commit's sha. The bench mini checks the tree out itself.
       - name: xbench on a fleet mini
         env:
-          # A run on feat-cmux-next (the daily dispatcher's, a manual dispatch) is at its tip already; any other
-          # ref (main's cron) reads the tip from the API. git ls-remote from the mini timed out (run 42187585623).
-          RUN_SHA: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || '' }}
+          # Manual PR-branch dispatches measure that branch's immutable commit, as NEXT dispatches already do.
+          # Main keeps its NEXT-tip default. git ls-remote from the mini timed out (run 42187585623).
+          RUN_SHA: ${{ (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && github.sha || '' }}
           GH_TOKEN: ${{ github.token }}
           ROUNDS: ${{ inputs.rounds || '3' }}
           BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}
@@ -73,7 +71,7 @@ jobs:
               "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" || true)"
           fi
           if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error title=No feat-cmux-next tip::could not read the feat-cmux-next tip ('$sha'); the bench did not run."
+            echo "::error title=No benchmark commit::could not resolve the benchmark commit ('$sha'); the bench did not run."
             exit 1
           fi
           target=()

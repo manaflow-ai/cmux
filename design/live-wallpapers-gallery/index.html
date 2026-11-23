@@ -76,6 +76,7 @@
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
       const item = live.find((l) => l.img === e.target || l.canvas === e.target);
+      if (!item) continue;
       if (e.isIntersecting && !item.w) {
         const canvas = document.createElement("canvas");
         item.canvas = canvas;
@@ -88,7 +89,10 @@
       } else if (!e.isIntersecting && item.w && e.target === item.canvas) {
         item.w.dispose();
         item.w = null;
+        // Unobserve before removing: an observed target stays alive, so each scroll past would keep a detached canvas.
+        io.unobserve(item.canvas);
         item.canvas.remove();
+        item.canvas = null;
         item.img.style.display = "";
       }
     }

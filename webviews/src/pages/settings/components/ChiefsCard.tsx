@@ -118,7 +118,7 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const editing = open?.kind === "edit" ? chiefs?.find((chief) => chief.id === open.id) : undefined;
   if (open && (open.kind === "new" || editing))
     return (
-      <section className="group chiefs-card editing ui-glass" data-card="chiefs">
+      <section className="group chiefs-card editing ui-glass ui-glass-content" data-card="chiefs">
         <ChiefPage
           key={editing?.id ?? "new"}
           service={editor}
@@ -135,7 +135,7 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
       </section>
     );
   return (
-    <section className="group chiefs-card ui-glass" data-card="chiefs">
+    <section className="group chiefs-card ui-glass ui-glass-content" data-card="chiefs">
       <div className="accounts-header">
         <h3 className="group-title m-0 flex-1">{t("chief.settings.title")}</h3>
         <button

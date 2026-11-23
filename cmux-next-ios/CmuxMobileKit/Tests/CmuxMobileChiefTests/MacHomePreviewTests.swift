@@ -2,55 +2,27 @@
 import Foundation
 import Testing
 
-/// `plainPreview` strips a preview's Markdown in one pass and takes a regular expression only
-/// when it must (cmux-next-ios/design/instant-perf.md, `home_list_first_screen`). These pin its
-/// result to the three regular expressions it replaced, and `MacHomeRow.time` to both RFC 3339
-/// shapes through the shared formatters.
+/// `plainPreview` turns a preview's Markdown into its words in one pass with no regular expression
+/// (cmux-next-ios/design/instant-perf.md, `home_list_first_screen`; the rules are `MessagePreview`'s,
+/// MacHomeMarkdownPreviewTests), and `MacHomeRow.time` parses both RFC 3339 shapes through the shared
+/// formatters.
 @Suite("Mac Home preview and time parsing")
 struct MacHomePreviewTests {
-    /// The earlier implementation, kept here as the reference.
-    private func reference(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-    }
-
-    @Test("the one-pass preview equals the regular expressions it replaced", arguments: [
-        "",
-        "plain words only",
-        "  leading and trailing  ",
-        "two  spaces and   three",
-        "a tab\there and a\nnewline\r\nand more",
-        "**Done (#12).** The dialer now retries with `backoff`, capped at 30 s.",
-        "```swift\nlet a = 1\n```\nafter the fence",
-        "``` \n bare fence ```",
-        "> quoted _line_ with # heading marks",
-        "a single ` backtick and ``two``",
-        "non\u{00A0}breaking\u{2003}spaces and caf\u{00E9}",
-        "emoji \u{1F600} ** bold ** \u{3000}wide space",
-        "line\u{2028}separator and \u{000B}vertical tab",
-        "*_`#>",
-        "   ",
-        "\n\n",
+    @Test("a preview shows the words without the Markdown around them", arguments: [
+        ("", ""),
+        ("plain words only", "plain words only"),
+        ("  leading and trailing  ", "leading and trailing"),
+        ("two  spaces and   three", "two spaces and three"),
+        ("a tab\there and a\nnewline\r\nand more", "a tab here and a newline and more"),
+        ("**Done (#12).** The dialer now retries with `backoff`, capped at 30 s.", "Done (#12). The dialer now retries with backoff, capped at 30 s."),
+        ("```swift\nlet a = 1\n```\nafter the fence", "let a = 1 after the fence"),
+        ("> quoted _line_ with # heading marks", "quoted line with # heading marks"),
+        ("non\u{00A0}breaking\u{2003}spaces and caf\u{00E9}", "non breaking spaces and caf\u{00E9}"),
+        ("   ", ""),
+        ("\n\n", ""),
     ])
-    func previewMatchesReference(_ text: String) {
-        #expect(plainPreview(text) == reference(text))
-    }
-
-    @Test("a long generated preview equals the reference")
-    func generatedPreviewsMatchReference() {
-        let pieces = ["word", " ", "  ", "\n", "\t", "**", "_", "`", "```", "```js", "#", ">", "\u{00A0}", "\u{00E9}", "x y", "."]
-        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
-        for _ in 0..<400 {
-            var text = ""
-            for _ in 0..<24 {
-                state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-                text += pieces[Int((state >> 33) % UInt64(pieces.count))]
-            }
-            #expect(plainPreview(text) == reference(text), "\(text.debugDescription)")
-        }
+    func previewShowsWords(_ text: String, _ expected: String) {
+        #expect(plainPreview(text) == expected)
     }
 
     @Test("a row's time parses with and without a fraction, every time it is asked")

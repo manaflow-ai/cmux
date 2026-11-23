@@ -8,9 +8,11 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// The drawer's content (SPEC 3.3, with the product override): a "cmux" header
-/// with a `+` menu (Create team, Join with invite link), the team list with
-/// avatars and Mac presence dots, and "Invite to team". Team switching only.
+/// The drawer's content (SPEC 3.3, with the product override): a "Teams"
+/// header with a `+` menu (Create team, Join with invite link), the team list
+/// with avatars and Mac presence dots, and Invite (the active team, never the
+/// personal space) at the bottom trailing edge. Team switching only. Any other
+/// team is invited from its row's context menu.
 struct TeamSidebar: View {
     let store: AppStore
     let shell: ShellModel
@@ -19,25 +21,15 @@ struct TeamSidebar: View {
     @State private var joiningTeam = false
     @State private var newTeamName = ""
     @State private var inviteLink = ""
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    // A label only when there is a list to label.
-                    if store.teams.count > 1 {
-                        // At the team names' x, past the avatar column (SidebarTeamRow.textLeading).
-                        Text("Teams")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .padding(.leading, SidebarTeamRow.textLeading)
-                            .padding(.trailing, theme.metrics.sideMargin)
-                            .padding(.top, 24)
-                            .padding(.bottom, 6)
-                    } else {
-                        Spacer().frame(height: 16)
-                    }
+                    // The header names the list; no second "Teams" label.
+                    Spacer().frame(height: 16)
                     ForEach(store.teams) { team in
                         row(team)
                     }
@@ -57,15 +49,23 @@ struct TeamSidebar: View {
                         .padding(.horizontal, theme.metrics.sideMargin)
                         .padding(.vertical, 8)
                     }
-                    // The personal space is just you: nobody to invite.
-                    if let team = store.activeTeam, !team.isPersonalSpace {
-                        inviteRow
-                            .padding(.top, 4)
-                    }
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
+            // The drawer's bottom toolbar: Invite at the trailing edge, over the
+            // list's end, at the tab bar's line.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // The personal space is just you: nobody to invite.
+                if let team = store.activeTeam, !team.isPersonalSpace {
+                    HStack {
+                        Spacer(minLength: 0)
+                        inviteButton(team)
+                    }
+                    .padding(.horizontal, theme.metrics.sideMargin)
+                    .padding(.bottom, 8)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -90,13 +90,18 @@ struct TeamSidebar: View {
         }
     }
 
+    /// "Teams" and the drawer's add menu. The title names what the drawer
+    /// switches; the brand wordmark it replaced said nothing the app icon
+    /// doesn't.
     private var header: some View {
-        HStack {
-            Text(verbatim: "cmux")
+        HStack(spacing: 8) {
+            Text("Teams")
                 .font(theme.type.sidebarTitle)
                 .foregroundStyle(theme.colors.label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .accessibilityAddTraits(.isHeader)
-            Spacer()
+            Spacer(minLength: 8)
             Menu {
                 Button("Create team", systemImage: "person.2.badge.plus") { creatingTeam = true }
                 Button("Join with invite link", systemImage: "link") { joiningTeam = true }
@@ -112,6 +117,46 @@ struct TeamSidebar: View {
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .padding(.top, 0)
+    }
+
+    /// A glass capsule, "Invite", 44 pt tall like the drawer's `+`; it acts on
+    /// the selected team and its label names that team. At
+    /// accessibility text sizes the glyph alone, in a circle, so the title
+    /// keeps its room. While the invite link is being made the glyph is a
+    /// spinner and the button does nothing.
+    private func inviteButton(_ team: Team) -> some View {
+        Button {
+            shell.invite(to: team)
+        } label: {
+            HStack(spacing: 6) {
+                ZStack {
+                    if shell.isFetchingInvite {
+                        CmuxSpinner()
+                    } else {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: theme.metrics.glassSymbol, weight: .regular))
+                    }
+                }
+                .frame(width: 24, height: 24)
+                if !typeSize.isAccessibilitySize {
+                    Text("Invite")
+                        .lineLimit(1)
+                }
+            }
+            .font(theme.type.rowTitle)
+            .foregroundStyle(theme.colors.label)
+            .padding(.horizontal, typeSize.isAccessibilitySize ? 0 : 14)
+            .frame(minWidth: 44, minHeight: 44)
+            // Its natural width, always: the header row gives way at the title
+            // (which scales down), never by truncating "Invite".
+            .fixedSize()
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.cmuxPressGlass)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .disabled(shell.isFetchingInvite)
+        .accessibilityLabel("Invite to \(team.name)")
+        .accessibilityIdentifier("sidebar.invite")
     }
 
     private func row(_ team: Team) -> some View {
@@ -144,34 +189,6 @@ struct TeamSidebar: View {
                 theme.haptics.copy()
             }
         }
-    }
-
-    private var inviteRow: some View {
-        Button {
-            if let team = store.activeTeam { shell.invite(to: team) }
-        } label: {
-            // Same columns as the team rows: the glyph centered in the 36 pt
-            // avatar column, the title at the team name's x.
-            HStack(spacing: SidebarTeamRow.avatarGap) {
-                ZStack {
-                    if shell.isFetchingInvite {
-                        CmuxSpinner()
-                    } else {
-                        Image(systemName: "person.badge.plus").font(.system(size: 17))
-                    }
-                }
-                .frame(width: theme.metrics.teamAvatar)
-                Text("Invite to team").font(theme.type.rowTitle)
-                Spacer()
-            }
-            .foregroundStyle(theme.colors.label)
-            .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
-            .frame(minHeight: theme.metrics.sidebarRowPitch)
-            .contentShape(.rect)
-        }
-        .buttonStyle(SidebarRowStyle())
-        .padding(.horizontal, theme.metrics.selectedRowInset)
-        .disabled(store.activeTeam == nil)
     }
 }
 

@@ -76,6 +76,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
     // NAME is the name to take, never a peer session to forward to, and its token stays here.
     method::MUX_REGISTER,
+    // So is an inbox relay: it serves the Claude Code session it runs under, on this machine.
+    method::MUX_INBOX_RELAY,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -103,6 +105,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
@@ -900,7 +903,13 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+        let result = if matches!(
+            m,
+            method::MUX_INFO
+                | method::MUX_EVENTS
+                | method::MUX_HISTORY
+                | method::MUX_SESSION_SEARCH
+        ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
             // generic deadline. Dropping this future releases its pending reply entry. Attach

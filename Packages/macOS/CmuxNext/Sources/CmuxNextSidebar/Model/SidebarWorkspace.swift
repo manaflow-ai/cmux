@@ -84,9 +84,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
     /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
     public var usageWarnings: [String] = []
-    /// Set only when the user chose an icon or color. When nil, the row
+    /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
+    /// ``icon`` is the shown tab's (its page's favicon, page icon or globe), not one the user chose: a pinned row
+    /// draws its pin there, not the tab's mark (msg 40501, "shows gh logo instead of the pin logo").
+    public var iconFromShownTab = false
     /// The workspace's own color (workspace-metadata-v1 `color`), whatever icon it shows: the row's
     /// leading rail or fill under `workspaceColors.indicatorStyle` (#25653).
     public var color: GroupColor?
@@ -164,6 +167,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var audio: SidebarWorkspaceAudio?
     /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
     public var checklist: [SidebarChecklistItem] = []
+    /// How far its agent chat is through its task list while steps are left (`SidebarLaneStatus`,
+    /// `sidebar.taskProgress`): the row's "3/7" and the hover card's lines. Nil otherwise.
+    public var taskProgress: SidebarTaskProgress?
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it

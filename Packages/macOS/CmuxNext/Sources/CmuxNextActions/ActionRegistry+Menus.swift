@@ -95,8 +95,11 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let registry, let payload = Self.payload(of: menuItem) else { return false }
         // A feature an administrator turned off leaves the menu (DisabledFeatures), and so does an
-        // action a setting turns off (`browser.import.enabled`).
-        menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil || registry.settingOffReason(registry.canonicalID(for: payload.id)) != nil
+        // action a setting turns off (`browser.import.enabled`) or one hidden from menus for now (the
+        // space rows while the person has one space; its key still runs it, through the key router).
+        let canonical = registry.canonicalID(for: payload.id)
+        menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil || registry.settingOffReason(canonical) != nil
+            || ActionTargetVisibility.isHiddenFromMenus(canonical, in: registry)
         if menuItem.isHidden { return false }
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.

@@ -42,8 +42,8 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # The gate step alone may take 60 minutes, beside Rust setup and the report.
-    timeout-minutes: 90
+    # Every bounded step at its limit fits: Rust setup 30, the gate step 90, the gate home 20, and the report.
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -100,12 +100,16 @@ jobs:
         if: steps.done.outputs.done != 'true'
         continue-on-error: true
         # The whole gate script took 1,805 s at a cold native build (cmux-ci run 43709036687:
-        # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4.
-        timeout-minutes: 60
+        # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4, where the step has since taken
+        # 54 to 60 minutes and one night finished at 57m27s. The limits leave those runs room to finish.
+        timeout-minutes: 90
         working-directory: cmux-tui
+        # `timeout` ends the script's whole process group inside the step's limit. When the CI runner cuts a step it
+        # signals only the step's shell, and a cargo left behind holds cmux-tui/target's lock, so the home below waits
+        # out its own limit on "Blocking waiting for file lock" and writes nothing (Nov 19).
         run: |
           set -o pipefail
-          ../scripts/cmux-next/run-v2-gates.sh
+          timeout --signal=TERM --kill-after=60s 5100s ../scripts/cmux-next/run-v2-gates.sh
 
       - name: Write the v2 god-small input
         id: v2-home

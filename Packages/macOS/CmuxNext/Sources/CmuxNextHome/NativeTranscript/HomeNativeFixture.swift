@@ -315,8 +315,10 @@ public final class HomeNativeFixture {
     /// one message; each next step adds one, as a live run does (0: all at once).
     /// With `queued`, the run is one working agent and three told while the Chief's cap was full (queued, with no
     /// session or workspace yet; user 2026-11-07, msg 23835).
+    /// With `ago` S, the run began S seconds ago, so its working agents' pills show how long they have worked; each
+    /// agent's session began 2, 3, 4… minutes after it (as the Chief's lanes say), and its pill counts from there.
     public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
-                                   queued: Bool = false) -> Bool {
+                                   queued: Bool = false, ago: TimeInterval = 0) -> Bool {
         guard let shown else { return false }
         if let pill {
             guard let view else { return false }
@@ -335,21 +337,21 @@ public final class HomeNativeFixture {
             store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
-        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true) }
-        return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
+        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true, ago: ago) }
+        return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step, ago: ago)
     }
 
     /// Posts my question, the Chief's reply and a run of `all` (its first `step` messages; 0: all), in the
     /// team chat (`team` true), the Chief's own chat (false) or the one shown (nil); then with `expanded`
     /// opens or closes every fold of the run. False before the conversation shows.
     private func postAgentRun(_ all: [(peer: String, outgoing: Bool, text: String)], notes: Bool, team: Bool?, step: Int,
-                              expanded: Bool? = nil, queued: Bool = false) -> Bool {
+                              expanded: Bool? = nil, queued: Bool = false, ago: TimeInterval = 0) -> Bool {
         guard let shown else { return false }
         let source = self.source
         // Step 2 and on grow the last run; anything else starts a new one.
         let continuing = step > 1 ? lastAgentRun.flatMap { $0.notes == notes ? $0.turn : nil } : nil
         let turn = continuing ?? IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
-        if continuing == nil { agentRunStart = Date() }
+        if continuing == nil { agentRunStart = Date().addingTimeInterval(-ago) }
         lastAgentRun = (turn, notes)
         let start = agentRunStart
         let count = step > 0 ? min(step, all.count) : all.count
@@ -375,6 +377,13 @@ public final class HomeNativeFixture {
                                    answers: [], revision: revision, messages: messages)
             await source.streamLive(.run(HomeLiveRunChange(conversation: target.conversation, author: target.chief, run: turn.rawValue,
                                                            turn: turn, status: count < all.count ? "running" : "done", agentRun: run)))
+            if ago > 0 {
+                // Each agent's session began a while after the Chief told it (spawn, then the queue), as the Chief's lanes
+                // say: its pill counts from there (user 2026-11-20), not from the tell.
+                let starts = Dictionary(all.enumerated().map { ($1.peer, start.addingTimeInterval(Double(120 + 60 * $0))) },
+                                        uniquingKeysWith: min)
+                self?.store.agentsStarted(Set(starts.keys), startedAt: starts)
+            }
             if let expanded { _ = self?.debugAgentFolds(expanded: expanded) }
         }
         return true

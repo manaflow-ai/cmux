@@ -32,6 +32,31 @@ import Testing
         #expect(machine.handle(.target(mac)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
     }
 
+    /// Leo: "it just says like, you know, cosmic gray is offline or something. But like
+    /// clearly it wasn't". A surface opening on a Mac presence calls offline dials anyway.
+    @Test func openingASurfaceDialsAMacPresenceCallsOffline() {
+        var machine = LinkMachine(transport: .webRTC)
+        var offline = mac
+        offline.isOnline = false
+        #expect(machine.handle(.target(offline)) == [])
+        #expect(machine.phase == .macOffline)
+        #expect(machine.handle(.open) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+        // A repeated presence "offline" does not cancel the dial the surface asked for.
+        #expect(machine.handle(.target(offline)) == [])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+        // The dial really failed while presence says offline: offline, no retry loop.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "offline")) == [])
+        #expect(machine.phase == .macOffline)
+    }
+
+    @Test func openingASurfaceOnALiveLinkDoesNothing() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        #expect(machine.handle(.open) == [])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+    }
+
     @Test func failuresBackOffAndRetry() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
@@ -357,7 +382,7 @@ struct MockDialer: MacLinkDialer {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
-        #expect(reason == "the Mac didn't answer in time")
+        #expect(reason == LinkError.timeoutReason)
     }
 }
 

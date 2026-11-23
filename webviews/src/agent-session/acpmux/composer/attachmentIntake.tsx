@@ -27,6 +27,8 @@ import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
@@ -167,7 +169,7 @@ export function AttachmentStrip({
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
 /// name, with a spinner and a × that cancels it. One that could not be attached says why, with
 /// Retry.
-function PendingChip({
+export function PendingChip({
   chip,
   onCancel,
   onRetry,
@@ -189,15 +191,43 @@ function PendingChip({
       <RemoveGlyph />
     </button>
   );
-  // A video (a screen recording) is the square its poster will fill, like an image's tile; only
-  // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
-  // video. ... Just do the square.").
-  const square = chip.image || chip.video;
-  const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
-  const shape = chip.image ? imageShape(chip.size) : chip.video ? videoShapeStyle(chip.videoShape) : undefined;
+  const indicator = (
+    <PasteLoadingMark
+      look={look}
+      size={16}
+      className="acpmux-attachment-spinner"
+      upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+    />
+  );
+  if (!chip.image && !chip.video) {
+    // Keep the same file body, byte count and icon slot while the path is resolved or uploaded.
+    const { failed } = chip;
+    return (
+      <div
+        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}`}
+        aria-label={name}
+        aria-busy={failed ? undefined : "true"}
+        data-paste-look={failed ? undefined : look}
+        /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
+      >
+        <FileAttachment
+          file={{ name, size: chip.fileSize }}
+          remove={remove}
+          {...(failed ? { failure: failed } : {})}
+          statusIcon={
+            failed
+              ? onRetry && chip.retryable && <RetryButton reason={failed} onRetry={() => onRetry(chip.id)} />
+              : indicator
+          }
+        />
+      </div>
+    );
+  }
+  // A video, like an image, loads in the tile its poster will fill.
+  const shape = chip.image ? imageShape(chip.size) : videoShapeStyle(chip.videoShape);
   const style =
-    shape || (chip.preview && square)
-      ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
+    shape || chip.preview
+      ? { ...shape, ...(chip.preview ? { backgroundImage: `url("${chip.preview}")` } : {}) }
       : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button where a retry can work (`retryable`), and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
@@ -205,20 +235,15 @@ function PendingChip({
   if (chip.failed)
     return (
       <div
-        className={`acpmux-attachment ${kind} acpmux-attachment-failed`}
+        className="acpmux-attachment acpmux-attachment-image acpmux-attachment-failed"
         aria-label={name}
         {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
           <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
-        ) : chip.video ? (
-          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         ) : (
-          <>
-            <FileDoc size={14} className="acpmux-attachment-failed-icon" />
-            <span className="acpmux-attachment-failed-name">{chip.name}</span>
-          </>
+          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         )}
         {onRetry && chip.retryable && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
         {remove}
@@ -226,7 +251,7 @@ function PendingChip({
     );
   return (
     <div
-      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
       data-paste-look={look}
       aria-busy="true"
       aria-label={name}
@@ -235,16 +260,10 @@ function PendingChip({
       {...(chip.image && shape ? { "data-sized": "" } : {})}
       {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
-      {...(chip.preview && square ? { "data-instant": "" } : {})}
+      {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
-      <PasteLoadingMark
-        look={look}
-        size={16}
-        className="acpmux-attachment-spinner"
-        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
-      />
-      {!square && <span>{chip.name}</span>}
+      {indicator}
       {remove}
     </div>
   );
@@ -407,7 +426,7 @@ function AttachmentChipPreview({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -543,6 +562,13 @@ function AttachmentChipPreview({
       keep,
     );
   }
+  // A browser pick (browserPickModel.ts): its number and comment over the element, one chip with its
+  // crop inside, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return menu(
+      undefined,
+      <BrowserPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />,
+    );
   // An inspector pick (uiPickModel.ts): the element and a snippet of its text, opening its whole
   // report in place (UIPickChip.tsx).
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))

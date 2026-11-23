@@ -12,6 +12,54 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
+#[test]
+fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
+    for verb in [
+        "ls",
+        "list-sessions",
+        "send",
+        "prompt",
+        "history",
+        "search",
+        "notices",
+        "bg",
+        "resolve",
+        "find",
+        "register",
+        "session",
+        "new",
+        "guide",
+        "stop",
+    ] {
+        let args = strings(&["agent", "--json", verb, "--", "--literal"]);
+        assert!(agent_engine_requested(&args), "{verb}");
+        assert_eq!(
+            acp_scope_args(&args),
+            args[1..].iter().map(std::ffi::OsString::from).collect::<Vec<_>>()
+        );
+    }
+    for verb in [
+        "list",
+        "message",
+        "inbox",
+        "start",
+        "resume",
+        "open",
+        "open-tab",
+        "view",
+        "toggle-session-info",
+        "report",
+        "hook",
+        "plugin",
+        "--help",
+        "not-a-command",
+    ] {
+        assert!(!agent_engine_requested(&strings(&["agent", verb])), "{verb}");
+    }
+    assert!(!agent_engine_requested(&strings(&["agent"])));
+    assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
@@ -142,6 +190,10 @@ mod remote_cli_docs {
     }
 
     fn action_names() -> HashSet<String> {
+        catalog_action_names(|action| action["cli"] == "offered")
+    }
+
+    fn catalog_action_names(include: impl Fn(&serde_json::Value) -> bool) -> HashSet<String> {
         let catalog: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../plans/cmux-next/action-surfaces.json"
         ))
@@ -150,7 +202,7 @@ mod remote_cli_docs {
             .as_array()
             .expect("actions array")
             .iter()
-            .filter(|action| action["cli"] == "offered")
+            .filter(|action| include(action))
             .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
             .collect()
     }
@@ -231,6 +283,7 @@ mod remote_cli_docs {
             // Resource commands still resolve through the CLI parser.
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || agent_engine_requested(&parser_words)
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
@@ -269,6 +322,16 @@ mod remote_cli_docs {
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
         )
+    }
+
+    #[test]
+    fn every_catalog_agent_action_keeps_its_native_route() {
+        for name in catalog_action_names(|_| true) {
+            let words: Vec<_> = name.split_whitespace().map(str::to_owned).collect();
+            if words.first().is_some_and(|scope| scope == "agent") {
+                assert!(!agent_engine_requested(&words), "{name} belongs to the app");
+            }
+        }
     }
 
     #[test]
@@ -1478,6 +1541,8 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "list"]), strings(&["--json", "agent", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(
         hoisted(&["--json", "acp", "gh", "pr", "list"]),

@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""nightly-next-one builds the nearest deltas with no key beside the bundle's checks, and signs them after.
+
+appcast-with-nearest-deltas.sh `prebuild` (one-job.sh deltas-start, in the background) fetches the bases and runs
+BinaryDelta with no Sparkle key; the keyed run after the stray check takes those bases and deltas when the
+prebuild's `done` names this build and DMG, and fetches and builds as before otherwise. Run 44893172356 spent
+269 s in the keyed step, on the critical path to the feed (2026-11-21). The tools are stubs that log their calls.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh"
+
+FETCH = """#!/usr/bin/env python3
+import os, sys
+out = sys.argv[sys.argv.index("--out") + 1]
+open(os.environ["LOG"], "a").write("fetch\\n")
+for build in ("300", "200"):
+    open(os.path.join(out, f"cmux-nightly-next-macos-arm64-{build}.dmg"), "w").write(build)
+"""
+SPARKLE = """#!/usr/bin/env bash
+set -euo pipefail
+echo "sparkle prebuild_only=${SPARKLE_PREBUILD_ONLY_DIR:-} key=${SPARKLE_PRIVATE_KEY:+yes} prebuilt=${SPARKLE_PREBUILT_DELTAS_DIR:-} previous=${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" >> "$LOG"
+if [ -n "${SPARKLE_PREBUILD_ONLY_DIR:-}" ]; then
+  for base in "$SPARKLE_PREVIOUS_ARCHIVES_DIR"/*.dmg; do b="${base##*-}"; echo delta > "$SPARKLE_PREBUILD_ONLY_DIR/x-${b%.dmg}.delta"; done
+  exit 0
+fi
+[ -n "${SPARKLE_PRIVATE_KEY:-}" ]
+echo '<rss><item>sparkle:deltas</item></rss>' > "$3"
+for base in "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-/nonexistent}"/*.dmg; do
+  [ -f "$base" ] || continue
+  b="${base##*-}"; echo delta > "${SPARKLE_DELTA_NAME_PREFIX}${NIGHTLY_BUILD}-${b%.dmg}.delta"
+done
+"""
+
+
+class DeltasBesideChecksTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        ci = self.tmp / "scripts/ci"
+        (ci / "nightly-steps").mkdir(parents=True)
+        shutil.copy(SCRIPT, ci / "nightly-steps" / SCRIPT.name)
+        files = {
+            ci / "nightly_next_previous_dmgs.py": FETCH,
+            ci / "drop-previous-nightlies-with-other-sparkle-key.sh": "#!/usr/bin/env bash\necho drop >> \"$LOG\"\n",
+            ci / "nightly_next_delta_check.py": "#!/usr/bin/env python3\n",
+            ci / "nightly-sparkle-key.sh": "#!/usr/bin/env bash\necho THE-KEY\n",
+            self.tmp / "scripts/sparkle_generate_appcast.sh": SPARKLE,
+        }
+        for path, text in files.items():
+            path.write_text(text)
+            path.chmod(0o755)
+        (self.tmp / "cmux-nightly-next-macos-arm64-400.dmg").write_text("the new build")
+        self.log = self.tmp / "log"
+        self.env = {
+            "PATH": os.environ["PATH"], "HOME": str(self.tmp), "LOG": str(self.log), "RUNNER_TEMP": str(self.tmp / "temp"),
+            "NIGHTLY_DMG_IMMUTABLE": "cmux-nightly-next-macos-arm64-400.dmg", "NIGHTLY_DMG_RELEASE": "cmux-nightly-next-macos-arm64-400.dmg",
+            "NIGHTLY_APPCAST": "appcast-arm64.xml", "CHANNEL_RELEASE_TAG": "nightly-next", "CHANNEL_DMG_PREFIX": "cmux-nightly-next-macos",
+            "NIGHTLY_VARIANT": "arm64", "NIGHTLY_BUILD": "400", "NIGHTLY_NEXT_FEED_BASE": "https://example.invalid/nightly-next",
+            "NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY": "pub", "GITHUB_STEP_SUMMARY": str(self.tmp / "summary"),
+        }
+        (self.tmp / "temp").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_script(self, *args: str, **extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", "scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh", *args], cwd=self.tmp,
+                              env={**self.env, **extra}, capture_output=True, text=True, timeout=60)
+
+    def calls(self) -> list[str]:
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_the_keyed_run_signs_what_the_keyless_prebuild_built(self) -> None:
+        pre = self.run_script("prebuild")
+        self.assertEqual(pre.returncode, 0, pre.stderr)
+        self.assertEqual(self.calls()[:2], ["fetch", "drop"])
+        self.assertIn("key= ", self.calls()[2], "the prebuild runs BinaryDelta with no key")
+        prebuilt = self.tmp / "temp/nightly-next-prebuilt"
+        self.assertEqual(sorted(p.name for p in (prebuilt / "deltas").iterdir()), ["x-200.delta", "x-300.delta"])
+        self.assertTrue((prebuilt / "done").read_text().startswith("400 "))
+        self.log.unlink()
+        keyed = self.run_script()
+        self.assertEqual(keyed.returncode, 0, keyed.stderr)
+        calls = self.calls()
+        self.assertNotIn("fetch", calls, "the keyed run fetches no base again")
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIn("key=yes", calls[0])
+        self.assertIn(f"prebuilt={prebuilt}/deltas", calls[0])
+        self.assertIn(f"previous={prebuilt}/bases", calls[0])
+        self.assertIn("Taking the bases and deltas the keyless prebuild made for 400", keyed.stdout)
+
+    def test_the_prebuild_refuses_a_key(self) -> None:
+        pre = self.run_script("prebuild", SPARKLE_PRIVATE_KEY="leaked")
+        self.assertNotEqual(pre.returncode, 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_prebuild_of_another_build_or_dmg_is_not_taken(self) -> None:
+        self.assertEqual(self.run_script("prebuild").returncode, 0)
+        (self.tmp / "cmux-nightly-next-macos-arm64-400.dmg").write_text("a different DMG")
+        self.log.unlink()
+        keyed = self.run_script()
+        self.assertEqual(keyed.returncode, 0, keyed.stderr)
+        calls = self.calls()
+        self.assertEqual(calls[:2], ["fetch", "drop"], "a DMG the prebuild did not diff is fetched and built as before")
+        self.assertIn("prebuilt= ", calls[2])
+
+    def test_a_failed_prebuild_leaves_the_keyed_run_as_before(self) -> None:
+        fetch = self.tmp / "scripts/ci/nightly_next_previous_dmgs.py"
+        fetch.write_text("#!/usr/bin/env python3\nimport sys; sys.exit(3)\n")
+        self.assertNotEqual(self.run_script("prebuild").returncode, 0)
+        self.assertFalse((self.tmp / "temp/nightly-next-prebuilt/done").exists())
+        fetch.write_text(FETCH)
+        keyed = self.run_script()
+        self.assertEqual(keyed.returncode, 0, keyed.stderr)
+        self.assertEqual(self.calls()[:2], ["fetch", "drop"])
+
+
+if __name__ == "__main__":
+    unittest.main()
