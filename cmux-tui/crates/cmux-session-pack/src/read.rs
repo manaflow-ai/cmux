@@ -10,7 +10,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// `f` of each item, on as many threads as there are items and cores; the results in order.
-fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> Result<R> + Sync) -> Result<Vec<R>> {
+pub(crate) fn par_map<T: Sync, R: Send>(
+    items: &[T],
+    f: impl Fn(&T) -> Result<R> + Sync,
+) -> Result<Vec<R>> {
     if items.len() < 2 {
         return items.iter().map(f).collect();
     }

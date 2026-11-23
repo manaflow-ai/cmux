@@ -3,6 +3,7 @@
 use crate::Result;
 use crate::codec::{BlobIndex, encode_segment};
 use crate::manifest::{Manifest, Params, SCHEMA, Segment, check_name};
+use crate::read::par_map;
 use crate::store::{
     KIND_BLOBS, KIND_EVENTS, KIND_TABLE, Store, chunk_id, encode_chunk, hex, unhex,
 };
@@ -77,27 +78,35 @@ pub fn pack(
         && old.params == *params
     {
         // A log is not always only appended to (a retention pass rewrites a closed chat's
-        // segments in place), so every kept segment is checked against the log, not just the last:
-        // hashing is about 1 ms a segment, encoding one is about a second.
+        // segments in place), so every kept segment is checked against the log, not just the
+        // last. Hashing one is about 4 ms and encoding one about a second; the checks run on
+        // every core, so a gigabyte's worth is checked in the time of a few.
+        let mut spans = Vec::new();
         let mut offset = 0u64;
         for s in old.segments.into_iter().take_while(|s| s.sealed) {
             let end = offset + s.raw;
-            if end > total
-                || blake3::hash(&read_span(files, &lens, offset, end)?).to_hex().as_str()
-                    != s.raw_hash
-            {
+            if end > total {
                 break;
             }
+            spans.push((offset, end, s));
             offset = end;
-            kept.push(s);
         }
+        let same = par_map(&spans, |(start, end, s)| {
+            Ok(blake3::hash(&read_span(files, &lens, *start, *end)?).to_hex().as_str()
+                == s.raw_hash)
+        })?;
+        let n = same.iter().take_while(|ok| **ok).count();
+        kept.extend(spans.into_iter().take(n).map(|(_, _, s)| s));
     }
     let offset: u64 = kept.iter().map(|s| s.raw).sum();
     let mut index = BlobIndex::default();
-    for s in &kept {
-        if let Some((_, table)) = &s.blob_chunks {
-            index.add_table(s.blob, &store.get(&unhex(table)?)?)?;
-        }
+    let with_blobs: Vec<&Segment> = kept.iter().filter(|s| s.blob_chunks.is_some()).collect();
+    let tables = par_map(&with_blobs, |s| match &s.blob_chunks {
+        Some((_, table)) => store.get(&unhex(table)?),
+        None => Ok(Vec::new()),
+    })?;
+    for (s, table) in with_blobs.iter().zip(&tables) {
+        index.add_table(s.blob, table)?;
     }
     let data = read_span(files, &lens, offset, total)?;
 
