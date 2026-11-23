@@ -215,6 +215,12 @@ nonisolated enum AcpmuxPaneMethods {
         // that chat's agent signed in.
         "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
         "_acpmux/agent_login/cancel",
+        // A Cloud chat's GitHub sign-in on its own machine (CloudGitHubSignIn.tsx, the shared
+        // DeviceSignInCard): acpmux runs `gh auth login --web` there and the card shows its one-time
+        // code; finish waits for the person's approval, cancel stops it. Each names its chat
+        // (`sessionId`, required): acpmux forwards it to the chat's machine, whose owner rule
+        // (`agent_login::allowed`) admits only that machine's owner. Never this Mac's accounts.
+        "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
         // Run on a bigger machine (conversation/RunElsewhere.tsx; acpmux server/run_elsewhere.rs) for
         // a chat in the pane's scope. Plan reads what a run would send (the commit, the changed
         // files, the connected machines); Start runs the chat's command again on a machine the person
@@ -341,6 +347,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -467,6 +474,8 @@ nonisolated enum AcpmuxPaneMethods {
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // GitHub's sign-in on a Cloud chat's machine, likewise only on the person's click.
+        "_acpmux/account/sign_in": .always,
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,
