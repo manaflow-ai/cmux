@@ -171,7 +171,11 @@ export function useCmuxClient() {
           pairingCredential.current = credential;
         },
         onAuthenticationRejected: () => {
-          if (!config.token) pairingCredential.current = undefined;
+          // A rejected pairing credential is dropped, so the next attempt
+          // pairs again. A configured token is the same on every attempt: a
+          // revoked or invalid one can never succeed, so stop retrying.
+          if (config.token) nonRetryableFailure = true;
+          else pairingCredential.current = undefined;
         },
       });
       const client = new CmuxClient({ transport });
