@@ -22,7 +22,7 @@ export function motionMode(
   // A chat that missed its frame budget moves nothing of its own until its frames are healthy again.
   if (node?.closest('[data-chat-motion="minimal"]')) return "none";
   // Kept per page and theme (motionTokens.ts): a read here after a commit's writes recalculated the page's style.
-  const token = motionToken(root, "--agent-motion-in");
+  const token = motionToken(root, "--agent-motion-in", doc);
   if (token && !(Number.parseFloat(token) > 0)) return "none";
   if (root.dataset.agentMotion === "reduced" || root.dataset.cmuxMotion === "reduced") return "reduced";
   if (view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return "reduced";

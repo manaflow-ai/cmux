@@ -43,19 +43,28 @@ function epochOf(doc: Document): { epoch: number } | undefined {
 
 /// What over `node` changes its tokens without a sheet or the root changing: a chat's minimal motion and
 /// its send entrance. Attribute reads only: no style or layout.
-function keyOf(node: Element): string {
+/// The root's inline style is in it too: the host's theme writes the tokens there, and a read in the same
+/// task as that write (before the observer's callback) must see them.
+function keyOf(node: Element, doc: Document): string {
   const minimal = node.closest('[data-chat-motion="minimal"]') ? "minimal" : "";
-  return `${minimal}|${node.closest("[data-send-entrance]")?.getAttribute("data-send-entrance") ?? ""}`;
+  const entrance = node.closest("[data-send-entrance]")?.getAttribute("data-send-entrance") ?? "";
+  return `${minimal}|${entrance}|${doc.documentElement?.getAttribute("style") ?? ""}`;
 }
 
 /// The computed value of the custom property `name` on `node` (trimmed), read through getComputedStyle only
 /// the first time for this node, name and key since the page's tokens last changed.
-export function motionToken(node: Element, name: string): string {
-  const doc = node.ownerDocument;
-  const state = epochOf(doc);
-  const read = () => doc.defaultView?.getComputedStyle(node).getPropertyValue(name).trim() ?? "";
+/// `doc` is the node's document (given by a caller that has it: the root, whose `ownerDocument` is the
+/// document itself in a browser but not in every test's stand-in).
+export function motionToken(
+  node: Element,
+  name: string,
+  doc: Document | null | undefined = node.ownerDocument,
+): string {
+  const read = () => doc?.defaultView?.getComputedStyle(node).getPropertyValue(name).trim() ?? "";
+  // A stand-in node that cannot be watched or keyed (no document, no `closest`) reads every time.
+  const state = doc && typeof node.closest === "function" ? epochOf(doc) : undefined;
   if (!state) return read();
-  const key = keyOf(node);
+  const key = keyOf(node, doc!);
   let names = kept.get(node);
   const known = names?.get(name);
   if (known && known.epoch === state.epoch && known.key === key) return known.value;
@@ -68,7 +77,7 @@ export function motionToken(node: Element, name: string): string {
 function warmNow(): void {
   for (const [node, names] of warm) {
     if (!node.isConnected) warm.delete(node);
-    else for (const name of names) motionToken(node, name);
+    else for (const name of names) motionToken(node, name, node.ownerDocument);
   }
 }
 
@@ -91,10 +100,11 @@ function scheduleRewarm(view: Window): void {
 /// Keeps `node`'s `names` read ahead of the moment that needs them (a send's commit): now, in an idle
 /// moment, and again after each change of the page's tokens. Returns the call that stops it.
 export function warmMotionTokens(node: Element, names: readonly string[]): () => void {
-  const view = node.ownerDocument.defaultView;
+  const doc = node.ownerDocument;
+  const view = doc?.defaultView;
   if (!view) return () => {};
   warm.set(node, names);
-  epochOf(node.ownerDocument);
+  epochOf(doc);
   scheduleRewarm(view);
   return () => {
     if (warm.get(node) === names) warm.delete(node);
