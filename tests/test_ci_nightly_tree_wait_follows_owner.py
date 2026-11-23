@@ -71,9 +71,14 @@ def test_the_bundle_step_waits_through_the_owner_aware_wait() -> None:
 
 def test_the_wait_reads_the_publishers_jobs_and_bounds_a_stall() -> None:
     wait = AWAIT.read_text()
-    assert "run-progress" in wait, "await-tree-client.sh counts any not-completed run as building"
-    assert "CMUX_TUI_TREE_SKIP_PUBLISHERS" in wait, "a stuck owner is not passed over for another same-key run"
+    # The wait and the resolver that decides to wait share one reading of the publisher
+    # (2026-11-18: the resolver alone still took a stalled owner as a publisher).
+    for script in (AWAIT, ROOT / "scripts/ci/nightly-steps/resolve-tree-pending.sh"):
+        assert "pin-cmux-tui.sh tree-publisher" in script.read_text(), f"{script.name} judges the publisher on its own"
     pin = PIN.read_text()
+    reading = pin.split("tree_publisher() {", 1)[1].split("\n}\n", 1)[0]
+    assert "artifacts_run_progress" in reading, "tree-publisher counts any not-completed run as building"
+    assert "CMUX_TUI_TREE_SKIP_PUBLISHERS" in reading, "a stuck owner is not passed over for another same-key run"
     progress = pin.split("artifacts_run_progress() {", 1)[1].split("\n}\n", 1)[0]
     assert "/jobs?" in progress, "run-progress must read the run's jobs"
     assert "CMUX_TUI_TREE_RUNNER_STALL_SECONDS" in progress

@@ -229,6 +229,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `projection-macos.sh` | One agent checkout's FSEvents (events, unique paths), seconds, first `git status`, disk: git worktree, APFS clone (wt today), recycled checkout, projected (cmux-projection over NFSv3 from localhost); JOBS at once; fseventsd RSS (`projection-macos/fsevents-count.swift`). | projectionfs harder (2026-11-23) | 2026-11-23 | active |
 | `rust-dev-loop.sh` | Edit to runnable time of the Rust dev build, per build variant. | #42280 | 2026-11-12 | active |
 | `rust-dev-loop.py` | Python driver for rust-dev-loop.sh. | #42280 | 2026-11-12 | active |
 | `blaze-home.sh` | Sourced helper: short link for the blaze home so its socket path fits. | - | 2026-11-06 | active |

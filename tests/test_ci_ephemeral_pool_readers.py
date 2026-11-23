@@ -184,7 +184,7 @@ class EphemeralPoolReaders(unittest.TestCase):
         self.assertGreater(len(lines), 20, "the scan found no fork-reachable pool reads: it is reading nothing")
         ephemeral = ephemeral_pools()
         for workflow, number, line in lines:
-            unwrapped = fork.FORK_WRAPPED_POOL_READ.sub(r"\1", fork.FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line))
+            unwrapped = fork.FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), fork.FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line))
             for expression in fork.EXPRESSION.findall(unwrapped):
                 with self.subTest(workflow=workflow, line=number):
                     self.assertEqual(fork_reachable_pool_errors(expression, ephemeral), [],

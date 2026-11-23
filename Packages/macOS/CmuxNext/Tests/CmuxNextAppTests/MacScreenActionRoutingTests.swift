@@ -112,6 +112,9 @@ struct MacScreenActionRoutingTests {
         }
         #expect(try MacScreenActions.deviceID(named: "leo-s-mac-studio", among: devices) == other)
         #expect(try MacScreenActions.deviceID(named: device.uppercased(), among: []) == device)
+        // A `cmux device list` row id names the machine (2026-11-23: a Linux desktop's `--device peer:NAME` named no device).
+        let linux = [HubDevice(id: third, name: "desk-1", online: true)]
+        #expect(try MacScreenActions.deviceID(named: "peer:desk-1", among: linux) == third)
         // A non-person invocation opens the tab at Connect: it asks for no scope.
         #expect(pages.pendingScopes.isEmpty)
     }

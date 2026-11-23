@@ -140,6 +140,7 @@ crate::framework! {
         fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
         fn VTCompressionSessionEncodeFrame(s: VTCompressionSessionRef, pb: CVPixelBufferRef, pts: CMTime, duration: CMTime, props: CFDictionaryRef, frame_refcon: *mut c_void, info: *mut u32) -> OSStatus;
         fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
+        fn VTCompressionSessionPrepareToEncodeFrames(s: VTCompressionSessionRef) -> OSStatus;
         fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
     }
 }
@@ -632,6 +633,17 @@ impl VideoToolbox {
             self.apply_min_qp(self.ultra_min_qp);
         }
         Ok(true)
+    }
+
+    /// Builds the session for the profile set now and has VideoToolbox allocate the encoder's
+    /// resources, so the first frame (the session's keyframe) does not pay for either. A session
+    /// opened during the link's handshake (`cmux-rd serve`) does this before the viewer starts.
+    /// Best effort: a refusal leaves the session to set itself up on the first frame, as before.
+    pub fn prepare(&mut self) -> Res<()> {
+        self.ensure_session(self.width, self.height)?;
+        // SAFETY: preparing our live session; it has no frame in flight.
+        let _ = unsafe { VTCompressionSessionPrepareToEncodeFrames(self.session) };
+        Ok(())
     }
 
     /// Encodes captured surfaces scaled down to `size` (the resolution ladder's picture,
