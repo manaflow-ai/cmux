@@ -95,7 +95,11 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
-        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold.
+        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
+        // the pre-copied prefix's prompts' too.
+        if let Some(after) = after {
+            super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
+        }
         super::prompt_images::bundle_images(&images, &dir)?;
         // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
         // live in memory, not the log.
