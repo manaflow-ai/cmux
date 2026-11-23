@@ -48,13 +48,16 @@ import post_merge_batch as pmb  # noqa: E402
 
 BRANCH = "feat-cmux-next"
 WORKFLOW = "fixit-handoff.yml"
-# The type check each check name runs in a probe worktree, from the directory named. Both install first (a probe
-# commit can change the lockfile); webviews also writes its gitignored page strings, as fast_gate_webviews_checks.
+# The type check each check name runs in a probe worktree, from the directory named: (directory, setup, check).
+# The setup (an install: a probe commit can change the lockfile; webviews also writes its gitignored page strings,
+# as fast_gate_webviews_checks) is kept apart from the check, so a download that fails is never read as a red type
+# check: a setup that fails twice stops the search with no culprit (ProbeError).
 CHECKS = {
     "webviews": ("webviews", "bun install --frozen-lockfile >/dev/null && "
                              "{ [ ! -f scripts/pages/gen-strings.mjs ] || bun scripts/pages/gen-strings.mjs --best-effort "
-                             ">/dev/null 2>&1 || true; } && bun run typecheck"),
-    "web": ("web", "bun install --frozen-lockfile >/dev/null && bun run typecheck"),
+                             ">/dev/null 2>&1 || true; }",
+                 "bun run typecheck"),
+    "web": ("web", "bun install --frozen-lockfile >/dev/null", "bun run typecheck"),
 }
 MAX_BACK = 64
 BOT = ("cmux fixit-handoff", "41898282+github-actions[bot]@users.noreply.github.com")
@@ -85,11 +88,15 @@ def say(text: str, summary_path: str | None = None) -> None:
 
 # ---- find -----------------------------------------------------------------------------------------------------------
 
+class ProbeError(RuntimeError):
+    """A probe whose setup (the install) failed: no verdict on that commit, so no culprit is chosen."""
+
+
 class Prober:
     """One worktree the type check runs in, moved from commit to commit (node_modules stays, ignored by git clean)."""
 
-    def __init__(self, repo: Path, check_dir: str, command: str):
-        self.repo, self.check_dir, self.command = repo, check_dir, command
+    def __init__(self, repo: Path, check_dir: str, command: str, setup: str = ""):
+        self.repo, self.check_dir, self.command, self.setup = repo, check_dir, command, setup
         self.holder = Path(tempfile.mkdtemp(prefix="fixit-handoff-"))
         self.tree = self.holder / "tree"
         self.results: dict[str, bool] = {}
@@ -111,8 +118,20 @@ class Prober:
             git("clean", "-fdq", cwd=self.tree)
 
     def run(self) -> bool:
-        out = subprocess.run(["bash", "-c", self.command], cwd=self.tree / self.check_dir, capture_output=True,
-                             text=True)
+        """True green, False a red type check. The setup runs first, twice at most; a setup that still fails raises
+        ProbeError instead of counting as red (a failed download must not name a healthy commit the culprit)."""
+        cwd = self.tree / self.check_dir
+        if self.setup:
+            for attempt in (1, 2):
+                setup = subprocess.run(["bash", "-c", self.setup], cwd=cwd, capture_output=True, text=True)
+                if setup.returncode == 0:
+                    break
+            else:
+                head = git("rev-parse", "HEAD", cwd=self.tree).strip()
+                tail = (setup.stderr + setup.stdout).strip()[-400:]
+                raise ProbeError(f"the type check's setup failed twice at {head[:12]} (exit {setup.returncode}): "
+                                 f"{tail}")
+        out = subprocess.run(["bash", "-c", self.command], cwd=cwd, capture_output=True, text=True)
         return out.returncode == 0
 
     def green(self, sha: str) -> bool:
@@ -166,41 +185,55 @@ def pr_number(subject: str) -> str:
     return match.group(1) if match else ""
 
 
-def find(repo: Path, branch_tip: str, red: str, check: str, command: str | None, max_back: int) -> dict:
-    check_dir, default_cmd = CHECKS[check]
+def find(repo: Path, branch_tip: str, red: str, check: str, command: str | None, max_back: int,
+         setup: str | None = None) -> dict:
+    """The culprit (see find_culprit) and its revert's verdict. A probe that cannot run (ProbeError) names nothing."""
+    check_dir, default_setup, default_cmd = CHECKS[check]
+    if setup is None:
+        setup = "" if command else default_setup  # a custom --check-cmd brings its own setup
     result = {"culprit": "", "good": "", "tip": branch_tip, "pr": "", "subject": "", "clear": "false",
               "verified": "false", "reason": ""}
-    with Prober(repo, check_dir, command or default_cmd) as prober:
-        if prober.green(branch_tip):
-            result["reason"] = f"the {check} type check is green at the tip {branch_tip[:12]}: already fixed"
+    with Prober(repo, check_dir, command or default_cmd, setup) as prober:
+        try:
+            return _find(repo, branch_tip, red, check, max_back, prober, result)
+        except ProbeError as err:
+            result.update(culprit="", good="", pr="", subject="", clear="false", verified="false",
+                          reason=f"a probe could not run, so no culprit is named: {err}",
+                          probes=", ".join(prober.log))
             return result
-        on_branch = subprocess.run(["git", "merge-base", "--is-ancestor", red, branch_tip], cwd=repo).returncode == 0
-        start = red if on_branch else branch_tip
-        if start != branch_tip and prober.green(start):
-            start = branch_tip  # the reported red commit checks green here: start from the tip, which is red
-        chain = git("rev-list", "--first-parent", f"--max-count={max_back + 1}", start, cwd=repo).split()
-        found = find_culprit(prober, chain)
-        if found is None:
-            result["reason"] = f"no green {check} type check in the {len(chain) - 1} commits before {chain[0][:12]}"
-            return result
-        good, culprit = found
-        subject = git("log", "-1", "--format=%s", culprit, cwd=repo).strip()
-        parents = git("rev-list", "--parents", "-n1", culprit, cwd=repo).split()[1:]
-        applies, green = prober.revert_green(branch_tip, culprit)
-        result.update(culprit=culprit, good=good, pr=pr_number(subject), subject=subject,
-                      verified="true" if green else "false")
-        if len(parents) > 1:
-            result["reason"] = f"{culprit[:12]} is a merge commit: not a one-commit revert"
-        elif not applies:
-            result["reason"] = f"reverting {culprit[:12]} conflicts with the tip {branch_tip[:12]}"
-        elif not green:
-            result["reason"] = f"the {check} type check is still red with {culprit[:12]} reverted on the tip"
-        else:
-            result["clear"] = "true"
-            result["reason"] = (f"{culprit[:12]} is the first red commit after {good[:12]}; its revert on the tip "
-                                f"{branch_tip[:12]} is green")
-        result["applies"] = "true" if applies else "false"
-        result["probes"] = ", ".join(prober.log)
+
+
+def _find(repo: Path, branch_tip: str, red: str, check: str, max_back: int, prober: Prober, result: dict) -> dict:
+    if prober.green(branch_tip):
+        result["reason"] = f"the {check} type check is green at the tip {branch_tip[:12]}: already fixed"
+        return result
+    on_branch = subprocess.run(["git", "merge-base", "--is-ancestor", red, branch_tip], cwd=repo).returncode == 0
+    start = red if on_branch else branch_tip
+    if start != branch_tip and prober.green(start):
+        start = branch_tip  # the reported red commit checks green here: start from the tip, which is red
+    chain = git("rev-list", "--first-parent", f"--max-count={max_back + 1}", start, cwd=repo).split()
+    found = find_culprit(prober, chain)
+    if found is None:
+        result["reason"] = f"no green {check} type check in the {len(chain) - 1} commits before {chain[0][:12]}"
+        return result
+    good, culprit = found
+    subject = git("log", "-1", "--format=%s", culprit, cwd=repo).strip()
+    parents = git("rev-list", "--parents", "-n1", culprit, cwd=repo).split()[1:]
+    applies, green = prober.revert_green(branch_tip, culprit)
+    result.update(culprit=culprit, good=good, pr=pr_number(subject), subject=subject,
+                  verified="true" if green else "false")
+    if len(parents) > 1:
+        result["reason"] = f"{culprit[:12]} is a merge commit: not a one-commit revert"
+    elif not applies:
+        result["reason"] = f"reverting {culprit[:12]} conflicts with the tip {branch_tip[:12]}"
+    elif not green:
+        result["reason"] = f"the {check} type check is still red with {culprit[:12]} reverted on the tip"
+    else:
+        result["clear"] = "true"
+        result["reason"] = (f"{culprit[:12]} is the first red commit after {good[:12]}; its revert on the tip "
+                            f"{branch_tip[:12]} is green")
+    result["applies"] = "true" if applies else "false"
+    result["probes"] = ", ".join(prober.log)
     return result
 
 
@@ -274,6 +307,25 @@ def revert_body(args: argparse.Namespace, author: str, who: str, pushed_refusal:
     return "\n\n".join(parts)
 
 
+def culprit_owner(repo: str, culprit: str, pr: str, api=pmb.gh_api) -> str:
+    """The teammate whose change the culprit is ("" when it is nobody's on TEAMMATES), so their revert opens held.
+    With a PR number, its author (post_merge_batch.merged_by_teammate). Without one (a commit pushed straight to the
+    branch, no `(#N)`), the commit's own GitHub author and committer. A commit whose author cannot be read or has no
+    GitHub login counts as a teammate's: a held revert costs a human glance, a pushed one can break the rule."""
+    if pr:
+        return pmb.merged_by_teammate(repo, pr, api=api)
+    try:
+        commit = api(f"repos/{repo}/commits/{culprit}") or {}
+    except RuntimeError:
+        return "the culprit's author (unread)"
+    author = (commit.get("author") or {}).get("login") or ""
+    committer = (commit.get("committer") or {}).get("login") or ""
+    for login in (author, committer):
+        if login in pmb.TEAMMATES:
+            return login
+    return "" if author else "the culprit's author (unknown)"
+
+
 def land(args: argparse.Namespace, api=pmb.gh_api, push=direct_push, start=pmb.start_branch,
          push_branch=pmb.push_branch) -> dict:
     """Commit the revert on the tested tip, then push it or open its pull request. Returns what happened."""
@@ -305,7 +357,7 @@ def land(args: argparse.Namespace, api=pmb.gh_api, push=direct_push, start=pmb.s
                 f"no machine fix. {args.reason}. {args.origin}".rstrip())
     git("-c", f"user.name={BOT[0]}", "-c", f"user.email={BOT[1]}", "commit", "--quiet", "--amend", "-m", message,
         cwd=cwd)
-    author = pmb.merged_by_teammate(args.repo, pr, api=api)
+    author = culprit_owner(args.repo, args.culprit, pr, api=api)
     refusal = ""
     if args.clear == "true" and not author and mode() == "on":
         ok, text = push(args.push_url, args.branch, cwd)

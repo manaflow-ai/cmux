@@ -53,9 +53,10 @@ class History:
 
 
 class FakeApi:
-    def __init__(self, author: str = "someone"):
+    def __init__(self, author: str = "someone", commit_author: str | None = "someone"):
         self.calls: list[tuple[str, str, dict | None]] = []
         self.author = author
+        self.commit_author = commit_author
 
     def __call__(self, path, *, method="GET", fields=None, tokens=None, **_):
         self.calls.append((method, path, fields))
@@ -67,6 +68,11 @@ class FakeApi:
             return []
         if method == "GET" and "/pulls/" in path:
             return {"user": {"login": self.author}}
+        if method == "GET" and "/commits/" in path:
+            if self.commit_author == "unreadable":
+                raise RuntimeError("HTTP 502")
+            return {"author": {"login": self.commit_author} if self.commit_author else None,
+                    "committer": {"login": "web-flow"}}
         if method == "POST" and path.endswith("/pulls"):
             return {"html_url": "https://github.com/o/r/pull/9"}
         return None
@@ -130,6 +136,27 @@ class FindTest(unittest.TestCase):
         got = self.find(max_back=3)
         self.assertEqual(got["culprit"], "")
         self.assertIn("no green", got["reason"])
+
+    def test_a_setup_that_cannot_run_names_no_culprit(self) -> None:
+        """A failed install (a download) is not a red type check: no culprit, nothing clear, nothing reverted."""
+        self.h.commit("webviews/turns.ts", "BROKEN\n", "Agent chat: header (#49052)")
+        self.h.commit("webviews/b.ts", "fine\n", "later (#49060)")
+        tip = self.h.shas[-1]
+        flaky = "exit 1"  # a setup that never succeeds (a download that keeps failing)
+        got = fh.find(self.h.repo, tip, tip, "webviews", FAKE_CHECK, 64, setup=flaky)
+        self.assertEqual(got["culprit"], "")
+        self.assertEqual(got["clear"], "false")
+        self.assertIn("could not run", got["reason"])
+
+    def test_a_setup_that_fails_once_is_retried(self) -> None:
+        culprit = self.h.commit("webviews/turns.ts", "BROKEN\n", "Agent chat: header (#49052)")
+        self.h.commit("webviews/b.ts", "fine\n", "later (#49060)")
+        tip = self.h.shas[-1]
+        marker = Path(self.tmp.name) / "setup-ran"
+        once = f"test -e {marker} && exit 0; touch {marker}; exit 1"  # the first setup fails, every later one passes
+        got = fh.find(self.h.repo, tip, tip, "webviews", FAKE_CHECK, 64, setup=once)
+        self.assertEqual(got["culprit"], culprit)
+        self.assertEqual(got["clear"], "true")
 
     def test_off_switch(self) -> None:
         self.h.commit("webviews/one.ts", "BROKEN\n", "breaks (#1)")
@@ -216,6 +243,41 @@ class LandTest(unittest.TestCase):
         self.assertEqual(self.remote_head(), self.tip)
         body = [f for m, p, f in api.calls if m == "POST"][0]["body"]
         self.assertTrue(body.startswith("HOLD: lawrencecchen's merge."))
+
+    def no_pr_culprit(self) -> None:
+        """A culprit pushed straight to the branch: no `(#N)` in its subject."""
+        git(self.h.repo, "checkout", "-q", self.h.shas[1])
+        self.culprit = self.h.commit("webviews/turns.ts", "BROKEN\n", "Agent chat: header straight to the branch")
+        self.tip = self.h.commit("webviews/b.ts", "fine\n", "later (#49060)")
+        git(self.h.repo, "branch", "-f", "feat-cmux-next", self.tip)
+        git(self.h.repo, "checkout", "-q", "feat-cmux-next")
+        git(self.h.repo, "push", "-q", "--force", str(self.remote), "feat-cmux-next")
+
+    def test_a_teammate_commit_without_a_pr_opens_a_held_pr(self) -> None:
+        self.no_pr_culprit()
+        api = FakeApi(commit_author="lawrencecchen")
+        with mock.patch.dict(os.environ, {"FIXIT_HANDOFF": "1"}):
+            out = self.land(api)
+        self.assertEqual(out["action"], "held")
+        self.assertEqual(self.remote_head(), self.tip)
+        self.assertIn(("GET", f"repos/o/r/commits/{self.culprit}", None), api.calls)
+        body = [f for m, p, f in api.calls if m == "POST"][0]["body"]
+        self.assertTrue(body.startswith("HOLD: lawrencecchen's merge."))
+
+    def test_an_unknown_or_unread_author_without_a_pr_is_held(self) -> None:
+        self.no_pr_culprit()
+        for commit_author in (None, "unreadable"):
+            with self.subTest(commit_author=commit_author), mock.patch.dict(os.environ, {"FIXIT_HANDOFF": "1"}):
+                out = self.land(FakeApi(commit_author=commit_author))
+                self.assertEqual(out["action"], "held")
+                self.assertEqual(self.remote_head(), self.tip)
+                git(self.h.repo, "checkout", "-q", "--force", "feat-cmux-next")
+
+    def test_an_outside_commit_without_a_pr_is_pushed(self) -> None:
+        self.no_pr_culprit()
+        with mock.patch.dict(os.environ, {"FIXIT_HANDOFF": "1"}):
+            out = self.land(FakeApi(commit_author="someone"))
+        self.assertEqual(out["action"], "pushed")
 
     def test_not_clear_opens_a_pr(self) -> None:
         api = FakeApi()
