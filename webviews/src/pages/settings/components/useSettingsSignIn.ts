@@ -6,9 +6,10 @@
 // the host (`cmux.settings.accounts.run`, shared/signIn ACCOUNT_ACTIONS); the host opens the
 // provider's page beside the window and the card shows the code.
 // `inPlace` is the host saying it signs in in place: it lists the sign-in accounts
-// (`accounts.signInAccounts`). Without it a caller keeps its terminal gesture. A host that answers a
-// start without a sign-in (its daemon has no `_acpmux/account/sign_in`) runs the gesture's own
-// terminal fallback, the one the caller passed with the start.
+// (`accounts.signInAccounts`). Without it a caller keeps its terminal gesture. A host whose daemon
+// has no `_acpmux/account/sign_in` runs the start's terminal sign-in itself inside the same call
+// (`terminal`, while the click still counts as the person's); an older host that answers without a
+// sign-in gets the gesture's own terminal fallback, the one the caller passed with that start.
 import { useMemo, useRef } from "react";
 import { useSettingsState, useStore } from "../context";
 import type { HarnessesRun } from "../ops";
@@ -30,7 +31,6 @@ export type SettingsSignIn = AccountSignInController & {
 export function useSettingsSignIn(onSignedIn?: () => void): SettingsSignIn {
   const store = useStore();
   const listed = useSettingsState().accounts?.signInAccounts;
-  const fallback = useRef<(() => void) | null>(null);
   const signedIn = useRef(onSignedIn);
   signedIn.current = onSignedIn;
   const transport = useMemo<AccountSignInTransport>(
@@ -41,11 +41,6 @@ export function useSettingsSignIn(onSignedIn?: () => void): SettingsSignIn {
           signedIn.current?.();
         return reply;
       },
-      fallback: () => {
-        const run = fallback.current;
-        fallback.current = null;
-        run?.();
-      },
     }),
     [store],
   );
@@ -53,10 +48,7 @@ export function useSettingsSignIn(onSignedIn?: () => void): SettingsSignIn {
   return {
     ...signIn,
     inPlace: Array.isArray(listed),
-    begin: (family, account, terminal, name) => {
-      fallback.current = terminal;
-      signIn.start(family, account, name);
-    },
+    begin: (family, account, terminal, name) => signIn.start(family, account, name, terminal),
   };
 }
 

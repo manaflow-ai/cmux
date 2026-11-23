@@ -153,3 +153,43 @@ test("Add account's new login signs in in place with the typed name; an older da
     page.unmount();
   }
 });
+
+test("Cancel while a harness Sign In is starting opens no terminal, on either daemon", async () => {
+  for (const olderDaemon of [false, true]) {
+    let answer = () => {};
+    const page = await open({ olderDaemon });
+    page.provider.signIn.startHold = new Promise<void>((resolve) => (answer = resolve));
+    await act(async () =>
+      codex(page.container).querySelector<HTMLButtonElement>('[data-harness-action="signIn"]')!.click(),
+    );
+    await settle();
+    const card = codex(page.container).querySelector<HTMLElement>("[data-harness-sign-in] .signin")!;
+    expect(card.dataset.state).toBe("starting");
+    await act(async () => card.querySelector<HTMLButtonElement>('[data-sign-in-action="cancel"]')!.click());
+    await act(async () => answer());
+    await settle();
+    expect(codex(page.container).querySelector("[data-harness-sign-in]")).toBeNull();
+    expect(page.provider.harnessRuns.some((run) => run.action === "signIn")).toBe(false);
+    // A new daemon's login that answered after the Cancel is cancelled too.
+    if (!olderDaemon) expect(page.provider.signIn.cancelled).toEqual(["login-1"]);
+    page.unmount();
+  }
+});
+
+test("a double click on Sign In starts one sign-in", async () => {
+  const page = await open();
+  let answer = () => {};
+  page.provider.signIn.startHold = new Promise<void>((resolve) => (answer = resolve));
+  const button = codex(page.container).querySelector<HTMLButtonElement>('[data-harness-action="signIn"]')!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  await act(async () => answer());
+  await settle();
+  expect(page.provider.signIn.starts).toBe(1);
+  expect(codex(page.container).querySelector<HTMLElement>("[data-harness-sign-in] .signin")?.dataset.state).toBe(
+    "waiting",
+  );
+  page.unmount();
+});

@@ -72,10 +72,13 @@ export type AccountRunParams = {
 };
 
 /** The host's answer to a sign-in gesture: `signIn` for a start, `finished` for a finish, `reason`
- * for a refusal (SignInFailure). */
+ * for a refusal (SignInFailure). `terminal`: the host's daemon has no in-place sign-in, and the host
+ * already ran the start's terminal sign-in inside the same call (while the click still counts as
+ * the person's), so the page draws nothing and runs no fallback of its own. */
 export type AccountRunReply = {
   error?: string;
   signIn?: SignInStartWire;
+  terminal?: boolean;
   finished?: SignInFinishWire;
   reason?: string;
 };

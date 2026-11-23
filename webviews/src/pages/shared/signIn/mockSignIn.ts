@@ -28,6 +28,15 @@ export class MockAccountSignIn {
   /** An older daemon (no `_acpmux/account/sign_in`): a start answers `{}`, as the host does on
    * method not found, and the page runs its terminal sign-in. */
   olderDaemon = false;
+  /** With `olderDaemon`: the host runs the start's terminal sign-in itself and answers
+   * `{ terminal: true }` (SettingsHarnesses+AccountSignIn.swift); without it, an older host's `{}`. */
+  hostRunsTerminal = false;
+  /** A start answers only once this settles (tests see the card while it is starting). */
+  startHold: Promise<void> | null = null;
+  /** Every start that reached the mock. */
+  starts = 0;
+  /** Every cancel that reached the mock, by login id. */
+  cancelled: string[] = [];
   private started = 0;
   private logins = new Map<string, { account: string; family: AccountFamily; added: boolean }>();
 
@@ -39,7 +48,9 @@ export class MockAccountSignIn {
     const set = (next: AccountRowWire[]) => this.host.set(next);
     switch (run.action) {
       case ACCOUNT_ACTIONS.start: {
-        if (this.olderDaemon) return {};
+        this.starts += 1;
+        if (this.startHold) await this.startHold;
+        if (this.olderDaemon) return this.hostRunsTerminal ? { terminal: true } : {};
         if (this.refusal) {
           const reason = this.refusal;
           this.refusal = null;
@@ -120,7 +131,10 @@ export class MockAccountSignIn {
       }
       case ACCOUNT_ACTIONS.cancel: {
         const login = run.loginId ? this.logins.get(run.loginId) : undefined;
-        if (run.loginId) this.logins.delete(run.loginId);
+        if (run.loginId) {
+          this.cancelled.push(run.loginId);
+          this.logins.delete(run.loginId);
+        }
         if (login?.added) set(rows.filter((row) => row.id !== login.account));
         return {};
       }

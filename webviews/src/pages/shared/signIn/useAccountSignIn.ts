@@ -29,7 +29,8 @@ export const SIGNED_IN_SHOWN_MS = 4000;
 /** How a page reaches its host. */
 export type AccountSignInTransport = {
   run(params: AccountRunParams): Promise<AccountRunResult>;
-  /** A host that answers a start without a sign-in: the page's older (terminal) sign-in. */
+  /** A host that answers a start without a sign-in (and without `terminal`): the page's older
+   * (terminal) sign-in, when the start brought no fallback of its own. */
   fallback?(family: AccountFamily, account: string | null): void;
 };
 
@@ -38,15 +39,26 @@ export type AccountSignInController = {
   running: ActiveSignIn | null;
   /** The account a Use, Sign Out or Remove runs on. */
   busy: string | null;
-  /** `name`: a new account's typed name (only with no `account`). */
-  start(family: AccountFamily, account: string | null, name?: string): void;
+  /** `name`: a new account's typed name (only with no `account`). `fallback`: this start's own
+   * terminal sign-in, for a host that answers it without a sign-in; it stays with this start only.
+   * A start while one for the same account (or the same family's new account) is starting or
+   * waiting does nothing; a start for another one cancels the first. */
+  start(family: AccountFamily, account: string | null, name?: string, fallback?: () => void): void;
   cancel(): void;
   gesture(action: string, account: AccountRowWire): void;
   /** The card's gestures for `running`. */
   card: Omit<DeviceSignInCardProps, "family" | "view" | "look">;
 };
 
-type Running = ActiveSignIn & { loginId: string | null; started: SignInStarted | null; name?: string };
+type Running = ActiveSignIn & {
+  loginId: string | null;
+  started: SignInStarted | null;
+  name?: string;
+  fallback?: () => void;
+};
+
+/** The start in flight or the sign-in waiting: what a second click on the same row finds. */
+type Target = { family: AccountFamily; account: string | null };
 
 export function useAccountSignIn(transport: AccountSignInTransport): AccountSignInController {
   const [running, setRunning] = useState<Running | null>(null);
@@ -56,24 +68,39 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   via.current = transport;
   // The login the card belongs to: an answer for an older one (cancelled, retried) is dropped.
   const current = useRef<string | null>(null);
+  // Each start's number: a start cancelled, superseded or unmounted before its host answered is no
+  // longer `generation.current`, so its answer draws nothing, runs no fallback, and a login it
+  // started is cancelled.
+  const generation = useRef(0);
+  // What is starting or waiting, for a second click on the same row.
+  const target = useRef<Target | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
-  useEffect(() => clearTimer, []);
+  // Leaving the page mid sign-in ends the daemon's login too (as the pane's CloudSignIn does).
+  useEffect(
+    () => () => {
+      clearTimer();
+      generation.current += 1;
+      target.current = null;
+      const loginId = current.current;
+      current.current = null;
+      if (loginId) void via.current.run({ action: ACCOUNT_ACTIONS.cancel, loginId });
+    },
+    [],
+  );
 
   const failed = useCallback(
-    (family: AccountFamily, account: string | null, reply: AccountRunResult, name?: string) => {
+    (
+      family: AccountFamily,
+      account: string | null,
+      reply: AccountRunResult,
+      kept: Pick<Running, "name" | "fallback">,
+    ) => {
       const failure = reply.ok ? signInFailure({ reason: reply.value.reason }) : signInFailure(reply.error);
-      setRunning({
-        family,
-        account,
-        loginId: null,
-        started: null,
-        view: failedView(failure),
-        ...(name ? { name } : {}),
-      });
+      setRunning({ family, account, loginId: null, started: null, view: failedView(failure), ...kept });
     },
     [],
   );
@@ -86,9 +113,13 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
       if (current.current !== loginId) return;
       clearTimer();
       current.current = null;
+      target.current = null;
       const finished = reply.ok ? parseSignInFinish(reply.value.finished) : undefined;
       if (!reply.ok || !finished || !finished.signedIn || reply.value.reason) {
-        failed(run.family, run.account, reply, run.name);
+        failed(run.family, run.account, reply, {
+          ...(run.name ? { name: run.name } : {}),
+          ...(run.fallback ? { fallback: run.fallback } : {}),
+        });
         return;
       }
       setRunning({
@@ -106,13 +137,18 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   );
 
   const start = useCallback(
-    async (family: AccountFamily, account: string | null, name?: string) => {
+    async (family: AccountFamily, account: string | null, name?: string, fallback?: () => void) => {
+      const same = target.current;
+      if (same && same.family === family && same.account === account) return;
       clearTimer();
       const previous = current.current;
       current.current = null;
       if (previous) void via.current.run({ action: ACCOUNT_ACTIONS.cancel, loginId: previous });
+      const mine = ++generation.current;
+      target.current = { family, account };
       const named = !account && name?.trim() ? name.trim() : undefined;
-      setRunning({ family, account, loginId: null, started: null, view: { state: "starting" } });
+      const kept = { ...(named ? { name: named } : {}), ...(fallback ? { fallback } : {}) };
+      setRunning({ family, account, loginId: null, started: null, view: { state: "starting" }, ...kept });
       const reply = await via.current.run({
         action: ACCOUNT_ACTIONS.start,
         provider: family,
@@ -120,25 +156,36 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
         ...(account ? { account } : {}),
         ...(named ? { name: named } : {}),
       });
-      if (!reply.ok || reply.value.reason) {
-        failed(family, account, reply, named);
+      const started = reply.ok && !reply.value.reason ? parseSignInStart(reply.value.signIn) : undefined;
+      if (generation.current !== mine) {
+        // Cancelled, superseded or left before the host answered: end what it started, draw nothing.
+        if (started) void via.current.run({ action: ACCOUNT_ACTIONS.cancel, loginId: started.loginId });
         return;
       }
-      const started = parseSignInStart(reply.value.signIn);
+      if (!reply.ok || reply.value.reason) {
+        target.current = null;
+        failed(family, account, reply, kept);
+        return;
+      }
       if (!started) {
+        target.current = null;
         setRunning(null);
-        via.current.fallback?.(family, account);
+        // The host already ran the terminal sign-in inside the start (`terminal`), or it is an older
+        // host and the page runs this start's own terminal sign-in.
+        if (reply.value.terminal) return;
+        if (fallback) fallback();
+        else via.current.fallback?.(family, account);
         return;
       }
       current.current = started.loginId;
       const copied = started.way.kind === "code" ? await copyTextResult(started.way.code) : false;
-      if (current.current !== started.loginId) return;
+      if (current.current !== started.loginId || generation.current !== mine) return;
       const run: Running = {
         family,
         account: started.account,
         loginId: started.loginId,
         started,
-        ...(named ? { name: named } : {}),
+        ...kept,
         view: { state: "waiting", way: started.way, copied, url: started.url },
       };
       setRunning(run);
@@ -147,6 +194,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
           () => {
             if (current.current !== started.loginId) return;
             current.current = null;
+            target.current = null;
             void via.current.run({ action: ACCOUNT_ACTIONS.cancel, loginId: started.loginId });
             setRunning({ ...run, loginId: null, started: null, view: { state: "expired" } });
           },
@@ -161,6 +209,9 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
 
   const cancel = useCallback(() => {
     clearTimer();
+    // A start still waiting on its host is dropped too: its answer draws and runs nothing.
+    generation.current += 1;
+    target.current = null;
     const loginId = current.current;
     current.current = null;
     setRunning(null);
@@ -187,9 +238,10 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
         );
       },
       onCancel: cancel,
-      onRetry: () => running && void start(running.family, running.account, running.name),
+      onRetry: () => running && void start(running.family, running.account, running.name, running.fallback),
       onDone: () => {
         clearTimer();
+        target.current = null;
         setRunning(null);
       },
       onSubmitCode: (code) => {
@@ -204,7 +256,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   return {
     running,
     busy,
-    start: (family, account, name) => void start(family, account, name),
+    start: (family, account, name, fallback) => void start(family, account, name, fallback),
     cancel,
     gesture: (action, account) => void gesture(action, account),
     card,
