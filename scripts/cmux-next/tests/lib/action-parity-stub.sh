@@ -10,6 +10,10 @@ for variable in "${!GIT_CONFIG_VALUE_@}"; do
 done
 [[ " $* " == *" test "* && " $* " == *" --locked "* && " $* " == *" -p cmux-action-catalog "* && " $* " == *" --test swift_parity "* ]] || exit 90
 if [[ -n "${STUB_ACTION_PARITY_LOG:-}" ]]; then git rev-parse HEAD >> "$STUB_ACTION_PARITY_LOG"; fi
+# The push script checks the base tip in a linked worktree: that verdict is STUB_ACTION_PARITY_TIP_STATUS (green by default).
+if [[ "$(git rev-parse --absolute-git-dir)" != "$(cd "$(git rev-parse --git-common-dir)" && pwd)" ]]; then
+  exit "${STUB_ACTION_PARITY_TIP_STATUS:-0}"
+fi
 exit "${STUB_ACTION_PARITY_STATUS:-0}"
 CARGO
 chmod +x "$tmp/parity-bin/cargo"
