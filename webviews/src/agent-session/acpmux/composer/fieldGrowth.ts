@@ -157,8 +157,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // The arm is read once per editor.
       const arm = experimentArm(fieldGrowthMotion);
       let scroller: HTMLElement | null = null;
+      // An edit at rest waits for the field's observer instead of reading layout in its task. The
+      // observer delivers in the frame after the edit (after that frame's rAF callbacks), so the wait
+      // ends in the rAF of the frame after it: a later resize (a window rewrap) is not an edit's growth.
       let editWaitingForResize = false;
-      let editClearTimer: ReturnType<typeof setTimeout> | undefined;
+      let editWait = 0;
+      const endEditWait = () => {
+        editWaitingForResize = false;
+        if (editWait) cancelAnimationFrame(editWait);
+        editWait = 0;
+      };
       // The height the field last drew at rest, kept as it changes for any reason (a rewrap, the
       // window's cap) by the field's own observer, which delivers after the edit that changes it.
       let shown = -1;
@@ -173,7 +181,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           const entry = entries[0];
           const measured = entry?.target === field ? field.getBoundingClientRect().height : undefined;
           if (editWaitingForResize && measured !== undefined) {
-            editWaitingForResize = false;
+            endEditWait();
             follow(false, measured);
           } else if (measured !== undefined) {
             shown = measured;
@@ -302,26 +310,30 @@ export function fieldGrowth(external: () => boolean): Plugin {
           const placed = placedKey.getState(next.state) === true;
           // Keep the synchronous path for engines without ResizeObserver; the observer is the
           // signal that makes the deferred path safe on supported engines.
-          const immediate = placed || external() || moving.has(scroller!) || restObserver === undefined;
+          const immediate =
+            placed ||
+            external() ||
+            moving.has(scroller!) ||
+            restObserver === undefined ||
+            typeof requestAnimationFrame !== "function";
           if (immediate) {
-            editWaitingForResize = false;
-            if (editClearTimer !== undefined) clearTimeout(editClearTimer);
-            editClearTimer = undefined;
+            endEditWait();
             follow(placed);
             return;
           }
           // A stable-height key must not synchronously read layout. If this edit wraps or unwraps
           // the field, its observer delivers the measured end height before paint and starts the
           // same growth motion from `shown`.
+          // A timeout here would run before the frame's observers in a busy event loop and drop the
+          // growth's motion; the wait is counted in frames instead.
+          endEditWait();
           editWaitingForResize = true;
-          if (editClearTimer !== undefined) clearTimeout(editClearTimer);
-          editClearTimer = setTimeout(() => {
-            editWaitingForResize = false;
-            editClearTimer = undefined;
-          }, 0);
+          editWait = requestAnimationFrame(() => {
+            editWait = requestAnimationFrame(endEditWait);
+          });
         },
         destroy() {
-          if (editClearTimer !== undefined) clearTimeout(editClearTimer);
+          endEditWait();
           restObserver?.disconnect();
           if (scroller) land(scroller);
         },

@@ -21,8 +21,22 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       resizeObservers.delete(this);
     }
   }
+  // Frames run when the test says, so the edit's wait for its observer is counted in frames.
+  let rafQueue = new Map<number, FrameRequestCallback>();
+  let rafId = 0;
+  const runFrame = () => {
+    const due = rafQueue;
+    rafQueue = new Map();
+    for (const callback of due.values()) callback(0);
+  };
   const globals = {
     window,
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      rafId += 1;
+      rafQueue.set(rafId, callback);
+      return rafId;
+    },
+    cancelAnimationFrame: (id: number) => rafQueue.delete(id),
     document: window.document,
     navigator: window.navigator,
     MutationObserver: window.MutationObserver,
@@ -87,6 +101,8 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
           // Stable-height typing does not force a layout read. A changed height is picked up by
           // ResizeObserver before the frame paints.
           expect(rectReads).toBe(beforeDispatchReads);
+          // The frame after the edit: its rAF callbacks run before its observers.
+          runFrame();
           notifyResize();
           expect(field.scrollTop).toBe(0);
           expect(Number.parseFloat(String(frames[0]!.height)) * zoom).toBeCloseTo(before * zoom);
@@ -107,6 +123,17 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
           animation!.dispatchEvent(new window.Event("finish"));
           expect(growthHoldsTop(field)).toBe(false);
         }
+        // A resize that is no edit's (a window rewrap, frames after the last key) moves nothing.
+        view.dispatch(view.state.tr.insertText("z"));
+        runFrame();
+        runFrame();
+        frames = [];
+        field.style.height = "88px";
+        notifyResize();
+        expect(frames).toEqual([]);
+        expect(growthHoldsTop(field)).toBe(false);
+        field.style.height = "48px";
+        notifyResize();
         // A growth past 1.5 lines, in CSS pixels at every zoom, keeps the caret in view instead.
         field.style.height = "188px";
         view.dispatch(view.state.tr.insertText("large paste"));
