@@ -110,6 +110,7 @@ fn hidden_settle_discards_every_other_body_field() {
         group: None,
         at: 0,
         open: false,
+        entering: false,
         bytes: 0,
         lines: 0,
         fields: BTreeMap::from([
@@ -122,6 +123,7 @@ fn hidden_settle_discards_every_other_body_field() {
     let result = rows(home.path());
     let value: serde_json::Value = serde_json::from_slice(&result[0].1).unwrap();
     assert_eq!(value["body"], serde_json::json!({"hidden": true}));
+    assert_eq!(value["phase"], "leaving");
 }
 
 /// A turn's end does not checkpoint on the line that ends it: the checkpoint syncs the book's
@@ -1037,6 +1039,7 @@ fn settle_card(state: &mut ActorState, id: u64, bodies: Vec<(BodyField, BodySour
         group: None,
         at: 0,
         open: false,
+        entering: false,
         bytes: 0,
         lines: 0,
         fields: BTreeMap::from([("tool".into(), "\"Read\"".into())]),

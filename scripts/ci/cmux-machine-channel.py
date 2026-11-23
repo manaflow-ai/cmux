@@ -63,13 +63,27 @@ the file; a new top-level key is ignored by it):
 
    "screen_sharing_helper": {"url", "sha256", "size", "bundle_id", "team", "designated_requirement"}
 
+With --tree-key K the Linux release payload names the tree's copies instead,
+https://files.cmux.com/cmux-tui/tree/<K>/<name>-<target> (scripts/ci/publish-cmux-tui-tree.py publishes them,
+RELEASE_NAMES), and carries "tree_key": K. It is the payload of cmux-tui/tree/<K>/release.json, which the run that
+publishes the tree signs, and of that commit's release.json and the channel pointer, which then names the tree.
+The bytes are still checked against this run's own build (--binaries-dir): a tree another run published (other
+bytes) is not this run's to sign.
+
+`alias` makes the payload of cmux-tui/<commit>/release.json for a commit that shares a published tree and built
+nothing of its own (mark-tree-commits signs it): from the tree's verified release.json (--tree-release), whose
+tree_key must be the one the caller computed for the commit (--tree-key), the same channel, tree_key and targets,
+this commit and its commit time, and a fresh sequence, version, published_at and expires_at.
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
 Usage:
   cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
       --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V] [--min-sequence N]]
-      [--purpose mac-live --live-from F [--screen-sharing-helper R]]
+      [--tree-key K] [--purpose mac-live --live-from F [--screen-sharing-helper R]]
+  cmux-machine-channel.py alias --tree-release R --keys KEYS --tree-key K --channel C --commit SHA
+      --committed-at T --out P [--min-sequence N]
 """
 import argparse
 import hashlib
@@ -93,6 +107,7 @@ NAMES = ("cmux-tui", "cmux-tui-hook")
 # A machine refuses a channel file older than this: CI re-signs on every push that builds.
 LIFETIME = 30 * 24 * 3600
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+POINTER = os.path.join(ROOT, "scripts", "cmux-next", "web-ota-pointer.py")
 
 LINUX_RELEASE_PURPOSE = "cmux-linux-release"
 # The channels a Linux release pointer may name (cmux-tui/channels/linux-<channel>.json).
@@ -264,6 +279,10 @@ def payload(args):
         fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
     if not release and (args.channel or args.cargo_version or args.min_sequence):
         fail("--channel, --cargo-version and --min-sequence are for --purpose linux-release")
+    if args.tree_key and not release:
+        fail("--tree-key is for --purpose linux-release")
+    if args.tree_key and not re.fullmatch(r"[0-9a-f]{40}", args.tree_key):
+        fail(f"bad tree key {args.tree_key!r}")
     if release and not args.binaries_dir:
         # Everything in the bucket, the manifest included, is what a bucket writer controls, and publish
         # adopts (and attests) whatever Linux bytes the prefix already serves. Only this run's own build
@@ -288,7 +307,10 @@ def payload(args):
                 continue
             if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
                 fail(f"no sha256 for {published} ({args.manifest or args.binaries_dir})")
-            url = f"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}"
+            if args.tree_key:
+                url = f"{FILES}/tree/{args.tree_key}/{published}"
+            else:
+                url = f"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}"
             path = os.path.join(args.download_dir, published)
             subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
                            check=True)
@@ -310,7 +332,7 @@ def payload(args):
             "version": release_version(cargo_version, args.commit, sequence), "sequence": sequence,
             "commit": args.commit, "committed_at": committed_at,
             "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
-        }
+        } | ({"tree_key": args.tree_key} if args.tree_key else {})
     else:
         value = {
             "schema": SCHEMA, "purpose": PURPOSE, "channel": CHANNEL,
@@ -318,6 +340,38 @@ def payload(args):
             "commit": args.commit, "committed_at": committed_at,
             "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
         }
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
+def alias(args):
+    """The payload of cmux-tui/<commit>/release.json for a commit that shares a published tree: the tree's
+    verified release.json, retold for this commit. Nothing is downloaded: the tree file's signature covers
+    its targets, and the caller computed --tree-key for this commit from the source (cmux_tui_tree_key.py),
+    never from an unsigned marker in the bucket."""
+    for name, value in (("commit", args.commit), ("tree key", args.tree_key)):
+        if not re.fullmatch(r"[0-9a-f]{40}", value):
+            fail(f"bad {name} {value!r}")
+    if args.channel not in LINUX_RELEASE_CHANNELS:
+        fail(f"--channel must be one of {', '.join(LINUX_RELEASE_CHANNELS)}")
+    verified = subprocess.run(
+        [sys.executable, POINTER, "verify", "--pointer", args.tree_release, "--keys", args.keys,
+         "--purpose", LINUX_RELEASE_PURPOSE, "--channel", args.channel, "--allow-expired"],
+        capture_output=True, text=True)
+    if verified.returncode != 0:
+        fail(f"{args.tree_release} does not verify: {verified.stderr.strip()}")
+    tree = json.loads(verified.stdout)
+    if tree.get("tree_key") != args.tree_key:
+        fail(f"{args.tree_release} is the release file of tree {tree.get('tree_key')!r}, not {args.tree_key}")
+    now = int(time.time())
+    committed_at = int(args.committed_at)
+    sequence = release_sequence(now, committed_at, args.min_sequence or 0)
+    value = {
+        "schema": SCHEMA, "purpose": LINUX_RELEASE_PURPOSE, "channel": args.channel,
+        "version": release_version(tree["version"].split("+", 1)[0], args.commit, sequence), "sequence": sequence,
+        "commit": args.commit, "committed_at": committed_at, "tree_key": args.tree_key,
+        "published_at": now, "expires_at": now + LIFETIME, "targets": tree["targets"],
+    }
     with open(args.out, "wb") as out:
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
@@ -341,8 +395,17 @@ def main(argv):
                    help="--purpose linux-release: the lowest sequence to sign (the channel's current one + 1)")
     p.add_argument("--machine-path", action="store_true",
                    help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
+    p.add_argument("--tree-key", help="--purpose linux-release: name the tree's copies, cmux-tui/tree/<key>/")
+    a = sub.add_parser("alias", help="the release.json payload of a commit that shares a published tree")
+    for name in ("--tree-release", "--keys", "--tree-key", "--channel", "--commit", "--committed-at", "--out"):
+        a.add_argument(name, required=True)
+    a.add_argument("--min-sequence", type=int, default=0,
+                   help="the lowest sequence to sign (the channel's current one + 1)")
     args = parser.parse_args(argv[1:])
-    payload(args)
+    if args.command == "alias":
+        alias(args)
+    else:
+        payload(args)
     return 0
 
 
