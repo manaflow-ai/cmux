@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # gitleaks: secrets in new commits. Reports (ratchet.py judges it for CI), always --redact (no secret
 # value is ever written to the report or the terminal).
-# Exits 0 when gitleaks ran (findings or not); nonzero only when it could not be
-# installed or crashed.
+# Exits 0 when gitleaks completed its requested scan (findings or not); nonzero
+# when it could not be installed, crashed, or could not read the requested history.
 #
 # Env:
 #   GITLEAKS_RANGE    git log range to scan (default origin/<base>..HEAD)
@@ -23,6 +23,13 @@ mkdir -p "$OUT_DIR" || exit 2
 TOOLS_DIR="${SA_TOOLS_DIR:-$HOME/.cache/static-analysis/bin}"
 mkdir -p "$TOOLS_DIR" || exit 2
 start=$(date +%s)
+
+incomplete_scan() {
+  echo "gitleaks.sh: incomplete scan: $1; no clean-history conclusion" >&2
+  echo "next: restore the requested Git history and objects, then rerun the same scan" >&2
+  echo "SA_SUMMARY tool=gitleaks findings=unknown scan_status=incomplete seconds=$(( $(date +%s) - start ))"
+  exit 4
+}
 
 sha256_of() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 
@@ -64,6 +71,8 @@ cfg=scripts/static-analysis/gitleaks/gitleaks.toml
 [ -f "$cfg" ] && args+=(--config "$cfg")
 if [ "${GITLEAKS_FULL:-0}" = 1 ]; then
   scope="full history"
+  shallow=$(git rev-parse --is-shallow-repository) || incomplete_scan "cannot determine history coverage"
+  [ "$shallow" = false ] || incomplete_scan "full history requested from a shallow checkout"
 else
   range="${GITLEAKS_RANGE:-}"
   if [ -z "$range" ]; then
@@ -87,11 +96,18 @@ fi
 
 json="$OUT_DIR/gitleaks.json"
 txt="$OUT_DIR/gitleaks.txt"
+# A previous report in a reused output directory is not evidence for this invocation.
+: >"$json" || exit 4
+: >"$txt" || exit 4
 "$GITLEAKS" "${args[@]}" --report-path "$json" "$ROOT" >"$OUT_DIR/gitleaks.log" 2>&1
 rc=$?
-if [ "$rc" -ne 0 ] || [ ! -f "$json" ]; then
-  echo "gitleaks.sh: gitleaks crashed (exit $rc)" >&2; tail -20 "$OUT_DIR/gitleaks.log" >&2; exit 4
+[ "$rc" -eq 0 ] || incomplete_scan "gitleaks exited $rc (see gitleaks.log)"
+# Gitleaks 8.30.1 can return 0 and [] after git log fails on a missing blob.
+# Match Git diagnostics and the scanner's error/fatal levels, not ordinary warnings.
+if LC_ALL=C grep -Eq '(^|[[:space:]])(fatal:|error:|ERR|FTL)([[:space:]]|$)' "$OUT_DIR/gitleaks.log"; then
+  incomplete_scan "Git or scanner error diagnostics (see gitleaks.log)"
 fi
+jq -e 'type == "array"' "$json" >/dev/null 2>&1 || incomplete_scan "missing or invalid JSON report"
 
 findings=$(jq 'length' "$json")
 {
@@ -105,5 +121,5 @@ findings=$(jq 'length' "$json")
 } >"$txt"
 head -30 "$txt"
 echo "full report: $txt"
-echo "SA_SUMMARY tool=gitleaks findings=$findings seconds=$(( $(date +%s) - start ))"
+echo "SA_SUMMARY tool=gitleaks findings=$findings scan_status=completed seconds=$(( $(date +%s) - start ))"
 exit 0

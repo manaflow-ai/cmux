@@ -48,6 +48,11 @@ failures back into warnings.
 - `ratchet.py gitleaks`: this change's commits only (`-m --first-parent base..head`), values redacted. Every
   finding is a secret the change commits, so every one fails. A known non-secret goes in
   `gitleaks/gitleaks.toml`'s allowlist; a real one is rotated.
+  An empty report proves nothing when Git could not read the history. The wrapper returns nonzero with
+  `scan_status=incomplete` and `findings=unknown` for Git/scanner error diagnostics, an absent or invalid JSON
+  report, or a full-history scan of a shallow checkout. Restore the requested objects/history and rerun;
+  a zero-match completed scan still covers only its requested refs, range, configuration and file-size limits.
+  `tests/test_static_analysis_gitleaks.py` exercises these cases without real credentials.
 - `--base SHA --head REV` judges any pair of commits (how the 100-PR backtest in cmux#50013 ran).
 
 Widening `ZIZMOR_HOLES` is a separate decision; `tests/test_static_analysis_ratchet.py` pins the set.
