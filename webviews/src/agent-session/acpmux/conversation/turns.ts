@@ -101,6 +101,8 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 /// The running turn's line, its last row from the send to the turn's end (turnEndFold.ts reads it).
 export const LIVE_THINKING = `${THINKING}-live`;
+/// The older live line at a running turn's bottom (`below`, WorkingFor.tsx). The running turn's header
+/// over its work is a WORKED row in its running phase (`turnHeaderId`), never this kind.
 export const WORKING = "working";
 /// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
@@ -1362,7 +1364,7 @@ function shapedTurn(
     // While such a turn runs, its message is drawn where the open fold will hold it: right under the
     // "Working for" that stands in the fold's line (`shapeLiveTurn`). The line keeps one place from
     // the message's arrival to the turn's end, and the message keeps its place until the fold takes it.
-    const working = live && foldStyle.conclusion && isAgentPrompt(user) ? body.findIndex(isWorkingHeader(user)) : -1;
+    const working = live && foldStyle.conclusion && isAgentPrompt(user) ? body.findIndex(isRunningHeader(user)) : -1;
     if (working >= 0 && drawnUser.length) {
       body.splice(working + 1, 0, user);
       drawnUser.length = 0;
@@ -1879,7 +1881,8 @@ function shapeTurn(
         at: final.at,
         kind: "turnSummary",
         status: "completed",
-        turnStartedAtMs: turnStartedAtMs ?? user.at,
+        // The running header's start, as it read it (`turnClock`): the turn's own, else its rows'.
+        ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
         durationMs: Math.max(0, final.at - (turnStartedAtMs ?? user.at)),
       };
       const body = shapeTurn(
@@ -1951,16 +1954,9 @@ function shapeTurn(
   const segments = foldSegments(user, body, inOrder);
   const answer = segments.find((segment) => segment.takeaway)?.takeaway;
   const firstFinal = body.find(isFinalAnswer);
-  const workedDurationMs = firstFinal
-    ? Math.max(
-        0,
-        firstFinal.at -
-          (firstFinal.turnStartedAtMs ??
-            summary.turnStartedAtMs ??
-            (live ? turnStartedAtMs : undefined) ??
-            (summary.durationMs !== undefined ? summary.at - summary.durationMs : user.at)),
-      )
-    : (summary.durationMs ?? (user.kind === "user" ? Math.max(0, summary.at - user.at) : undefined));
+  // The turn's one clock (`turnClock`): the "Worked for" reads what its "Working for" read, from the
+  // same start to the same end.
+  const workedDurationMs = turnClock(user, body, live ? turnStartedAtMs : undefined, summary).durationMs;
   // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it, answerable until a
   // later prompt picks one of its answers or the person moves on past a later card
   // (`settleNextSteps`), whatever turns come between. Read once per ended turn, never while the turn
@@ -3026,11 +3022,9 @@ function shapeLiveRows(
   // stayed open while notices kept arriving: "I feel like this is way too long for a turn").
   // A notice that opens the rows drawn here starts its stretch too, when the harness's turn began
   // before it.
-  const opened = turnStartedAtMs ?? user.at;
-  const start = continuationStart(
-    drawn,
-    !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
-  );
+  // One start and one formula with the ended turn's "Worked for" (`turnClock`).
+  const clock = turnClock(user, drawn, turnStartedAtMs);
+  const start = clock.start;
   const at = start + clockOffset;
   const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
   // The line is the turn's last row, made fresh here.
@@ -3053,12 +3047,58 @@ function shapeLiveRows(
   // the bottom says only what the agent does now, "Thinking", with no clock.
   const line = shaped.at(-1);
   if (line?.kind === THINKING) line.untimed = true;
-  return [{ id: workingHeaderId(user.id), version: 1, at, kind: WORKING }, ...shaped];
+  // The turn's header, in its running phase: the row its end draws "Worked for" in (one id, kind and
+  // element from the turn's start to its end; only its phase and words change). Once the answer
+  // came, its clock holds where the ended line reads, so it never runs backwards at the end.
+  return [
+    {
+      id: turnHeaderId(user.id),
+      version: 1,
+      at,
+      kind: WORKED,
+      turnPhase: "running",
+      ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
+    },
+    ...shaped,
+  ];
 }
 
-/// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
-export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
-const isWorkingHeader = (user: AcpmuxRow) => (row: AcpmuxRow) => row.id === workingHeaderId(user.id);
+/// A turn's header (`shapeLiveTurn`, `shapeTurn`), keyed by the turn's prompt: its "Working for"
+/// while it runs and its "Worked for" once it ended, one row.
+export const turnHeaderId = (promptId: string) => `${WORKED}-${promptId}`;
+const isRunningHeader = (user: AcpmuxRow) => (row: AcpmuxRow) =>
+  row.id === turnHeaderId(user.id) && row.turnPhase === "running";
+
+/// A turn's clock, one start and one formula for its running "Working for" and its ended "Worked
+/// for": from the turn's start (the harness's record of it: the ended turn's `summary`, the running
+/// turn's `liveStart`, else the turn's latest row that carries it; else its end less its duration,
+/// else the prompt; another agent's message that
+/// came after it, or the latest notice that set the agent going again, `continuationStart`) to its
+/// first final answer from then on, else to its end (`summary`). Running, `durationMs` is set once
+/// the answer came (`answered`); the clock ticks until then.
+export function turnClock(
+  user: AcpmuxRow,
+  rows: readonly AcpmuxRow[],
+  liveStart?: number,
+  summary?: AcpmuxRow,
+): { start: number; durationMs?: number; answered: boolean } {
+  let recorded = summary?.turnStartedAtMs ?? liveStart;
+  for (let index = rows.length - 1; recorded === undefined && index >= 0; index -= 1)
+    recorded = rows[index]!.turnStartedAtMs;
+  const opened = recorded ?? (summary?.durationMs !== undefined ? summary.at - summary.durationMs : user.at);
+  const start = continuationStart(
+    rows,
+    !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
+  );
+  const answer = rows.find((row) => isFinalAnswer(row) && row.at >= start);
+  if (answer) return { start, durationMs: Math.max(0, answer.at - start), answered: true };
+  if (!summary) return { start, answered: false };
+  // The harness's own measure of the turn, when nothing moved its start.
+  if (start === opened && summary.durationMs !== undefined)
+    return { start, durationMs: summary.durationMs, answered: false };
+  if (user.kind !== "user" && recorded === undefined) return { start, answered: false };
+  return { start, durationMs: Math.max(0, summary.at - start), answered: false };
+}
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
 /// not send) that came after the agent had replied since then, which set it going again.
