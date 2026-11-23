@@ -80,8 +80,11 @@ pub(crate) const HEAD_BYTES: u64 = if cfg!(test) { 4 << 10 } else { 256 << 10 };
 pub(crate) const FILE_BYTES: u64 = SESSION_BYTES + HEAD_BYTES;
 /// Bytes every copy's file keeps together, refused removals included.
 pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 };
-/// Bytes of records held in memory, every copy together.
-const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 16 << 20 };
+/// Bytes of records held in memory, every copy together. At 16 MB, 2,000 live copies did not
+/// fit: each fan-out round unloaded and read back about 2,000 of them from disk (17k rereads in
+/// one coord-sim fan-in run); at 64 MB that run read none back (cmux#49864). The cost is up to
+/// 48 MB more resident memory, only while that many copies are live.
+const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Sessions and peers removed before the disk reads that are remembered one by one; past it,
@@ -1365,6 +1368,7 @@ impl Store {
                 loaded.clone().filter(|(_, c)| c.disk > 0 && c.due.is_none()).map(lru).min();
             if let Some((_, key)) = unload {
                 if let Some(c) = self.copies.get_mut(&key) {
+                    crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
                     self.memory -= std::mem::take(&mut c.memory);
                 }
@@ -1447,7 +1451,10 @@ impl Store {
         }
         let read = match disk::path(&self.root, key) {
             Some(_) if c.disk > FILE_BYTES => Err(anyhow::anyhow!("past its bound")),
-            Some(path) => disk::read(&path, key),
+            Some(path) => {
+                crate::gauges::peer_notices().snapshot_reads.fetch_add(1, Ordering::Relaxed);
+                disk::read(&path, key)
+            }
             None => Err(anyhow::anyhow!("a name that cannot be kept")),
         };
         match read {
@@ -1716,7 +1723,11 @@ impl Store {
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
-        let head = serde_json::to_vec(&c.head).map_or(u64::MAX, |h| h.len() as u64);
+        // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
+        let head = match bytes.iter().position(|b| *b == b'\n') {
+            Some(0) | None => u64::MAX,
+            Some(len) => len as u64,
+        };
         if !disk::head_fits(head) || bytes.len() as u64 > FILE_BYTES {
             // Its head (its row) is past what a copy may hold, as a restart reads it: not kept.
             tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot past its bound; not kept");

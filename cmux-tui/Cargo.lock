@@ -1374,6 +1374,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-backdrop-gen"
+version = "0.1.0"
+dependencies = [
+ "png",
+]
+
+[[package]]
 name = "cmux-bookmarks-core"
 version = "0.1.0"
 dependencies = [
@@ -2064,6 +2071,10 @@ dependencies = [
  "memchr",
  "tempfile",
 ]
+
+[[package]]
+name = "cmux-launch-image"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-layout-reducer"
@@ -3026,6 +3037,7 @@ name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "cmux-config",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
