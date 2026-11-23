@@ -2348,7 +2348,6 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextCopyMode",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextTerminal",
