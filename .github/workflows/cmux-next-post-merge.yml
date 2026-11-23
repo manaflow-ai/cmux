@@ -81,7 +81,7 @@ env:
 jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -90,11 +90,29 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
       - name: Mint the read token
@@ -216,7 +234,7 @@ jobs:
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       actions: write
       contents: read
@@ -228,11 +246,29 @@ jobs:
       pieces: ${{ steps.judge.outputs.pieces }}
       piece: ${{ steps.judge.outputs.piece }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
       - name: Mint the read token
@@ -273,7 +309,7 @@ jobs:
     needs: judge
     if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
@@ -283,12 +319,31 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
           ref: ${{ github.ref_name }}
-          fetch-depth: 0
-          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref_name }}
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
       - name: Mint the read token
@@ -321,9 +376,26 @@ jobs:
       # Creating a branch based on feat-cmux-next needs workflows write: its workflow files differ from
       # main's, and GitHub refuses or times out a token without it (drill-5, -6 and -7). Minted on every
       # branch, so a drill proves the same push; the pull request itself still opens with GH_TOKEN.
+      # The workflows token below creates and pushes every swap-out, probe and revert branch: a ref at a
+      # feat-cmux-next commit needs workflows write whatever the diff (drill 9 run 45096141472: HTTP 403 with
+      # the contents token). Its mint may fail (the App had no Workflows permission, hq#18499); then the
+      # contents-only push token takes over and only a diff touching .github/workflows/** stops, with the
+      # command to do it by hand.
       - name: Mint the revert push token
         id: push-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Mint the workflows push token
+        id: workflows-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -338,13 +410,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
           PUSH_TOKEN: ${{ steps.push-token.outputs.token || steps.app-token.outputs.token || github.token }}
+          WORKFLOWS_TOKEN: ${{ steps.workflows-token.outputs.token }}
           CULPRIT: ${{ needs.judge.outputs.culprit }}
           RED_JOB: ${{ needs.judge.outputs.job }}
           GOOD: ${{ needs.judge.outputs.good }}
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
           DISPATCH_TOKEN: ${{ github.token }}
-          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          # Hot swap out first, for classes .github/piece-swap.json lists (drill, web-ui, rust-core); 0 turns it off.
           NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
           PIECES: ${{ needs.judge.outputs.pieces }}
           PIECE: ${{ needs.judge.outputs.piece }}
@@ -353,4 +426,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/ci/post_merge_batch.py revert --branch "$BRANCH" --culprit "$CULPRIT" --job "$RED_JOB" \
             --good "$GOOD" --origin "$ORIGIN" --pieces "$PIECES" --piece "$PIECE" \
-            --push-url "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            --push-url "https://x-access-token:{token}@github.com/${GITHUB_REPOSITORY}.git"

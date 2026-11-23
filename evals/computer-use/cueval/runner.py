@@ -18,6 +18,7 @@ import time
 import uuid
 
 from . import arms as armsmod
+from . import metrics
 from . import platform_env as penv
 from .mcp import McpClient
 from .tasks import ROOT, TaskEnv, Transcript, load_tasks, task_set_digest
@@ -44,20 +45,38 @@ def digest(tasks: list[dict], arm_ids: list[str], agent: str, model: str, trials
 
 # ---------------------------------------------------------------- Claude Code
 
-def parse_claude_stream(lines: list[str]) -> Transcript:
+def parse_claude_stream(lines: list[str], times: list[float] | None = None) -> Transcript:
+    """times[i] is when line i arrived (seconds since the agent started); with it,
+    every call gets its latency (tool_use emitted to tool_result received) and the
+    model's think time before it (the previous event to the tool_use)."""
     tr = Transcript()
     pending: dict[str, dict] = {}
-    for line in lines:
+    seen_msgs: set[str] = set()
+    last_t = 0.0  # when the model last got something to answer (start, or the last tool result)
+    for i, line in enumerate(lines):
+        t = times[i] if times and i < len(times) else None
         try:
             ev = json.loads(line)
         except ValueError:
             continue
         kind = ev.get("type")
-        if kind == "assistant":
-            tr.turns += 1
-            for block in ev.get("message", {}).get("content", []):
+        if kind == "system" and ev.get("subtype") == "init":
+            tr.meta.update(agent_version=ev.get("claude_code_version"), model_id=ev.get("model"))
+        elif kind == "assistant":
+            msg = ev.get("message", {})
+            mid = msg.get("id") or f"line{i}"
+            if mid not in seen_msgs:  # Claude Code emits one event per content block of a message
+                seen_msgs.add(mid)
+                tr.turns += 1
+                u = msg.get("usage") or {}
+                tr.turn_usage.append({k: u.get(k) for k in ("input_tokens", "cache_creation_input_tokens",
+                                                              "cache_read_input_tokens", "output_tokens")})
+            for block in msg.get("content", []):
                 if block.get("type") == "tool_use":
-                    call = {"name": block.get("name", ""), "args": block.get("input", {}), "result_text": "", "is_error": False}
+                    args = block.get("input", {})
+                    call = {"name": block.get("name", ""), "args": args, "result_text": "", "is_error": False,
+                            "args_bytes": len(json.dumps(args)), "t_use": t,
+                            "think_s": round(t - last_t, 3) if t is not None else None}
                     pending[block.get("id", "")] = call
                     tr.tool_calls.append(call)
                 elif block.get("type") == "text":
@@ -68,11 +87,24 @@ def parse_claude_stream(lines: list[str]) -> Transcript:
                 if block.get("type") == "tool_result" and block.get("tool_use_id") in pending:
                     call = pending[block["tool_use_id"]]
                     body = block.get("content")
+                    images = []
                     if isinstance(body, list):
+                        images = metrics.describe_images(body)
                         body = "\n".join(b.get("text", "") for b in body if b.get("type") == "text")
-                    call["result_text"] = (body or "")[:4000]
+                    body = body or ""
+                    call["result_text"] = body[:16000]
+                    call["result_bytes"] = len(body.encode())
+                    call["images"] = images
                     call["is_error"] = bool(block.get("is_error"))
+                    call["no_effect"] = bool(metrics.NO_EFFECT_RE.search(body))
+                    call.update(metrics.result_fields(body))
+                    if t is not None and call.get("t_use") is not None:
+                        call["latency_s"] = round(t - call["t_use"], 3)
+                    if t is not None:
+                        last_t = t
         elif kind == "result":
+            tr.meta.update(duration_ms=ev.get("duration_ms"), duration_api_ms=ev.get("duration_api_ms"),
+                           model_ids=sorted((ev.get("modelUsage") or {}).keys()))
             tr.turns = ev.get("num_turns", tr.turns)
             usage = ev.get("usage") or {}
             tr.input_tokens = sum(usage.get(k, 0) or 0 for k in
@@ -103,7 +135,7 @@ def run_claude(arm: dict, env_vars: dict, instruction: str, model: str, max_turn
 
 # ---------------------------------------------------------------- Codex
 
-def parse_codex_stream(lines: list[str]) -> Transcript:
+def parse_codex_stream(lines: list[str], times: list[float] | None = None) -> Transcript:
     tr = Transcript()
     tr.input_tokens = tr.output_tokens = 0
     for line in lines:
@@ -151,19 +183,39 @@ def run_codex(arm: dict, env_vars: dict, instruction: str, model: str, max_turns
 
 
 def _run_and_parse(cmd: list[str], timeout: float, log: str, parse) -> Transcript:
+    """Run the agent, timestamping each stdout line as it arrives (for per-call latency)."""
+    import threading
     with open(log + ".cmd", "w") as f:
         f.write(" ".join(shlex.quote(c) for c in cmd) + "\n")
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        out, err, code = p.stdout, p.stderr, p.returncode
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
-        err, code = "timeout", None
-    with open(log, "w") as f:
-        f.write(out)
-    with open(log + ".stderr", "w") as f:
-        f.write(err or "")
-    tr = parse(out.splitlines())
+    lines: list[str] = []
+    times: list[float] = []
+    err_path = log + ".stderr"
+    t0 = time.monotonic()
+    with open(err_path, "w") as errf:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errf, stdin=subprocess.DEVNULL, text=True, bufsize=1)
+
+        def pump():
+            for line in p.stdout:
+                times.append(round(time.monotonic() - t0, 3))
+                lines.append(line.rstrip("\n"))
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+        try:
+            code = p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+            code = None
+        reader.join(timeout=5)
+    with open(log, "w") as f:  # raw stream, image data replaced by its size
+        for ln in lines:
+            f.write(metrics.strip_images(ln) + "\n")
+    with open(log + ".times", "w") as f:
+        json.dump(times, f)
+    with open(err_path) as f:
+        err = f.read()
+    tr = parse(lines, times)
+    tr.meta["agent_wall_s"] = round(time.monotonic() - t0, 2)
     if code is None:
         tr.error = "timeout"
     elif code != 0 and tr.error is None and not tr.final_text:
@@ -199,6 +251,74 @@ def fake_desktop(task: dict, env: TaskEnv) -> dict:
     return {"windows": wins}
 
 
+def call_row(run_id: str, arm_id: str, task_id: str, trial: int, i: int, c: dict) -> dict:
+    return {
+        "run_id": run_id, "arm": arm_id, "task": task_id, "trial": trial, "i": i,
+        "tool": metrics.base_name(c.get("name", "")), "args": c.get("args"),
+        "args_bytes": c.get("args_bytes"), "think_s": c.get("think_s"), "latency_s": c.get("latency_s"),
+        "result_bytes": c.get("result_bytes"), "images": c.get("images", []),
+        "is_error": c.get("is_error"), "no_effect": c.get("no_effect"), "repeat": c.get("repeat"),
+        "outcome": c.get("outcome"), "waited_ms": c.get("waited_ms"), "settle": c.get("settle"),
+        "unchanged": c.get("unchanged"), "outline_bytes": c.get("outline_bytes"), "head_bytes": c.get("head_bytes"),
+        "result_head": (c.get("result_text") or "")[:300],
+    }
+
+
+def reparse(out_dir: str) -> str:
+    """Rebuild calls.jsonl from the stored stream logs (and their .times), so new per-call
+    fields reach old runs without running them again. Image counts and sizes come from the
+    logs' '<N base64 bytes>' placeholders; pixel sizes stay as first recorded."""
+    import glob
+    import re
+    old = {}
+    path = os.path.join(out_dir, "calls.jsonl")
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                c = json.loads(line)
+                old[(c["run_id"], c["task"], c["trial"], c["i"])] = c
+    rows = []
+    for log in sorted(glob.glob(os.path.join(out_dir, "logs", "*", "*.jsonl"))):
+        run_id = os.path.basename(os.path.dirname(log))
+        m = re.match(r"(.+)-(cmux-cu|cua-driver-[\d.]+|fake)-t(\d+)\.jsonl$", os.path.basename(log))
+        if not m:
+            continue
+        task_id, arm_id, trial = m.group(1), m.group(2), int(m.group(3))
+        with open(log) as f:
+            lines = [ln.rstrip("\n") for ln in f]
+        times = None
+        if os.path.exists(log + ".times"):
+            with open(log + ".times") as f:
+                times = json.load(f)
+        tr = parse_claude_stream(lines, times)
+        metrics.annotate_repeats(tr.tool_calls)
+        for i, c in enumerate(tr.tool_calls):
+            row = call_row(run_id, arm_id, task_id, trial, i, c)
+            prev = old.get((run_id, task_id, trial, i))
+            if prev and prev.get("images"):
+                row["images"] = prev["images"]
+            rows.append(row)
+    with open(path + ".tmp", "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    os.replace(path + ".tmp", path)
+    return path
+
+
+def _tool_schema_bytes(arm: dict) -> int | None:
+    """Bytes of the server's tools/list (names, descriptions, schemas): sent with every model turn."""
+    try:
+        cfg = armsmod.mcp_config(arm, {})["mcpServers"][arm["mcp"]["server_name"]]
+        client = McpClient([cfg["command"], *cfg["args"]], env=cfg["env"], stderr_path=os.devnull)
+        try:
+            client.initialize()
+            return len(json.dumps(client.list_tools()))
+        finally:
+            client.close()
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------- the run loop
 
 def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, task_ids=None, split="dev",
@@ -224,6 +344,7 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
     os.makedirs(logs, exist_ok=True)
     rng = random.Random(seed)
     arms = {a: armsmod.load_arm(a) for a in arm_ids}
+    schema_bytes = {} if fake else {a: _tool_schema_bytes(arms[a]) for a in arm_ids}
     schedule = []
     for trial in range(trials):
         for task in tasks:
@@ -235,8 +356,10 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
         env = TaskEnv(task, os.path.join(out_dir, "work"), trial, seed, fake=fake)
         log = os.path.join(logs, f"{task['id']}-{arm_id}-t{trial}.jsonl")
         t0 = time.monotonic()
+        reset_s = None
         try:
             env.reset(start_processes=not fake)
+            reset_s = round(time.monotonic() - t0, 2)
             srv_env = armsmod.apply_policy(arm, task, fake=False)
             if fake:
                 srv_env["CUEVAL_FAKE_DESKTOP"] = json.dumps(fake_desktop(task, env))
@@ -246,6 +369,7 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
                 driver = {"claude": run_claude, "codex": run_codex}[agent]
                 tr = driver(arm, srv_env, env.instruction, model, limit, task["timeout_s"], log)
             wall = time.monotonic() - t0
+            metrics.annotate_repeats(tr.tool_calls)
             verdict = env.check(tr)
         except Exception as e:
             wall = time.monotonic() - t0
@@ -254,6 +378,7 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
                        "refusal_correct": not task.get("expect_refusal"), "background_safe": None, "background": None}
         finally:
             env.teardown()
+            armsmod.restore_policy()
         row = {
             "run_id": run_id, "tier": "agent", "arm": arm_id, "agent": "scripted" if fake else agent, "model": model,
             "task": task["id"], "split": task["split"], "platform": plat or "fake", "trial": trial,
@@ -261,9 +386,14 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
             **verdict, "steps": len(tr.tool_calls), "turns": tr.turns, "input_tokens": tr.input_tokens,
             "output_tokens": tr.output_tokens, "cost_usd": tr.cost_usd, "wall_s": round(wall, 2),
             "error": tr.error, "final_text": (tr.final_text or "")[-500:], "prereg": reg["digest"],
+            "tool_schema_bytes": schema_bytes.get(arm_id), "reset_s": reset_s, "agent_wall_s": tr.meta.get("agent_wall_s"), "meta": tr.meta,
+            "turn_usage": tr.turn_usage, **metrics.trial_summary(tr.tool_calls, tr.turn_usage),
         }
         with open(results, "a") as f:
             f.write(json.dumps(row) + "\n")
+        with open(os.path.join(out_dir, "calls.jsonl"), "a") as f:
+            for i, c in enumerate(tr.tool_calls):
+                f.write(json.dumps(call_row(run_id, arm_id, task["id"], trial, i, c)) + "\n")
         mark = "PASS" if row["success"] else "FAIL"
         print(f"{mark} {arm_id:20} {task['id']:28} t{trial} steps={row['steps']} {row['wall_s']}s", flush=True)
     return results
