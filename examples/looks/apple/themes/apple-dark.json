@@ -56,7 +56,7 @@
   // The sidebar: vibrant (about 80% of windowBackgroundColor over the glass), no edge line, as in
   // Tahoe, with quiet section headers.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#2d2d2d",
+  "appearance.surfaces.sidebar.color": "#1e1e1e",
   "appearance.surfaces.sidebar.opacity": 0.8,
   "sidebar.style": "standard",
   "sidebar.border": false,
