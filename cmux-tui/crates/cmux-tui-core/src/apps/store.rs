@@ -154,6 +154,9 @@ pub(crate) struct Listing {
     #[serde(skip_serializing_if = "Option::is_none")]
     tagline: Option<String>,
     publisher: String,
+    /// The app draws on the New Tab page (`cmux.newtab/1`), so the store
+    /// offers Use as New Tab (`tabs.newTabApp`).
+    new_tab: bool,
     tier: Tier,
     version: String,
     icon: Option<IconRef>,
@@ -356,6 +359,8 @@ struct InstalledApp {
     name: String,
     tier: Tier,
     hide_only: bool,
+    /// The app draws on the New Tab page (`cmux.newtab/1`).
+    new_tab: bool,
     state: InstallState,
     grants: Vec<String>,
     /// The deployed instance (`deploy.rs`), null for an app with none.
@@ -412,6 +417,14 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
     }
 }
 
+/// The interface whose app draws on the New Tab page (`tabs.newTabApp`).
+const NEW_TAB_INTERFACE: &str = "cmux.newtab/1";
+
+/// Whether the manifest implements `cmux.newtab/1`.
+fn draws_new_tab(manifest: &Value) -> bool {
+    manifest.get("implements").and_then(|implements| implements.get(NEW_TAB_INTERFACE)).is_some()
+}
+
 fn listing(package: &Package, record: Option<&Record>) -> Listing {
     let m = &package.manifest;
     let icon = match &m["icon"] {
@@ -427,6 +440,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
         summary: text(&m["description"]),
         tagline: m.get("tagline").map(text).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
+        new_tab: draws_new_tab(m),
         tier: package.tier,
         version: package.version.clone(),
         icon,
@@ -458,6 +472,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
         name: package.map_or_else(|| app.to_string(), |p| text(&p.manifest["name"])),
         tier: package.map_or(Tier::Unverified, |p| p.tier),
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
+        new_tab: package.is_some_and(|p| draws_new_tab(&p.manifest)),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
         instance: Value::Null,
@@ -761,6 +776,21 @@ impl Supervisor {
             result.set("instance", self.deploy_start(&p.app, &key, target, spec));
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod new_tab_tests {
+    use serde_json::json;
+
+    /// The store offers Use as New Tab only for an app whose manifest implements `cmux.newtab/1`.
+    #[test]
+    fn only_a_newtab_implementation_draws_new_tab() {
+        let drawn = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+        assert!(super::draws_new_tab(&drawn));
+        let other = json!({ "implements": { "cmux.section/1": { "export": "render" } } });
+        assert!(!super::draws_new_tab(&other));
+        assert!(!super::draws_new_tab(&json!({})));
     }
 }
 
