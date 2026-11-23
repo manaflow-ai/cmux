@@ -14,6 +14,18 @@
 //!
 //! Before anything is written, one line says what it is and that no code
 //! runs; a terminal asks, anything else needs `--yes`.
+//!
+//! An install applies: the theme's `use` file becomes `appearance.themeFile`
+//! (a snippet's settings and stylesheets take effect), so the look changes
+//! at once, and `remove` puts back what was there. Two other spellings of
+//! the same install land here, so a theme repository is one command whatever
+//! the person (or the page they copied it from) typed:
+//!
+//! - `cmux apps install HOST/OWNER/REPO[@REF]`, the line cmux.com's install
+//!   page shows for every listing, when that repository is a theme or a
+//!   snippet (its marker file at the path) rather than an extension;
+//! - `cmux theme import HOST/OWNER/REPO[@REF]`, `import` given a repository
+//!   instead of a file.
 
 use cmux_process::{Command, Stdio};
 use std::io::{IsTerminal, Write as _};
@@ -55,8 +67,76 @@ pub(super) enum Request {
     Help,
 }
 
+/// Where `cmux apps install REF` or `cmux theme import REF` goes when REF is
+/// a repository: `scope` names the tier when the words already say it
+/// (`theme import`), else the repository's marker decides (`apps install`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Routed {
+    pub scope: Option<Tier>,
+    pub reference: String,
+    pub yes: bool,
+}
+
+/// `apps install REF [--yes]` or `theme import REF [--yes]` with REF a
+/// repository reference (and, for `import`, no file of that name): the
+/// install it may be. `None` leaves the words to their own command: a local
+/// app id, a file, or any other flag.
+pub(super) fn routed(words: &[String], is_file: impl Fn(&str) -> bool) -> Option<Routed> {
+    let (scope, rest) = words.split_first()?;
+    let (verb, args) = rest.split_first()?;
+    let scope = match (scope.as_str(), verb.as_str()) {
+        ("apps", "install") => None,
+        ("theme", "import") => Some(Tier::Theme),
+        _ => return None,
+    };
+    let mut yes = false;
+    let mut positional = Vec::new();
+    for arg in args {
+        match arg.as_str() {
+            "--yes" | "-y" => yes = true,
+            "--json" => {}
+            flag if flag.starts_with('-') => return None,
+            _ => positional.push(arg),
+        }
+    }
+    let [reference] = positional.as_slice() else { return None };
+    if scope.is_some() && is_file(reference) {
+        return None;
+    }
+    RepoRef::parse(reference).ok()?;
+    Some(Routed { scope, reference: (*reference).clone(), yes })
+}
+
+/// `cmux apps install REF` / `cmux theme import REF` for a theme or snippet
+/// repository: the community install (which applies). An extension's
+/// repository, or a probe that cannot tell, goes on to `cmux apps install`.
+fn run_routed(args: &[String]) -> Option<i32> {
+    let (mut global, words) = super::parse_globals(args).ok()?;
+    let routed = routed(&words, |text| Path::new(text).exists())?;
+    if words.iter().any(|word| word == "--json") {
+        global.output = OutputMode::Json;
+    }
+    let git = Git::network();
+    let tier = match routed.scope {
+        Some(tier) => tier,
+        None => {
+            let reference = RepoRef::parse(&routed.reference).ok()?;
+            git.tier_of(&reference).ok().flatten()?
+        }
+    };
+    let customize = match Customize::from_env() {
+        Ok(customize) => customize,
+        Err(error) => return Some(fail(&global, error.code(), error.to_string(), None)),
+    };
+    let request = Request::Install { reference: routed.reference, yes: routed.yes };
+    Some(run(&global, &customize, &git, tier, request, &mut Consent::Terminal))
+}
+
 /// `cmux [globals] theme|snippet VERB ...` for this module's verbs.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    if let Some(code) = run_routed(args) {
+        return Some(code);
+    }
     let (mut global, words) = super::parse_globals(args).ok()?;
     let (scope, rest) = words.split_first()?;
     let tier = match scope.as_str() {
@@ -177,7 +257,8 @@ fn ok(global: &GlobalArgs, value: &Value, human: &str) -> i32 {
 }
 
 /// `cmux theme check DIR` on a theme or snippet repository folder: the
-/// marker, every theme file, and the art (type, size and count).
+/// marker, every theme file, the art (type, size and count), and the font
+/// pack (license, license text, each face's type and size, each face key).
 pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
     match community::read_package(dir) {
         Ok(package) => {
@@ -189,6 +270,13 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.fonts.files.is_empty() {
+                human.push_str(&format!(
+                    "; {} font files ({})",
+                    package.fonts.files.len(),
+                    package.fonts.license.as_deref().unwrap_or_default()
+                ));
+            }
             if !package.art.pending.is_empty() {
                 human.push_str(&format!(
                     "\n  not applied yet (no cmux setting): {}",
@@ -201,6 +289,8 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "fonts": package.fonts.files,
+                "fontLicense": package.fonts.license,
                 "pending": package.art.pending,
             });
             ok(global, &value, &human)
@@ -404,9 +494,25 @@ fn install(
         receipt.tag.clone().unwrap_or_else(|| short(&receipt.commit).to_owned())
     );
     if tier == Tier::Theme {
+        // The install picked it: say so, so nobody runs `theme use` to apply it.
+        if let Some(active) = package
+            .profile
+            .settings
+            .get(cmux_config::theme_file::SETTING_KEY)
+            .and_then(Value::as_str)
+        {
+            human.push_str(&format!("; in use now: {active}"));
+            let others: Vec<&String> = package.themes.iter().filter(|t| *t != active).collect();
+            if let Some(other) = others.first() {
+                human.push_str(&format!(" (`cmux theme use {other}` for another)"));
+            }
+        }
         human.push_str(&format!("; theme files: {}", package.themes.join(", ")));
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
+        }
+        if !package.fonts.files.is_empty() {
+            human.push_str(&format!("; {} font files", package.fonts.files.len()));
         }
         if !package.art.pending.is_empty() {
             human.push_str(&format!(
@@ -428,6 +534,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "fonts": package.fonts.files.len(),
         "pending": package.art.pending,
         "change": change,
     });
@@ -708,12 +815,18 @@ impl Git {
                 || relative
                     .strip_prefix("themes/")
                     .is_some_and(|name| !name.contains('/') && name.ends_with(".json"))
-                || community::art::is_art_path(relative);
+                || community::art::is_art_path(relative)
+                || community::fonts::is_fonts_path(relative);
             if installs {
                 wanted.push((relative.to_owned(), size.parse().unwrap_or(u64::MAX)));
             }
         }
-        let most = community::MAX_THEMES + SNIPPET_FILES.len() + 2 + community::art::MAX_IMAGES;
+        let most = community::MAX_THEMES
+            + SNIPPET_FILES.len()
+            + 2
+            + community::art::MAX_IMAGES
+            + cmux_config::font_faces::MAX_FACES
+            + community::fonts::MAX_LICENSE_FILES;
         if wanted.len() > most {
             return Err(format!(
                 "{}: too many files to be a theme or snippet",
@@ -733,6 +846,10 @@ impl Git {
                     ));
                 }
                 community::art::MAX_IMAGE_BYTES
+            } else if community::fonts::is_font_path(&relative) {
+                cmux_config::font_faces::MAX_FACE_BYTES
+            } else if community::fonts::is_license_path(&relative) {
+                community::fonts::MAX_LICENSE_BYTES
             } else {
                 community::MAX_MARKER_BYTES
             };
@@ -750,6 +867,41 @@ impl Git {
         }
         digest.sort();
         Ok(hex(&Sha256::digest(digest.join("\n").as_bytes())))
+    }
+
+    /// Which tier the repository at `reference` is (its marker file at the
+    /// path), or `None` (an extension, or anything else): one `ls-remote`
+    /// and a shallow fetch of the commit's trees only (no file contents).
+    pub(super) fn tier_of(&self, reference: &RepoRef) -> Result<Option<Tier>, String> {
+        let resolved = self.resolve(reference)?;
+        let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let repo = scratch.path();
+        self.run(None, &["init", "-q", "--bare", &repo.to_string_lossy()])?;
+        let url = self.clone_url(reference);
+        self.run(
+            Some(repo),
+            &[
+                "fetch",
+                "-q",
+                "--depth",
+                "1",
+                "--no-tags",
+                "--filter=blob:none",
+                "--",
+                &url,
+                &resolved.commit,
+            ],
+        )?;
+        let tree = if reference.path.is_empty() {
+            resolved.commit
+        } else {
+            format!("{}:{}", resolved.commit, reference.path)
+        };
+        let listing = self.run(Some(repo), &["ls-tree", "--name-only", &tree])?;
+        let names = String::from_utf8_lossy(&listing);
+        Ok([Tier::Theme, Tier::Snippet]
+            .into_iter()
+            .find(|tier| names.lines().any(|name| name == tier.marker())))
     }
 
     /// Whether the registry repository's list for `tier` lists this

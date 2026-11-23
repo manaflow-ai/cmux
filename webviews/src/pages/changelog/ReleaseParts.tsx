@@ -52,7 +52,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   // A before/after pair is its own control (dragged or switched), so Enlarge is a corner button.
   if (media.before && strings)
     return (
-      <figure className={`cl-media cl-media-pair ui-glass${className ? ` ${className}` : ""}`}>
+      <figure className={`cl-media cl-media-pair ui-glass ui-glass-content${className ? ` ${className}` : ""}`}>
         <MediaCompare after={src} alt={media.alt} before={media.before} strings={strings} />
         <button
           type="button"
@@ -73,7 +73,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass ui-glass-content${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button type="button" className="cl-media-open" aria-label={enlarge} onClick={() => setOpen(true)}>
           {picture}

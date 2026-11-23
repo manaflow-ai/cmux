@@ -1,0 +1,55 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/hairline-look",
+  "name": "Hairline",
+  "tagline": "Flat and quiet: neutral grays, one-pixel borders instead of shadows, one 8 px radius, a visible focus ring, no glass.",
+  "description": "A whole cmux look built only from public surfaces: theme files for color, the terminal palette and proportions (Hairline in zinc, the default, plus Slate and Stone, each dark and light), settings for one corner radius across panes, tabs, cards and popovers, a two-pixel focus ring, no glass or wallpaper anywhere, a dense sans in the chat, and stylesheets that draw cards, your prompt and the composer as one-pixel outlines with no shadow. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/hairline",
+  "screenshots": ["screenshots/hairline-dark.png", "screenshots/hairline-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "hairline",
+    // Radius, borders and no glass live in the theme files, so each palette carries its own corner:
+    // Hairline 8 px, Slate 6 px, Stone 10 px. Hairline Slate: "hairline-slate", and so on.
+    "layout.paneBorder": "subtle",
+
+    // Focus is a ring, not a glow: two pixels in the standard contrast, around the focused pane too.
+    "focusRing.enabled": true,
+    "focusRing.style": "ring",
+    "focusRing.contrast": "standard",
+    "focusRing.width": 2,
+
+    // The chat: a dense Inter at 14 px with a 1.55 line height, code at 0.9, a 760 px column.
+    "agentPane.display.font.ui": "inter-tuned",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.55,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+
+    // The Markdown viewer in the same hand.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 14,
+    "markdown.font.lineHeight": 1.55,
+    "markdown.code.scale": 0.9,
+
+    "diff.colors": "theme",
+    "sidebar.groupPalette": "grayscale",
+
+    // The sidebar: compact rows, plain section headings, a dot for status, no group fills.
+    "sidebar.density": "compact",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.detailedStatusIcons": false,
+    "workspaceColors.indicatorStyle": "dot",
+
+    // The address field: the look's 6 px inner radius, flat.
+    "browser.omnibar.cornerRadius": 6,
+    "browser.omnibar.shadow": false
+  }
+}

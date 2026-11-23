@@ -201,7 +201,10 @@ extension WorkspaceTabsSource {
                 // The terminal stays reachable: the tab falls back to it, and says why.
                 guard let self else { return }
                 terminalChatLog.error("view only chat failed: \(String(describing: error), privacy: .public)")
-                if self.chosenFaces[tabID] != .terminal { self.chosenFaces[tabID] = .terminal }
+                // Not while the Mac's link is down or coming back: the failure is the link's, and the
+                // person's own chat face stays what they chose.
+                let linkUp = self.store.macConnection[macID].map { $0 == .connected } ?? true
+                if linkUp, self.chosenFaces[tabID] != .terminal { self.chosenFaces[tabID] = .terminal }
                 self.show(Self.message(error))
             }
         }
@@ -276,6 +279,7 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
                 .opacity(showsChat ? 1 : 0)
                 .allowsHitTesting(showsChat)
                 .accessibilityHidden(!showsChat)
+                .environment(\.chatFaceHidden, !showsChat)
         }
     }
 }

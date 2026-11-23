@@ -28,7 +28,10 @@ import Testing
             SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("loose"), title: "scratch")),
                                                             .group(host), .group(user)]),
         ])
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        // The band look (`sidebar.groupHeader.background` Automatic): the default is plain folders (`SidebarGroupsAsFoldersTests`).
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderBackground = .auto
+        let sidebar = SidebarView(model: model, design: design)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

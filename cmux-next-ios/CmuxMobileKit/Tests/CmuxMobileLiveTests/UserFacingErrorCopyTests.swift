@@ -8,7 +8,7 @@ import Testing
 /// no HTTP numbers. LinkController's status-line fragments come from the same table.
 @Suite struct UserFacingErrorCopyTests {
     @Test func linkErrorsSayWhatHappenedAndWhatToDo() {
-        #expect(LinkError(code: "timeout", message: "").errorDescription == "Your Mac didn't answer in time. Try again.")
+        #expect(LinkError(code: "timeout", message: "").errorDescription == LinkError.timeoutSentence)
         #expect(LinkError(code: "offline", message: "").errorDescription
             == "Your Mac isn't connected. Open cmux on your Mac, then try again.")
         #expect(LinkError(code: LinkError.unauthorized, message: "Token Refused by edge").errorDescription
@@ -18,12 +18,17 @@ import Testing
             == "Connection changed. Try again.")
         #expect(LinkError(code: "attach", message: "terminal_not_found").errorDescription
             == "Something went wrong talking to your Mac. Try again.")
+        // A timeout's raw message is a diagnostic, never shown, however it reads.
+        for code in ["timeout", "reply_timeout", "write_timeout"] {
+            #expect(LinkError(code: code, message: "The Mac took a while. Retry.").errorDescription == LinkError.timeoutSentence)
+            #expect(LinkError(code: code, message: "The Mac took a while. Retry.").displayReason == LinkError.timeoutReason)
+        }
         let bridged = (LinkError(code: "timeout", message: "") as any Error).localizedDescription
         #expect(!bridged.contains("LinkError") && !bridged.contains("error 1"))
     }
 
     @Test func statusLineFragmentsKeepTheirWordsAndNeverACode() {
-        #expect(LinkController.reason(LinkError(code: "timeout", message: "")) == "the Mac didn't answer in time")
+        #expect(LinkController.reason(LinkError(code: "timeout", message: "")) == LinkError.timeoutReason)
         #expect(LinkController.reason(LinkError(code: "offline", message: "")) == "the Mac is offline")
         #expect(LinkController.reason(LinkError(code: "not_admitted", message: "")) == "the Mac refused this phone")
         #expect(LinkController.reason(LinkError(code: "eof", message: "")) == "the connection to the Mac failed")
