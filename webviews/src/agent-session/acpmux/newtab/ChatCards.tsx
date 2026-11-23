@@ -27,6 +27,7 @@ export function ChatCards({
   onEvacuate,
   evacuate,
   onCancelEvacuate,
+  onBringBack,
   glow,
 }: {
   cards: ChatCard[];
@@ -53,6 +54,8 @@ export function ChatCards({
   /// The running Evacuate (`pane.tabState.evacuate`) and its Cancel: drawn under the header while chats move.
   evacuate?: EvacuateState;
   onCancelEvacuate?(): void;
+  /// Bring Back to This Mac (the header's button, and the finished panel's): the Cloud chats, or `sessions`.
+  onBringBack?(sessions?: readonly string[]): void;
   /// The home-card-glow experiment's arm (homeCardGlow.experiment.ts); unset reads the chosen arm.
   glow?: HomeCardGlowArm;
 }) {
@@ -115,6 +118,7 @@ export function ChatCards({
               part="head"
               {...(evacuate ? { state: evacuate } : {})}
               onEvacuate={onEvacuate}
+              {...(onBringBack ? { onBringBack } : {})}
               onCancel={() => onCancelEvacuate?.()}
             />
           </span>
@@ -136,7 +140,13 @@ export function ChatCards({
       </header>
       {onEvacuate && evacuate && (
         <div className="nt-chats-evac-body">
-          <EvacuateControl part="body" state={evacuate} onEvacuate={onEvacuate} onCancel={() => onCancelEvacuate?.()} />
+          <EvacuateControl
+            part="body"
+            state={evacuate}
+            onEvacuate={onEvacuate}
+            {...(onBringBack ? { onBringBack } : {})}
+            onCancel={() => onCancelEvacuate?.()}
+          />
         </div>
       )}
       {cards.length === 0 && pending ? (

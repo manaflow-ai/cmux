@@ -1075,6 +1075,7 @@ export function drawPaneBody({
                         onPlace: chatListPlace.setMode,
                         onEvacuate: chatListPlace.evacuate,
                         onCancelEvacuate: chatListPlace.cancelEvacuate,
+                        onBringBack: chatListPlace.bringBack,
                         ...(chatListEvacuate ? { evacuate: chatListEvacuate } : {}),
                       }
                     : {})}

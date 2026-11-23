@@ -219,6 +219,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The running Evacuate and its Cancel (place/EvacuateControl.tsx).
   evacuate?: EvacuateState;
   onCancelEvacuate?(): void;
+  onBringBack?(sessions?: readonly string[]): void;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -2290,6 +2291,7 @@ export function NewTabScreen(props: Props) {
           {...(props.onPlace ? { onPlace: props.onPlace } : {})}
           {...(props.onEvacuate ? { onEvacuate: props.onEvacuate } : {})}
           {...(props.evacuate ? { evacuate: props.evacuate } : {})}
+          {...(props.onBringBack ? { onBringBack: props.onBringBack } : {})}
           {...(props.onCancelEvacuate ? { onCancelEvacuate: props.onCancelEvacuate } : {})}
           onShowAll={props.onShowAll}
         />

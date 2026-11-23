@@ -11,6 +11,7 @@ const props = (look: Props["look"], state?: EvacuateState): Props => ({
   look,
   ...(state ? { state, now: evacuateAt(state) } : {}),
   onEvacuate: noop,
+  onBringBack: noop,
   onCancel: noop,
 });
 
@@ -33,8 +34,28 @@ export default componentEntry<Props>({
       props: props("panel", EVACUATES.running),
     },
     "panel-finished": {
-      note: "Done with one failure: the count, the reason on the failed chat, and Retry for just that chat.",
+      note: "Done with one failure: the count, the reason on the failed chat, Retry for just that chat, and Bring Back to This Mac for the four that arrived.",
       props: props("panel", EVACUATES.finished),
+    },
+    "bring-back-idle": {
+      note: "Three chats are in Cloud: the header offers Bring Back to This Mac next to Evacuate, one action for all of them.",
+      props: props("panel", EVACUATES.bringBackIdle),
+    },
+    "bring-back-running": {
+      note: "Shipped: the same panel, going the other way. Bringing 3 of 5 back to This Mac; rows step through the move, a done row reads On This Mac.",
+      props: props("panel", EVACUATES.bringBackRunning),
+    },
+    "bring-back-finished": {
+      note: "Done with one failure: four are on This Mac, Retry failed runs Bring Back for the one left.",
+      props: props("panel", EVACUATES.bringBackFinished),
+    },
+    "bring-back-bar-running": {
+      note: "The bar look, going home.",
+      props: props("bar", EVACUATES.bringBackRunning),
+    },
+    "bring-back-chip-running": {
+      note: "The chip look, going home: Bringing 3 of 5 back to This Mac.",
+      props: props("chip", EVACUATES.bringBackRunning),
     },
     "bar-running": {
       note: "Rejected as the default: one summary line and a segmented bar, one segment per chat. It costs the least height but a person cannot tell which chat is which.",

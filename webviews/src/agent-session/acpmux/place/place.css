@@ -308,6 +308,9 @@
   white-space: nowrap;
   cursor: default;
 }
+.acpmux-evac-btn + .acpmux-evac-btn {
+  margin-inline-start: var(--ds-space-2, 8px);
+}
 .acpmux-evac-btn:hover {
   background: color-mix(in srgb, var(--agent-text) 13%, transparent);
 }
@@ -421,4 +424,16 @@
 .acpmux-evac-reason {
   grid-column: 2 / -1;
   color: var(--agent-muted);
+}
+
+/* The menu's check sits on the title line, not the middle of a tall row with the rule under it. */
+.ui-popup:is(.ui-menu, .ui-context-menu) .ui-menu-item.acpmux-place-menu-item {
+  align-items: flex-start;
+  padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item))
+  .ui-menu-item.acpmux-place-menu-item
+  .ui-menu-check {
+  inset-block: 0 auto;
+  height: var(--ui-row-height);
 }
