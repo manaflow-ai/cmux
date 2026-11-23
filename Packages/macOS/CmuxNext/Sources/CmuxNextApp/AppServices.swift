@@ -523,6 +523,8 @@ final class AppServices {
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
+    /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).
+    var paidPlanReread: Task<Void, Never>?
     /// One marked-tab list for the palette and every agent page.
     let attentionTabs = AgentPaneAttentionTabs()
     /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
@@ -959,7 +961,21 @@ extension AppServices {
     }
 
     /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    ///
+    /// The payment can land after the person is back, and nothing else reads the plan until the next activation: so
+    /// the plan is read again on ``PaidPlanOnboarding/rereadAfter``, until it turns paid (which ends the wait) or
+    /// the list runs out.
     func paidPlanReturned() async {
-        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
+        guard PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+        await cloud.refresh()
+        paidPlanReread?.cancel()
+        // task-owner: one bounded run of plan reads per return to the app; a newer return replaces it
+        paidPlanReread = Task { [weak self] in
+            for wait in PaidPlanOnboarding.rereadAfter {
+                try? await Task.sleep(for: wait)
+                guard !Task.isCancelled, let self, PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+                await self.cloud.refresh()
+            }
+        }
     }
 }
