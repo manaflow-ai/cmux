@@ -789,7 +789,6 @@ impl Hub {
             last_message: last_message(&m),
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
-            rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),

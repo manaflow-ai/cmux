@@ -47,26 +47,6 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
-/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
-/// the next action, kept current after each turn a person started (or one that ended on a
-/// `wrap_up`). The sidebar and the chat header draw it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RollingSummary {
-    /// Where the chat stands, one or two short sentences.
-    pub text: String,
-    /// The next action, for the person or the agent; absent when there is none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub next: Option<String>,
-    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
-    pub source: String,
-    /// The chat's turn count it covers.
-    pub turn: u64,
-    /// When it was written, Unix ms.
-    pub at: u64,
-}
-
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -471,10 +451,6 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
-    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
-    /// first turn that makes one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rolling_summary: Option<RollingSummary>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a

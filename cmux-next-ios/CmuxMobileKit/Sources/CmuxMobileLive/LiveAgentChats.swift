@@ -64,14 +64,11 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         for parent in ["spawnedBy", "startedBy"] where value[parent]?.stringValue?.isEmpty == false { return nil }
         let archived = tags?["archived"] != nil || value["archived"] == .bool(true)
         let title = value["title"]?.stringValue ?? value["lastPrompt"]?.stringValue
-        let rolling = value["rollingSummary"]
         return AgentChatListing(
             id: id, title: title.map { String($0.prefix(200)) }, harness: harness,
             cwd: value["cwd"]?.stringValue ?? "", status: value["status"]?.stringValue ?? "idle",
             updatedAt: value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },
-            archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) },
-            summary: rolling?["text"]?.stringValue.map { String($0.prefix(200)) },
-            nextAction: rolling?["next"]?.stringValue.map { String($0.prefix(120)) })
+            archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) })
     }
 
     public func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab {

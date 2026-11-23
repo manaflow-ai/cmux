@@ -489,49 +489,6 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
-/* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
-   than the room left, the next action a step brighter than the summary. */
-.acpmux-chat-summary {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-1);
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(52vw, 560px);
-  padding: 0 var(--ds-space-1);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  line-height: var(--acpmux-header-control-height, 26px);
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: default;
-  user-select: none;
-}
-.acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
-}
-.acpmux-chat-summary__text {
-  flex: 0 1 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.acpmux-chat-summary__arrow {
-  flex: none;
-  color: var(--agent-soft);
-}
-.acpmux-chat-summary__arrow:dir(rtl) {
-  display: inline-block;
-  transform: scaleX(-1);
-}
-.acpmux-chat-summary__next {
-  flex: 0 2 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--agent-text);
-}
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}
 .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{opacity:1;pointer-events:auto}

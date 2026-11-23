@@ -128,6 +128,9 @@
   (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
   `SidebarRollingSummaryTests`. Stills: the States Playground's pinned hover card and the idle row's Expanded line carry a
   summary (`SidebarStatesPlaygroundFixture`), shot by `AASidebarStatesGalleryTests` (`sidebar-states-gallery.tar`).
+- 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51749): the rolling summary and next action above are removed
+  everywhere (hover card, Expanded rows, chat header, iPhone Chats list, and acpmux's generation of them). The user did
+  not want the line; hover cards and Expanded rows read as they did before 2026-11-20.
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an

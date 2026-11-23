@@ -313,7 +313,6 @@ import {
   deliveryTiming,
   DELIVERY_RANK,
   deliveryHop,
-  rollingSummaryOf,
   mergeQueue,
   sentPromptShape,
   settleOptimisticPrompt,
@@ -375,7 +374,6 @@ export {
   attachedImages,
   deliveryTiming,
   deliveryHop,
-  rollingSummaryOf,
   mergeQueue,
   sentPromptShape,
   settleOptimisticPrompt,
@@ -10440,7 +10438,6 @@ export class AcpmuxDirectClient {
           configOptions: summary.configOptions,
           tools: chatTools(summary.tools),
           toolsMutable: summary.toolsMutable === true,
-          ...rollingSummaryOf(summary.rollingSummary),
         }
       : undefined;
     this.publishedSummaryOf = { summary, usage: this.usage, start, value };

@@ -192,12 +192,6 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub task_list: Option<crate::task_list::TaskListSummary>,
-    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
-    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub rolling_summary: Option<crate::store::RollingSummary>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from

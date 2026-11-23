@@ -183,8 +183,6 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
-    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
-    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
