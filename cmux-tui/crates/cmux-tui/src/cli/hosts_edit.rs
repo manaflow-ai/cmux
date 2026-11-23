@@ -24,10 +24,9 @@ pub(super) fn parse(verb: &str, args: &[&str]) -> Option<Result<HostEdit, String
             _ => Err("usage: cmux hosts rename OLD NEW".into()),
         },
         "set-endpoints" => match args.split_first() {
-            Some((label, endpoints)) if !endpoints.is_empty() => {
-                no_options(endpoints)?;
-                Ok(HostEdit::SetEndpoints { label: (*label).into(), endpoints: owned(endpoints) })
-            }
+            Some((label, endpoints)) if !endpoints.is_empty() => no_options(endpoints).map(|()| {
+                HostEdit::SetEndpoints { label: (*label).into(), endpoints: owned(endpoints) }
+            }),
             _ => Err("usage: cmux hosts set-endpoints LABEL ENDPOINT...".into()),
         },
         "remove" | "rm" => match args {
