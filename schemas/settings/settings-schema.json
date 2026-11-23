@@ -311,6 +311,8 @@
               "appearance.backgroundDynamic",
               "appearance.backgroundLocation",
               "appearance.backgroundMemory",
+              "appearance.backgroundPlacement",
+              "appearance.backgroundRecents",
               "appearance.displayBackgrounds",
               "appearance.displayBackgroundRotations",
               "appearance.paneBackgrounds",
@@ -496,6 +498,7 @@
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
               "sidebar.settleFinished",
+              "sidebar.showAutomaticSessions",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
@@ -622,6 +625,7 @@
               "appearance.metrics.tabFontSize",
               "appearance.metrics.tabStripHeight",
               "tabs.overflow",
+              "tabs.shellIconTheme",
               "tabs.verticalTabs",
               "tabs.verticalTabsExpandOnHover",
               "tabs.hideLoneChatTab",
@@ -2105,7 +2109,16 @@
           "server"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          }
         ],
         "id" : "devices",
         "lead" : [
@@ -2285,8 +2298,7 @@
               "experiments.agentBadges",
               "experiments.agentBadgesBeam",
               "experiments.toastsV2",
-              "experiments.chatWidgets",
-              "experiments.appsTier"
+              "experiments.chatWidgets"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -6542,6 +6554,163 @@
       "title" : {
         "key" : "settings.tabs.overflow",
         "text" : "Tab Overflow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "machine"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabShellIconThemeMachine",
+            "text" : "Machines"
+          },
+          "value" : "machine"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.shellIconTheme.help",
+        "text" : "Machines shows each shell tab with the icon of the machine it runs on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.shellIconTheme",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "icon",
+        "icons",
+        "shell",
+        "terminal",
+        "machine",
+        "machines",
+        "theme",
+        "ssh",
+        "cloud",
+        "remote"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "shellIconTheme"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.shellIconTheme"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.shellIconTheme",
+        "text" : "Shell Tab Icons"
       },
       "validation" : "portable"
     },
@@ -34528,6 +34697,344 @@
         "text" : "Background Mode Memory"
       },
       "validation" : "domain:backdrop_memory"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "folder:/Users/Shared/Wallpapers",
+          "file:/Users/Shared/Harbor.png",
+          "daily"
+        ],
+        [
+          "munch-scream",
+          "desktop",
+          "none",
+          "system:/System/Library/Desktop Pictures/Sonoma.heic"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundRecents.help",
+        "text" : "The backgrounds shown before, newest first, so one click goes back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundRecents",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "recent",
+        "previous",
+        "history",
+        "folder"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundRecents"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "daily",
+        {
+
+        },
+        [
+          "daily",
+          "daily"
+        ],
+        [
+          "folder:/"
+        ],
+        [
+          "folder:relative"
+        ],
+        [
+          "__not_a_backdrop__"
+        ],
+        [
+          1
+        ],
+        [
+          "file:/a.png",
+          "file:/b.png",
+          "file:/c.png",
+          "file:/d.png",
+          "file:/e.png",
+          "file:/f.png",
+          "file:/g.png",
+          "file:/h.png",
+          "file:/i.png"
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundRecents"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundRecents",
+        "text" : "Recent Backgrounds"
+      },
+      "validation" : "domain:backdrop_recents"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "munch-scream" : "fit"
+        },
+        {
+          "desktop" : "center 0.5 0",
+          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundPlacement.help",
+        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundPlacement",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "position",
+        "fit",
+        "fill",
+        "zoom",
+        "crop"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundPlacement"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "fit",
+        [
+
+        ],
+        {
+          "munch-scream" : "cover"
+        },
+        {
+          "munch-scream" : "fill 2 0"
+        },
+        {
+          "munch-scream" : "fill 0.5"
+        },
+        {
+          "munch-scream" : "fill 0.5 0.5 9"
+        },
+        {
+          "" : "fit"
+        },
+        {
+          "munch-scream" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundPlacement"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundPlacement",
+        "text" : "Background Placement"
+      },
+      "validation" : "domain:backdrop_placement"
     },
     {
       "accepts" : [
@@ -70219,6 +70726,146 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showAutomaticSessions.help",
+        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showAutomaticSessions",
+      "keywords" : [
+        "sidebar",
+        "automatic",
+        "auto",
+        "script",
+        "automation",
+        "background",
+        "hidden",
+        "hide",
+        "fold",
+        "sessions",
+        "tidy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showAutomaticSessions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.showAutomaticSessions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.showAutomaticSessions",
+        "text" : "Show Automatic Sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -91581,7 +92228,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 8,
+      "default" : 6,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -109136,143 +109783,6 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.experiments",
-        "text" : "Experiments"
-      },
-      "help" : {
-        "key" : "settings.experiments.appsTier.help",
-        "text" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "experiments.appsTier",
-      "keywords" : [
-        "experiments",
-        "experimental",
-        "prototype",
-        "apps",
-        "publish",
-        "preview",
-        "cloud",
-        "version"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "experiments",
-        "appsTier"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:experiments.appsTier"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.experiments.appsTier",
-        "text" : "Publish Previews as Apps"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -113835,6 +114345,145 @@
       "title" : {
         "key" : "settings.macScreen.shareWithoutAsking",
         "text" : "Share This Mac Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenSharing",
+        "text" : "Screen Sharing"
+      },
+      "help" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing.help",
+        "text" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.onlyPersonStartsViewing",
+      "keywords" : [
+        "screen sharing",
+        "mac screen",
+        "agents",
+        "automation",
+        "cli",
+        "view",
+        "control",
+        "click",
+        "approve"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "onlyPersonStartsViewing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing.summary",
+        "text" : "Agents can't start viewing your screens"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.onlyPersonStartsViewing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.onlyPersonStartsViewing",
+        "text" : "Only Your Click Starts Viewing a Screen"
       },
       "validation" : "portable"
     },

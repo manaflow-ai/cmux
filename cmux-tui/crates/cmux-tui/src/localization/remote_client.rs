@@ -340,7 +340,8 @@ instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --via-machine MACHINE  dial a loopback ws route (ws://127.0.0.1:PORT/) on another
 of your machines through your own carrier (acpmux), with no inbound port; MACHINE
-is an acpmux peer name or its node key (`acpmux machine status --json`, wgPublicKey)
+is a name `acpmux machine ls` lists, an acpmux peer name or its node key
+(`acpmux machine status --json`, wgPublicKey)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --ssh-forced-command  the SSH key's forced command already runs remote-link,
 so the client never runs remote-probe or an install over it
@@ -623,8 +624,8 @@ ID とセッション:
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --via-machine マシン  自分の別のマシンのループバック ws ルート (ws://127.0.0.1:ポート/) に
-自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは acpmux のピア名か
-そのノード鍵です (`acpmux machine status --json` の wgPublicKey)
+自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは `acpmux machine ls`
+に出る名前、acpmux のピア名、またはそのノード鍵です (`acpmux machine status --json` の wgPublicKey)
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
 その接続では remote-probe もインストールも実行しません

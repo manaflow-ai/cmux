@@ -335,6 +335,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
     case painted(fromKeptTail: Bool, settled: Bool)
+    /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
+    /// document, what moved after its first paint. Forwarded as launch marks only
+    /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).
+    case launchSettle(settledAt: Date, maxMovePx: Double, element: String, shifts: Int)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready

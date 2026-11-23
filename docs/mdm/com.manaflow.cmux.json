@@ -2650,7 +2650,7 @@
       "type" : "boolean"
     },
     "browser.omnibar.maxRows" : {
-      "default" : 8,
+      "default" : 6,
       "description" : "browser.omnibar.maxRows",
       "maximum" : 15,
       "minimum" : 3,
@@ -3619,12 +3619,6 @@
       "default" : false,
       "description" : "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
       "title" : "Agent Badges: Running Beam",
-      "type" : "boolean"
-    },
-    "experiments.appsTier" : {
-      "default" : false,
-      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
-      "title" : "Publish Previews as Apps",
       "type" : "boolean"
     },
     "experiments.chatWidgets" : {
@@ -5475,6 +5469,12 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
+    "sidebar.showAutomaticSessions" : {
+      "default" : false,
+      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+      "title" : "Show Automatic Sessions",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -6191,6 +6191,16 @@
         "always"
       ],
       "title" : "+ Button Visibility",
+      "type" : "string"
+    },
+    "tabs.shellIconTheme" : {
+      "default" : "default",
+      "description" : "Machines shows each shell tab with the icon of the machine it runs on.",
+      "enum" : [
+        "default",
+        "machine"
+      ],
+      "title" : "Shell Tab Icons",
       "type" : "string"
     },
     "tabs.swapCmdTAndCmdN" : {
