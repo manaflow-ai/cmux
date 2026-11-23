@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -210,7 +210,7 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     }
     // Its pixel size from the header, so the chat reserves the image's exact box before the bytes
     // load and a decoded image never moves a row (agent-transcript-clean-slate.md, step 2).
-    if let Some((width, height)) = super::image_dims::image_dims(&bytes) {
+    if let Some((width, height)) = acpmux_book::image_dims::image_dims(&bytes) {
         named.set("width", json!(width));
         named.set("height", json!(height));
     }
