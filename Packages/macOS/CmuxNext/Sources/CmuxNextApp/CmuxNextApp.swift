@@ -83,8 +83,7 @@ public struct CmuxNextApp {
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, // stage 0 (LaunchShell): its plan and image decode while AppKit starts; none for agent, test and relaunch-behind launches
                                    launchReads: (work, launchImages, relaunchWake, chromium, LaunchShell.atLaunch(bundleID: environment.noActivate || environment.testWindow != nil || environment.relaunchBehind != nil ? nil : environment.launch.bundleID, session: environment.daemonSession) { DebugTimings.markLaunch($0) }), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
-        app.delegate = delegate
-        app.setActivationPolicy(.regular)
+        app.delegate = delegate; app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
