@@ -528,11 +528,13 @@ class LinuxReleasePoint(unittest.TestCase):
         path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
         return path
 
-    def point(self, payload, *extra, run_id="1"):
+    def point(self, payload, *extra, run_id="1", release_key=None):
         scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
                "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
                "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id}
+        if release_key is not None:
+            env["LINUX_RELEASE_SIGNING_KEY"] = release_key
         return subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch),
                                *extra], cwd=self.repo, env=env, text=True, capture_output=True)
 
@@ -564,6 +566,62 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assert_ok(result)
         self.assertEqual(self.served(self.RELEASE), first)
         self.assertEqual(self.served(self.POINTER), first)  # same commit time: the pointer is current
+
+    def release_key(self, listed):
+        """A throwaway CMUX_LINUX_RELEASE_SIGNING_KEY; `listed` adds its public half to the key list."""
+        pem = self.tmp / f"release-{listed}.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(pem)], check=True,
+                       capture_output=True)
+        raw = subprocess.run(["openssl", "pkey", "-in", str(pem), "-pubout", "-outform", "DER"], check=True,
+                             capture_output=True).stdout[-32:]
+        key_id = hashlib.sha256(raw).hexdigest()[:16]
+        if listed:
+            keys = self.repo / KEYS_PATH
+            value = json.loads(keys.read_text())
+            value["keys"].append({"id": key_id, "ed25519": base64.b64encode(raw).decode()})
+            keys.write_text(json.dumps(value))
+        return pem.read_text(), key_id
+
+    def signers(self, key):
+        return [s["key_id"] for s in json.loads(self.served(key))["signatures"]]
+
+    def only_linux_release(self):
+        if type(self) is not LinuxReleasePoint:  # MacLivePoint inherits these; only Linux release files dual-sign
+            self.skipTest("the release key signs Linux release files only")
+
+    def test_a_listed_release_key_dual_signs_the_linux_release_files(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=True)
+        result = self.point(self.payload(), release_key=pem)
+        self.assert_ok(result)
+        for key in (self.RELEASE, self.POINTER):
+            self.assertEqual(len(self.signers(key)), 2)
+            self.assertIn(key_id, self.signers(key))
+        self.assertNotIn("CMUX_LINUX_RELEASE_SIGNING_KEY is not set", result.stdout)
+
+    def test_a_commit_only_release_file_is_dual_signed_too(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=True)
+        self.assert_ok(self.point(self.payload(), "--commit-only", release_key=pem))
+        self.assertIn(key_id, self.signers(self.RELEASE))
+        self.assertEqual(len(self.signers(self.RELEASE)), 2)
+        self.assertIsNone(self.served(self.POINTER))
+
+    def test_an_unlisted_release_key_is_skipped_with_a_warning(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=False)
+        result = self.point(self.payload(), release_key=pem)
+        self.assert_ok(result)
+        self.assertIn("extra signing key skipped", result.stdout + result.stderr)
+        self.assertNotIn(key_id, self.signers(self.POINTER))
+        self.assertEqual(len(self.signers(self.POINTER)), 1)
+
+    def test_no_release_key_signs_with_the_web_update_key_and_warns(self):
+        self.only_linux_release()
+        result = self.point(self.payload(), release_key="")
+        self.assert_ok(result)
+        self.assertIn("CMUX_LINUX_RELEASE_SIGNING_KEY is not set", result.stdout)
+        self.assertEqual(len(self.signers(self.POINTER)), 1)
 
     def test_a_retry_after_the_release_file_gives_the_channel_that_file(self):
         # The first run wrote the per-commit file and stopped before the channel; the retry signs another
