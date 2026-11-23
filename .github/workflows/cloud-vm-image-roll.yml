@@ -42,6 +42,11 @@ on:
         default: auto
         type: choice
         options: [auto, "true", "false"]
+      large_image:
+        description: Also bake and smoke the large image (4 vCPU / 16 GiB / 64 GiB) and list it on staging's entry, so a development create at that size boots at its final size with no resize. Production's entry never lists it. A large image that fails is a warning; the roll goes on without it
+        required: false
+        default: false
+        type: boolean
       platform_readiness:
         description: mint the cmux-platform push token and read its main Wrangler config without pushing
         required: false
@@ -243,6 +248,8 @@ jobs:
       agent_tools: true
       layered: true
       roll: true
+      # Only a dispatch that asks: a build or push roll has no inputs, so it bakes the image alone, as before.
+      large_image: ${{ inputs.large_image == true }}
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
     # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
     # passed, so exactly these three pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
