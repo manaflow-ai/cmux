@@ -48,6 +48,7 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let composerQuietRowGap: CGFloat = 4
     public static let composerQuietRowHeight: CGFloat = 28
     public static let composerQuietRowText: CGFloat = 14
+    public static let cardRadius: CGFloat = 16
     public static let sidebarHighlightInset: CGFloat = 8
     public static let sidebarLead: CGFloat = 16
     public static let sidebarText: CGFloat = 40

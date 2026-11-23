@@ -83,6 +83,7 @@ fn paths(peer: &FakePeer) -> Paths {
         unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
         rd: None,
+        allow_downgrade: false,
     }
 }
 
@@ -301,6 +302,55 @@ async fn a_channel_without_this_hosts_target_is_refused() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// Lane hosts, 2026-11-23: several held b45cad3d8 (a lane branch's build, newer
+/// than the channel's head 7d439038 and containing the fix the channel lacked)
+/// while the timer kept trying to put the older channel build back, each try a
+/// daemon restart that some hosts did not survive (`rolledBack`) and others did
+/// (a downgrade). Newer wins: the timer leaves a build of a newer commit alone
+/// and restarts nothing; `--allow-downgrade` still pulls it back.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_back() {
+    let peer = FakePeer::new("self-newer-wins");
+    let installed = stamped_acpmux(OLD, Some(OLD), 1_794_748_257);
+    peer.exe(".local/bin/acpmux", &installed);
+    let channels = stamped_acpmux(NEW, Some(NEW), 1_794_744_982);
+    let files = serving(&channels);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Current, Some("newerInstalled")),
+        "{up:?}"
+    );
+    assert!(!up.outcome.failed(), "the timer's unit does not fail for it");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert_eq!(peer.daemon(), OLD);
+    let calls = peer.take_calls();
+    assert!(!calls.iter().any(|c| c.contains("restart acpmux.service")), "{calls:?}");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&channels))));
+    drop(plan);
+
+    // The next run finds the same: still nothing installed or restarted.
+    let plan = ready(&peer, &serving(&channels)).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.reason.as_deref(), Some("newerInstalled"), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    drop(plan);
+
+    // `--allow-downgrade`: a bad channel build is pulled back on purpose.
+    let mut back = paths(&peer);
+    back.allow_downgrade = true;
+    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), CHANNEL).await.unwrap() else {
+        panic!("the self-update did not go ahead");
+    };
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), channels);
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+}
+
 #[tokio::test]
 async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_again() {
     let peer = FakePeer::new("self-rollback");
@@ -374,6 +424,58 @@ async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
     // next run did not try the build again as the row said.
     let again = prepared(&peer, &serving(&bad)).await;
     assert!(matches!(&again, Prepared::Ready(_)), "the next run tries it again");
+}
+
+/// A fleet Linux host, 2026-11-23 10:53Z: the old daemon saw its binary
+/// replaced and handed over itself (`systemctl --user restart --no-block
+/// acpmux.service`), so the update found the unit not active, shut the
+/// daemon down, and then read the unit's new daemon, on the new build, as
+/// the old one that "did not shut down". The good build was rolled back and
+/// marked, and every later run skipped it. The unit's own daemon is the
+/// takeover done: the update succeeds.
+#[tokio::test]
+async fn a_daemon_the_unit_already_restarted_on_the_new_build_is_not_read_as_the_old_one() {
+    let peer = FakePeer::new("self-unit-takes-over");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    // The unit is mid-restart (deactivating, not active) when the update's
+    // restart reads it, and its new daemon (pid 5252) comes up as the old
+    // one stops.
+    std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+    peer.write("unit-takes-over", "");
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.exists("agents"), "the agents are kept");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+}
+
+/// A daemon that really does not stop is still refused (exit 4), and the
+/// update rolls back; but a restart that failed before the build was
+/// checked says nothing against the build, so it is not marked: the next
+/// run tries it again instead of waiting for a newer one for good.
+#[tokio::test]
+async fn a_restart_that_failed_before_the_build_was_checked_is_tried_again() {
+    let peer = FakePeer::new("self-restart-failed");
+    // The new build's shutdown leaves the old daemon (pid 4242, not the
+    // unit's) running.
+    let new = fake_acpmux(NEW, Some(NEW))
+        .replace(r#""daemon shutdown"*) rm -f "$HOME/daemon";"#, r#""daemon shutdown"*) :;"#);
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("restartFailed")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("did not shut down"), "{up:?}");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+    drop(plan);
+    let again = prepared(&peer, &serving(&new)).await;
+    assert!(matches!(&again, Prepared::Ready(_)), "the next run tries the build again");
 }
 
 #[tokio::test]
@@ -570,6 +672,8 @@ fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
 #[tokio::test]
 async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
     let peer = FakePeer::new("self-window");
+    // With the idle restart off, the guarantee is as it was: one an hour.
+    peer.write(".acpmux/update.idle-restart", "0\n");
     let new = fake_acpmux(NEW, Some(NEW));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
@@ -614,6 +718,123 @@ async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
         "{up:?}"
     );
     peer.assert_only_read(&installed, newer);
+    drop(plan);
+
+    // The idle restart on (the default): the bound moves to one an hour
+    // amortized, at most two in any rolling hour. After a restart, one idle
+    // early restart may happen; a third update in the same window is held.
+    std::fs::remove_file(peer.home.join(".acpmux/update.idle-restart")).unwrap();
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, newest).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newest)), "{up:?}");
+    let third = "d4e5f6a7b 2026-10-24";
+    let installed = peer.read(".local/bin/acpmux");
+    peer.take_calls();
+    let up = windowed_apply(&peer, third).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    peer.assert_only_read(&installed, newest);
+}
+
+/// A self-update of a peer the window holds, pushing `build`, idle or not as
+/// the fake host's `sessions.json` says.
+async fn windowed_apply(peer: &FakePeer, build: &str) -> PeerUpdate {
+    let files = serving(&fake_acpmux(build, Some(build)));
+    let plan = ready(peer, &files).await;
+    apply(peer, &plan, TARGET, false)
+}
+
+const IDLE: &str = r#"{"sessions": []}"#;
+const MID_TURN: &str =
+    r#"{"sessions": [{"name": "w", "status": "running", "turn": {"startedAt": 1}}]}"#;
+
+/// While the window holds and no session is mid-turn, the update goes in at
+/// once, one restart; and a second channel move inside the same window waits
+/// (at most one idle restart per window), so restarts per host per hour stay
+/// at the window's bound plus this one.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
+    let peer = FakePeer::new("idle-early");
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    let early: u64 = peer.read(".acpmux/update.idle-restarted").trim().parse().unwrap();
+    assert!((clock() - 60..=clock()).contains(&early), "the early restart is timed");
+
+    // A newer build ten minutes on, idle: the early restart made one
+    // stamp, but the guard counts from the early restart itself, so no
+    // cascade; coalesced into the window's forced restart.
+    restarted_ago(&peer, 10 * 60);
+    peer.write(".acpmux/update.idle-restarted", &format!("{}\n", clock() - 10 * 60));
+    let newer = "b2c3d4e5f 2026-10-22";
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+
+    // The window's forced restart still comes, as today, newest build.
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+}
+
+/// A session mid-turn keeps the window as it is: nothing installed, busy;
+/// the first run after the window forces the restart as before.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
+    let peer = FakePeer::new("idle-early-busy");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+    assert!(peer.read(".acpmux/update.idle-restarted").is_empty(), "no early restart was made");
+
+    // Idle a run later: it restarts then.
+    peer.write("sessions.json", IDLE);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+
+    // Busy for the whole window: the forced restart after it, as today.
+    let peer = FakePeer::new("idle-early-forced");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+/// `0` in `~/.acpmux/update.idle-restart` is today's behaviour.
+#[tokio::test]
+#[cfg(unix)]
+async fn the_idle_restart_switch_turns_it_off() {
+    let peer = FakePeer::new("idle-early-off");
+    peer.write("sessions.json", IDLE);
+    peer.write(".acpmux/update.idle-restart", "0\n");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
 }
 
 /// A person's `--now` (no window) restarts it within the hour.

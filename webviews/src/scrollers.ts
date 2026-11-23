@@ -12,10 +12,12 @@
 // `scrollbar-color`, `::-webkit-scrollbar`) and never use `overflow: scroll`;
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
-// A minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) shows its thin thumb
-// only for a moment when its content's length changes or it scrolls, then fades, whatever the
-// scrollbar fade setting (Leo 2026-11-23: "it should only appear briefly when the length changes, or
-// when you scroll. not all the time. never all the time.").
+// The agent chat's transcript and composer draw a shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`): its
+// lane always reserved, its thumb faded in while it scrolls and out at rest under the scrollbar fade
+// (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg 11494: "auto-fades
+// away"). The composer's also carries `MINIMAL_SCROLLER_ATTRIBUTE`: its track inset clear of the
+// box's corner and controls, and no thumb while its box settles (Leo 2026-11-22: "the thumb only
+// appears when it's relevant INSTEAD OF ALWAYS SHOWING UP").
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is over its
 // scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -39,7 +41,7 @@ export const SCROLLING_HIDE_MS = 800;
 
 /**
  * On a scroller whose thin thumb stays drawn the whole time its content overflows, whatever the
- * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+ * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD SHOW").
  * The rules come after the legacy ones in `SCROLLER_ROOT_CSS`, and their `:root` prefix outranks
  * them. The thumb never shows, hides and shows again as rows arrive or the view follows them. Its
  * lane is always there (`overflow-y: scroll`, on no track; no thumb is drawn while the content
@@ -66,14 +68,7 @@ const FADE_OUT_STRETCH = 4 / 3;
  * goes from 2 px to `--cmux-scroller-near-border`, and a sideways thumb's colour toward
  * `--cmux-scroller-thumb-near`).
  */
-export type ScrollerInk = {
-  property: string;
-  full: number;
-  near: number;
-  nearProperty: string;
-  /** None at rest whatever `SCROLLER_FADE_ATTRIBUTE` says (the composer's minimal scroller). */
-  alwaysFades?: boolean;
-};
+export type ScrollerInk = { property: string; full: number; near: number; nearProperty: string };
 
 /** The transcript's shown scroller's (`SHOWN_SCROLLER_ATTRIBUTE`). */
 export const SHOWN_INK_PROPERTIES: ScrollerInk = {
@@ -82,10 +77,6 @@ export const SHOWN_INK_PROPERTIES: ScrollerInk = {
   near: SHOWN_NEAR_INK,
   nearProperty: "--cmux-shown-scroller-near",
 };
-
-/** The composer's minimal scroller's (`MINIMAL_SCROLLER_ATTRIBUTE`): the transcript's ink, none at
-    rest whatever the scrollbar fade setting. */
-export const MINIMAL_INK_PROPERTIES: ScrollerInk = { ...SHOWN_INK_PROPERTIES, alwaysFades: true };
 
 /**
  * A sideways scroller's thumb ink (a wide table's, a Shell block's): percent of the thumb's color.
@@ -154,10 +145,7 @@ export function followShownScrollerFade(
   const resting = (): Look => {
     if (element.hasAttribute(NEAR_ATTRIBUTE)) return { ink: ink.near, near: 1 };
     return {
-      ink:
-        (ink.alwaysFades || root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) && !element.hasAttribute(SCROLLING_ATTRIBUTE)
-          ? 0
-          : full,
+      ink: root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full,
       near: 0,
     };
   };
@@ -187,8 +175,12 @@ export function followShownScrollerFade(
       : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
-    const start = view.performance.now();
+    // The fade's clock is the frames' own: a frame's time can run on a clock other than
+    // performance.now (a page whose animations are slowed or paused through the inspector), and a
+    // start read from performance.now then left the fade at its first step for good.
+    let start: number | undefined;
     const step = (now: number) => {
+      start ??= now;
       const t = Math.min(1, Math.max(0, (now - start) / ms));
       if (t >= 1) return settle();
       // A fade in eases out, as the pane's other fades (--agent-ease-out). A fade out eases in and
@@ -201,7 +193,7 @@ export function followShownScrollerFade(
       element.style.setProperty(NEAR_PROPERTY, drawn.near.toFixed(3));
       frame = view.requestAnimationFrame(step);
     };
-    step(start);
+    frame = view.requestAnimationFrame(step);
   };
   const marks = new view.MutationObserver(fade);
   marks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE, NEAR_ATTRIBUTE] });
@@ -930,8 +922,8 @@ export const CARD_SCROLLER_CSS = `
 }
 `;
 
-/** The attribute of a scroller that keeps its scrollbar while its content overflows (the agent
-    chat's composer). See `MINIMAL_SCROLLER_CSS`. */
+/** On a shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`) whose track is inset at its ends and whose thumb
+    stays clear while its box settles (the agent chat's composer). See `MINIMAL_SCROLLER_CSS`. */
 export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 
 /** On a minimal scroller whose box is moving to a height its content fits (the composer's field
@@ -940,64 +932,31 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
 
 /**
- * The minimal scroller: a thin thumb in `--cmux-scroller-thumb` on no track, inside the composer's
- * box. It shows only for a moment (Leo 2026-11-23: "move the thumb inside, and it should only appear
- * briefly when the length changes, or when you scroll. not all the time. never all the time."):
- * while the element carries `SCROLLING_ATTRIBUTE` (a wheel or drag on it, or `markScrolling` when
- * its content's length changes, MarkdownField.tsx) and while the pointer is over its lane, so it can
- * still be grabbed; `followShownScrollerFade(element, MINIMAL_INK_PROPERTIES)` fades it in and out.
- * This replaces the always-on thumb of Leo 2026-10-21. Content that fits draws no thumb. The lane is reserved even then, so the content
- * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
- * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
- * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
- * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
- * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
+ * The composer's additions to a shown scroller (the element carries both attributes; the lane, ink,
+ * scroll fade and near look are `SHOWN_SCROLLER_ATTRIBUTE`'s, `followShownScrollerFade`). Its thumb
+ * shows only while it scrolls or the pointer is near its lane, then fades, as Claude desktop's does
+ * (Leo 2026-11-22: "the thumb only appears when it's relevant INSTEAD OF ALWAYS SHOWING UP
+ * LIKE ..."); before, it stayed drawn the whole time the draft overflowed (Leo
+ * 2026-10-21, superseded).
+ *
+ * The track stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
  * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
- * track stops above Send, composerLocation.css). The `:root`
- * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
+ * track ends above its button row, composerLocation.css).
  *
  * While its box moves to a height the content fits (`SETTLING_SCROLLER_ATTRIBUTE`), the content
- * overflows only until the move lands, so the thumb stays clear (Leo 2026-11-08: "when we have the
- * composer grow a bit if it's not long enough to actually be scrollable stop showing a flash of the
- * thumb scrollbar"). Only the thumb's ink goes: the lane, the overflow and the text's width stay,
- * so nothing rewraps or moves when the move lands.
+ * overflows only until the move lands, so the thumb stays clear even if the move scrolls it (Leo
+ * 2026-11-08: "when we have the composer grow a bit if it's not long enough to actually be
+ * scrollable stop showing a flash of the thumb scrollbar"). Only the thumb's ink goes: the lane,
+ * the overflow and the text's width stay, so nothing rewraps or moves when the move lands. Comes
+ * after `SCROLLER_ROOT_CSS`, so at equal specificity it beats the shown thumb's scrolling ink.
  */
 export const MINIMAL_SCROLLER_CSS = `
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
-  overflow-y: scroll;
-  /* Its own ink: none at rest, full for a moment after its length changes or it scrolls. */
-  --cmux-shown-scroller-ink: 0%;
-}
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: ${SHOWN_INK}%;
-}
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
-  width: var(--cmux-scroller-size);
-  height: var(--cmux-scroller-size);
-  background: transparent;
-}
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
   margin-top: var(--cmux-minimal-scroller-inset, 0px);
   margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
-  background: transparent;
-}
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
-  background: transparent;
-}
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  min-height: 24px;
-  border: 2px solid transparent;
-  border-radius: var(--cmux-scroller-size);
-  background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink, 38%), transparent) padding-box;
-}
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
-  border-width: var(--cmux-scroller-near-border);
-  background-color: var(--cmux-scroller-thumb-near);
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   background: transparent;
 }
 `;

@@ -566,3 +566,115 @@ fn random_streams_keep_the_phone_identical() {
         }
     }
 }
+
+/// The phone parses each chunk as it comes and paints a backlog once
+/// (`TerminalProjectingSession` on iOS, Leo, 2026-11-22: "the scroll occurs
+/// ... on mac / then it delays on my actual iphone display"). Whatever the
+/// backlog's length, the phone ends with the screen a paint per chunk gives:
+/// streaming lines, an inline TUI's live region, a clear, and a trip to the
+/// alternate screen and back, in chunks cut at arbitrary bytes.
+#[test]
+fn a_backlog_painted_once_matches_a_paint_per_chunk() {
+    let mut script: Vec<u8> = Vec::new();
+    script.extend_from_slice(b"\x1b[32m~/src\x1b[0m $ claude\r\n");
+    let border = "─".repeat(118);
+    for frame in 0..40 {
+        let mut out = String::new();
+        if frame > 0 {
+            out.push_str("\x1b[5A\r\x1b[J");
+        }
+        if frame % 7 == 6 {
+            out.push_str(&format!(
+                "⏺ Message {frame}: {}\r\n",
+                "a reply that wraps on the phone ".repeat(6)
+            ));
+        }
+        out.push_str(&format!(
+            "\x1b[33m{}\x1b[0m Thinking… ({frame}s)\r\n",
+            ["·", "✢", "✳", "✶"][frame % 4]
+        ));
+        out.push_str(&format!("╭{border}╮\r\n│ > {:<114} │\r\n╰{border}╯\r\n", "scroll test"));
+        out.push_str("  ? for shortcuts\x1b[3A\x1b[24G");
+        script.extend_from_slice(out.as_bytes());
+        if frame == 20 {
+            script
+                .extend_from_slice(b"\x1b[?1049h\x1b[H\x1b[2Jvim screen\x1b[10;10Hedit\x1b[?1049l");
+        }
+        if frame == 30 {
+            script.extend_from_slice(b"\x1b[H\x1b[2J\x1b[3J$ ");
+        }
+    }
+    for line in 0..300 {
+        script.extend_from_slice(
+            format!("line {line:04} {}\r\n", "word ".repeat(line % 29)).as_bytes(),
+        );
+    }
+    script.extend_from_slice(b"$ ");
+
+    // Chunks of 1 to 97 bytes, cut anywhere (inside a UTF-8 glyph or an escape too).
+    let mut chunks: Vec<&[u8]> = Vec::new();
+    let (mut at, mut n) = (0usize, 7usize);
+    while at < script.len() {
+        n = (n * 31 + 11) % 97 + 1;
+        let end = (at + n).min(script.len());
+        chunks.push(&script[at..end]);
+        at = end;
+    }
+
+    let mut each = exact(120, 40, 10_000);
+    let mut each_phone = Phone::new(54, 38);
+    each_phone.apply(each.set_viewport(54, 38));
+    for chunk in &chunks {
+        each_phone.apply(each.feed(chunk, true));
+    }
+    assert_same(&each, &each_phone, "a paint per chunk");
+
+    for backlog in [1usize, 2, 3, 5, 8, 17, 64, chunks.len()] {
+        let mut host = exact(120, 40, 10_000);
+        let mut phone = Phone::new(54, 38);
+        phone.apply(host.set_viewport(54, 38));
+        let mut paints = 0;
+        for (i, chunk) in chunks.iter().enumerate() {
+            phone.apply(host.feed(chunk, false));
+            if (i + 1) % backlog == 0 {
+                phone.apply(host.flush());
+                paints += 1;
+            }
+        }
+        phone.apply(host.flush());
+        assert_same(&host, &phone, &format!("backlog of {backlog}"));
+        // The phone holds every row the host does (a reset paints the rows
+        // pushed since the last paint, not only its tail window): none is
+        // left for `load_older`, and its lines are the host's from the first.
+        assert_eq!(host.older_rows(), 0, "backlog of {backlog}: host rows not on the phone");
+        let (lines, cursor) = logical(&phone.term, 0);
+        let (host_lines, _) = logical(host.terminal(), 0);
+        let (each_lines, each_cursor) = logical(&each_phone.term, 0);
+        eprintln!(
+            "backlog {backlog}: phone {} lines, host {} lines ({} history rows), paint-per-chunk phone {} lines",
+            lines.len(),
+            host_lines.len(),
+            host.terminal().history.len(),
+            each_lines.len()
+        );
+        assert_eq!(lines, each_lines, "backlog of {backlog}: the phone's lines");
+        assert_eq!(cursor, each_cursor, "backlog of {backlog}: the phone's cursor");
+        assert!(paints <= chunks.len() / backlog + 1);
+    }
+}
+
+#[test]
+fn flush_on_the_alternate_screen_paints_nothing() {
+    let mut host = exact(120, 40, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let _ = host.feed(b"$ ls\r\n", false);
+    let segments = host.feed(b"\x1b[?1049hvim", false);
+    assert!(
+        segments.iter().any(|s| matches!(s, Segment::Paint(_) | Segment::Reset(_))),
+        "the primary is painted before the switch"
+    );
+    assert!(host.flush().is_empty(), "nothing to paint on the alternate screen");
+    let _ = host.feed(b"\x1b[?1049l$ ", false);
+    assert!(!host.flush().is_empty(), "back on the primary: one paint");
+}

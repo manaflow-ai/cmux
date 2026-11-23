@@ -1,4 +1,4 @@
-import { followShownScrollerFade, markScrolling, MINIMAL_INK_PROPERTIES } from "../../scrollers";
+import { markScrolling } from "../../scrollers";
 
 // The composer box's trailing actions (Codex's bolt, steer's ↵, Stop, the mic and Send), measured
 // onto the box as `--acpmux-actions-width` (composerLocation.css): the prompt in Claude's inline box
@@ -65,12 +65,11 @@ export function followActionsWidth(field: HTMLElement): (() => void) | undefined
 // when the draft's length changes while it overflows: a line typed, pasted or deleted past the cap,
 // or a rewrap after the pane is resized. The field's box and its text are observed: past the cap the
 // box keeps its height and only the text's grows. Nothing is marked as the field first lays out (a
-// restored draft does not flash) or while the draft fits (it has nothing to scroll). Fades in and out
-// by script (followShownScrollerFade), since WebKit steps no transition on a scrollbar.
+// restored draft does not flash) or while the draft fits (it has nothing to scroll). The fade in and
+// out is the shown scroller's (MarkdownField.tsx followShownScrollerFade).
 
 /** Marks `field` scrolling when its draft's length changes while it overflows; returns the cleanup. */
 export function flashThumbOnLength(field: HTMLElement): () => void {
-  const unfade = followShownScrollerFade(field, MINIMAL_INK_PROPERTIES);
   let length = -1;
   const observer = new ResizeObserver(() => {
     const now = field.scrollHeight;
@@ -90,6 +89,5 @@ export function flashThumbOnLength(field: HTMLElement): () => void {
   return () => {
     observer.disconnect();
     children?.disconnect();
-    unfade();
   };
 }
