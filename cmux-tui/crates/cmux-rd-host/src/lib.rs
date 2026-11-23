@@ -135,6 +135,8 @@ mod wire;
 mod workload;
 #[cfg(target_os = "linux")]
 mod x11;
+#[cfg(target_os = "linux")]
+mod x11_view;
 #[cfg(feature = "x264")]
 mod x264;
 

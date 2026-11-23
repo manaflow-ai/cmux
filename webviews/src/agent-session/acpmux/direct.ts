@@ -18199,7 +18199,17 @@ function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
-  const catalog = entries.map(catalogEntry);
+  // acpmux's harness map named none of them its default (a Mac with only the built-in Chief and
+  // UniiChat, default_harness.rs): New Tab then starts on no agent and offers Add harness.
+  const preferred = value?.defaultHarness;
+  const noDefault =
+    !Array.isArray(harnesses) &&
+    harnesses !== value &&
+    entries.length > 0 &&
+    !(typeof preferred === "string" && entries.some((entry) => entry.id === preferred));
+  const catalog = entries.map((entry) =>
+    noDefault ? { ...catalogEntry(entry), noDefault: true as const } : catalogEntry(entry),
+  );
   // Every AgentMark given a harness id draws its icon (shared/harnessIcons.ts).
   rememberHarnessIcons(catalog);
   return catalog;

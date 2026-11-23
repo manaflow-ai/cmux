@@ -1182,8 +1182,10 @@ class Workflow(unittest.TestCase):
         self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertIn("early-files", pick)
         # A narrowed pick hands the early job its shards' files (RFD 0023 item 3); they replace the affected list.
-        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("webviews-durations/pr-shard-files"))
-        self.assertLess(pick.index("webviews-durations/pr-shard-files"), pick.index('only=(--only'))
+        # The manifest path is a file name, not a timing; its index is read once for both order checks.
+        shard_files_at = pick.index("webviews-durations/pr-shard-files")
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), shard_files_at)
+        self.assertLess(shard_files_at, pick.index('only=(--only'))
         scope = {s["name"]: s for s in jobs["web-subarea-scope"]["steps"]}
         self.assertIn("--files-of", scope["Pick the react-apps-check shards"]["run"])
         self.assertIn("webviews-durations/pr-shard-files", scope["Upload the duration manifest"]["with"]["path"])

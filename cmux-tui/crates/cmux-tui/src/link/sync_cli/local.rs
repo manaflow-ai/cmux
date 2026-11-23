@@ -693,6 +693,8 @@ pub(super) fn working_files(
 ) -> anyhow::Result<()> {
     // A conflicted path is listed once a stage; it goes once.
     let mut tracked: HashSet<String> = HashSet::new();
+    let submodules = checked_out_submodules(folder);
+    let mut inside: Vec<String> = Vec::new();
     git_listing(folder, &["ls-files", "-z", "--cached"], &mut |path| {
         let Ok(path) = String::from_utf8(path) else {
             *skipped += 1;
@@ -701,8 +703,23 @@ pub(super) fn working_files(
         if !tracked.insert(path.clone()) {
             return Ok(());
         }
+        // A checked-out submodule's gitlink is a folder: its own files go instead, below.
+        if submodules.contains(&path) {
+            inside.push(path);
+            return Ok(());
+        }
         each(path, false)
     })?;
+    // A submodule's files are its own repository's listing, under its path, and its `.git`
+    // file, which names its repository in the outer one's `.git/modules` (that goes with
+    // the outer repository's git state).
+    for submodule in inside {
+        let prefix = format!("{submodule}/");
+        working_files(&folder.join(&submodule), skipped, &mut |path, untracked| {
+            each(format!("{prefix}{path}"), untracked)
+        })?;
+        each(format!("{prefix}.git"), false)?;
+    }
     git_listing(folder, &["ls-files", "-z", "--others", "--exclude-standard"], &mut |path| {
         let Ok(path) = String::from_utf8(path) else {
             *skipped += 1;
@@ -713,6 +730,32 @@ pub(super) fn working_files(
         }
         each(path, true)
     })
+}
+
+/// The submodules of the repository at `folder` that are checked out with a `.git` file (as
+/// `git submodule add` and `clone --recurse-submodules` leave them), by path. Read from
+/// `.gitmodules`, so a repository without one costs one stat. A submodule not checked out, or
+/// with its own `.git` folder, is left as its gitlink.
+fn checked_out_submodules(folder: &Path) -> HashSet<String> {
+    if !folder.join(".gitmodules").is_file() {
+        return HashSet::new();
+    }
+    let Ok(listed) = git(
+        folder,
+        &["config", "--file", ".gitmodules", "-z", "--get-regexp", r"^submodule\..*\.path$"],
+    ) else {
+        return HashSet::new();
+    };
+    listed
+        .split('\0')
+        .filter_map(|entry| entry.split_once('\n').map(|(_, path)| path))
+        .filter(|path| below(path))
+        .filter(|path| {
+            std::fs::symlink_metadata(folder.join(path).join(".git"))
+                .is_ok_and(|meta| meta.is_file())
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Runs git as [`git_bytes`] does and calls `each` with every NUL-ended name

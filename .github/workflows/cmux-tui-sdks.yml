@@ -21,6 +21,7 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
+      - "scripts/cmux-next/**"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -192,6 +193,7 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
+      - "scripts/cmux-next/**"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -362,6 +364,9 @@ permissions:
   contents: read
 
 env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -685,7 +690,7 @@ jobs:
             -p cmux-sidebar \
             --doc \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
@@ -693,8 +698,9 @@ jobs:
             -- -D warnings
           # Embedders such as Chromium build without sha2 (socket-path-hash).
           cargo test -p cmux-sdk --all-targets --locked --no-default-features
-          cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
+            python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- \
             cargo doc \
               -p cmux-sdk \
               -p cmux-sidebar \
@@ -867,7 +873,7 @@ jobs:
           cargo test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
@@ -876,7 +882,7 @@ jobs:
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
@@ -985,12 +991,12 @@ jobs:
           cargo +1.88.0 test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.toml \
             --locked
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
             -- -D warnings
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \

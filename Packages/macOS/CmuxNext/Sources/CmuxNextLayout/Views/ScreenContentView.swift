@@ -79,6 +79,9 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
+    /// The pane contents that follow a person's live resize of the window as they follow a divider drag
+    /// (`ScreenContentView+WindowLiveResize`); nil outside one.
+    var windowResizeListeners: [PaneResizeGestureListener]?
     /// The pane views a resize drag or a key resize's spring moves post no frame notice until it ends
     /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits.
     let paneFrameNotices = FrameNoticeHold()

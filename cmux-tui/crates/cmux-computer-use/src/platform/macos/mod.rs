@@ -671,6 +671,18 @@ impl Desktop for MacDesktop {
         }
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        match &self.host {
+            Some(host) => host.frame_encoder(width, height, fps),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,

@@ -21,9 +21,10 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod app_op_tools;
 mod automation_tools;
 mod browser_tools;
-mod caller_scope;
+use super::caller_scope;
 mod chat_tools;
 mod cloud_connect_tools;
 mod cloud_repo_tools;
@@ -744,6 +745,8 @@ pub(super) struct Server<B> {
     actions: Vec<ActionTool>,
     action_exclusions: Vec<Exclusion>,
     actions_loaded: bool,
+    /// Installed extensions' ops offered to agents (`app_op_tools`), as last read.
+    app_ops: Vec<app_op_tools::AppOpTool>,
     /// Sends `notifications/tools/list_changed` (`watch`); `serve` only.
     list_changed: bool,
     /// The client sent `notifications/initialized`.
@@ -790,6 +793,7 @@ impl<B: Backend> Server<B> {
             actions: Vec::new(),
             action_exclusions: Vec::new(),
             actions_loaded: false,
+            app_ops: Vec::new(),
             list_changed: false,
             initialized: false,
             code_mode: false,
@@ -916,6 +920,7 @@ impl<B: Backend> Server<B> {
     pub(super) fn list(&mut self) -> Vec<Value> {
         if !self.computer_use_only {
             self.refresh_actions();
+            self.refresh_app_ops();
         }
         for proxied in &mut self.upstreams {
             proxied.refresh();
@@ -928,6 +933,17 @@ impl<B: Backend> Server<B> {
     fn listed(&self) -> Vec<Value> {
         let mut tools = tool_list::first_party();
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        // An extension's op never takes a cmux tool's name.
+        let taken = tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+            .collect::<BTreeSet<_>>();
+        tools.extend(
+            self.app_ops
+                .iter()
+                .filter(|tool| !taken.contains(&tool.name))
+                .map(app_op_tools::AppOpTool::descriptor_json),
+        );
         for proxied in &self.upstreams {
             let taken = tools
                 .iter()
@@ -962,6 +978,23 @@ impl<B: Backend> Server<B> {
                 eprintln!("cmux mcp: the cmux app's actions are unavailable: {message}");
             }
         }
+    }
+
+    /// Reads the offered extension ops again; a daemon that does not answer
+    /// keeps the last list (none before the first answer).
+    fn refresh_app_ops(&mut self) {
+        if let Some(app_ops) = app_op_tools::read(&self.backend) {
+            self.app_ops = app_ops;
+        }
+    }
+
+    /// The offered extension op called `name`, read again when it is not in
+    /// the last list (an app installed since).
+    fn app_op(&mut self, name: &str) -> Option<app_op_tools::AppOpTool> {
+        if !self.app_ops.iter().any(|tool| tool.name == name) {
+            self.refresh_app_ops();
+        }
+        self.app_ops.iter().find(|tool| tool.name == name).cloned()
     }
 
     fn tool_refusal(&self, name: &str) -> Option<Value> {
@@ -1225,6 +1258,12 @@ impl<B: Backend> Server<B> {
         }
         if !self.actions.iter().any(|tool| tool.name == name) {
             self.refresh_actions();
+        }
+        if !self.computer_use_only
+            && !self.actions.iter().any(|tool| tool.name == name)
+            && let Some(tool) = self.app_op(name)
+        {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
             return Err((-32602, self.unknown_tool(name)));
