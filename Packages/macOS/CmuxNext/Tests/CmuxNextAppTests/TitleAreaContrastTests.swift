@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxTheme
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
@@ -83,17 +84,25 @@ import Testing
         #expect(DesignSettings.shared.titleAreaContrast == 1)
     }
 
-    /// The contrast scales the shade linearly, never past opaque black: on the flush corner's frame Subtle Tone's
-    /// share of it (contrast 2 is the older two tones), on any other chrome the style's own shade.
+    /// Subtle Tone's frame share on the flush corner (``FrameTone``): the active theme's least separating share of
+    /// its ink, or the frame rung for the other appearance.
+    func inkFrameShare(isDark: Bool) -> CGFloat {
+        let theme = ThemeContext.active ?? ThemeScope.app.tokens
+        return CGFloat(theme.isDark == isDark ? FrameTone.share(theme) : FrameTone.frameRung)
+    }
+
+    /// The contrast scales the shade linearly, never past opaque: on the flush corner's frame Subtle Tone's
+    /// theme-derived share of the ink (Leo, 2026-11-23: "only as contrasty as necessary"), on any other chrome the
+    /// style's own shade.
     @Test(arguments: [true, false]) func theContrastScalesTheChromeShade(isDark: Bool) {
         withFlushCorner {
-            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark)
+            let share = inkFrameShare(isDark: isDark)
+            #expect(share >= CGFloat(FrameTone.frameRung) && share <= CGFloat(FrameTone.selectedRung))
             for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
                 withContrast(contrast) {
-                    #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, base * TitleAreaTone.subtleShare * contrast)) < 1e-9)
+                    #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, share * contrast)) < 1e-9)
                 }
             }
-            withContrast(2) { #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base) < 1e-9) }
         }
     }
 
@@ -107,8 +116,8 @@ import Testing
             #expect((Palette.folderTabFill != nil) == reads)
             if reads { #expect(Palette.folderTabFill == Palette.paneFill) }
         }
-        // Subtle Tone's light frame (0.045 of black) still opens a folder tab at half contrast: never a gray pill.
-        #expect(0.045 * TitleAreaTone.subtleShare * 0.5 >= Metrics.folderTabMinimumShade)
+        // Subtle Tone's least frame (the frame rung of ink) still opens a folder tab at half contrast: never a gray pill.
+        #expect(CGFloat(FrameTone.frameRung) * 0.5 >= Metrics.folderTabMinimumShade)
     }
 
     /// The chrome's shade leaves the selected folder tabs out, as it leaves out the card: the tab shows the
@@ -213,8 +222,8 @@ import Testing
             #expect(Palette.folderTabFill == nil)
             #expect(DesignSettings.shared.titleAreaContrast == 0.5)
             DesignSettings.shared.titleAreaTone = .subtleTone
-            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark), scale = TitleAreaTone.subtleShare * 0.5
-            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * scale) < 1e-9)
+            let scale = TitleAreaTone.subtleShare * 0.5
+            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - inkFrameShare(isDark: isDark) * 0.5) < 1e-9)
             #expect(abs(Metrics.tabRowDividerStrength - (1 - scale)) < 1e-9)
         }
     }
