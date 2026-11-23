@@ -152,6 +152,11 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -648,6 +653,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
+    /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
