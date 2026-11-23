@@ -100,7 +100,7 @@ fn the_same_listing_splits_the_same_and_one_change_rewrites_one_path() {
     let old: std::collections::HashSet<&str> =
         first.pieces.iter().map(|p| p.sha256.as_str()).collect();
     let fresh = second.pieces.iter().filter(|p| !old.contains(p.sha256.as_str())).count();
-    assert!(fresh >= 1 && fresh <= 4, "{fresh} of {} pieces changed", second.pieces.len());
+    assert!((1..=4).contains(&fresh), "{fresh} of {} pieces changed", second.pieces.len());
 }
 
 #[test]
