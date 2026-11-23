@@ -10,27 +10,47 @@
 type Named = { readonly cwd: string; readonly label: string };
 
 /// Each ambiguous project's suffix, keyed by its `cwd` as given. Unique names are absent.
+///
+/// One pass per depth over a name's projects, counting the paths each tail is the end of: a tail
+/// only its own path has tells it apart. Comparing each project with every other one of its name
+/// was the square of that count: Leo's chats at 10K sessions named 4,000 folders, most of them
+/// worktrees named "cmux", and the New Tab pages' folder menus and the composer's folder list ran
+/// it on each change of any chat until a key waited seconds (Leo 2026-11-18, "typing in the
+/// composer still slow 😞 there must be a lot of open stuff?"; bench/session-scale-typing.bench.ts).
 export function projectSuffixes(projects: readonly Named[]): Map<string, string> {
   const groups = new Map<string, Named[]>();
   for (const project of projects) {
     const key = project.label.toLowerCase();
-    groups.set(key, [...(groups.get(key) ?? []), project]);
+    const group = groups.get(key);
+    if (group) group.push(project);
+    else groups.set(key, [project]);
   }
   const suffixes = new Map<string, string>();
   for (const group of groups.values()) {
-    const folders = new Map(group.map((project) => [project.cwd, ownFolders(project)]));
-    const paths = new Set(group.map((project) => normalize(project.cwd)));
-    if (paths.size < 2) continue;
-    for (const project of group) {
-      const own = folders.get(project.cwd)!;
-      const others = group.filter((other) => normalize(other.cwd) !== normalize(project.cwd));
-      let suffix: string | undefined;
-      for (let depth = 1; depth <= own.length && suffix === undefined; depth++) {
-        const tail = own.slice(-depth).join("/");
-        if (others.every((other) => folders.get(other.cwd)!.slice(-depth).join("/") !== tail)) suffix = tail;
-      }
-      suffixes.set(project.cwd, suffix ?? parentFolder(project.cwd));
+    if (group.length < 2) continue;
+    const members = group.map((project) => ({ project, path: normalize(project.cwd), own: ownFolders(project) }));
+    if (new Set(members.map((member) => member.path)).size < 2) continue;
+    const deepest = Math.max(...members.map((member) => member.own.length));
+    // Which projects still look for their suffix, and the one each found.
+    const found = new Map<(typeof members)[number], string>();
+    for (let depth = 1; depth <= deepest && found.size < members.length; depth++) {
+      // A tail and the paths whose folders end in it at this depth: a shorter path's tail is all of
+      // its folders, as `slice(-depth)` gives.
+      const paths = new Map<string, string | null>();
+      const tails = members.map((member) => {
+        const tail = member.own.slice(-depth).join("/");
+        const seen = paths.get(tail);
+        if (seen === undefined) paths.set(tail, member.path);
+        else if (seen !== null && seen !== member.path) paths.set(tail, null);
+        return tail;
+      });
+      members.forEach((member, at) => {
+        if (found.has(member) || depth > member.own.length) return;
+        if (paths.get(tails[at]!) !== null) found.set(member, tails[at]!);
+      });
     }
+    for (const member of members)
+      suffixes.set(member.project.cwd, found.get(member) ?? parentFolder(member.project.cwd));
   }
   return suffixes;
 }
