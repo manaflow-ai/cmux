@@ -120,8 +120,11 @@ jobs:
       - name: Claude Code for the runner's own side (the person's Mac)
         run: |
           set -euo pipefail
-          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
-          command -v claude
+          # A self-hosted runner's global npm prefix is not the job's to write: a prefix of its own.
+          prefix="$RUNNER_TEMP/npm-global"
+          npm install --global --prefix "$prefix" --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          "$prefix/bin/claude" --version
           chmod 0755 "$RUNNER_TEMP/bin/cmux-tui"
       - name: Move drills (${{ matrix.kill }})
         env:
