@@ -27,6 +27,9 @@ import CmuxNextDesign
 /// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
 /// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
+/// `composerVimKeys`: opt-in modal vim keys in the web composer (Esc for normal mode; i, a, I, A, o, h, j, k, l,
+/// w, b, e, 0, $, x, dd, u). It is off by default and never steals a key when off
+/// (webviews composer/vimKeys.ts).
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
 /// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
 /// `both` (in the text and in the row, each removable from either; sent messages draw it as
@@ -59,6 +62,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var dictationSource = Self.dictationSourceDefault
     public var dictationShortcut = Self.dictationShortcutDefault
     public var spellChecking = Self.spellCheckingDefault
+    public var composerVimKeys = Self.composerVimKeysDefault
     public var attachmentView = Self.attachmentViewDefault
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
@@ -75,7 +79,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -84,6 +88,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "dictationSource": .string(dictationSource.rawValue),
             "dictationShortcut": .string(dictationShortcut),
             "spellChecking": .bool(spellChecking),
+            "composerVimKeys": .bool(composerVimKeys),
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
@@ -177,6 +182,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
+            if descriptor.path == composerVimKeysPath { setting.composerVimKeys = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
             if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
         }

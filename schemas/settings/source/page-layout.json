@@ -319,6 +319,7 @@
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
+              "agentPane.composerVimKeys",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
               "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
               "agentPane.display.promptCoach"

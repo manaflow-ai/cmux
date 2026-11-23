@@ -929,6 +929,7 @@
         "agentPane.showDictation",
         "agentPane.dictationSource",
         "agentPane.spellChecking",
+        "agentPane.composerVimKeys",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
       ]

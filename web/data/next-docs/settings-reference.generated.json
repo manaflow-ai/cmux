@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 674,
+  "count": 675,
   "sections": [
     {
       "id": "general",
@@ -30,6 +30,14 @@
             "context",
             "planUsage"
           ]
+        },
+        {
+          "key": "agentPane.composerVimKeys",
+          "title": "Vim Keys in the Composer",
+          "help": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.dictationShortcut",

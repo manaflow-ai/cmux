@@ -252,6 +252,7 @@
     "key.workspace.selectLastUsed": ["ctrl+cmd+`"],
     "setting.agentPane.attachmentView": "inline",
     "setting.agentPane.composerRing": "context",
+    "setting.agentPane.composerVimKeys": false,
     "setting.agentPane.dictationShortcut": "",
     "setting.agentPane.dictationSource": "cmux",
     "setting.agentPane.display.code.family": null,
