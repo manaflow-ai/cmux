@@ -4,7 +4,7 @@
 // table's own top-right corner on hover. A table narrower than the column sits centered in it. The experiment's arms (tableActions.experiment.ts) put
 // that pair in the corner, above it or beside it; `corner` ships.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { tableActionsPlace } from "./tableActions.experiment";
 import { TABLE_AFTER_BOLD } from "./tableAfterParagraph.fixture";
 
@@ -87,6 +87,52 @@ const snapshot = chat([
   summary(3.9, { status: "completed", durationMs: 8_000 }),
 ]);
 
+// A Claude Agent call drawn as its subagent card (AgentCallCard.tsx): at a narrow pane its long
+// status line ends in an ellipsis inside the column.
+const agentCallItem = () =>
+  tool("Agent: Find the tooltips", "think", "completed", {
+    inputSummary: JSON.stringify({
+      description: "Find the tooltips",
+      prompt: "Count every tooltip in webviews/src and sort them by fate.",
+      subagent_type: "Explore",
+    }),
+    output: "Found 321 tooltips.\n<usage>total_tokens: 18234\ntool_uses: 14\nduration_ms: 72000</usage>",
+    startedAt: Date.now() - 300_000,
+    endedAt: Date.now() - 228_000,
+  });
+
+// A centered table among a turn's other rows (Leo 2026-11-22: "we need to audit our other possible
+// renderings"): a finished thought, done and failed tool rows, a folded plan, the reply with its
+// table, the footer and the recap, so the rows' left edges read against the table's centered box.
+const rowsTurn = (live: boolean, agent = false) => [
+  user("How many tooltips are left?", 5),
+  row("plan", 4.95, {
+    plan: [
+      { content: "Count the tooltips", status: "completed" },
+      { content: "Sort them by fate", status: live ? "in_progress" : "completed" },
+    ],
+  }),
+  activity(
+    [
+      thought("Counting tooltips across the app's views"),
+      ...(agent ? [agentCallItem()] : []),
+      tool("rg -c 'title=' webviews/src", "execute", "completed", { output: "321" }),
+      tool("Read webviews/src/tooltips.md", "read", "failed", { output: "No such file" }),
+      tool("Search the styled tooltips", "search", "completed", { output: "22 matches" }),
+    ],
+    4.92,
+  ),
+  assistant(audit, 4.9),
+  ...(live
+    ? [activity([tool("rg -c 'aria-label=' webviews/src", "execute", "in_progress")], 0.05)]
+    : [
+        summary(4.9, { status: "completed", durationMs: 12_000, toolCount: 3 }),
+        row("recap", 4.8, {
+          recap: { key: "gallery-table-rows", text: "Goal: count the tooltips. Next: drop the 91 useless ones." },
+        }),
+      ]),
+];
+
 export default agentPaneEntry({
   id: "agent-pane.table-block",
   title: "Reply tables",
@@ -94,6 +140,18 @@ export default agentPaneEntry({
   height: 640,
   covers: ["agent-session/acpmux/conversation/TableBlock.tsx"],
   variants: {
+    "among-rows": {
+      note: "A finished turn: plan, thought, done and failed tool rows, the centered table, the footer and the recap.",
+      snapshot: chat(rowsTurn(false)),
+    },
+    "among-rows-agent": {
+      note: "The working turn with a Claude Agent call card among its tool rows: its status ends in an ellipsis at a narrow pane.",
+      snapshot: chat(rowsTurn(true, true), { isWorking: true }),
+    },
+    "among-rows-live": {
+      note: "The same turn still working: a tool runs under the centered table and the live line sits below it.",
+      snapshot: chat(rowsTurn(true), { isWorking: true }),
+    },
     rest: {
       note: "Columns fit their text; the table with an empty corner labels its rows.",
       snapshot,

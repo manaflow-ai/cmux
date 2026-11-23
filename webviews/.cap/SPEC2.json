@@ -1,0 +1,65 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "v-subsession-started",
+      "entry": "agent-pane.subsession-cards",
+      "variant": "started",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    },
+    {
+      "name": "v-agentcall-report-closed",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "report-closed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    },
+    {
+      "name": "v-agentcall-stacked-open",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "stacked-open",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    },
+    {
+      "name": "v-agentcall-report-running",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "report-running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    },
+    {
+      "name": "v-table-agent-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows-agent",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    },
+    {
+      "name": "v-table-agent-normal",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows-agent",
+      "widthName": "normal",
+      "width": 760,
+      "height": 900
+    },
+    {
+      "name": "v-anatomy-mixed",
+      "entry": "agent-pane.subagent-row-anatomy",
+      "variant": "mixed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 900
+    }
+  ]
+}
