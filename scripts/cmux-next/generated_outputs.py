@@ -51,6 +51,8 @@ SETTINGS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift"
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
+    # A settings row is its JSON source; the SwiftPM plugin writes the Swift (#50929).
+    r"|schemas/settings/source/|scripts/cmux-next/gen-settings-sources\.py$"
 )
 
 
