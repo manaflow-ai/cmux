@@ -66,6 +66,7 @@
     "closed.list",
     "closed.reopen",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_start",
     "cloud.machine.io",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",

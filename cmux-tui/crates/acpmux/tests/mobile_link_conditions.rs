@@ -393,7 +393,11 @@ impl Control {
     /// Turns of ~1 KB answers (the fake agent echoes the prompt) until the chat holds `turns`.
     async fn seed(&mut self, session: &str, from: u64, turns: u64) {
         let pad = "lorem ipsum dolor sit amet ".repeat(37);
+        let started = Instant::now();
         for n in from..turns {
+            if n > from && n % 500 == 0 {
+                eprintln!("netcond: seeding turn {n}/{turns}, {:?} so far", started.elapsed());
+            }
             let id = self.prompt(session, &format!("turn {n}: {pad}")).await;
             let v = self.answer(id, BOUND).await.unwrap_or_else(|| panic!("seed turn {n} hung"));
             assert!(v.get("error").is_none(), "seed turn {n}: {v}");
@@ -467,19 +471,14 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -628,15 +627,10 @@ async fn reconnect(
                 continue;
             }
         }
-        loop {
-            match l.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    if event_seq(&v).is_some_and(|s| s > last) {
-                        first = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = l.notification(deadline).await {
+            if event_seq(&v).is_some_and(|s| s > last) {
+                first = Some(at);
+                break;
             }
         }
     }
@@ -755,6 +749,7 @@ fn link_frames(payload: u64) -> u64 {
 }
 
 /// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
+#[allow(dead_code)]
 fn ws_header(len: u64, masked: bool) -> u64 {
     let base = if len < 126 {
         2
