@@ -345,6 +345,10 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.allotment.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.auth.status": {
       "scope": "cloud:read",
       "class": "read"

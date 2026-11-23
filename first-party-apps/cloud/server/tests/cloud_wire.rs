@@ -725,7 +725,8 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert!(allotment.is_ok(), "{allotment:?}");
     let allotment = allotment.unwrap();
     assert_eq!(allotment["decision"]["position"], "up");
-    assert_eq!(allotment["decision"]["members"][0]["month_micros"], 96_000_000);
+    // Micros are JSON numbers the wire types hold as f64.
+    assert_eq!(allotment["decision"]["members"][0]["month_micros"].as_f64(), Some(96_000_000.0));
     assert_eq!(allotment["names"]["user_vec_2"], "Sam", "the directory's names ride along");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
