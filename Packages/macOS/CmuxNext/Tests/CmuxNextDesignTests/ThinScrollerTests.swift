@@ -54,6 +54,28 @@ struct ThinScrollerTests {
         #expect(moved.width == ThinScroller.knobThickness)
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/49654: a scroller moved clear of the sidebar's resize
+    /// band draws its knob at the strip's edge and grabs only that column; a press outside it, and the
+    /// pointer there, is the content's.
+    @Test func aNarrowGrabZoneHoldsTheKnobAtTheTrailingEdge() throws {
+        let scroller = Self.overflowing()
+        scroller.frame.origin.x = 100
+        #expect(scroller.grabZone == scroller.frame)
+        scroller.knobEdgeInset = 0
+        scroller.grabThickness = ThinScroller.expandedKnobThickness + 1
+        let zone = scroller.grabZone
+        #expect(zone.maxX == scroller.frame.maxX)
+        #expect(zone.width == ThinScroller.expandedKnobThickness + 1)
+        let knob = try #require(scroller.restingKnobFrame)
+        #expect(knob.maxX == scroller.bounds.maxX)
+        let y = scroller.frame.midY
+        #expect(scroller.hitTest(CGPoint(x: zone.midX, y: y)) === scroller)
+        #expect(scroller.hitTest(CGPoint(x: zone.minX - 1, y: y)) == nil)
+        #expect(scroller.hitTest(CGPoint(x: scroller.frame.minX + 1, y: y)) == nil)
+        scroller.grabThickness = nil
+        #expect(scroller.grabZone == scroller.frame)
+    }
+
     @Test func nothingToScrollShowsNoKnob() {
         let scroller = Self.overflowing()
         scroller.knobProportion = 1

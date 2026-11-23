@@ -207,7 +207,6 @@ public final class SidebarContainerView: NSView {
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
-        handle.yieldsPress = { [weak self] point in self?.scrollerTakesPress(at: point) ?? false }
         mountRail()
         observe()
     }
@@ -265,6 +264,7 @@ public final class SidebarContainerView: NSView {
     /// The handle shows while the sidebar is shown and this view is not hidden.
     func syncHandleVisibility() {
         SidebarHiddenState.apply(isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor, to: handle)
+        syncScrollerClearance()
     }
 
     /// The user's sidebar background (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`), the rail's

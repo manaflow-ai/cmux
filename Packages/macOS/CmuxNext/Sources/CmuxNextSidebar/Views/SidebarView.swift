@@ -80,6 +80,11 @@ public final class SidebarView: NSView {
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = OverlayScrollView()
     let belowScroll = OverlayScrollView()
+    /// Points the edge scrollers keep clear of this view's trailing edge: the resize band's reach
+    /// into the sidebar, set by the container (`SidebarView+DividerClearance`).
+    var dividerScrollerClearance: CGFloat = 0 {
+        didSet { if dividerScrollerClearance != oldValue { applyDividerScrollerClearance() } }
+    }
     /// Fade the bands' rows out at an edge while more are hidden there.
     // Built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)

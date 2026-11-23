@@ -78,6 +78,10 @@ extension SidebarContainerView {
         // Keep the grab target centred on the container's logical edge so the existing hit area
         // stays stable; only the resting line follows the extended surface edge.
         handle.edgeOffset = side == .left ? band.inside + paneReach : band.outside - paneReach
+        // The list's scroller sits at the sidebar's trailing edge; on a left sidebar that is this edge, so it
+        // ends where the band begins and a press on the band always resizes (https://github.com/manaflow-ai/cmux/issues/49654). A right sidebar's
+        // scroller is at the window edge, away from the band.
+        syncScrollerClearance()
         handleConstraints = [
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -86,5 +90,14 @@ extension SidebarContainerView {
                 : handle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -band.outside),
         ]
         NSLayoutConstraint.activate(handleConstraints)
+    }
+
+    /// The edge scrollers' clearance from the band: its reach into the sidebar while the band shows on
+    /// the left, else 0 (a right sidebar's scrollers are at the window edge; a float card or hidden
+    /// sidebar has no band beside them).
+    func syncScrollerClearance() {
+        let band = mountedBand ?? resizeBand
+        let clears = side == .left && !isFloatOverlay && !handle.isHidden
+        sidebarView.dividerScrollerClearance = clears ? band.inside + mountedPaneReach : 0
     }
 }

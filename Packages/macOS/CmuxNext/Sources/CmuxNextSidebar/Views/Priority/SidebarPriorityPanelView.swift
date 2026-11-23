@@ -17,6 +17,8 @@ final class SidebarPriorityPanelView: NSView {
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
     private let scroll = OverlayScrollView()
+    /// The rows' scroll view; the sidebar insets its scroller from the resize band.
+    var scrollView: NSScrollView { scroll }
     private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
