@@ -362,6 +362,7 @@ impl Rig {
                         session_id: "matrix-session".into(),
                         video: None,
                         session_exposure: None,
+                        path: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,
