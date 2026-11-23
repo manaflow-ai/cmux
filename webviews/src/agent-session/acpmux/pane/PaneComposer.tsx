@@ -27,7 +27,7 @@ import { SurgeHoldRow } from "../SurgeHoldRow";
 import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../AddProjectPanel";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -44,7 +44,6 @@ import { DictationNotice } from "../DictationNotice";
 import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { SubagentComposer } from "../subagents/SubagentComposer";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras, composerCloudStartFolder } from "../cloudRun";
 import { repickCloudChat, type RepickMachine } from "../cloudRepick";
@@ -80,7 +79,6 @@ import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { SubagentTarget } from "../subagents/subagentMessage";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
@@ -132,12 +130,12 @@ export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
   readOnlySubagent: boolean;
+  /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
+  subagentRelay: ComposerRelay | undefined;
   subagentDraftKey: string;
-  shownSubagentTarget: SubagentTarget | undefined;
+  /// A message to the subagent did not reach the chat: its note shows over the box.
+  subagentFailed: boolean;
   t: Translate;
-  chatName: string;
-  sendToSubagent: ((message: string) => Promise<void>) | undefined;
-  subagentQuote: React.RefObject<{ quoteReply(markdown: string): void } | null>;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
   dictation: Dictation;
@@ -217,6 +215,10 @@ export type PaneComposerDeps = {
   hideManaged: (sessionId: string) => void;
   goalAtFoot: boolean;
   goalNode: React.JSX.Element | null;
+  /** The approved plan's band (ApprovedPlanBand.tsx), drawn under the goal; null with none. */
+  approvedPlanNode?: React.JSX.Element | null;
+  /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
+  approvedPlanAtFoot?: boolean;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -358,17 +360,15 @@ export type PaneComposerDeps = {
   importFile: (file: File) => Promise<void>;
 };
 
-/// The pane's composer tree: a subagent pane's SubagentComposer, or (unless reviewing) the bottom
+/// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
   markDockEdge,
   readOnlySubagent,
+  subagentRelay,
   subagentDraftKey,
-  shownSubagentTarget,
+  subagentFailed,
   t,
-  chatName,
-  sendToSubagent,
-  subagentQuote,
   reviewing,
   snapshot,
   dictation,
@@ -435,6 +435,8 @@ export function drawPaneComposer({
   hideManaged,
   goalAtFoot,
   goalNode,
+  approvedPlanNode = null,
+  approvedPlanAtFoot = false,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -553,254 +555,255 @@ export function drawPaneComposer({
   composerMic,
   importFile,
 }: PaneComposerDeps) {
-  return readOnlySubagent ? (
-    <SubagentComposer
-      key={subagentDraftKey}
-      onFocusEdge={markDockEdge}
-      subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
-      chat={chatName}
-      draftKey={subagentDraftKey}
-      onSend={sendToSubagent}
-      quoteRef={subagentQuote}
-    />
-  ) : (
-    !reviewing && (
+  return (
+    (readOnlySubagent || !reviewing) && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
-        <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
-        <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
-          <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
-        </Notice>
-        <Notice id="machine-harness" tier="error" when={machineCheck.notice && machinePeer !== undefined}>
+        <Notice id="subagent-failed" tier="error" when={readOnlySubagent && subagentFailed}>
           <p className="acpmux-composer-remote-note" role="alert">
-            {t("composer.peerHarnessMissing", {
-              agent: catalog.find((entry) => entry.id === machineSelected)?.name ?? machineSelected ?? "",
-              machine: machinePeer ?? "",
-            })}
+            {t("subagents.messageFailed")}
           </p>
         </Notice>
-        <Notice id="import-error" tier="error" when={!showNewTab && importError}>
-          <p className="acpmux-composer-remote-note" role="alert">
-            {importError}
-          </p>
-        </Notice>
-        <Notice id="instructions" tier="error" when={instructionsFailure}>
-          <InstructionsNotice
-            failure={instructionsFailure?.failure}
-            onRetry={() =>
-              instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-            }
-            onDismiss={() => setInstructionsFailure(undefined)}
-          />
-        </Notice>
-        {harnessCard ? (
-          <Notice id="harness-block" tier="error" when>
-            {harnessCard}
-          </Notice>
-        ) : (
-          <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
-            <SwitchNotice
-              switching={snapshot.switching}
-              // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
-              installs={!startsElsewhere}
-              // An agent not signed in: on another machine its sign-in runs there, in the card; on
-              // this Mac in the in-place card where acpmux has one, else its login in a terminal
-              // tab; then Retry starts it (hq#11225; refusedStartSignIn).
-              {...refusedStartSignIn({
-                startsElsewhere,
-                elsewhereCard: chatSignIns.refusedSignIn,
-                localCard: chatSignIns.localRefusedSignIn,
-                loginCommand: switchLoginCommand,
-              })}
-              onRetry={() => void callNative("chat.harness.retry")}
-              // The refused prompt is back in the composer; a chat on another machine starts only
-              // with a send, so the share's retry sends it again (as Trust's answer does).
-              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
-              onAction={(action) => {
-                // Install runs the agent's installer where its output shows, then Retry starts it.
-                if (action === "install") {
-                  const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
-                  if (command)
-                    void callNative("tab.open", {
-                      kind: "terminal",
-                      text: command,
-                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
-                      run: true,
-                    }).catch(() => undefined);
-                  return;
+        {!readOnlySubagent && (
+          <>
+            <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
+            <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
+              <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
+            </Notice>
+            <Notice id="machine-harness" tier="error" when={machineCheck.notice && machinePeer !== undefined}>
+              <p className="acpmux-composer-remote-note" role="alert">
+                {t("composer.peerHarnessMissing", {
+                  agent: catalog.find((entry) => entry.id === machineSelected)?.name ?? machineSelected ?? "",
+                  machine: machinePeer ?? "",
+                })}
+              </p>
+            </Notice>
+            <Notice id="import-error" tier="error" when={!showNewTab && importError}>
+              <p className="acpmux-composer-remote-note" role="alert">
+                {importError}
+              </p>
+            </Notice>
+            <Notice id="instructions" tier="error" when={instructionsFailure}>
+              <InstructionsNotice
+                failure={instructionsFailure?.failure}
+                onRetry={() =>
+                  instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
                 }
-                // The refused agent's login, where its sign-in page or code shows; Retry then starts it.
-                if (action === "signIn") {
-                  if (switchLoginCommand && !startsElsewhere) {
-                    healthStale.current = true;
-                    void callNative("tab.open", {
-                      kind: "terminal",
-                      text: switchLoginCommand,
-                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
-                      run: true,
-                      keep: true,
-                    }).catch(() => undefined);
-                  }
-                  return;
-                }
-                const route = startRefusalRoute(action, startsElsewhere);
-                if (route === "newCloudMachine") connectMachine("cloud");
-                // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
-                else if (route === "machineFolderMenu") {
-                  if (!openPicker("Location")) void chooseWorkspaceFolder();
-                } else void chooseWorkspaceFolder();
-              }}
-              share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
-            />
-          </Notice>
-        )}
-        {!harnessCard && (
-          <HarnessHealthNotice
-            health={targetSignInHealth ?? harnessHealth}
-            harness={healthHarness}
-            name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
-            {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
-            open={(params) => {
-              healthStale.current = true;
-              void callNative("tab.open", params).catch(() => undefined);
-            }}
-            native={callNative}
-            {...(chatSignIns.healthSignIn && { signIn: chatSignIns.healthSignIn })}
-            turnRunning={snapshot.isWorking}
-            onUpdated={recheckHealth}
-            onOffer={setUpdateOffer}
-            onSignInVisible={setSignInNoticeVisible}
-          />
-        )}
-        {snapshot.sessionId && rulesLocal && <RulesNotice rules={rules} />}
-        <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
-          <MissingFolder
-            reason={folderNeeded?.reason ?? ""}
-            error={folderNeeded?.error}
-            onChoose={() => {
-              void chooseChatFolder(
-                () => callNative("chat.folder.choose"),
-                async (adopt) => {
-                  const client = directClient.current;
-                  if (!client) throw new Error(t("error.nativeUnavailable"));
-                  const sessionId = await client.resume(adopt);
-                  if (sessionId) await callNative("chat.persistSession", { sessionId });
-                },
-              ).then(
-                (result) => {
-                  if (result.done) setFolderNeeded(undefined);
-                  else if (result.reason) setFolderNeeded({ reason: result.reason });
-                },
-                (error: unknown) => {
-                  console.warn("agent pane: choosing the chat's folder failed", error);
-                  setFolderNeeded(
-                    (current) =>
-                      current && { ...current, error: knownRefusalText(error) ?? translate("startFolder.failed") },
+                onDismiss={() => setInstructionsFailure(undefined)}
+              />
+            </Notice>
+            {harnessCard ? (
+              <Notice id="harness-block" tier="error" when>
+                {harnessCard}
+              </Notice>
+            ) : (
+              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+                <SwitchNotice
+                  switching={snapshot.switching}
+                  // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
+                  installs={!startsElsewhere}
+                  // An agent not signed in: on another machine its sign-in runs there, in the card; on
+                  // this Mac in the in-place card where acpmux has one, else its login in a terminal
+                  // tab; then Retry starts it (hq#11225; refusedStartSignIn).
+                  {...refusedStartSignIn({
+                    startsElsewhere,
+                    elsewhereCard: chatSignIns.refusedSignIn,
+                    localCard: chatSignIns.localRefusedSignIn,
+                    loginCommand: switchLoginCommand,
+                  })}
+                  onRetry={() => void callNative("chat.harness.retry")}
+                  // The refused prompt is back in the composer; a chat on another machine starts only
+                  // with a send, so the share's retry sends it again (as Trust's answer does).
+                  onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
+                  onAction={(action) => {
+                    // Install runs the agent's installer where its output shows, then Retry starts it.
+                    if (action === "install") {
+                      const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
+                      if (command)
+                        void callNative("tab.open", {
+                          kind: "terminal",
+                          text: command,
+                          ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                          run: true,
+                        }).catch(() => undefined);
+                      return;
+                    }
+                    // The refused agent's login, where its sign-in page or code shows; Retry then starts it.
+                    if (action === "signIn") {
+                      if (switchLoginCommand && !startsElsewhere) {
+                        healthStale.current = true;
+                        void callNative("tab.open", {
+                          kind: "terminal",
+                          text: switchLoginCommand,
+                          ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                          run: true,
+                          keep: true,
+                        }).catch(() => undefined);
+                      }
+                      return;
+                    }
+                    const route = startRefusalRoute(action, startsElsewhere);
+                    if (route === "newCloudMachine") connectMachine("cloud");
+                    // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
+                    else if (route === "machineFolderMenu") {
+                      if (!openPicker("Location")) void chooseWorkspaceFolder();
+                    } else void chooseWorkspaceFolder();
+                  }}
+                  share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
+                />
+              </Notice>
+            )}
+            {!harnessCard && (
+              <HarnessHealthNotice
+                health={targetSignInHealth ?? harnessHealth}
+                harness={healthHarness}
+                name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
+                {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
+                open={(params) => {
+                  healthStale.current = true;
+                  void callNative("tab.open", params).catch(() => undefined);
+                }}
+                native={callNative}
+                {...(chatSignIns.healthSignIn && { signIn: chatSignIns.healthSignIn })}
+                turnRunning={snapshot.isWorking}
+                onUpdated={recheckHealth}
+                onOffer={setUpdateOffer}
+                onSignInVisible={setSignInNoticeVisible}
+              />
+            )}
+            {snapshot.sessionId && rulesLocal && <RulesNotice rules={rules} />}
+            <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
+              <MissingFolder
+                reason={folderNeeded?.reason ?? ""}
+                error={folderNeeded?.error}
+                onChoose={() => {
+                  void chooseChatFolder(
+                    () => callNative("chat.folder.choose"),
+                    async (adopt) => {
+                      const client = directClient.current;
+                      if (!client) throw new Error(t("error.nativeUnavailable"));
+                      const sessionId = await client.resume(adopt);
+                      if (sessionId) await callNative("chat.persistSession", { sessionId });
+                    },
+                  ).then(
+                    (result) => {
+                      if (result.done) setFolderNeeded(undefined);
+                      else if (result.reason) setFolderNeeded({ reason: result.reason });
+                    },
+                    (error: unknown) => {
+                      console.warn("agent pane: choosing the chat's folder failed", error);
+                      setFolderNeeded(
+                        (current) =>
+                          current && { ...current, error: knownRefusalText(error) ?? translate("startFolder.failed") },
+                      );
+                    },
                   );
-                },
-              );
-            }}
-          />
-        </Notice>
-        {!showNewTab && folderAskView}
-        {/* Only the host's refusal of the folder chip's Choose folder… stands over the composer,
+                }}
+              />
+            </Notice>
+            {!showNewTab && folderAskView}
+            {/* Only the host's refusal of the folder chip's Choose folder… stands over the composer,
               with the line to retry. */}
-        <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
-          <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
-        </Notice>
-        <Notice id="background" tier="status" when={background.notice}>
-          <output className="acpmux-switch-notice acpmux-background-notice">
-            {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
-          </output>
-        </Notice>
-        {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
-        {!showNewTab && (
-          <ShareNudge
-            open={shareNudge.shown}
-            onShare={() => {
-              shareNudge.close();
-              setShareOpen(true);
-            }}
-            onInvite={() => {
-              shareNudge.close();
-              void callNative("action.run", { id: "agent.share.invite" }).catch(sayActionRefusal(notices.transient));
-            }}
-            onDismiss={shareNudge.close}
-          />
-        )}
-        {/* New Worktree: Creating worktree…, then the worktree recipe's setup in the same line
+            <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
+              <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
+            </Notice>
+            <Notice id="background" tier="status" when={background.notice}>
+              <output className="acpmux-switch-notice acpmux-background-notice">
+                {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
+              </output>
+            </Notice>
+            {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && (
+              <ShareNudge
+                open={shareNudge.shown}
+                onShare={() => {
+                  shareNudge.close();
+                  setShareOpen(true);
+                }}
+                onInvite={() => {
+                  shareNudge.close();
+                  void callNative("action.run", { id: "agent.share.invite" }).catch(
+                    sayActionRefusal(notices.transient),
+                  );
+                }}
+                onDismiss={shareNudge.close}
+              />
+            )}
+            {/* New Worktree: Creating worktree…, then the worktree recipe's setup in the same line
               (worktreeSetup.tsx), for the chat in that worktree, until it is dismissed. */}
-        <Notice id="worktree-creating" tier="status" when={worktreeCreatingHere || worktreeSetupHere}>
-          <WorktreeSetupNotice
-            callNative={callNative}
-            folder={worktreeSetupFolder}
-            creating={worktreeCreatingHere}
-            {...(worktreeCreating && worktreeCreating.repo ? { cloning: worktreeCreating.repo } : {})}
-          />
-        </Notice>
-        <Notice
-          id="worktree-error"
-          tier="error"
-          when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
-        >
-          <WorktreeFailure
-            {...(worktreeError?.message ? { message: worktreeError.message } : {})}
-            onRetry={() => worktreeError && startInWorktree(worktreeError.cwd, worktreeError.github)}
-            onDismiss={() => setWorktreeError(undefined)}
-          />
-        </Notice>
-        <Notice id="btw-failure" tier="error" when={btwFailure}>
-          <output className="acpmux-switch-notice acpmux-folder-choice">
-            <span role="alert">
-              {btwFailure?.reason
-                ? t("sideSession.failedBecause", { reason: btwFailure.reason })
-                : t("sideSession.failed")}
-            </span>{" "}
-            <button type="button" className="acpmux-folder-choice-button" onClick={() => setBtwFailure(undefined)}>
-              {t("sideQuestion.dismiss")}
-            </button>
-          </output>
-        </Notice>
-        {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
+            <Notice id="worktree-creating" tier="status" when={worktreeCreatingHere || worktreeSetupHere}>
+              <WorktreeSetupNotice
+                callNative={callNative}
+                folder={worktreeSetupFolder}
+                creating={worktreeCreatingHere}
+                {...(worktreeCreating && worktreeCreating.repo ? { cloning: worktreeCreating.repo } : {})}
+              />
+            </Notice>
+            <Notice
+              id="worktree-error"
+              tier="error"
+              when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
+            >
+              <WorktreeFailure
+                {...(worktreeError?.message ? { message: worktreeError.message } : {})}
+                onRetry={() => worktreeError && startInWorktree(worktreeError.cwd, worktreeError.github)}
+                onDismiss={() => setWorktreeError(undefined)}
+              />
+            </Notice>
+            <Notice id="btw-failure" tier="error" when={btwFailure}>
+              <output className="acpmux-switch-notice acpmux-folder-choice">
+                <span role="alert">
+                  {btwFailure?.reason
+                    ? t("sideSession.failedBecause", { reason: btwFailure.reason })
+                    : t("sideSession.failed")}
+                </span>{" "}
+                <button type="button" className="acpmux-folder-choice-button" onClick={() => setBtwFailure(undefined)}>
+                  {t("sideQuestion.dismiss")}
+                </button>
+              </output>
+            </Notice>
+            {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
               offered here. */}
-        {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
+            {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
               run the tab last knew stays in view. With nothing known, Labs only (without it there is no
               Sandboxed send to lose); a card in the chat view has its own Check again. */}
-        <Notice id="sandbox-unchecked" tier="status" when={sandboxUncheckedNotice}>
-          {sandboxUnchecked}
-        </Notice>
-        <Notice id="sandbox-elsewhere" tier="status" when={sandboxElsewhere && !sandboxHoldsChat}>
-          <output className="acpmux-switch-notice acpmux-folder-choice">
-            <span>
-              {t(sandboxElsewhere?.state === "running" ? "sandbox.elsewhereRunning" : "sandbox.elsewhereDone")}
-            </span>{" "}
-            <button
-              type="button"
-              className="acpmux-folder-choice-button"
-              onClick={() => {
-                // The receipt takes the composer's place: what only the composer holds (shell
-                // mode, its line, attachments) comes back with it on Back.
-                sandboxWake.current = composerHandle.current?.wakeState();
-                setSandboxViewing(true);
-              }}
-            >
-              {t("sandbox.show")}
-            </button>
-          </output>
-        </Notice>
-        {/* A chat the Chief or another chat's agent is driving now: who, and Hide (ManagedBanner.tsx). */}
-        <Notice id="managed-by" tier="status" when={!quick && manager}>
-          {manager && shownSessionId && (
-            <ManagedBanner
-              manager={manager}
-              onOpenManager={openSenderChat}
-              onHide={() => hideManaged(shownSessionId)}
-            />
-          )}
-        </Notice>
+            <Notice id="sandbox-unchecked" tier="status" when={sandboxUncheckedNotice}>
+              {sandboxUnchecked}
+            </Notice>
+            <Notice id="sandbox-elsewhere" tier="status" when={sandboxElsewhere && !sandboxHoldsChat}>
+              <output className="acpmux-switch-notice acpmux-folder-choice">
+                <span>
+                  {t(sandboxElsewhere?.state === "running" ? "sandbox.elsewhereRunning" : "sandbox.elsewhereDone")}
+                </span>{" "}
+                <button
+                  type="button"
+                  className="acpmux-folder-choice-button"
+                  onClick={() => {
+                    // The receipt takes the composer's place: what only the composer holds (shell
+                    // mode, its line, attachments) comes back with it on Back.
+                    sandboxWake.current = composerHandle.current?.wakeState();
+                    setSandboxViewing(true);
+                  }}
+                >
+                  {t("sandbox.show")}
+                </button>
+              </output>
+            </Notice>
+            {/* A chat the Chief or another chat's agent is driving now: who, and Hide (ManagedBanner.tsx). */}
+            <Notice id="managed-by" tier="status" when={!quick && manager}>
+              {manager && shownSessionId && (
+                <ManagedBanner
+                  manager={manager}
+                  onOpenManager={openSenderChat}
+                  onHide={() => hideManaged(shownSessionId)}
+                />
+              )}
+            </Notice>
+          </>
+        )}
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
             running or recently ended subagent, background command and started chat, one card each. */}
         {/* Tucked away (chatDisplay.ts TRAY_TUCKED_KEY), the hat leaves only its pull tab at the
@@ -820,6 +823,7 @@ export function drawPaneComposer({
           />
         )}
         {!goalAtFoot && goalNode}
+        {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}
@@ -837,10 +841,14 @@ export function drawPaneComposer({
             trayNode
           ))}
         {goalAtFoot && goalNode}
+        {approvedPlanAtFoot && approvedPlanNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            // A subagent's composer starts from its own draft: another subagent's pane is another composer.
+            key={subagentRelay ? subagentDraftKey : undefined}
+            relay={subagentRelay}
             onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
@@ -856,6 +864,7 @@ export function drawPaneComposer({
             stackAbove={
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
+              approvedPlanNode !== null ||
               (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)

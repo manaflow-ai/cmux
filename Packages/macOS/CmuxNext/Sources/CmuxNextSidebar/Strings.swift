@@ -113,6 +113,10 @@ enum Strings {
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .localizedModule) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .localizedModule) }
+    /// An agent's given name with the one it had before (the hover card's agent line): "Mango — fka claude-sr2-coord".
+    static func formerlyKnownAs(_ name: String, former: String) -> String {
+        String(localized: "sidebar.workspace.formerlyKnownAs", defaultValue: "\(name) — fka \(former)", bundle: .localizedModule)
+    }
     /// The bell-slash mark's tooltip on a muted workspace's row.
     static var notificationsMuted: String {
         String(localized: "sidebar.workspace.notificationsMuted", defaultValue: "Notifications muted", bundle: .localizedModule)

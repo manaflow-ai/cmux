@@ -68,7 +68,6 @@ export interface TurnRowsShownDeps {
   panelAsks: Set<string>;
   started: readonly StartedSession[];
   startedCache: RefObject<StartedCache>;
-  subagentTray: boolean;
   doneLines: RefObject<DoneLineCache>;
   workflowLabsEnabled: boolean;
   lastTurns: RefObject<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>;
@@ -155,7 +154,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     panelAsks,
     started,
     startedCache,
-    subagentTray,
     doneLines,
     workflowLabsEnabled,
     lastTurns,
@@ -181,9 +179,9 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   }
   const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
   // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
-  const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
+  const rows = withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled);
   // The tray takes the running groups out of the rows, so the live line's wait is counted first.
-  const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
+  const trayAgents = trayWaitAgents(startedRows);
   return acpmuxPerf.timed("app.rows", () => {
     const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
