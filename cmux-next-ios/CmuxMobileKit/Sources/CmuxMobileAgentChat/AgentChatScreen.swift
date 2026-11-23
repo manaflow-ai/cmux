@@ -713,8 +713,8 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
+/// Kept rows show while the chat is away from the Mac or catches up with it; once the
+/// link has been down for ``QuietStatusGate/threshold`` a small chip floats just above the composer
 /// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
 /// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
 /// not be pushing up the text ... a symbol or short thing, not a sentence. stop
@@ -725,7 +725,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                ConnectionChip(.init(.connecting, sentence: line))
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")

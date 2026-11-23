@@ -35,10 +35,46 @@ import Testing
         for _ in 0..<200 where store.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(store.connectionLine == "Connecting to m…")
         store.apply(.status(.idle))
-        #expect(store.connectionLine == "Updating…", "still catching up with the Mac")
+        // Leo, 2026-11-23: a catch-up on a live link needs nothing of the person.
+        #expect(store.connectionLine == nil, "the link is up: a catch-up says nothing")
         store.apply(.historyLoading(false))
         #expect(store.connectionLine == nil)
         #expect(!store.quietStatus.isShown)
+    }
+
+    /// Leo, 2026-11-23 17:14Z, on "Connecting" over "reconnecting to the Mac" by the composer
+    /// of a live turn: "this toast is stupid. because it's false now". A slow catch-up on a
+    /// live link never brings the quiet gate up, and only one indicator shows at a time.
+    @Test func aSlowCatchUpOnALiveLinkSaysNothing() async throws {
+        let store = makeStore(delay: .milliseconds(30))
+        store.apply(.historyLoading(true))
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(store.connectionLine == nil)
+        #expect(!store.quietStatus.isShown, "only the link being down brings the gate up")
+    }
+
+    @Test func aNoticeTakesTheChipsPlace() async throws {
+        let store = makeStore(delay: .milliseconds(30))
+        store.apply(.status(.disconnected))
+        for _ in 0..<200 where store.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.connectionLine == "Connecting to m…")
+        store.apply(.clientError("Can't reach your Mac right now."))
+        #expect(store.connectionLine == nil, "one indicator at a time: never two stacked chips")
+        store.clientError = nil
+        #expect(store.connectionLine == "Connecting to m…")
+    }
+
+    @Test func aCatchUpNoticeGoesWhenTheCatchUpFinishes() {
+        let store = makeStore()
+        store.apply(.historyLoading(true))
+        store.apply(.clientError("Can't reach your Mac right now."))
+        #expect(store.clientError != nil)
+        store.apply(.historyLoading(false))
+        #expect(store.clientError == nil, "the catch-up finished: the notice is no longer true")
+        // Another notice (not said during a catch-up) stays until dismissed.
+        store.apply(.clientError("Couldn't read a.png."))
+        store.apply(.historyLoading(false))
+        #expect(store.clientError == "Couldn't read a.png.")
     }
 
     @Test func aBlipShorterThanTheThresholdNeverShowsALine() async throws {

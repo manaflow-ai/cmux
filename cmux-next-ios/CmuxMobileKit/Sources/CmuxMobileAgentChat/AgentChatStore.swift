@@ -381,16 +381,25 @@ public final class AgentChatStore {
     /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
     /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
     /// instead (``AgentChatLoadingState``).
+    ///
+    /// Only the link being down says anything: a catch-up on a live link, however slow, needs
+    /// nothing of the person, and one that keeps failing says so as a notice once it outlasts
+    /// the source's quiet retries (Leo, 2026-11-23 05:09Z: state is only relevant "when you
+    /// may need to investigate/take action"). One indicator at a time: a notice by the
+    /// composer takes the chip's place (``AgentChatConnectionLine``).
     public var connectionLine: String? {
-        guard quietStatus.isShown, hasTurns else { return nil }
+        guard quietStatus.isShown, hasTurns, clientError == nil else { return nil }
         if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        return nil
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    /// Feeds ``quietStatus`` from the link state.
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected)
     }
+
+    /// The notice a failing catch-up said, cleared when the catch-up finishes.
+    @ObservationIgnored private var catchUpNotice: String?
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
         self.source = source
@@ -398,7 +407,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -1156,6 +1165,11 @@ public final class AgentChatStore {
             refreshEarlierHistory()
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
+            // A catch-up that said it was failing and then finished: the notice is no longer true.
+            if !loading, let notice = catchUpNotice {
+                if clientError == notice { clientError = nil }
+                catchUpNotice = nil
+            }
         case .earlierPage(let events, let hasEarlier):
             let start = ContinuousClock.now
             defer { earlierApplyTime += start.duration(to: .now) }
@@ -1189,6 +1203,7 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+            catchUpNotice = isLoadingHistory ? message : nil
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }

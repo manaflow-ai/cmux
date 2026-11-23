@@ -1581,6 +1581,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // RPCError's copy (reasons, "Already answered", an agent's JSON error) lives on the type.
             if let text = error.errorDescription { return text }
         }
+        // A notice is a sentence: never a status line's fragment ("reconnecting to the Mac",
+        // lower case, shown as a toast while the link was up).
+        if let error = error as? LinkError, let text = error.errorDescription { return text }
         return LinkController.reason(error)
     }
 
@@ -1595,6 +1598,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attached = false
         attaching = false
         refillPending = false
+        linkReported = false
+        catchUpFailingSince = nil
         held = []
         // A gap still filling stays open: the next attach that catches up reads on from
         // where it stopped (`startGapFill`).
@@ -1630,6 +1635,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var generation = 0
     /// Attaches failed in a row since the last one that caught up.
     private var failures = 0
+    /// Whether this link's being up was told to the chat (`linkUp`), since the last drop.
+    private var linkReported = false
+    /// When the current run of failed catch-ups began, and whether it was said.
+    private var catchUpFailingSince: ContinuousClock.Instant?
+    private var catchUpFailureSaid = false
+    /// How long catch-ups on a live link fail in a row before the chat says so: a loaded
+    /// Mac answers a page late, and the next try reads on, so a shorter run needs nothing of
+    /// the person (Leo, 2026-11-23 05:09Z: state is only relevant "when you may need to
+    /// investigate/take action").
+    static let quietCatchUpFailures: Duration = .seconds(90)
     /// The next attach after a failed one (`scheduleRetry`).
     private var retryTask: Task<Void, Never>?
     /// The attach running (`linkUp`), cancelled when the link drops.
@@ -1643,6 +1658,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushHeldPrompts()
         // Kept records still being read: the attach starts once they are in (`restoreKept`).
         guard !attaching, !restoring, let hub, hub.isReady else { return }
+        // The link is up: the chat is not "Connecting" while its catch-up reads, however
+        // slow the Mac is to answer it (a loaded Mac took past `pageTimeout`, and the chat
+        // said "Connecting" over a live turn until a catch-up finished; Leo, 2026-11-23:
+        // "this toast is stupid. because it's false now"). The link's own state is the one
+        // source; the catch-up's progress is `historyLoading`.
+        if !linkReported, summary.status != .disconnected {
+            linkReported = true
+            emit(.status(summary.status))
+        }
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()
@@ -1905,6 +1929,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attaching = false
         attachTask = nil
         failures = 0
+        catchUpFailingSince = nil
+        catchUpFailureSaid = false
         attached = true
         // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
         hub?.forgetStartedHere(sessionID)
@@ -2023,8 +2049,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let (result, page) = (pages.result, pages.page)
         log.info("attach \(self.sessionID, privacy: .public) after \(read.after, privacy: .public): \(page.count, privacy: .public) records, through \(page.last?["seq"]?.numberValue ?? 0, privacy: .public), held \(self.held.count, privacy: .public), failed \(pages.failure != nil, privacy: .public)")
         if let failure = pages.failure {
-            // Said once per run of failures, not on every retry.
-            if failures == 0 { emit(.clientError(Self.message(failure))) }
+            // Said once per run of failures, and only once the run outlasted the quiet
+            // retries (`quietCatchUpFailures`); a fast refusal that is not a timeout says so
+            // on its second try.
+            let now = ContinuousClock.now
+            let since = catchUpFailingSince ?? now
+            if catchUpFailingSince == nil { catchUpFailingSince = now; catchUpFailureSaid = false }
+            let timeout = (failure as? LinkError)?.isTimeout == true
+            if !catchUpFailureSaid, since.duration(to: now) >= Self.quietCatchUpFailures || (!timeout && failures >= 1) {
+                catchUpFailureSaid = true
+                emit(.clientError(Self.message(failure)))
+            }
             // A first attach's page is the newest records, with a gap before them until the
             // older pages are in: nothing of it is applied. A reattach's is the oldest after
             // `lastSeq`: what was read has no gap and is applied.
