@@ -8,7 +8,19 @@ import XCTest
 final class TabRetapUITests: XCTestCase {
     /// The Feed, scrolled far down: a tap on the Feed tab brings its first row back.
     @MainActor
-    func testFeedTabRetapScrollsToTop() {
+    func testFeedTabRetapScrollsToTop() { feedRetapScrollsToTop(look: "light") }
+
+    /// The same in dark: the look is set before launch (a running app keeps the one it launched in).
+    @MainActor
+    func testFeedTabRetapScrollsToTopDark() {
+        let before = XCUIDevice.shared.appearance
+        XCUIDevice.shared.appearance = .dark
+        defer { XCUIDevice.shared.appearance = before }
+        feedRetapScrollsToTop(look: "dark")
+    }
+
+    @MainActor
+    private func feedRetapScrollsToTop(look: String) {
         let app = launch(tab: "feed", environment: ["CMUX_MOBILE_FEED_STRESS": "300"])
         let all = feedChipsAfterSetup(app)
         let topFrame = all.frame
@@ -21,7 +33,7 @@ final class TabRetapUITests: XCTestCase {
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
         XCTAssertFalse(all.isHittable, "did not scroll away from the top")
         XCTAssertFalse(first.exists && first.isHittable, "the first row still shows after scrolling down")
-        attachBothLooks(app, "feed-scrolled-down")
+        attach(app, "feed-scrolled-down-\(look)")
 
         // Leaving the tab and coming back is not a re-tap: the Feed keeps its place.
         app.tabBars.buttons["Settings"].tap()
@@ -40,7 +52,7 @@ final class TabRetapUITests: XCTestCase {
         XCTAssertEqual(wait(landed, "Feed back at its top", timeout: 30), .completed,
                        "after the tab tap: chips at \(all.exists ? "\(all.frame)" : "gone"), expected \(topFrame)")
         XCTAssertTrue(app.navigationBars["Feed"].exists, "the Feed stays the screen shown")
-        attachBothLooks(app, "feed-after-tab-tap")
+        attach(app, "feed-after-tab-tap-\(look)")
     }
 
     /// New events wait above the reader ("N new"): the tab tap lands at the top and the pill goes.
@@ -83,7 +95,31 @@ final class TabRetapUITests: XCTestCase {
         attach(app, "settings-after-tab-tap")
     }
 
-    /// A Settings page (the tab bar stays on those): a tap on the Settings tab pops back to Settings.
+    /// Workspaces at the largest text size, so the mock workspaces overflow the screen: scrolled
+    /// down, a tap on the Workspaces tab brings the first row back to where it was. (Home's mock
+    /// content never scrolls, so it has no case; it uses the same scroller.)
+    @MainActor
+    func testWorkspacesTabRetapScrollsToTop() {
+        let app = launch(tab: "workspaces",
+                         arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let tab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 30), "tab bar\n\(app.debugDescription)")
+        let row = app.buttons["workspace.row.ws-cmux"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the workspace row\n\(app.debugDescription)")
+        let top = row.frame.minY
+        app.swipeUp(velocity: .fast)
+        XCTAssertTrue(!row.exists || row.frame.minY < top - 50, "Workspaces did not scroll\n\(app.debugDescription)")
+        attach(app, "workspaces-scrolled-down")
+
+        tab.tap()
+        let back = NSPredicate { _, _ in row.exists && abs(row.frame.minY - top) < 1 }
+        XCTAssertEqual(wait(back, "Workspaces back at its top", timeout: 20), .completed,
+                       "after the tab tap: row at \(row.exists ? "\(row.frame.minY)" : "gone"), expected \(top)")
+        XCTAssertTrue(tab.isSelected, "Workspaces stays the selected tab")
+        attach(app, "workspaces-after-tab-tap")
+    }
+
+    /// A Settings page (the tab bar stays on those; a pushed page hides it on the other tabs): a tap on the Settings tab pops back to Settings.
     @MainActor
     func testSettingsTabRetapPopsToRoot() {
         let app = launch(tab: "settings", arguments: ["-cmux-mobile-settings-page", "acknowledgements"])
@@ -121,19 +157,6 @@ final class TabRetapUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         expectation.expectationDescription = what
         return XCTWaiter.wait(for: [expectation], timeout: timeout)
-    }
-
-    /// The same screen in light and in dark (NAME-light, NAME-dark); the device's look is put back.
-    @MainActor private func attachBothLooks(_ app: XCUIApplication, _ name: String) {
-        let before = XCUIDevice.shared.appearance
-        for (look, suffix) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
-            XCUIDevice.shared.appearance = look
-            let settle = XCTestExpectation(description: "the look change settles")
-            settle.isInverted = true
-            _ = XCTWaiter.wait(for: [settle], timeout: 1)
-            attach(app, "\(name)-\(suffix)")
-        }
-        XCUIDevice.shared.appearance = before
     }
 
     @MainActor private func attach(_ app: XCUIApplication, _ name: String) {
