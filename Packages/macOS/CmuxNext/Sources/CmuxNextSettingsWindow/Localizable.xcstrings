@@ -140,127 +140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Link accounts like Stripe and GitHub so your agents can act for you. Your rules decide what runs, what waits for you and what is blocked."
+            "value": "Link accounts once. Your rules decide what agents may do."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اربط حسابات مثل Stripe وGitHub ليتمكن وكلاؤك من التصرف نيابةً عنك. تحدد قواعدك ما يُنفَّذ وما ينتظرك وما يُحظر."
+            "value": "اربط حساباتك مرة واحدة. قواعدك تحدد ما يمكن للوكلاء فعله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Povežite račune poput Stripea i GitHuba kako bi vaši agenti mogli djelovati umjesto vas. Vaša pravila odlučuju šta se izvršava, šta čeka vas i šta je blokirano."
+            "value": "Povežite račune jednom. Vaša pravila vode vaše agente."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forbind konti som Stripe og GitHub, så dine agenter kan handle for dig. Dine regler bestemmer, hvad der kører, hvad der venter på dig, og hvad der blokeres."
+            "value": "Forbind konti én gang. Dine regler styrer, hvad agenter må."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verknüpfe Konten wie Stripe und GitHub, damit deine Agenten für dich handeln können. Deine Regeln entscheiden, was läuft, was auf dich wartet und was blockiert wird."
+            "value": "Konten einmal verknüpfen. Deine Regeln steuern die Agenten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vincula cuentas como Stripe y GitHub para que tus agentes actúen por ti. Tus reglas deciden qué se ejecuta, qué te espera y qué se bloquea."
+            "value": "Vincula cuentas una vez. Tus reglas guían a tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Liez des comptes comme Stripe et GitHub pour que vos agents agissent pour vous. Vos règles décident de ce qui s'exécute, de ce qui vous attend et de ce qui est bloqué."
+            "value": "Liez vos comptes une fois. Vos règles guident vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Collega account come Stripe e GitHub perché i tuoi agenti possano agire per te. Le tue regole decidono cosa viene eseguito, cosa aspetta te e cosa viene bloccato."
+            "value": "Collega gli account una volta. Gli agenti seguono le regole."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stripe や GitHub などのアカウントを連携すると、エージェントがあなたの代わりに操作できます。何を実行し、何をあなたの確認待ちにし、何をブロックするかはルールで決まります。"
+            "value": "アカウントは一度連携するだけ。エージェントにできることはルールで決まります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្ជាប់គណនីដូចជា Stripe និង GitHub ដើម្បីឱ្យភ្នាក់ងាររបស់អ្នកធ្វើការជំនួសអ្នក។ ច្បាប់របស់អ្នកសម្រេចថាអ្វីដំណើរការ អ្វីរង់ចាំអ្នក និងអ្វីត្រូវបានរារាំង។"
+            "value": "ភ្ជាប់គណនីតែម្តង។ ច្បាប់របស់អ្នកសម្រេចថាភ្នាក់ងារអាចធ្វើអ្វីបាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stripe, GitHub 같은 계정을 연결하면 에이전트가 대신 작업할 수 있습니다. 무엇을 실행하고, 무엇을 확인 대기로 두고, 무엇을 차단할지는 규칙이 정합니다."
+            "value": "계정은 한 번만 연결하세요. 에이전트가 할 수 있는 일은 규칙이 정합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Koble til kontoer som Stripe og GitHub slik at agentene dine kan handle for deg. Reglene dine avgjør hva som kjører, hva som venter på deg og hva som blokkeres."
+            "value": "Koble til kontoer én gang. Reglene dine styrer agentene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Połącz konta takie jak Stripe i GitHub, aby agenci mogli działać w Twoim imieniu. Twoje reguły decydują, co się wykonuje, co czeka na Ciebie, a co jest blokowane."
+            "value": "Połącz konta raz. Twoje reguły określają, co robią agenci."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vincule contas como Stripe e GitHub para que seus agentes ajam por você. Suas regras decidem o que é executado, o que aguarda você e o que é bloqueado."
+            "value": "Vincule contas uma vez. Suas regras guiam seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подключите аккаунты вроде Stripe и GitHub, чтобы агенты действовали за вас. Ваши правила решают, что выполняется, что ждёт вас и что блокируется."
+            "value": "Подключите аккаунты один раз. Агентами правят ваши правила."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เชื่อมบัญชีอย่าง Stripe และ GitHub เพื่อให้เอเจนต์ทำงานแทนคุณ กฎของคุณกำหนดว่าอะไรทำงานได้ อะไรต้องรอคุณ และอะไรถูกบล็อก"
+            "value": "เชื่อมบัญชีครั้งเดียว กฎของคุณกำหนดว่าเอเจนต์ทำอะไรได้บ้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanlarınızın sizin yerinize işlem yapabilmesi için Stripe ve GitHub gibi hesapları bağlayın. Neyin çalışacağına, neyin sizi bekleyeceğine ve neyin engelleneceğine kurallarınız karar verir."
+            "value": "Hesapları bir kez bağlayın. Ajanları kurallarınız yönetir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Під’єднайте облікові записи, як-от Stripe і GitHub, щоб агенти діяли за вас. Ваші правила вирішують, що виконується, що чекає на вас і що блокується."
+            "value": "Під’єднайте акаунти один раз. Агентами керують ваші правила."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Liên kết các tài khoản như Stripe và GitHub để tác tử có thể hành động thay bạn. Quy tắc của bạn quyết định điều gì được chạy, điều gì chờ bạn và điều gì bị chặn."
+            "value": "Liên kết tài khoản một lần. Quy tắc của bạn dẫn dắt tác tử."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "关联 Stripe、GitHub 等账户，让你的代理替你操作。你的规则决定哪些操作直接执行、哪些等你确认、哪些被阻止。"
+            "value": "账户只需关联一次。代理能做什么由你的规则决定。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "連結 Stripe、GitHub 等帳號，讓你的代理替你操作。你的規則決定哪些操作直接執行、哪些等你確認、哪些被封鎖。"
+            "value": "帳號只需連結一次。代理能做什麼由你的規則決定。"
           }
         }
       }
@@ -3704,127 +3704,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses the GitHub app you installed for cmux. Agents can list pull requests and issues."
+            "value": "Uses your cmux GitHub app. Agents can list PRs and issues."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يستخدم تطبيق GitHub الذي ثبّته لـ cmux. يمكن للوكلاء سرد طلبات السحب والمشكلات."
+            "value": "يستخدم تطبيق GitHub لـ cmux. يرى الوكلاء طلبات PR والمشكلات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Koristi GitHub aplikaciju koju ste instalirali za cmux. Agenti mogu izlistati pull requestove i issues."
+            "value": "Koristi cmux GitHub aplikaciju. Agenti vide PR-ove i issues."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bruger den GitHub-app, du har installeret til cmux. Agenter kan vise pull requests og issues."
+            "value": "Bruger din cmux GitHub-app. Agenter kan se PR'er og issues."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nutzt die GitHub-App, die du für cmux installiert hast. Agenten können Pull Requests und Issues auflisten."
+            "value": "Nutzt deine cmux GitHub-App. Agenten sehen PRs und Issues."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usa la app de GitHub que instalaste para cmux. Los agentes pueden listar pull requests e issues."
+            "value": "Usa tu app GitHub de cmux. Los agentes ven PRs e issues."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utilise l'app GitHub que vous avez installée pour cmux. Les agents peuvent lister les pull requests et les issues."
+            "value": "Utilise l’app GitHub cmux. Les agents voient PR et issues."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usa l'app GitHub che hai installato per cmux. Gli agenti possono elencare pull request e issue."
+            "value": "Usa la tua app GitHub cmux. Gli agenti vedono PR e issue."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 用にインストールした GitHub アプリを使います。エージェントはプルリクエストと Issue を一覧できます。"
+            "value": "cmux の GitHub アプリを使います。エージェントは PR と Issue を一覧できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រើកម្មវិធី GitHub ដែលអ្នកបានដំឡើងសម្រាប់ cmux។ ភ្នាក់ងារអាចរាយ pull request និង issue។"
+            "value": "ប្រើកម្មវិធី GitHub របស់ cmux។ ភ្នាក់ងារអាចរាយ PR និង issue។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux용으로 설치한 GitHub 앱을 사용합니다. 에이전트는 풀 리퀘스트와 이슈 목록을 볼 수 있습니다."
+            "value": "cmux GitHub 앱을 사용합니다. 에이전트는 PR과 이슈 목록을 볼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bruker GitHub-appen du installerte for cmux. Agenter kan liste pull requests og issues."
+            "value": "Bruker cmux GitHub-appen din. Agenter ser PR-er og issues."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Używa aplikacji GitHub zainstalowanej dla cmux. Agenci mogą wyświetlać pull requesty i zgłoszenia."
+            "value": "Używa aplikacji GitHub cmux. Agenci widzą PR-y i zgłoszenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usa o app do GitHub que você instalou para o cmux. Os agentes podem listar pull requests e issues."
+            "value": "Usa seu app GitHub do cmux. Os agentes veem PRs e issues."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Использует приложение GitHub, установленное для cmux. Агенты могут просматривать пул-реквесты и задачи."
+            "value": "Использует приложение GitHub cmux. Агенты видят PR и задачи."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้แอป GitHub ที่คุณติดตั้งไว้สำหรับ cmux เอเจนต์จะแสดงรายการ pull request และ issue ได้"
+            "value": "ใช้แอป GitHub ของ cmux เอเจนต์แสดงรายการ PR และ issue ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux için kurduğunuz GitHub uygulamasını kullanır. Ajanlar pull request'leri ve issue'ları listeleyebilir."
+            "value": "cmux GitHub uygulamasıyla çalışır. Ajanlar PR, issue görür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Використовує застосунок GitHub, установлений для cmux. Агенти можуть переглядати pull request’и та issues."
+            "value": "Через GitHub-застосунок cmux. Агенти бачать PR і задачі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dùng ứng dụng GitHub bạn đã cài cho cmux. Tác tử có thể liệt kê pull request và issue."
+            "value": "Dùng ứng dụng GitHub cmux. Tác tử xem được PR và issue."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用你为 cmux 安装的 GitHub 应用。代理可以列出拉取请求和议题。"
+            "value": "使用你的 cmux GitHub 应用。代理可以列出 PR 和议题。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用你為 cmux 安裝的 GitHub 應用程式。代理可以列出拉取請求與議題。"
+            "value": "使用你的 cmux GitHub 應用程式。代理可以列出 PR 與議題。"
           }
         }
       }
