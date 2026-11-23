@@ -97,6 +97,7 @@ extension AppActions {
         }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
+        ChiefParticipantActions.bindSetMyPicture(into: services.registry, connection: { services.home.connection }, window: { services.windows.active?.window })
         bindHomeGroups(services)
         bindHomeMessaging(services)
         services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI

@@ -14,6 +14,7 @@ enum AgentChatMenuHandlers {
         bindPageCommands(into: registry, context: context)
         bindMarkUnread(into: registry, context: context)
         bindRevealCwd(into: registry, context: context)
+        bindAdoptAsChief(into: registry, context: context)
     }
 
     /// The page commands the rows run (cmux-window-rules `chat::agent::tables`), and which a remote chat refuses.
@@ -103,6 +104,24 @@ enum AgentChatMenuHandlers {
         })
         registry.gate("agentPane.revealCwdInFinder") { _ = localFolder("agentPane.revealCwdInFinder", context, $0) }
         registry.gate("agentPane.openCwdInTerminal") { run in _ = context.paneController(run).flatMap { localFolder("agentPane.openCwdInTerminal", context, run, shellOn: $0) } }
+    }
+
+    /// Make This Agent a Chief (`cmux chief adopt AGENT`): the started chat's agent becomes a Chief under its own
+    /// participant id (`chief.profile.adopt` on the app's own connection to this Mac's Chief owner, which alone may
+    /// adopt); its conversations and history stay. The agent is the participant of a local conversation that its
+    /// acpmux session runs; a chat whose agent is in none yet is refused with why.
+    private static func bindAdoptAsChief(into registry: ActionRegistry, context: AppActionContext) {
+        let id: ActionID = "agentPane.adoptAsChief"
+        let target: @MainActor (ActionInvocation) -> String? = { invocation in
+            guard let view = chatView(id, context, invocation) else { return nil }
+            return view.model.remoteChat ? context.registry.refuse(.remote, id) : view.model.sessionId
+        }
+        registry.bindEffect(id, effect: { invocation in
+            guard let session = target(invocation) else { return .done }
+            guard let connection = context.services.home.connection else { return .refused(RefusalStrings.homeNotReady) }
+            return ChiefParticipantActions.adoptAsChief(session: session, connection: connection)
+        })
+        registry.gate(id) { _ = target($0) }
     }
 
     private static func chatView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
