@@ -618,6 +618,14 @@ test("a node's glass puts it on the page glass at that level, replaces its fill 
   act(() => store.apply([{ op: "update", id: "root", props: { glass: null } }]));
   expect(node().classList.contains("ui-glass")).toBe(false);
   expect(node().style.backgroundColor).not.toBe("");
+
+  // A gradient background gives way to glass too.
+  const gradient = { linear: { colors: ["#112233", "#445566"] } };
+  act(() => store.apply([{ op: "update", id: "root", props: { background: gradient } }]));
+  expect(node().style.backgroundImage).not.toBe("");
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "menu" } }]));
+  expect(node().style.backgroundImage).toBe("");
+  expect(node().style.backgroundColor).toBe("");
 });
 
 const list: SceneOp[] = [
