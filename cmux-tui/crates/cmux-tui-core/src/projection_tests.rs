@@ -321,6 +321,40 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     assert_eq!(check(&other), "");
 }
 
+/// RFD 0007: the agent is told once that the Mac is away and which reads failed; the notice names
+/// the folder, says the Mac is away, and lists the failed paths, at most a cap, with a count.
+#[test]
+fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
+    use cmux_projection::away::Report;
+    let at = Path::new("/home/cmux/work/chat");
+    let report = Report {
+        episode: 1,
+        paths: vec!["README.md".into(), "src/main.rs".into()],
+        failed: 2,
+        back: false,
+    };
+    let (title, body) = away_notice(at, &report);
+    assert_eq!(
+        away_prompt(&title, &body),
+        "[notice from cmux · WARN] The Mac is away: 2 reads in a projected folder failed\n\
+         The Mac that projects /home/cmux/work/chat is asleep or offline. A read of a file not \
+         fetched from it yet waits 5 s, then fails with EHOSTDOWN (\"Host is down\"); files \
+         already read keep working. Nothing retries on its own: read these again once the Mac is \
+         back.\n\
+         Reads that failed (2):\n\
+         - README.md\n\
+         - src/main.rs"
+    );
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let (title, body) = away_notice(at, &capped);
+    assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
+    assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
+    let back = Report { back: true, failed: 1, paths: vec!["a".into()], ..report };
+    let (title, body) = away_notice(at, &back);
+    assert_eq!(title, "The Mac was away: 1 read in a projected folder failed");
+    assert!(body.contains("is back now"), "{body}");
+}
+
 #[test]
 fn brought_back_and_release_are_projection_frames() {
     for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP] {
