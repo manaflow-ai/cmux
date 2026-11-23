@@ -76,8 +76,8 @@ final class WorkspaceShiftMeasurement {
         let page = "page.\(surface)"
         let row = "workspace.row.\(workspaceID)"
         let content = "content.\(surface)"
-        let end = "end.\(surface)"
-        let allowed = Set([page, row, content, end, "accessory.\(surface)",
+        let lastLine = "end.\(surface)"
+        let allowed = Set([page, row, content, lastLine, "accessory.\(surface)",
                            surface == "agent" ? "chat.composer.field" : "\(surface).composer.field"])
         // A slow correction can move several points in sub-point increments.
         // Keep each visible edge's last accepted position as well as the prior
@@ -105,14 +105,18 @@ final class WorkspaceShiftMeasurement {
                 result.comparablePairs[id, default: 0] += 1
                 // A content line (the first or the last) counts only where it could be seen,
                 // before or after: off the viewport in both frames it moved nothing on screen.
-                if id == content || id == end, ![(previous, old[1]), (current, box[1])].contains(where: { frame, line in
-                    guard let port = frame.boxes["viewport.\(surface)"], port.count == 4 else { return true }
-                    return line >= port[1] - 1 && line <= port[1] + port[3] + 1
-                }) { continue }
+                if id == content || id == lastLine {
+                    let port = "viewport.\(surface)"
+                    func seen(_ frame: Frame, _ line: Double) -> Bool {
+                        guard let view = frame.boxes[port], view.count == 4 else { return true }
+                        return line >= view[1] - 1 && line <= view[1] + view[3] + 1
+                    }
+                    if !seen(previous, old[1]) && !seen(current, box[1]) { continue }
+                }
                 // The page/content landmark represents its top edge. A change in
                 // the height below that edge is not motion of that landmark.
-                let before = edges(old, topOnly: id == page || id == content || id == end)
-                let after = edges(box, topOnly: id == page || id == content || id == end)
+                let before = edges(old, topOnly: id == page || id == content || id == lastLine)
+                let after = edges(box, topOnly: id == page || id == content || id == lastLine)
                 var anchor = anchors[id] ?? before
                 let delta = after.indices.map { edge in
                     let step = after[edge] - before[edge]
@@ -157,11 +161,16 @@ final class WorkspaceShiftMeasurement {
         raw.name = "workspace-shift-\(key)-frames.jsonl"
         raw.lifetime = .keepAlways
         test.add(raw)
-        let hz = frames.first.map { $0.nominal > 0 ? (1 / $0.nominal).rounded() : 0 } ?? 0
-        let firstShifts = result.shifts.prefix(4).map { shift in
-            "#\(shift.frame)@\(Int(((shift.time - start) * 1000).rounded()))ms " +
-                shift.deltaPoints.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.map { Int($0.rounded()) })" }
-                .joined(separator: ",")
+        let hz: Double = frames.first.map { $0.nominal > 0 ? (1 / $0.nominal).rounded() : 0 } ?? 0
+        var firstShifts: [String] = []
+        for shift in result.shifts.prefix(4) {
+            let ms = Int(((shift.time - start) * 1000).rounded())
+            var parts: [String] = []
+            for (key, value) in shift.deltaPoints.sorted(by: { $0.key < $1.key }) {
+                let points: [Int] = value.map { Int($0.rounded()) }
+                parts.append("\(key)=\(points)")
+            }
+            firstShifts.append("#\(shift.frame)@\(ms)ms " + parts.joined(separator: ","))
         }
         let message = "\(key) shiftedFrames=\(result.shiftedFrames) frames=\(result.frames) " +
             "hz=\(Int(hz)) maxFrameMS=\(String(format: "%.1f", result.maxTickIntervalMS)) " +
