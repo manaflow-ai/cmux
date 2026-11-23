@@ -1,0 +1,125 @@
+{
+  "family": "chief",
+  "ops": {
+    "chief.archive": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "bbe723a6c9daca22"
+    },
+    "chief.automation.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "2ca833e14f2f525b"
+    },
+    "chief.automation.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bb6dcd1baeb2198e"
+    },
+    "chief.continue": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "d00cd46a6c3ef203"
+    },
+    "chief.create": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "c916265130e964da"
+    },
+    "chief.delete": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "a1c381ce878e5d0f"
+    },
+    "chief.engine.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "019e6895aa7d68f4"
+    },
+    "chief.engine.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f577d8b456453870"
+    },
+    "chief.list": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "5ab2da49bba1e89a"
+    },
+    "chief.profile.adopt": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "cae6c949a2d168f4"
+    },
+    "chief.profile.avatar.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "3c4f4637919f5777"
+    },
+    "chief.profile.avatar.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "fa08abf5d5ef8396"
+    },
+    "chief.profile.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "df19c22a6e120a06"
+    },
+    "chief.profile.delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "46c5dd6d871a758b"
+    },
+    "chief.profile.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "5d9526852fd0d1ef"
+    },
+    "chief.profile.history": {
+      "source": "local",
+      "class": "read",
+      "digest": "a4813c246f46751a"
+    },
+    "chief.profile.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "7f3985ab12e2d387"
+    },
+    "chief.profile.undo": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "5f9dffbf07722fc1"
+    },
+    "chief.profile.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bac8b31d7a93e701"
+    },
+    "chief.retry": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a97da8ecacda3b76"
+    },
+    "chief.stop": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "9a78332dffd6fe30"
+    },
+    "chief.update": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "da768c17c158a8ea"
+    }
+  }
+}

@@ -130,6 +130,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal keep",
         ..Action::DEFAULT
     },
+    // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
+    // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
+    // In the workspace category, where the line shows: a row in a terminal category needs its App
+    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Show Last Line in Sidebar"),
+        keywords: &["pin", "tail", "last line", "output", "status", "sidebar"],
+        category: "workspace",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ON.optional()],
+        targets: &["tab"],
+        cli_name: "terminal pin-tail",
+        ..Action::DEFAULT
+    },
     // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
     // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
     // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a
