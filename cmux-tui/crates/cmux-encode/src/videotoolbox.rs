@@ -155,6 +155,14 @@ crate::framework! {
     }
 }
 
+// The sRGB transfer key, bound apart from `cv_sys` like the speed keys: were it missing, the
+// session would tag BT.709 transfer as before rather than fail `frameworks()`.
+crate::framework! {
+    mod cv_srgb_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+        static kCVImageBufferTransferFunction_sRGB: CFStringRef;
+    }
+}
+
 // The QP ceiling (macOS 12+), bound apart for the same reason: without it the session has
 // no ceiling and `set_max_qp` counts as refused.
 crate::framework! {
@@ -820,10 +828,19 @@ impl VideoToolbox {
                 kVTCompressionPropertyKey_ColorPrimaries(),
                 primaries,
             );
+            // Screen pixels are sRGB-encoded (the capture asks for sRGB, and Display P3
+            // uses the same curve), so the stream says sRGB (H.264 transfer 13), as
+            // crate::color::SCREEN does: a BT.709 transfer tag makes a colour-managed
+            // viewer apply a camera curve to them.
+            let transfer = if cv_srgb_sys::available().is_ok() {
+                cv_srgb_sys::kCVImageBufferTransferFunction_sRGB()
+            } else {
+                kCVImageBufferTransferFunction_ITU_R_709_2()
+            };
             VTSessionSetProperty(
                 self.session,
                 kVTCompressionPropertyKey_TransferFunction(),
-                kCVImageBufferTransferFunction_ITU_R_709_2(),
+                transfer,
             );
             VTSessionSetProperty(
                 self.session,
@@ -917,6 +934,9 @@ impl H264Encoder for VideoToolbox {
         self.idr_cause = None;
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
+        // The pictures are BT.709 video range from sRGB (crate::color::SCREEN): the same
+        // matrix and primaries as a captured surface, so tag them the same way.
+        self.apply_color(ColorTag::Srgb);
         self.fill(pic)?;
         let pb = self.pixel_buffer;
         self.idr_cause = (resized && !force_idr).then_some("resize");
