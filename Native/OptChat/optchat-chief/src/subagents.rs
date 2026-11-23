@@ -1808,208 +1808,7 @@ fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
         .then_some("a private folder")
 }
 
-impl Orchestrator for Spawner {
-    fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
-        let (reply, answer) = channel();
-        self.to_brain(Input::TurnGate {
-            tool: tool.to_owned(),
-            input: input.clone(),
-            reply,
-        })?;
-        // No answer fails closed, like the spawn floor.
-        answer
-            .recv_timeout(Duration::from_secs(30))
-            .unwrap_or_else(|_| Err("the Chief host did not answer the turn's tool check".into()))
-    }
-
-    fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
-        self.spawn_with_effort(tasks, cwd, None)
-    }
-
-    fn spawn_with_effort(
-        &self,
-        tasks: Vec<String>,
-        cwd: Option<String>,
-        effort: Option<String>,
-    ) -> Result<String, String> {
-        self.spawn_placed(tasks, cwd, effort, None)
-    }
-
-    fn spawn_placed(
-        &self,
-        tasks: Vec<String>,
-        cwd: Option<String>,
-        effort: Option<String>,
-        place: Option<String>,
-    ) -> Result<String, String> {
-        self.spawn_routed(tasks, cwd, effort, place, None)
-    }
-
-    fn spawn_routed(
-        &self,
-        tasks: Vec<String>,
-        cwd: Option<String>,
-        effort: Option<String>,
-        place: Option<String>,
-        harness: Option<String>,
-    ) -> Result<String, String> {
-        self.spawn_with_route(tasks, cwd, effort, place, harness, None)
-    }
-
-    fn spawn_with_route(
-        &self,
-        tasks: Vec<String>,
-        cwd: Option<String>,
-        effort: Option<String>,
-        place: Option<String>,
-        harness: Option<String>,
-        model: Option<String>,
-    ) -> Result<String, String> {
-        // A Direct action (an organize request, or what the person told the Chief to do
-        // itself) never becomes a helper or a workspace (action_lifetime.rs): the Chief does it
-        // in its own turn, and the other tasks start.
-        let (direct, tasks): (Vec<_>, Vec<_>) = tasks
-            .into_iter()
-            .partition(|t| self.lifetime(t).lifetime == crate::action_lifetime::Lifetime::Direct);
-        if !direct.is_empty() {
-            let refused = direct_refusal(&direct, |t| self.lifetime(t).why);
-            self.trace.emit(
-                "subagent.direct",
-                json!({"tasks": direct.len(), "started": tasks.len()}),
-            );
-            if tasks.is_empty() {
-                return Err(refused);
-            }
-            return self
-                .spawn_with_route(tasks, cwd, effort, place, harness, model)
-                .map(|started| format!("{refused}\n{started}"));
-        }
-        let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-        let (harness, model) = (given(harness), given(model));
-        let choice = self.engine_choice();
-        let default_harness = choice
-            .subagent_harness
-            .clone()
-            .filter(|h| !self.pinned && !h.trim().is_empty())
-            .unwrap_or_else(|| self.settings.harness.clone());
-        if let Some(h) = harness.as_deref() {
-            self.check_route(&choice, "harness", h)?;
-        }
-        if let Some(m) = model.as_deref() {
-            self.check_route(&choice, "model", m)?;
-        }
-        // The cap holds for the whole spawn, before the picker splits it.
-        if tasks.len() > MAX_TASKS {
-            return Err(format!(
-                "spawn takes at most {MAX_TASKS} tasks; split the work"
-            ));
-        }
-        // The automatic picker (spawn_route.rs): routing on, and the spawn
-        // names no harness or model. A pinned harness never routes.
-        let mut routed_note = None;
-        let (harness, model) = if harness.is_none()
-            && model.is_none()
-            && !self.pinned
-            && self.routing_enabled(&choice)
-        {
-            let default = choice
-                .subagent_harness
-                .clone()
-                .filter(|h| !h.trim().is_empty())
-                .unwrap_or_else(|| self.settings.harness.clone());
-            let mut groups: Vec<(Option<crate::spawn_route::Pick>, Vec<usize>)> = Vec::new();
-            for (k, task) in tasks.iter().enumerate() {
-                let p = self.pick_for(task, &default);
-                let key = |p: &Option<crate::spawn_route::Pick>| {
-                    p.as_ref().map(|p| (p.harness.clone(), p.model.clone()))
-                };
-                match groups.iter_mut().find(|(g, _)| key(g) == key(&p)) {
-                    Some((_, ks)) => ks.push(k),
-                    None => groups.push((p, vec![k])),
-                }
-            }
-            if groups.len() > 1 {
-                return self.spawn_groups(groups, &tasks, cwd, effort, place, &default);
-            }
-            match groups.pop().and_then(|(p, _)| p) {
-                Some(p) => {
-                    routed_note = Some(format!("{}.", route_line(&p)));
-                    (Some(p.harness), p.model)
-                }
-                None => (None, None),
-            }
-        } else {
-            (harness, model)
-        };
-        // The person's subagent harness (`--subagent-harness`) for a spawn
-        // that names none, routing on or off; a pinned harness wins.
-        let harness = harness.or_else(|| {
-            choice
-                .subagent_harness
-                .clone()
-                .filter(|h| !self.pinned && !h.trim().is_empty())
-        });
-        if let Some(e) = effort.as_deref()
-            && !crate::tools::EFFORTS.contains(&e)
-        {
-            return Err(format!(
-                "no effort {e}; one of {}",
-                crate::tools::EFFORTS.join(", ")
-            ));
-        }
-        let began = Instant::now();
-        // Register ids before doing view settling or any session work. The
-        // worker below reports each eventual start or failure through the
-        // existing SubagentStarted/SubagentFailed events.
-        let (reply, answer) = channel();
-        self.to_brain(Input::SpawnRegister {
-            tasks: tasks.clone(),
-            peer: self.cloud.as_ref().map(|c| c.peer.clone()),
-            place,
-            // The pinned subagent may use a different family from the Chief.
-            harness: harness
-                .clone()
-                .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
-            machines: self.machine_table(),
-            taken: self.taken_ids(),
-            reply,
-        })?;
-        let plan = answer
-            .recv()
-            .map_err(|_| "the Chief host is stopping".to_owned())??;
-        let status = starting_status(&plan);
-        let worker = self.clone();
-        let plan_for_failure = plan.clone();
-        let thread = std::thread::Builder::new()
-            .name(format!("chief-spawn-{}", plan.spawn))
-            .spawn(move || {
-                let result = worker.finish_spawn(
-                    tasks,
-                    cwd,
-                    effort,
-                    harness,
-                    model,
-                    routed_note,
-                    default_harness,
-                    plan,
-                    began,
-                );
-                match result {
-                    Ok(note) => (worker.log)(&format!("spawn completed: {note}")),
-                    Err(error) => {
-                        (worker.log)(&format!("spawn worker failed: {error}"));
-                        worker.fail_starting(&plan_for_failure, error);
-                    }
-                }
-            });
-        if let Err(error) = thread {
-            let error = format!("could not start the spawn worker: {error}");
-            (self.log)(&error);
-            self.fail_starting(&plan_for_failure, error);
-        }
-        Ok(status)
-    }
-
+impl Spawner {
     #[allow(clippy::too_many_arguments)]
     fn finish_spawn(
         &self,
@@ -2413,6 +2212,209 @@ impl Orchestrator for Spawner {
                 error: error.clone(),
             });
         }
+    }
+}
+
+impl Orchestrator for Spawner {
+    fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::TurnGate {
+            tool: tool.to_owned(),
+            input: input.clone(),
+            reply,
+        })?;
+        // No answer fails closed, like the spawn floor.
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap_or_else(|_| Err("the Chief host did not answer the turn's tool check".into()))
+    }
+
+    fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
+        self.spawn_with_effort(tasks, cwd, None)
+    }
+
+    fn spawn_with_effort(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+    ) -> Result<String, String> {
+        self.spawn_placed(tasks, cwd, effort, None)
+    }
+
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
+        self.spawn_routed(tasks, cwd, effort, place, None)
+    }
+
+    fn spawn_routed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+    ) -> Result<String, String> {
+        self.spawn_with_route(tasks, cwd, effort, place, harness, None)
+    }
+
+    fn spawn_with_route(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+        model: Option<String>,
+    ) -> Result<String, String> {
+        // A Direct action (an organize request, or what the person told the Chief to do
+        // itself) never becomes a helper or a workspace (action_lifetime.rs): the Chief does it
+        // in its own turn, and the other tasks start.
+        let (direct, tasks): (Vec<_>, Vec<_>) = tasks
+            .into_iter()
+            .partition(|t| self.lifetime(t).lifetime == crate::action_lifetime::Lifetime::Direct);
+        if !direct.is_empty() {
+            let refused = direct_refusal(&direct, |t| self.lifetime(t).why);
+            self.trace.emit(
+                "subagent.direct",
+                json!({"tasks": direct.len(), "started": tasks.len()}),
+            );
+            if tasks.is_empty() {
+                return Err(refused);
+            }
+            return self
+                .spawn_with_route(tasks, cwd, effort, place, harness, model)
+                .map(|started| format!("{refused}\n{started}"));
+        }
+        let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        let (harness, model) = (given(harness), given(model));
+        let choice = self.engine_choice();
+        let default_harness = choice
+            .subagent_harness
+            .clone()
+            .filter(|h| !self.pinned && !h.trim().is_empty())
+            .unwrap_or_else(|| self.settings.harness.clone());
+        if let Some(h) = harness.as_deref() {
+            self.check_route(&choice, "harness", h)?;
+        }
+        if let Some(m) = model.as_deref() {
+            self.check_route(&choice, "model", m)?;
+        }
+        // The cap holds for the whole spawn, before the picker splits it.
+        if tasks.len() > MAX_TASKS {
+            return Err(format!(
+                "spawn takes at most {MAX_TASKS} tasks; split the work"
+            ));
+        }
+        // The automatic picker (spawn_route.rs): routing on, and the spawn
+        // names no harness or model. A pinned harness never routes.
+        let mut routed_note = None;
+        let (harness, model) = if harness.is_none()
+            && model.is_none()
+            && !self.pinned
+            && self.routing_enabled(&choice)
+        {
+            let default = choice
+                .subagent_harness
+                .clone()
+                .filter(|h| !h.trim().is_empty())
+                .unwrap_or_else(|| self.settings.harness.clone());
+            let mut groups: Vec<(Option<crate::spawn_route::Pick>, Vec<usize>)> = Vec::new();
+            for (k, task) in tasks.iter().enumerate() {
+                let p = self.pick_for(task, &default);
+                let key = |p: &Option<crate::spawn_route::Pick>| {
+                    p.as_ref().map(|p| (p.harness.clone(), p.model.clone()))
+                };
+                match groups.iter_mut().find(|(g, _)| key(g) == key(&p)) {
+                    Some((_, ks)) => ks.push(k),
+                    None => groups.push((p, vec![k])),
+                }
+            }
+            if groups.len() > 1 {
+                return self.spawn_groups(groups, &tasks, cwd, effort, place, &default);
+            }
+            match groups.pop().and_then(|(p, _)| p) {
+                Some(p) => {
+                    routed_note = Some(format!("{}.", route_line(&p)));
+                    (Some(p.harness), p.model)
+                }
+                None => (None, None),
+            }
+        } else {
+            (harness, model)
+        };
+        // The person's subagent harness (`--subagent-harness`) for a spawn
+        // that names none, routing on or off; a pinned harness wins.
+        let harness = harness.or_else(|| {
+            choice
+                .subagent_harness
+                .clone()
+                .filter(|h| !self.pinned && !h.trim().is_empty())
+        });
+        if let Some(e) = effort.as_deref()
+            && !crate::tools::EFFORTS.contains(&e)
+        {
+            return Err(format!(
+                "no effort {e}; one of {}",
+                crate::tools::EFFORTS.join(", ")
+            ));
+        }
+        let began = Instant::now();
+        // Register ids before doing view settling or any session work. The
+        // worker below reports each eventual start or failure through the
+        // existing SubagentStarted/SubagentFailed events.
+        let (reply, answer) = channel();
+        self.to_brain(Input::SpawnRegister {
+            tasks: tasks.clone(),
+            peer: self.cloud.as_ref().map(|c| c.peer.clone()),
+            place,
+            // The pinned subagent may use a different family from the Chief.
+            harness: harness
+                .clone()
+                .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
+            machines: self.machine_table(),
+            taken: self.taken_ids(),
+            reply,
+        })?;
+        let plan = answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let status = starting_status(&plan);
+        let worker = self.clone();
+        let plan_for_failure = plan.clone();
+        let thread = std::thread::Builder::new()
+            .name(format!("chief-spawn-{}", plan.spawn))
+            .spawn(move || {
+                let result = worker.finish_spawn(
+                    tasks,
+                    cwd,
+                    effort,
+                    harness,
+                    model,
+                    routed_note,
+                    default_harness,
+                    plan,
+                    began,
+                );
+                match result {
+                    Ok(note) => (worker.log)(&format!("spawn completed: {note}")),
+                    Err(error) => {
+                        (worker.log)(&format!("spawn worker failed: {error}"));
+                        worker.fail_starting(&plan_for_failure, error);
+                    }
+                }
+            });
+        if let Err(error) = thread {
+            let error = format!("could not start the spawn worker: {error}");
+            (self.log)(&error);
+            self.fail_starting(&plan_for_failure, error);
+        }
+        Ok(status)
     }
 
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String> {
