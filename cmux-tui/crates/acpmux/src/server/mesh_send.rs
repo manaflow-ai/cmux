@@ -357,7 +357,7 @@ fn sender(
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         claim,
         relay: relay.filter(|_| caller.is_none()),
         ..Sender::default()

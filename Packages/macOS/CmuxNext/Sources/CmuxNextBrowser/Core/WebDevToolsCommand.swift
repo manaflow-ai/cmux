@@ -11,6 +11,7 @@
 public nonisolated enum WebDevToolsCommand: String, CaseIterable, Hashable, Sendable {
     // Open and place the tools.
     case openDocked
+    case openDockedLeft
     case openDockedRight
     case openInWindow
     case close
@@ -69,6 +70,19 @@ public nonisolated enum WebDevToolsCommand: String, CaseIterable, Hashable, Send
     public init?(actionID: String) {
         guard actionID.hasPrefix("devtools.") else { return nil }
         self.init(rawValue: String(actionID.dropFirst("devtools.".count)))
+    }
+
+    /// What an open-and-place command or Close asks of a Chromium tab's own DevTools (the
+    /// divider's menu rows, run directly where no host runs the action); nil for the rest.
+    public var placement: BrowserDevToolsCommand? {
+        switch self {
+        case .openDocked: .dock(.bottom)
+        case .openDockedLeft: .dock(.left)
+        case .openDockedRight: .dock(.right)
+        case .openInWindow: .dock(.window)
+        case .close: .close
+        default: nil
+        }
     }
 
     /// The panel a `show…` command selects.
@@ -150,7 +164,7 @@ public nonisolated enum WebDevToolsCommand: String, CaseIterable, Hashable, Send
             return .supported
         case .captureFullPageScreenshot:
             return isBrowserTab ? .supported : .limited(.browserTabOnly)
-        case .openDockedRight: return .limited(.webKitDockSide)
+        case .openDockedLeft, .openDockedRight: return .limited(.webKitDockSide)
         case .takeHeapSnapshot: return .limited(.webKitUseTimelines)
         case .captureNodeScreenshot: return .limited(.webKitUseNodeMenu)
         case .copyConsoleLog: return .limited(.useConsoleSaveAs)
