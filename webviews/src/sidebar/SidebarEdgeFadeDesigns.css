@@ -22,7 +22,7 @@
   --sef-row-pad: 10px;
   --sef-dot: 8px;
   --sef-avatar: 22px;
-  --sef-avatar-fill: linear-gradient(135deg, #6a82fb, #fc5c7d);
+  --sef-avatar-fill: var(--cmux-accent);
   --sef-backdrop:
     radial-gradient(circle at 15% 85%, #ff5f6d 0, transparent 45%),
     radial-gradient(circle at 80% 75%, #ffc371 0, transparent 40%),
