@@ -218,8 +218,57 @@ jobs:
       contents: read
       issues: write
 
+  # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
+  # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
+  # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
+  fixit-handoff:
+    needs: [plan, web]
+    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch fixit-handoff on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          CHECK: ${{ needs.web.outputs.fixit_check }}
+          ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check="$CHECK" -f origin="$ORIGIN"
+
+  gallery-health:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' gallery-health ')
+    uses: ./.github/workflows/gallery-health.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  cmux-tui-sdks:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-sdks ')
+    uses: ./.github/workflows/cmux-tui-sdks.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  cmux-tui-spec:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-spec ')
+    uses: ./.github/workflows/cmux-tui-spec.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -318,14 +367,14 @@ jobs:
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
