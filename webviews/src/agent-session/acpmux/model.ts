@@ -1,4 +1,5 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
+import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
@@ -1088,6 +1089,9 @@ export type AcpmuxPermission = {
   /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
   /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
   plan?: string;
+  /// Whether the person may edit the plan before approving it: Claude Code's ExitPlanMode, whose
+  /// allow carries the edited plan back to the agent (`_acpmux/plan/build` `plan`).
+  planEditable?: boolean;
   pending: boolean;
   options: {
     id: string;
@@ -1363,6 +1367,9 @@ export type AcpmuxSnapshot = {
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
     /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
     taskList?: ChatTaskList;
+    /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
+    /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
+    approvedPlan?: ApprovedPlan;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
