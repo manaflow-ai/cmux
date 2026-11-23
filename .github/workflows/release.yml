@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
@@ -99,7 +101,7 @@ jobs:
   # unpublished tree waits up to CMUX_TUI_TREE_WAIT_SECONDS, then fails with
   # the publish command; a release never ships another commit's daemon.
   resolve-release-cmux-tui-client:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 55
@@ -138,7 +140,7 @@ jobs:
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
   # success, and build-sign-notarize then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment:
       name: ci-routing-agent
       deployment: false
@@ -416,12 +418,26 @@ jobs:
           cache: false
 
 
+      # build-acpmux.sh compiles cmux-tui's ghostty-vt-sys, which runs `zig build` in ghostty-next
+      # (Zig 0.17, CMUX_VT_ZIG) beside the default Zig; nightly.yml installs both the same way. Without
+      # it every stable build failed here (handoff dry run 43990709200, 2026-11-16).
+      - name: Install Zig for the in-tree acpmux
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+
       - name: Build in-tree acpmux for the app bundle
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
         run: |
           set -euo pipefail
+          # ghostty-vt-sys runs ZIG first; the ghostty-next Zig (CMUX_VT_ZIG, 0.17) goes there, not the
+          # default classic Zig on PATH (0.16), as nightly's refresh-build-in-tree-acpmux.sh does.
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          echo "libghostty-vt zig: ${ZIG:-zig} ($("${ZIG:-zig}" version 2>/dev/null || echo unknown))"
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
@@ -509,15 +525,50 @@ jobs:
       # The Bundle cmux-tui phase bundles none (deferred): "Install universal
       # Ghostty CLI helper" below installs this tree's universal cmux-tui client
       # (install-cmux-tui-client.sh); the phase never takes another build's client.
+      # The app build refuses missing or stale cmux-next web bundles (agent pane, React pages, webviews).
+      # feat-cmux-next publishes them per source key (cmux-next-web-bundle-publish.yml); take that exact
+      # bundle, else build it here with this job's Node and Bun (handoff dry run 44014686155, 2026-11-17).
+      - name: Provide the cmux-next web bundles
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          status=0
+          scripts/cmux-next/fetch-web-bundles.sh --install || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "No published web bundles for this source key (exit $status); building them"
+            scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          scripts/cmux-next/build-web-bundles.sh --verify
+
+      # cmux-next ships three helpers beside the app, like nightly-next: the OptChat Chief
+      # (bin/optchat-chief), the iPhone host (bin/cmux-mobile-host) and the Screen Sharing helper
+      # (Contents/Library/<app> Helper.app). They build in the background beside the
+      # Release build with nightly-next's scripts; "Bundle the OptChat Chief, the iPhone host and
+      # the Screen Sharing helper" joins them, and sign-cmux-bundle.sh signs and stamps them.
+      - name: Start the OptChat Chief, iPhone host and Screen Sharing helper builds
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          NIGHTLY_COMPILE_ARCHS: arm64 x86_64
+        run: |
+          set -euo pipefail
+          bash scripts/ci/nightly-steps/chief-build.sh
+          bash scripts/ci/nightly-steps/app-build-mobile-host.sh
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Bundle the OptChat Chief, the iPhone host and the Screen Sharing helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          NIGHTLY_COMPILE_ARCHS: arm64 x86_64
+        run: bash scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh
 
       - name: Report the embedded Chromium engine
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -581,9 +632,23 @@ jobs:
           # tree (resolve-release-cmux-tui-client) or fails.
           cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-release-cmux-tui-client produced no commit" >&2; exit 1; }
+          manifest_url="https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json"
+          # Only main and rc/** pushes build an Intel cmux-tui; a tree first published from
+          # feat-cmux-next has none (cmux-next is Apple silicon only, 2026-11-12). Such a
+          # release, tag or dry run, bundles an arm64-only CLI, and "Generate Sparkle
+          # appcast" offers its item to Apple silicon only, so Intel classic installs stay
+          # on classic (plans/cmux-next/classic-handoff-go-live-RUNBOOK.md, B0b).
+          tui_arch=universal
+          if ! curl -fsSL --retry 3 "$manifest_url" \
+              | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["binaries"].get("cmux-tui-x86_64-apple-darwin") else 1)'; then
+            echo "::warning title=arm64-only CLI::cmux-tui tree ${CMUX_TUI_CLIENT_KEY} has no x86_64-apple-darwin build; this release bundles an arm64-only bin/cmux and its appcast item requires arm64."
+            tui_arch=arm64
+            echo "CMUX_TUI_ARM64_ONLY=1" >> "$GITHUB_ENV"
+          fi
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --arch "$tui_arch" \
+            --manifest-url "$manifest_url" \
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub \
             --require-acpmux
@@ -611,9 +676,20 @@ jobs:
           echo "Ghostty helper architectures: $HELPER_ARCHS"
           echo "App SDK version: $SDK_VERSION"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
-          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && ( "$CLI_ARCHS" == *x86_64* || -n "${CMUX_TUI_ARM64_ONLY:-}" ) ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
+          # The cmux-next helpers bundled after the build (see "Bundle the OptChat Chief ...").
+          for helper in optchat-chief cmux-mobile-host; do
+            helper_archs="$(lipo -archs "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$helper")"
+            echo "bin/$helper architectures: $helper_archs"
+            [[ "$helper_archs" == *arm64* && "$helper_archs" == *x86_64* ]]
+          done
+          screen_helpers=(build-universal/Build/Products/Release/cmux.app/Contents/Library/*" Helper.app/Contents/MacOS/cmux-screen-sharing")
+          [[ -x "${screen_helpers[0]}" ]] || { echo "no Screen Sharing helper in the app" >&2; exit 1; }
+          screen_archs="$(lipo -archs "${screen_helpers[0]}")"
+          echo "Screen Sharing helper architectures: $screen_archs"
+          [[ "$screen_archs" == *arm64* && "$screen_archs" == *x86_64* ]]
           for alias in cmux-tui acpmux; do
             [[ "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$alias")" == cmux ]] || {
               echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
@@ -716,10 +792,20 @@ jobs:
       - name: Verify signed app SSH daemon contract
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          # cmux-next bundles the Rust CLI (bin/cmux, with bin/cmux-tui -> cmux), which has
+          # no classic `remote-daemon-status` command. Like nightly-next
+          # (verify-signed-ssh-daemon-contract.sh), check the manifest and daemon bytes only.
+          cli_args=(--verify-cli)
+          if [[ "$(readlink "$app/Contents/Resources/bin/cmux-tui" || true)" == cmux ]]; then
+            echo "bin/cmux is the cmux-next Rust CLI: skipping --verify-cli (no remote-daemon-status)"
+            cli_args=()
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
             --assets-dir remote-daemon-assets \
-            --app "build-universal/Build/Products/Release/cmux.app" --verify-cli
+            --app "$app" ${cli_args[@]+"${cli_args[@]}"}
 
       # sign-cmux-bundle.sh ran only the static sidecar checks while the
       # keychain existed. Run the full check, with the handshake, now.
@@ -866,6 +952,14 @@ jobs:
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
           grep -q "<sparkle:minimumSystemVersion>${SPARKLE_MINIMUM_SYSTEM_VERSION}</sparkle:minimumSystemVersion>" appcast.xml
+          # An arm64-only bin/cmux (see "Install universal Ghostty CLI helper") must not reach
+          # Intel Macs: Sparkle 2.9+ skips an item that requires arm64 there. The item's
+          # EdDSA signature covers the DMG only, so the edit keeps it valid.
+          if [ -n "${CMUX_TUI_ARM64_ONLY:-}" ]; then
+            python3 tests/test_appcast_require_arm64.py
+            python3 scripts/cmux-next/appcast-require-arm64.py appcast.xml
+            grep -q '<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>' appcast.xml
+          fi
           # Classic cmux stable (main) reads releases/latest/download/appcast-<arch>.xml
           # (UpdateFeedResolver rewrites appcast.xml for cmux's own stable feeds). The
           # universal DMG serves both architectures, so the per-arch feeds are copies of

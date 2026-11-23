@@ -13,7 +13,9 @@ use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, replaced_by_row, retired_keys, retired_reason};
+use crate::schema::{
+    Row, accepts, normalize_backdrop, replaced_by_row, retired_keys, retired_reason,
+};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -202,13 +204,17 @@ fn set_text(
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
+    // A pasted YouTube address in a background row is stored as its `youtube:` id.
+    let value = match row {
+        Some(row) => normalize_backdrop(row, value),
+        None => value,
+    };
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
         let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key)
-            || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
+            || state.team.defaults.contains_key(&row.key);
         if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
             return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
         }
@@ -230,12 +236,6 @@ fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
     }
     remove_pruning(text, &replaced.old)
 }
-
-/// Keys whose reader fills an unset key with something other than the row's default, so a written
-/// default is the person's own answer and stays (Swift `SettingsSchema.unsetIsNotDefaultKeys`): the
-/// login consents, which a DEV or NIGHTLY start reads as yes when unset (cmux#41072 review).
-const UNSET_IS_NOT_DEFAULT: &[&str] =
-    &["cloud.useMyClaudeLoginOnMyCloudMachines", "cloud.useMyCodexLoginOnMyCloudMachines"];
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor
 /// object would replace rows without validating them, and writing below a

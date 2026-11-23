@@ -31,7 +31,11 @@ extension CEFPaneHost {
     /// in that switch the leaving page's window still fills the same page area.
     func holdFirstFrameIfAppeared(_ tab: CEFTab) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard visibleTab === tab, tab.appearedThisTurn, !hostView.isHidden, tab.browserID != nil, !tab.awaitsWindowMove else { return }
-        let windowInWindow = shownWithWindowOut !== tab && tab.pageWindow != nil
+        // A page whose window has the keys from its grant is in the window, whatever the host's place says now. Cmd-N's
+        // page, shown again when its workspace is put in the window, was detached with the keys: AppKit gave them to the
+        // cmux window with no responder and the keys typed until the hold's grant were lost ("i did cmd n and started
+        // typing and it didnt have focus", cmdn-typing bench, cmux21: 7 of 30 runs).
+        let windowInWindow = tab.pageWindowHasTheKeys || (shownWithWindowOut !== tab && tab.pageWindow != nil)
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
         hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }

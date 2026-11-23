@@ -204,6 +204,14 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       return { ok: true, value: null };
     case "session.persist":
     case "chat.persistSession": {
+      // The tab now records this chat, as the app's tab does: a later handshake (a reconnect to a
+      // restarted daemon) names it instead of the New Tab the page opened as.
+      const persisted = request.params?.sessionId;
+      if (typeof persisted === "string" && persisted) {
+        host.sessionId = persisted;
+        host.newSession = undefined;
+        host.newTab = undefined;
+      }
       // As slow as the app's answer can be, for frame tests (`cmuxDevPersistMs`): a send's row must
       // never wait on it in a started chat.
       const ms = (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs;
@@ -215,6 +223,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.commandAvailability":
     case "pane.clientReady":
     case "pane.renderRate":
+    case "pane.launchSettle":
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":

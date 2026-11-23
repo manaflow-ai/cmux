@@ -138,7 +138,13 @@ function removingWrapBreaks(text: string): string | undefined {
   return /\s/u.test(compacted) ? undefined : compacted;
 }
 
+/// `/resume <id>`, `/model opus`: a slash command with its arguments, whose first word has no
+/// second `/`. Never a file (user 2026-11-20: New Tab offered `file:///resume%20<id>` on top); a
+/// path with a space after a folder (`/Users/me/My Notes.txt`) still is one.
+const isSlashCommandText = (text: string) => /^\/[^/\s]+\s/u.test(text);
+
 function fileURL(text: string, home?: string): string | undefined {
+  if (isSlashCommandText(text)) return undefined;
   if (text.startsWith("/")) return "file://" + encodePath(text);
   if (!home || (text !== "~" && !text.startsWith("~/"))) return undefined;
   const base = home.endsWith("/") ? home : home + "/";

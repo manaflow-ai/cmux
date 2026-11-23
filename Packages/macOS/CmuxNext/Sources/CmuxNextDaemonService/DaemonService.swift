@@ -47,6 +47,9 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
     public let reads = TabReads()
+    /// The person's language downloaded on first use, asked of this daemon when it is the home one
+    /// (the app starts it for `machines.local`; CMUX-570).
+    @ObservationIgnored public private(set) lazy var languagePacks = LanguagePackService(daemon: self)
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
@@ -87,6 +90,9 @@ public final class DaemonService {
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The registry id (session) of the tree the launch snapshot drew, kept past the live tree that replaces the
+    /// store's: the launch compares it with the daemon's (`LaunchSnapshotStaleness`). Nil without a snapshot.
+    @ObservationIgnored public var launchSnapshotRegistryID: String?
     /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
     @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// Takes the launch snapshot's sidebar document when the snapshot is applied after the sidebar document
@@ -717,7 +723,7 @@ public final class DaemonService {
         return { notReady in batcher.scheduleFrame { show(notReady) } }
     }
 
-    private func showPaneNotReady(_ notReady: PaneNotReady) {
+    func showPaneNotReady(_ notReady: PaneNotReady) {
         #if DEBUG || CMUX_BENCH_HOOKS
         paneNotReadyCauses = Array((paneNotReadyCauses + [notReady.description]).suffix(100)) // as RefusalHUD.history
         #endif

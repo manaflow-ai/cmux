@@ -3510,7 +3510,7 @@ public func FfiConverterTypeTerminalChatCandidate_lower(_ value: TerminalChatCan
  */
 public struct TerminalChatFaces: Equatable, Hashable {
     /**
-     * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+     * The tab offers its page menu's Show Chat / Show Terminal row: both faces work.
      */
     public var offered: Bool
     /**
@@ -3518,12 +3518,11 @@ public struct TerminalChatFaces: Equatable, Hashable {
      * terminal on its terminal, a chat on its chat).
      */
     public var defaultFace: TabFace
+    /**
+     * Whether each face can show: both on a pair, else only `default_face`.
+     */
     public var chatEnabled: Bool
     public var terminalEnabled: Bool
-    /**
-     * Why a face is disabled, in the person's words; None when both are enabled.
-     */
-    public var disabledReason: String?
     /**
      * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
      */
@@ -3534,15 +3533,15 @@ public struct TerminalChatFaces: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+         * The tab offers its page menu's Show Chat / Show Terminal row: both faces work.
          */offered: Bool, 
         /**
          * The face the tab opens on when the person chose none: the tab's own kind (a
          * terminal on its terminal, a chat on its chat).
-         */defaultFace: TabFace, chatEnabled: Bool, terminalEnabled: Bool, 
+         */defaultFace: TabFace, 
         /**
-         * Why a face is disabled, in the person's words; None when both are enabled.
-         */disabledReason: String?, 
+         * Whether each face can show: both on a pair, else only `default_face`.
+         */chatEnabled: Bool, terminalEnabled: Bool, 
         /**
          * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
          */harness: String?, session: String?) {
@@ -3550,7 +3549,6 @@ public struct TerminalChatFaces: Equatable, Hashable {
         self.defaultFace = defaultFace
         self.chatEnabled = chatEnabled
         self.terminalEnabled = terminalEnabled
-        self.disabledReason = disabledReason
         self.harness = harness
         self.session = session
     }
@@ -3575,7 +3573,6 @@ public struct FfiConverterTypeTerminalChatFaces: FfiConverterRustBuffer {
                 defaultFace: FfiConverterTypeTabFace.read(from: &buf), 
                 chatEnabled: FfiConverterBool.read(from: &buf), 
                 terminalEnabled: FfiConverterBool.read(from: &buf), 
-                disabledReason: FfiConverterOptionString.read(from: &buf), 
                 harness: FfiConverterOptionString.read(from: &buf), 
                 session: FfiConverterOptionString.read(from: &buf)
         )
@@ -3586,7 +3583,6 @@ public struct FfiConverterTypeTerminalChatFaces: FfiConverterRustBuffer {
         FfiConverterTypeTabFace.write(value.defaultFace, into: &buf)
         FfiConverterBool.write(value.chatEnabled, into: &buf)
         FfiConverterBool.write(value.terminalEnabled, into: &buf)
-        FfiConverterOptionString.write(value.disabledReason, into: &buf)
         FfiConverterOptionString.write(value.harness, into: &buf)
         FfiConverterOptionString.write(value.session, into: &buf)
     }
@@ -3613,6 +3609,11 @@ public func FfiConverterTypeTerminalChatFaces_lower(_ value: TerminalChatFaces) 
  */
 public struct TerminalChatFacts: Equatable, Hashable {
     /**
+     * The person turned Terminal and Chat on in Settings (off by default). Off, no tab
+     * offers the toggle: every tab shows only its own kind.
+     */
+    public var toggleOn: Bool
+    /**
      * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
      * `agent_session_id`).
      */
@@ -3631,13 +3632,17 @@ public struct TerminalChatFacts: Equatable, Hashable {
     /**
      * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
      * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
-     * no local session). The chat face waits for a chat the Mac opens.
+     * no local session). The tab is only a terminal.
      */
     public var chatRefused: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
+        /**
+         * The person turned Terminal and Chat on in Settings (off by default). Off, no tab
+         * offers the toggle: every tab shows only its own kind.
+         */toggleOn: Bool, 
         /**
          * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
          * `agent_session_id`).
@@ -3652,8 +3657,9 @@ public struct TerminalChatFacts: Equatable, Hashable {
         /**
          * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
          * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
-         * no local session). The chat face waits for a chat the Mac opens.
+         * no local session). The tab is only a terminal.
          */chatRefused: Bool) {
+        self.toggleOn = toggleOn
         self.terminal = terminal
         self.chat = chat
         self.agent = agent
@@ -3678,6 +3684,7 @@ public struct FfiConverterTypeTerminalChatFacts: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatFacts {
         return
             try TerminalChatFacts(
+                toggleOn: FfiConverterBool.read(from: &buf), 
                 terminal: FfiConverterBool.read(from: &buf), 
                 chat: FfiConverterBool.read(from: &buf), 
                 agent: FfiConverterOptionString.read(from: &buf), 
@@ -3688,6 +3695,7 @@ public struct FfiConverterTypeTerminalChatFacts: FfiConverterRustBuffer {
     }
 
     public static func write(_ value: TerminalChatFacts, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.toggleOn, into: &buf)
         FfiConverterBool.write(value.terminal, into: &buf)
         FfiConverterBool.write(value.chat, into: &buf)
         FfiConverterOptionString.write(value.agent, into: &buf)
@@ -4126,7 +4134,7 @@ public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) ->
 /**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
- * `Rtt` and `Media`, then one `Disconnected`.
+ * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -4145,6 +4153,17 @@ public enum LinkEvent: Equatable, Hashable {
     case media(state: MediaState
     )
     case disconnected(reason: String
+    )
+    /**
+     * The link heard nothing for `silent_millis` after a ping
+     * (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+     * blackout. The link stays open and probes every second; the next
+     * `Rtt` says it answered again, and it closes (`Disconnected`) only
+     * after its keepalive timeout (45 s), so a blackout it survives keeps
+     * the session. Last in the enum so the other variants keep their
+     * numbers in the bindings.
+     */
+    case suspect(silentMillis: UInt32
     )
 
 
@@ -4185,6 +4204,9 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
+        case 7: return .suspect(silentMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -4222,6 +4244,11 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case let .disconnected(reason):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .suspect(silentMillis):
+            writeInt(&buf, Int32(7))
+            FfiConverterUInt32.write(silentMillis, into: &buf)
             
         }
     }
@@ -4618,11 +4645,6 @@ public enum TerminalChatSwap: Equatable, Hashable {
      */
     case revealTerminal(harness: String, session: String
     )
-    /**
-     * The face cannot show on the phone; `reason` says why.
-     */
-    case unavailable(reason: String
-    )
 
 
 
@@ -4652,9 +4674,6 @@ public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
         case 3: return .revealTerminal(harness: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
         )
         
-        case 4: return .unavailable(reason: try FfiConverterString.read(from: &buf)
-        )
-        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -4676,11 +4695,6 @@ public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
             FfiConverterString.write(harness, into: &buf)
             FfiConverterString.write(session, into: &buf)
-            
-        
-        case let .unavailable(reason):
-            writeInt(&buf, Int32(4))
-            FfiConverterString.write(reason, into: &buf)
             
         }
     }
@@ -5282,6 +5296,21 @@ public func resetWarmState()async   {
         )
 }
 /**
+ * A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
+ * set once at launch by the app's composition root before any `connect`
+ * or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
+ * `x-cmux-build-space`. `None`, or a value that is not `dev:<slug>`, sends
+ * no header (nightly, TestFlight and App Store builds never call it with a
+ * value). A change takes effect for the next socket opened; a socket opened
+ * in another space is not reused.
+ */
+public func setBuildSpace(value: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_build_space(
+        FfiConverterOptionString.lower(value),$0
+    )
+}
+}
+/**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
  * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
@@ -5465,6 +5494,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {

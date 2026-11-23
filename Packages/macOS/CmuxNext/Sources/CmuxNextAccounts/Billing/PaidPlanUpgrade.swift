@@ -27,19 +27,39 @@ package struct PaidPlanUpgrade {
     package var onboarding: PaidPlanOnboarding
     /// The pricing page (the app's `StaticURL.pricing`).
     package var pricing: URL
+    /// The web origin (the Cloud configuration's `authWebOrigin`: cmux.com in production, never the Cloud API's
+    /// origin, which has no checkout page), whose checkout page a cmux NEXT plan opens (``nextPlans``); nil: those take
+    /// the native checkout too.
+    package var web: URL?
 
     package init(checkout: (@MainActor (_ plan: String, _ scheme: String) async throws -> URL)?, open: @escaping @MainActor (URL) -> Void,
-                 scheme: String, onboarding: PaidPlanOnboarding, pricing: URL) {
+                 scheme: String, onboarding: PaidPlanOnboarding, pricing: URL, web: URL? = nil) {
         self.checkout = checkout
         self.open = open
         self.scheme = scheme
         self.onboarding = onboarding
         self.pricing = pricing
+        self.web = web
+    }
+
+    /// cmux NEXT's own plans: their checkout is cmux.com's page for the plan (`URL.billingCheckout(plan:)`),
+    /// which signs the person in first.
+    package static let nextPlans = ["next_plus", "next_pro", "next_max"]
+
+    /// The plan an upgrade action names (the pricing card's Subscribe, `cloud.plan.subscribe`): `max`, `next_plus`,
+    /// `next_pro` or `next_max`, else `pro`.
+    package static func plan(_ named: String?) -> String {
+        guard let named, named == "max" || nextPlans.contains(named) else { return "pro" }
+        return named
     }
 
     @discardableResult
     package func start(plan: String = "pro", source: Source, fallback: URL? = nil) async -> Outcome {
         onboarding.markPending(plan)
+        if Self.nextPlans.contains(plan), let page = web?.billingCheckout(plan: plan) {
+            open(page)
+            return .checkout(page)
+        }
         if let checkout, let url = try? await checkout(plan, scheme), Self.opens(url) {
             open(url)
             return .checkout(url)

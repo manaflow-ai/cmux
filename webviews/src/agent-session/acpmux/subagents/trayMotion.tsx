@@ -1,7 +1,8 @@
 // The tray's motion (SubagentTray.tsx), on the same train as the transcript's (Leo 2026-10-26: "Like
 // why is this not animating and, like, following along with the exact same things as everything
 // else?"). The card settles in on the house settle (subagents.css `acpmux-tray-settle-in` over
-// `--cmux-motion-settle` and `--cmux-ease-settle`) and leaves on the same settle;
+// `--cmux-motion-settle` and `--cmux-ease-settle`), growing from 0 to its laid-out height so the rows
+// over the stack follow it rather than jump, and leaves on the same settle;
 // trayMotion.experiment.ts compares one other curve in the gallery.
 // - The card eases in when it appears in a chat that already showed without it (the first subagent,
 //   command or chat starting), never when a chat opens with work already running.

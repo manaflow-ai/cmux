@@ -167,13 +167,26 @@ export const dialStopped = (phase: JoinedDialPhase | undefined) =>
 
 /** One line of the section, top to bottom. */
 export type SectionItem =
-  | { type: "header"; key: string; title: string; first: boolean; team?: { name: string; personal: boolean } }
+  | { type: "header"; key: string; title: string; first: boolean }
   | { type: "row"; key: string; row: MachineRow; afterHeader: boolean }
   | { type: "add"; key: string; gap: boolean };
 
+/** A new snapshot with each row that did not change kept as the previous object. */
+export function keptSnapshot(previous: MachinesSnapshot | undefined, next: MachinesSnapshot): MachinesSnapshot {
+  if (!previous) return next;
+  const rows = new Map(previous.rows.map((row) => [row.id, row]));
+  return {
+    ...next,
+    rows: next.rows.map((row) => {
+      const old = rows.get(row.id);
+      return old && JSON.stringify(old) === JSON.stringify(row) ? old : row;
+    }),
+  };
+}
+
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
 export function sectionItems(
-  snapshot: Pick<MachinesSnapshot, "rows" | "style" | "cloudTeam">,
+  snapshot: Pick<MachinesSnapshot, "rows" | "style">,
   strings: Strings,
   removed: ReadonlySet<string> = new Set(),
 ): SectionItem[] {
@@ -182,11 +195,9 @@ export function sectionItems(
   const rows = removed.size ? snapshot.rows.filter((row) => !removed.has(row.id)) : snapshot.rows;
   for (const group of groups(rows, snapshot.style)) {
     const title = groupTitle(group.kind, strings);
-    // The Cloud machines are the active team's: their header names it (Leo, 2026-11-09: "i guess is
-    // team? it's kinda hard to realize tho").
-    const team = group.kind === "cloud" ? snapshot.cloudTeam : undefined;
-    if (title)
-      items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0, ...(team ? { team } : {}) });
+    // The Cloud header says only Cloud, never the active team the snapshot names
+    // (https://github.com/manaflow-ai/cmux/issues/45695).
+    if (title) items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0 });
     group.rows.forEach((row, index) => {
       items.push({ type: "row", key: `r:${row.id}`, row, afterHeader: index === 0 && !!title });
     });
@@ -199,7 +210,7 @@ export function sectionItems(
 export function shownLines(snapshot: MachinesSnapshot, strings: Strings): string[] {
   const state = showsStateLine(snapshot.style);
   return sectionItems(snapshot, strings).map((item) => {
-    if (item.type === "header") return item.team ? `${item.title} · ${item.team.name}` : item.title;
+    if (item.type === "header") return item.title;
     if (item.type === "add") return strings.t("machines.addMachine");
     const { row } = item;
     if (row.joined) return [row.name, joinedCaption(row.joined, snapshot.failed[row.joined.id], strings)].join(" · ");

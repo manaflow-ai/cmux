@@ -443,10 +443,10 @@ public struct LiveCallPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .background(Color.green, in: .capsule)
+            .cmuxMobilePressBackground(Color.green, in: .capsule)
             .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(LiveCallText.pillAccessibility)
         .accessibilityIdentifier("chief.call.pill")
     }

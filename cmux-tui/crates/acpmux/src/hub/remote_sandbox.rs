@@ -907,7 +907,7 @@ if [ -n "$6" ]; then
   fi
 fi
 if [ -n "$persistence" ]; then
-  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c rename_git=$rg rename_claude=$rc cwd=$w unix=$u"
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c rename_git=$rg rename_claude=$rc cwd=$w unix=$u alias=${a:-unknown}"
 else
   echo "acpmux-canary outside=$o loopback=$l tmp=$i"
 fi"#;
@@ -1003,6 +1003,38 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
     Ok(Some(PersistenceProbe { path: probe, fd: unsafe { OwnedFd::from_raw_fd(raw) } }))
 }
 
+/// Shell-quote one path for the alias prelude (paths are UTF-8, never NUL).
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
+}
+
+/// The Linux canary's alias probe, run inside the sandbox before the rest:
+/// every denied name at every second view of the HOME must be absent, and a
+/// write at every read-only view path must fail. `a=0` only when all held.
+/// Both loops end after the finite lists the plan's view finder produced.
+fn alias_prelude(absent: &[PathBuf], read_only: &[PathBuf]) -> String {
+    let list =
+        |paths: &[PathBuf]| paths.iter().map(|p| shell_quote(p)).collect::<Vec<_>>().join(" ");
+    format!(
+        "a=0\nfor p in {}; do if [ -e \"$p\" ] || [ -L \"$p\" ]; then a=1; fi; done\nfor p in {}; do if ( : > \"$p\" ) 2>/dev/null; then a=1; rm -f \"$p\"; fi; done\n",
+        list(absent),
+        list(read_only)
+    )
+}
+
+/// The alias probe holds when there was none to run, or when the sandbox
+/// reported `alias=0` and no probe write reached the host. Any other count,
+/// a missing field or a landed write refuses.
+fn canary_alias_held(probed: bool, alias: Option<i32>, landed: bool) -> bool {
+    !probed || (alias == Some(0) && !landed)
+}
+
+/// The `alias=` field of the single report line: 0 only when the probe held.
+fn parse_canary_alias(text: &str) -> Option<i32> {
+    let line = text.lines().find_map(|line| line.strip_prefix("acpmux-canary "))?;
+    line.split_whitespace().find_map(|w| w.strip_prefix("alias=")).and_then(|v| v.parse().ok())
+}
+
 type CanaryFields = [Option<i32>; 9];
 
 /// Field/report scans end at the finite captured output; duplicate keys refuse.
@@ -1060,6 +1092,25 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    // The plan accepts a second view of the HOME because it rebuilds
+    // it; the canary proves that view inside the sandbox before any spawn.
+    #[cfg(target_os = "linux")]
+    let alias_probe = if linux {
+        let paths = crate::linux_sandbox::bwrap::Paths {
+            cwd: bound.cwd.clone(),
+            tmp: bound.tmp.clone(),
+            home: bound.home.clone(),
+            claude_tmp_project: bound.claude_tmp_project.clone(),
+            claude_project: bound.claude_project.clone(),
+        };
+        let probe = crate::linux_sandbox::keeper::remote_alias_probe(&paths)
+            .map_err(|e| format!("canary alias probe: {e}"))?;
+        Some((probe.absent, probe.read_only))
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let alias_probe: Option<(Vec<PathBuf>, Vec<PathBuf>)> = None;
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
@@ -1089,7 +1140,11 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         .as_ref()
         .filter(|_| linux)
         .map_or_else(String::new, |probe| probe.path.to_string_lossy().into_owned());
-    let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
+    let script = match &alias_probe {
+        Some((absent, read_only)) => alias_prelude(absent, read_only) + CANARY,
+        None => CANARY.to_owned(),
+    };
+    let canary_args = ["/bin/bash", "-c", script.as_str(), "acpmux-canary"]
         .into_iter()
         .map(str::to_owned)
         .chain([
@@ -1137,6 +1192,15 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if landed {
         let _ = crate::home_fs::remove_file(&outside);
     }
+    // A read-only view write that reached the host refuses even when the
+    // report says otherwise. The loop ends after the finite probe list.
+    let mut alias_landed = false;
+    for path in alias_probe.iter().flat_map(|(_, read_only)| read_only) {
+        if std::fs::symlink_metadata(path).is_ok() {
+            alias_landed = true;
+            let _ = crate::home_fs::remove_file(path);
+        }
+    }
     #[cfg(target_os = "linux")]
     let probe_paths_absent =
         absent_before && persistence_probe.as_ref().is_none_or(probe_paths_are_absent);
@@ -1169,16 +1233,20 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let text = String::from_utf8_lossy(&out.stdout);
     let fields = parse_canary_report(&text).unwrap_or([None; 9]);
     let [o, l, t, u, _, _, _, _, _] = fields;
+    let alias = parse_canary_alias(&text);
+    let alias_held = canary_alias_held(alias_probe.is_some(), alias, alias_landed);
     let held = canary_verdict(out.status.success(), fields, linux, probe_paths_absent)
         && sources_intact
         && !landed
         && !arrived
-        && (!linux || !arrived_unix);
+        && (!linux || !arrived_unix)
+        && alias_held;
     if held {
         return Ok(());
     }
+    let alias_write = if alias_landed { "write landed" } else { "no write landed" };
     Err(format!(
-        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, persistence {fields:?}, sources intact {sources_intact}, file landed {landed}, connection arrived {arrived}/{arrived_unix}; status {}, stderr {:?})",
+        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, persistence {fields:?}, sources intact {sources_intact}, file landed {landed}, connection arrived {arrived}/{arrived_unix}, home views hidden {alias:?}/{alias_write}; status {}, stderr {:?})",
         o.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         l.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
@@ -1702,6 +1770,51 @@ mod endpoint_tests {
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(root2);
         assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
+    }
+
+    #[test]
+    fn canary_refuses_a_nonzero_or_missing_alias_count_and_a_landed_write() {
+        assert!(canary_alias_held(false, None, false), "no second view: nothing to prove");
+        assert!(canary_alias_held(true, Some(0), false));
+        for alias in [Some(1), Some(2), None] {
+            assert!(!canary_alias_held(true, alias, false), "{alias:?}");
+        }
+        assert!(!canary_alias_held(true, Some(0), true), "a probe write reached the host");
+    }
+
+    #[test]
+    fn canary_alias_field_is_parsed_and_reported() {
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 unix=1 alias=0\n"), Some(0));
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 alias=1\n"), Some(1));
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 alias=unknown\n"), None);
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1\n"), None);
+        assert!(CANARY.contains("alias=${a:-unknown}"));
+        let quoted = alias_prelude(&[PathBuf::from("/a/it's")], &[]);
+        assert!(quoted.contains(r"'/a/it'\''s'"), "{quoted}");
+    }
+
+    /// The probe itself, run by bash: a present denied name or a write that
+    /// works sets a=1; absent names and refused writes leave a=0.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn canary_alias_prelude_fails_on_a_visible_name_or_a_working_write() {
+        let root = std::env::temp_dir().join(format!("alias-prelude-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("present")).unwrap();
+        let run = |absent: &[PathBuf], read_only: &[PathBuf]| {
+            let script = format!("{}echo \"a=$a\"", alias_prelude(absent, read_only));
+            let out =
+                std::process::Command::new("/bin/bash").args(["-c", &script]).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        let missing = root.join("missing");
+        let unwritable = root.join("no-such-dir/w");
+        assert_eq!(run(std::slice::from_ref(&missing), std::slice::from_ref(&unwritable)), "a=0");
+        assert_eq!(run(&[root.join("present")], &[unwritable]), "a=1");
+        let writable = root.join("w");
+        assert_eq!(run(&[missing], std::slice::from_ref(&writable)), "a=1");
+        assert!(!writable.exists(), "the probe removes a write that worked");
+        assert_eq!(run(&[], &[]), "a=0");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

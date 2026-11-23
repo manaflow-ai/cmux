@@ -80,6 +80,15 @@ pub fn block(report: &str) -> Option<String> {
 /// item opens there as a new tab, and the Chief links that tab, so the person
 /// finds the work beside the agent's chat (Lawrence, Oct 29: "diff should have
 /// been opened in a845 workspace"). None: one new workspace named for the work.
+/// A browser tab made in a workspace with no pane named opens in the column
+/// right of its agent chat (cmux's `placeBesideTargetChat` and
+/// `workspace.open_url`'s right side), never in the chat's own pane, where 14
+/// pages once piled up in one chat's tab strip (Lawrence 2026-11-19: "agent
+/// chat that is on left, will open stuff to the right"); the block says so,
+/// so the Chief names no pane for a page. A terminal made the same way opens
+/// there too (the daemon's `chat_column` makes the column when the chat is
+/// alone), and a file names its pane: one right of the chat, and the chat's
+/// own only when there is no other.
 pub fn block_in(report: &str, workspace: Option<&str>) -> Option<String> {
     let shown = find(report);
     if shown.is_empty() {
@@ -104,7 +113,7 @@ fn block_in_new_workspace(shown: &Shown) -> String {
             "Done work to show (show.afterReport): open the one or two most useful in one new workspace named for the work, made once with `cmux --json workspace create --name \"<2-5 word title>\" --cwd <its repo or folder>` ({ws} from its answer), as new tabs, without moving focus; link it in your reply ([title](cmux://workspace/ws_…), or a tab in it). Never Home's column or the dock; show nothing if none helps."
         ),
     ];
-    push_items(&mut lines, shown, ws);
+    push_items(&mut lines, shown, ws, "its pane");
     lines.push("</show>".to_owned());
     lines.join("\n")
 }
@@ -113,16 +122,22 @@ fn block_in_workspace(shown: &Shown, ws: &str) -> String {
     let mut lines = vec![
         "<show>".to_owned(),
         format!(
-            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
+            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, on the right of its chat (a `tab create browser --workspace` or `tab create terminal --workspace` below opens in the column right of the chat, and makes that column when there is none; a file names its pane), without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
         ),
     ];
-    push_items(&mut lines, shown, ws);
+    push_items(
+        &mut lines,
+        shown,
+        ws,
+        "a pane right of the chat, else the chat's",
+    );
     lines.push("</show>".to_owned());
     lines.join("\n")
 }
 
-/// The command that opens each item as a new tab in workspace `ws`.
-fn push_items(lines: &mut Vec<String>, shown: &Shown, ws: &str) {
+/// The command that opens each item as a new tab in workspace `ws`; a file
+/// opens in `file_pane`, the words for the pane the Chief must look up.
+fn push_items(lines: &mut Vec<String>, shown: &Shown, ws: &str, file_pane: &str) {
     for (old, new) in &shown.ranges {
         match &shown.repo {
             Some(repo) => lines.push(format!(
@@ -140,7 +155,7 @@ fn push_items(lines: &mut Vec<String>, shown: &Shown, ws: &str) {
     }
     for file in &shown.files {
         lines.push(format!(
-            "- file {file}: cmux action run file.open --target <its pane: cmux pane list --workspace {ws}> --path {} --where tab",
+            "- file {file}: cmux action run file.open --target <{file_pane}: cmux pane list --workspace {ws}> --path {} --where tab",
             shell_quote(file)
         ));
     }

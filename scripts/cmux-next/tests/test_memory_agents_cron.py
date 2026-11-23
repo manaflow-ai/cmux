@@ -184,5 +184,60 @@ class HeapSummaryTests(unittest.TestCase):
         self.assertEqual(got["errors"], ["no live page 4"])
 
 
+def windowed(s, disk, gpu):
+    """A copy of sample s measured over 30 s, with disk MB/h per kind and the window's GPU reading."""
+    out = dict(s, measure_s=30, kinds={k: dict(v, disk_write_mb_per_h=disk.get(k, 0.0)) for k, v in s["kinds"].items()})
+    if gpu is not None:
+        out["gpu"] = {"samples": 30, "device_utilization_pct": gpu}
+    return out
+
+
+class IdleGpuDiskTests(unittest.TestCase):
+    """Goal idle-gpu-disk: the worst idle window's GPU (minus the Mac with no app) and the app's disk writes."""
+
+    def report(self, base=0.4, empty_gpu=0.6, ten_gpu=1.3, ten_failures=0):
+        ten = windowed(dict(TEN, pane_failures=ten_failures), {"acpmux-daemon": 2.5, "tui-daemon": 0.75}, ten_gpu)
+        rep = {"samples": [windowed(EMPTY, {"app": 0.5}, empty_gpu), ten]}
+        if base is not None:
+            rep["gpu_no_app"] = {"samples": 30, "device_utilization_pct": base}
+        return rep
+
+    def rows(self, **kw):
+        return {r["name"]: r for r in cron.idle_rows(self.report(**kw))}
+
+    def test_worst_window_minus_the_mac_with_no_app(self):
+        got = self.rows()
+        self.assertEqual(got[cron.GPU_ROW]["p95"], 0.9)
+        self.assertEqual(got[cron.GPU_ROW]["window"], "idle-10")
+        self.assertEqual(got[cron.DISK_ROW]["p95"], 3.25, "every process of the app's writes, summed")
+
+    def test_gpu_below_the_baseline_reads_zero(self):
+        self.assertEqual(self.rows(base=2.0)[cron.GPU_ROW]["p95"], 0.0)
+
+    def test_no_baseline_no_gpu_row(self):
+        got = self.rows(base=None)
+        self.assertNotIn(cron.GPU_ROW, got, "a whole-Mac reading alone counts whatever else the Mac draws")
+        self.assertIn(cron.BREAKDOWN_PREFIX + "gpu_device_pct_raw", got)
+
+    def test_a_partial_count_is_no_window(self):
+        got = self.rows(ten_failures=1)
+        self.assertEqual(got[cron.DISK_ROW]["p95"], 0.5)
+        self.assertEqual(got[cron.GPU_ROW]["p95"], 0.2)
+
+    def test_unmeasured_samples_give_no_rows(self):
+        self.assertEqual(cron.idle_rows({"samples": [EMPTY, TEN]}), [])
+
+    def test_goal_rows_are_judged_and_the_gpu_split_is_report_only(self):
+        for r in cron.idle_rows(self.report()):
+            only = bool(perf_cron.REPORT_ONLY_ROW_RE.match(r["name"]))
+            self.assertEqual(only, r["name"] not in (cron.GPU_ROW, cron.DISK_ROW), r["name"])
+            self.assertEqual(perf_cron.part_for_row(r["name"]), "memory-agents")
+
+    def test_the_part_asks_for_gpu_counters(self):
+        import argparse
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        self.assertIn("--gpu", cron.bench_cmd(ns, "/r.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

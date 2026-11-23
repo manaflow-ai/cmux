@@ -98,6 +98,9 @@ MARKER_STEPS = {
 JOB_IF_READS = {
     ("cmux-next.yml", "crash-ends-app"): "a skipped compile is a route that asked for no app build; the compile's own "
                                          "check says so",
+    ("backend-migrations.yml", "gate"): "skipped only when the plan succeeded with no migration change, the one result "
+                                        "that is a pass; a failed or cancelled plan still runs it and fails (main's "
+                                        "copy since #48999)",
 }
 
 
@@ -278,8 +281,9 @@ MIXED = {
         "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
-                                     "web-typecheck", "web-production-build", "web-instant-navigation",
-                                     "react-apps-check", "diff-sidecar-check", "web-db-migrations")}})},
+                                     "web-typecheck", "webviews-typecheck", "web-production-build", "web-instant-navigation",
+                                     "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
+                                     "web-db-migrations")}})},
 }
 # Rule jobs that judge one result, so no two can disagree.
 SINGLE_RESULT = {

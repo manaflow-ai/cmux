@@ -10,6 +10,7 @@
 //! each other cannot ask back and forth.
 
 use super::Origin;
+use super::host_power;
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -93,6 +94,13 @@ pub(crate) async fn host_health_with(
     if let Some((used, total)) = swap() {
         v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
+    // Power and network for Auto chat placement (`host_power.rs`): a closed lid, a low battery
+    // or a network that is down change where a chat runs. A debug override can stand in for each.
+    let assume = host_power::assumed(crate::store::now_ms());
+    if let Some(power) = host_power::power_json(host_power::power().await, assume.as_ref()) {
+        v.set("power", power);
+    }
+    v.set("network", host_power::network_json(host_power::network_up(), assume.as_ref()));
     v.set(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
@@ -174,13 +182,18 @@ pub(super) async fn peer_status(
 async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let name = listed["name"].as_str().unwrap_or_default().to_owned();
     let mut row = json!({"name": name, "self": false, "reachable": false});
-    for key in ["state", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
+    for key in ["state", "via", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
             row[key] = v.clone();
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
     let Some(peer) = peer else {
+        // Listed as connected through the hub: it is up, only this machine has no link of its own to ask.
+        if listed["state"] == "connected" && listed["via"] == "hub" {
+            row.set("via", json!("hub"));
+            return row;
+        }
         let why = listed["error"].as_str().unwrap_or("not connected");
         row.set("error", json!(format!("{why}; `{NEXT} {name}` checks it step by step")));
         return row;
@@ -201,7 +214,14 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health["build"]
+                        .as_str()
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {

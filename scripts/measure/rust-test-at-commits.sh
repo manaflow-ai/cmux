@@ -10,14 +10,14 @@ root="$(git rev-parse --show-toplevel)"
 # A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
-git -C "$root" fetch -q --no-tags --no-recurse-submodules "${depth[@]}" origin "$sha"
+git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
 parent="$(git -C "$root" rev-parse "$sha^")"
 tests=()
 while IFS= read -r path; do tests+=("$path"); done < <(git -C "$root" diff --name-only "$parent" "$sha" | grep -E '^cmux-tui/crates/[^/]+/tests/')
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
-  for tree in "${trees[@]}"; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
+  for tree in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -25,7 +25,7 @@ for at in "$parent" "$sha"; do
   tree="$scratch/${at:0:12}"
   git -C "$root" worktree add -q --detach "$tree" "$at" && trees+=("$tree")
   # The parent runs the change's own test files.
-  [[ "$at" == "$parent" && ${#tests[@]} -gt 0 ]] && git -C "$tree" checkout -q "$sha" -- "${tests[@]}"
+  [[ "$at" == "$parent" && ${#tests[@]} -gt 0 ]] && git -C "$tree" checkout -q "$sha" -- ${tests[@]+"${tests[@]}"}
   echo "TEST-AT $at $([[ "$at" == "$parent" ]] && echo before || echo after) (${#tests[@]} test files from $sha)"
   (cd "$tree/cmux-tui" && cargo test --locked -p "$package" --test "$test" -- "$filter" --nocapture 2>&1 \
     | grep -vE '^\s*(Compiling|Downloaded|Downloading)') || true

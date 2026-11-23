@@ -38,7 +38,7 @@ export const KNOWN_PROGRAMS = [
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -97,6 +97,8 @@ export type LockedProgram = Artifact & {
   readonly checksumsName?: string;
   readonly source?: string;
   readonly roles?: readonly RoleName[];
+  /** cmux-rd only: the crate version whose release is not published yet (the pin may trail the crate by that one release); cleared by the PR that pins it. */
+  readonly pendingRelease?: string;
   /** Installed into the store the first time one of its (first-use) roles starts; never baked. */
   readonly firstUse?: boolean;
   /** License and notice files (relative to the store entry) the install must find. */
@@ -280,6 +282,10 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
     if (raw.checksumsUrl !== shape.checksumsUrl || raw.checksumsName !== shape.checksumsName) problems.push(`${where}.checksumsUrl: must be ${shape.checksumsUrl} naming ${shape.checksumsName}`);
     if (!Array.isArray(raw.roles) || !raw.roles.includes("desktop")) problems.push(`${where}.roles: cmux-rd is in the desktop role`);
     if (raw.firstUse === true) problems.push(`${where}.firstUse: cmux-rd is baked (its socket unit starts it on the first desktop connection)`);
+  }
+  if (raw.pendingRelease !== undefined) {
+    if (name !== "cmux-rd") problems.push(`${where}.pendingRelease: only cmux-rd has a pending release`);
+    else if (typeof raw.pendingRelease !== "string" || !/^\d+\.\d+\.\d+$/.test(raw.pendingRelease)) problems.push(`${where}.pendingRelease: must be a version X.Y.Z`);
   }
 }
 

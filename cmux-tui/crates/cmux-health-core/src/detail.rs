@@ -18,7 +18,15 @@ pub enum Cause {
     PageInput {
         ms: u64,
     },
+    /// Silent together with other visible pages (a shared renderer or the Mac is busy).
+    PagesStalled {
+        ms: u64,
+    },
     PageCrashed,
+    /// Its document is loading: a navigation the host started (`navigationStarted`).
+    PageLoading {
+        ms: u64,
+    },
     RendererUnresponsive {
         ms: u64,
     },
@@ -90,7 +98,13 @@ pub fn cause(cause: Cause) -> String {
         Cause::PageInput { ms } => {
             format!("Has not handled your clicks or typing for {}.", duration(ms))
         }
+        Cause::PagesStalled { ms } => format!(
+            "Not answering for {}, along with other open pages: the Mac or their shared renderer \
+             is busy.",
+            duration(ms)
+        ),
         Cause::PageCrashed | Cause::RendererCrashed => "Stopped unexpectedly.".into(),
+        Cause::PageLoading { ms } => format!("Loading for {}.", duration(ms)),
         Cause::RendererUnresponsive { ms } => format!("Not responding for {}.", duration(ms)),
         Cause::AcpmuxDisconnected => "Agent sessions are disconnected.".into(),
         Cause::AcpmuxSilent { ms } => {
@@ -154,7 +168,12 @@ pub fn repairing(kind: Kind, why: Cause, action: RepairAction, attempt: u32, max
 
 /// A part whose repairs ran out.
 pub fn failed(kind: Kind, why: Cause, max: u32) -> String {
-    format!("{} Tried {max} repairs without luck; click to try again{}.", cause(why), kept(kind))
+    format!(
+        "{} Tried {max} repairs without luck; it tries again by itself within {}, or click to try now{}.",
+        cause(why),
+        duration(crate::policy::REPAIR_WINDOW_MS),
+        kept(kind)
+    )
 }
 
 /// The receipt of an attempt sent to the host.

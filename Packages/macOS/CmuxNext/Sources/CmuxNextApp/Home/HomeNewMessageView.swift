@@ -197,7 +197,7 @@ final class HomeNewMessageView: NSView {
             guard let self else { throw HomeRejection.invalid("new_message.closed") }
             return try await firstSend(parts)
         }
-        let store = HomeStore(source: source)
+        let store = source.store(blobs: services.home.homeStore.blobCacheDirectory)
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
