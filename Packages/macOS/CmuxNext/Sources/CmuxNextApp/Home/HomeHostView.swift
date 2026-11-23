@@ -18,7 +18,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
-import ImageIO
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -476,7 +475,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             // Decoded off the main actor: an upload's still or the registry picture.
             let data = avatar.picture
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(HomePictureDecode.firstFrame) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
                   fallback == fallbackPicture else { return }
@@ -485,12 +484,6 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             card.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
         }
-    }
-
-    /// The first frame of the picture `data` holds, decoded now.
-    private nonisolated static func decode(_ data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

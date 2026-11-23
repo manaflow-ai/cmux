@@ -104,8 +104,8 @@ final class HomePlusMenuTarget: NSObject {
 
 extension HomeStrings {
     static var plusMenuAttachFiles: String {
-        String(localized: "home.plusMenu.attachFiles", defaultValue: "Attach Files or Images…", bundle: .module)
+        String(localized: "home.plusMenu.attachFiles", defaultValue: "Attach Files or Images…", bundle: .localizedModule)
     }
-    static var plusMenuClipboard: String { String(localized: "home.plusMenu.clipboard", defaultValue: "Clipboard", bundle: .module) }
-    static var plusMenuImage: String { String(localized: "home.plusMenu.image", defaultValue: "Image", bundle: .module) }
+    static var plusMenuClipboard: String { String(localized: "home.plusMenu.clipboard", defaultValue: "Clipboard", bundle: .localizedModule) }
+    static var plusMenuImage: String { String(localized: "home.plusMenu.image", defaultValue: "Image", bundle: .localizedModule) }
 }

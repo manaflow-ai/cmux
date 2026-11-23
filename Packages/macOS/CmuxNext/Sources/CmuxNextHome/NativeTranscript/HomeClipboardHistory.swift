@@ -82,14 +82,15 @@ public final class HomeClipboardHistory {
         // task-owner: one decode per copied picture; the result is dropped if the entry has gone.
         Task.detached(priority: .utility) { [weak self] in
             guard let image = Self.thumbnailImage(data, maxPixels: pixels) else { return }
-            await MainActor.run {
-                guard let self, self.log.entries.contains(where: { $0.id == id }) else { return }
-                let side = Self.thumbnailSide
-                let scale = side / CGFloat(max(max(image.width, image.height), 1))
-                self.thumbnails[id] = NSImage(
-                    cgImage: image, size: NSSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
-            }
+            await self?.keepThumbnail(image, id: id)
         }
+    }
+
+    /// Keeps a decoded thumbnail while its entry is still in the history (one small NSImage).
+    private func keepThumbnail(_ image: CGImage, id: Int) {
+        guard log.entries.contains(where: { $0.id == id }) else { return }
+        let scale = Self.thumbnailSide / CGFloat(max(max(image.width, image.height), 1))
+        thumbnails[id] = NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
     }
 
     /// A downscaled decode (ImageIO's thumbnail path: it never decodes the full picture).
