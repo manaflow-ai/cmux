@@ -3,9 +3,12 @@
 //! CmuxNextCloud/Bootstrap/CloudMachineRepo.swift), progress read from
 //! `--progress`, and the failures a seed tells apart.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// The Cloud agent's socket: `cmux github credential` mints a short
 /// repo-scoped token through it.
@@ -14,6 +17,46 @@ const AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
 const KEPT_LINES: usize = 40;
 /// Longest error text in a status answer.
 const MAX_ERROR_CHARS: usize = 400;
+
+thread_local! {
+    /// This thread's git runs and waits ([`count`]): a job runs on a thread of its own, and
+    /// reports them in its status `timings` once it ends ([`take_runs`]).
+    static RUNS: RefCell<BTreeMap<String, (Duration, u32)>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Counts `took` once under `name` for this thread's job.
+pub(super) fn count(name: &str, took: Duration) {
+    RUNS.with(|runs| {
+        let mut runs = runs.borrow_mut();
+        let entry = runs.entry(name.to_owned()).or_default();
+        entry.0 += took;
+        entry.1 += 1;
+    });
+}
+
+/// This thread's counts so far, `{name: {"ms", "n"}}`, cleared.
+pub(super) fn take_runs() -> serde_json::Value {
+    let runs = RUNS.with(|runs| std::mem::take(&mut *runs.borrow_mut()));
+    runs.into_iter()
+        .map(|(name, (took, n))| (name, serde_json::json!({ "ms": took.as_millis(), "n": n })))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
+}
+
+/// git's subcommand in `args`: the first that is no option or option value.
+fn subcommand<'a>(args: &[&'a str]) -> &'a str {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "-c" | "-C" | "--git-dir" | "--work-tree" => {
+                args.next();
+            }
+            option if option.starts_with('-') => {}
+            name => return name,
+        }
+    }
+    "?"
+}
 
 /// One GitHub path of the machine, in the order the `repo` step tries them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -308,6 +351,21 @@ impl Git {
 
     /// [`Self::run`] with `env` set for git (an index file, a fixed author).
     pub fn run_env(
+        &self,
+        cwd: Option<&Path>,
+        credential: &Credential,
+        args: &[&str],
+        env: &[(&str, &std::ffi::OsStr)],
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<Vec<u8>, Failure> {
+        let started = Instant::now();
+        let ran = self.run_untimed(cwd, credential, args, env, on_line);
+        count(&format!("git {}", subcommand(args)), started.elapsed());
+        ran
+    }
+
+    /// [`Self::run_env`] without its [`count`].
+    fn run_untimed(
         &self,
         cwd: Option<&Path>,
         credential: &Credential,

@@ -247,6 +247,10 @@ extension AgentPaneGitWrite {
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if discard { params["discard"] = .bool(true) }
             return params
+        case .worktreeSetupRun(_, let approve, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if let approve { params["approve"] = .string(approve) }
+            return params
         }
     }
 }

@@ -110,6 +110,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_OVERFLOW_LINUX": {
+      "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
     "CI_CONTROL_RUNNER": {
       "fallback": "unset by default, so each selector's own Blacksmith literal runs the job: blacksmith-2vcpu-ubuntu-2404 for nightly-next-tick.yml (request) and nightly-next-feed-watch.yml (watch), blacksmith-6vcpu-macos-26 for ci-cloud-overflow-probe.yml (watch). An operator sets it only to a label that starts while Blacksmith Linux does not, and deletes it to put the jobs back on those literals; nothing moves them automatically (cmux#27022, docs/ci-runners.md). after_minutes is the 30-minute nightly freshness budget an operator works to, not a reconciler grace",
       "after_minutes": 30
@@ -213,6 +217,10 @@
     "CI_OVERFLOW_LINUX": {"fallback": "an override, not a host: unset sends pr-pipeline's linux job to the cmux-linux label every owned Linux pool host carries (#49280); set, the runner it names", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "read only by fork pull requests (scripts/ci/one_linux_label.py); unset or empty, GitHub-hosted ubuntu-24.04, never an owned host. An operator sets it only to a GitHub-hosted or vendor runner label",
       "after_minutes": 5
     },
     "LINUX_ARM64_RUNNER": {

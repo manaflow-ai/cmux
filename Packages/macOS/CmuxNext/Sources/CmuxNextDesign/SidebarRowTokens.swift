@@ -138,7 +138,8 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     }
 
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.
-    @MainActor public static var current: SidebarRowTokens {
+    @MainActor public static var current: SidebarRowTokens { Metrics.memo.sidebarRow.value { uncachedCurrent } }
+    @MainActor private static var uncachedCurrent: SidebarRowTokens {
         let sections = DesignSettings.shared.sidebarSections
         let base = Base(rowHeight: Metrics.sidebarRowHeight, space1: Metrics.space1, space2: Metrics.space2,
                         space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.buttonCornerRadius,
