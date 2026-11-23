@@ -12,7 +12,8 @@
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
 //! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
-//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! recipe and a worktree's setup run (`worktree_setup`). `project.actions.list`
+//! reads a project's `.cmux/actions.json` with the global actions (`project_actions`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
 //! sent (`diff_comments`). `git.review.*` reviews a GitHub pull request
 //! from its link in a worktree of its own, with those comments as its
@@ -36,6 +37,7 @@ mod journal;
 mod list;
 mod mutation;
 mod pr_review;
+mod project_actions;
 mod push;
 mod target;
 mod user_run;
@@ -112,6 +114,10 @@ pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 /// recipe, and the session host answers `git.worktree.setup`.
 pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
 
+/// Advertised in identify: a repository recipe's setup waits for the
+/// person's approval, and the session host answers `git.worktree.setup.run`.
+pub(crate) const WORKTREE_SETUP_RUN_CAPABILITY: &str = "git-worktree-setup-run-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -127,6 +133,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
+            | ResourceOperation::GitWorktreeSetupRun
+            | ResourceOperation::ProjectActionsList
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
         || pr_review::handles(operation)
@@ -153,6 +161,10 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetupRun => {
+            return worktree_setup::dispatch_run(mux, &request);
+        }
+        ResourceOperation::ProjectActionsList => return project_actions::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {

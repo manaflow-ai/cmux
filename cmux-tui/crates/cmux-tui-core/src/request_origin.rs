@@ -55,8 +55,11 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// opens another browser's profile by path: an agent must not read the
 /// person's bookmarks, history or tabs through the daemon, nor a profile
 /// macOS keeps from it (Full Disk Access) by asking the daemon instead.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 13] = [
+/// A language pack ensure reads the app bundle's manifest and writes the
+/// app's cache folder by path, and downloads: only the app itself asks.
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 15] = [
     "apps.install",
+    "apps.update",
     "apps.uninstall",
     "apps.enable",
     crate::state::agent_folder::OPERATION,
@@ -69,6 +72,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 13] = [
     crate::state::classic_import_router::PLAN_OPERATION,
     crate::state::classic_import_router::RECORD_OPERATION,
     crate::resource_router::browser_import::OPERATION,
+    crate::language_packs::OPERATION,
 ];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;

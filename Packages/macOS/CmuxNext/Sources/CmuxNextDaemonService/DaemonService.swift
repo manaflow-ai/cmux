@@ -47,6 +47,9 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
     public let reads = TabReads()
+    /// The person's language downloaded on first use, asked of this daemon when it is the home one
+    /// (the app starts it for `machines.local`; CMUX-570).
+    @ObservationIgnored public private(set) lazy var languagePacks = LanguagePackService(daemon: self)
     public private(set) var connection: DaemonConnection?
     /// The app's `client-hello` proof, as the control connection sends it: a side connection that
     /// carries only the person's own actions proves itself with it (`AgentPaneGitLink.userMutate`).

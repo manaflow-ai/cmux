@@ -201,6 +201,30 @@ USAGE
   cmux space close <name> [--json]
 ";
 
+pub(super) const PROJECT_HELP: &str = "\
+USAGE
+  cmux project actions [PATH] [TARGET] [--no-global] [--json]
+
+  The actions of the project a folder is in: <project>/.cmux/actions.json
+  ({\"actions\": {NAME: ACTION}}, the shape of the global actions in
+  cmux-next.json), then the global actions it does not replace by name.
+  The project is the nearest folder up with .cmux/actions.json, up to the
+  repository root, never the home folder. Listing never runs anything; the
+  app runs an action in the project root when you pick it.
+
+TARGET
+  PATH or --path <path>  A file or folder in the project
+  --workspace <selector> The working directory of the workspace's current terminal
+  --screen <selector>    ... of the screen's current terminal
+  --pane <selector>      ... of the pane's current terminal
+  --tab <selector>       ... of the tab's terminal
+  --terminal <selector>  ... of the terminal
+  Without one, the current directory.
+
+OPTIONS
+  --no-global            Only the project's own actions
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
@@ -233,6 +257,7 @@ USAGE
   cmux git review start [TARGET] <pull-request-url>
   cmux git review comment [TARGET] --file <path> --line <n> [--start-line <n>]
     [--side new|old] --message <text>
+  cmux git worktree setup run [TARGET] [--approve <fingerprint>]
   cmux git comments list [--root <path>]
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
@@ -326,7 +351,11 @@ The main checkout is never removed. Before it goes, the project's teardown runs.
 
 worktree setup shows the project's worktree recipe (.worktreeinclude,
 .cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
-its setup: state, port and output (from byte --since).
+its setup: state, port and output (from byte --since). A setup or teardown
+command from the repository's own files waits (awaiting_approval) until you
+approve the recipe you read: worktree setup run --approve with its
+recipe.approval.fingerprint. worktree setup run also runs a failed, timed-out
+or interrupted setup again; it never starts one while one runs.
 
 review start checks a GitHub pull request out into a worktree of its own
 (review-<number>, as worktree create makes one) at its head, with gh pr view and

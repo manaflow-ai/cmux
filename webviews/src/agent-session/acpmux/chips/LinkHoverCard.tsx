@@ -46,6 +46,7 @@ export function LinkHoverCard({
   siteTitle,
   pullRequest,
   side,
+  onOpenLink,
 }: {
   /// For the link's `aria-describedby` while the card shows.
   id?: string;
@@ -59,6 +60,8 @@ export function LinkHoverCard({
   /// A pull request link: what the page already knows about it.
   pullRequest?: KnownPullRequest;
   side?: "top" | "bottom";
+  /** Pages without the agent host keep the original link's navigation route. */
+  onOpenLink?: (url: string) => void;
 }) {
   const t = useT();
   // Read only: the link opens in the reader's own browser as a plain link; cmux's tabs are the owner's.
@@ -77,11 +80,11 @@ export function LinkHoverCard({
   }, [item, hover.intent]);
   // Any http(s) link opens in a cmux tab as a click on it does (`browser.openIn` with cmux's own id,
   // which spends the click's gesture); `browser.open` takes only a turn's local preview page.
-  const openInCmux = (url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" });
+  const openLink = onOpenLink ?? ((url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" }));
   const onOpen = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    openInCmux(href);
+    openLink(href);
   };
   // Not an issue's, and not a read-only transcript's: the side chat is the owner's. Only the agent
   // pane serves `pr.review` (App.tsx's direct action); other pages that show this card (the
@@ -113,7 +116,7 @@ export function LinkHoverCard({
             {t("image.open")}
             <span aria-hidden="true">↗</span>
           </button>
-          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} chevron />
+          <OpenInMenu url={href} onOpenInPane={openLink} onOpenChange={hover.menuChanged} chevron />
         </span>
       )}
     </div>
