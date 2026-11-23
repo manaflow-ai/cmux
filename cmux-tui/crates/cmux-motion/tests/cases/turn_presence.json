@@ -1,7 +1,7 @@
 {
  "about": "The composer's Stop presence (cmux-motion src/turn_presence.rs and webviews composer/turnPresence.ts). Each case starts at time 0 with `start` running, then applies its steps in order: a step with `running` sets it (`immediate`: the person's send), one without only advances the clock. After each step `shown`, `pulses` and `wake` (next_wake, null for none) must match.",
  "dwellMs": 120,
- "lingerMs": 240,
+ "lingerMs": 480,
  "holdMs": 480,
  "cases": [
   {
@@ -84,16 +84,16 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 1240
+     "wake": 1480
     },
     {
-     "at": 1239,
+     "at": 1479,
      "shown": true,
      "pulses": 0,
-     "wake": 1240
+     "wake": 1480
     },
     {
-     "at": 1240,
+     "at": 1480,
      "shown": false,
      "pulses": 0,
      "wake": null
@@ -109,7 +109,7 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 1240
+     "wake": 1480
     },
     {
      "at": 1010,
@@ -129,7 +129,7 @@
      "running": false,
      "shown": true,
      "pulses": 1,
-     "wake": 1840
+     "wake": 2080
     },
     {
      "at": 1601,
@@ -162,22 +162,22 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 600
+     "wake": 610
     },
     {
      "at": 370,
      "shown": true,
      "pulses": 0,
-     "wake": 600
+     "wake": 610
     },
     {
-     "at": 599,
+     "at": 609,
      "shown": true,
      "pulses": 0,
-     "wake": 600
+     "wake": 610
     },
     {
-     "at": 600,
+     "at": 610,
      "shown": false,
      "pulses": 0,
      "wake": null
@@ -193,35 +193,35 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 240
+     "wake": 480
     },
     {
-     "at": 240,
+     "at": 480,
      "shown": false,
      "pulses": 0,
      "wake": null
     },
     {
-     "at": 250,
+     "at": 490,
      "running": true,
      "shown": false,
      "pulses": 0,
-     "wake": 720
+     "wake": 960
     },
     {
-     "at": 370,
+     "at": 610,
      "shown": false,
      "pulses": 0,
-     "wake": 720
+     "wake": 960
     },
     {
-     "at": 719,
+     "at": 959,
      "shown": false,
      "pulses": 0,
-     "wake": 720
+     "wake": 960
     },
     {
-     "at": 720,
+     "at": 960,
      "shown": true,
      "pulses": 0,
      "wake": null
@@ -237,16 +237,16 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 240
+     "wake": 480
     },
     {
-     "at": 240,
+     "at": 480,
      "shown": false,
      "pulses": 0,
      "wake": null
     },
     {
-     "at": 260,
+     "at": 500,
      "running": true,
      "immediate": true,
      "shown": true,
@@ -270,10 +270,10 @@
      "running": false,
      "shown": true,
      "pulses": 0,
-     "wake": 250
+     "wake": 490
     },
     {
-     "at": 250,
+     "at": 490,
      "shown": false,
      "pulses": 0,
      "wake": null

@@ -18,10 +18,11 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// How long a turn runs before Stop shows (the motion scale's micro step).
 export const DWELL_MS = MOTION_MS.micro;
-/// How long Stop stays after a turn ends (the motion scale's large step).
-export const LINGER_MS = MOTION_MS.large;
 /// The shortest time Stop is drawn, or not drawn, before it may change again.
 export const HOLD_MS = 480;
+/// How long Stop stays after a turn ends: the hold. A queued prompt or another agent's message
+/// opens its turn 50-400 ms after it lands (Leo's 2026-11-22 22:05Z session: 49, 220 and 400 ms).
+export const LINGER_MS = HOLD_MS;
 
 export class TurnPresence {
   private runningNow: boolean;

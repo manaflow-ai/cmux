@@ -32,8 +32,10 @@
 /// How long a turn runs before Stop shows: the motion scale's `micro` step.
 pub const TURN_PRESENCE_DWELL_MS: u64 = 120;
 /// How long Stop stays after the turn ends, so a turn that starts right after
-/// keeps it: the motion scale's `large` step.
-pub const TURN_PRESENCE_LINGER_MS: u64 = 240;
+/// keeps it: the hold. A queued prompt or another agent's message opens its turn
+/// 50-400 ms after it lands (Leo's 2026-11-22 22:05Z session: 49, 220 and
+/// 400 ms), so a shorter linger drops Stop and draws it again half a second on.
+pub const TURN_PRESENCE_LINGER_MS: u64 = TURN_PRESENCE_HOLD_MS;
 /// The shortest time Stop is drawn, or not drawn, before it may change again.
 pub const TURN_PRESENCE_HOLD_MS: u64 = 480;
 
@@ -203,7 +205,8 @@ mod tests {
 
     #[test]
     fn rapid_bursts_never_toggle_stop_for_less_than_the_hold() {
-        // A turn that ends and starts again every 20-300 ms, for 10 s.
+        // A turn that ends and starts again every 20-1000 ms, for 10 s: some
+        // restarts land inside the linger (a pulse), some after it.
         let mut steps = Vec::new();
         let mut at = 10;
         let mut running = false;
@@ -212,7 +215,7 @@ mod tests {
             running = !running;
             steps.push((at, running, false));
             seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            at += 20 + (seed >> 33) % 280;
+            at += 20 + (seed >> 33) % 980;
         }
         let drawn = spans(false, &steps, 12_000);
         assert!(drawn.len() > 4, "the bursts drew Stop: {drawn:?}");

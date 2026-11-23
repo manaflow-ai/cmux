@@ -5,7 +5,8 @@ import corpus from "../../../../../cmux-tui/crates/cmux-motion/tests/cases/turn_
 import { DWELL_MS, HOLD_MS, LINGER_MS, TurnPresence } from "./turnPresence";
 
 test("the page's Stop presence uses the corpus's timings", () => {
-  expect({ dwell: DWELL_MS, linger: LINGER_MS, hold: HOLD_MS }).toEqual({
+  const page: Record<string, number> = { dwell: DWELL_MS, linger: LINGER_MS, hold: HOLD_MS };
+  expect(page).toEqual({
     dwell: corpus.dwellMs,
     linger: corpus.lingerMs,
     hold: corpus.holdMs,
