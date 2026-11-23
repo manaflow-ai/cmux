@@ -1722,11 +1722,12 @@ export function paneSnapshotEffect({
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
           ),
-        "chat.plan.build": ({ permissionId, target, sessionId }) =>
+        "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
             String(permissionId),
             planBuildTarget(target),
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
+            typeof plan === "string" && plan.trim() ? plan : undefined,
           ),
         "chat.plan.compare": ({ buildId, sessionId }) =>
           client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),
