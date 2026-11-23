@@ -77,7 +77,9 @@ fn arm_heads() -> Vec<String> {
         }
         // An arm head is at 8 spaces; deeper lines are arm bodies.
         let Some(code) = line.strip_prefix("        ") else { continue };
-        if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
+        if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p))
+            // The body brace of an arm whose guard spans lines (`) =>` then `{`).
+            || code == "{" {
             continue;
         }
         let known = ["method::", "| ", "\"", "super::", "crate::", "m if ", "name if ", "other"];
