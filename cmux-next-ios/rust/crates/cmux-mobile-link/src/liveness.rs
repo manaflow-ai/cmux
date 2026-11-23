@@ -2,7 +2,7 @@
 //!
 //! The service lists a Mac online while its signaling socket is open, and fresh while the
 //! socket's application pings keep coming (PROTOCOL.md "Mac freshness"). On a Mac at load 90 on
-//! 15 cores with its swap full (cosmic-gray, 2026-11-23, cmux#52200), the host's shared runtime
+//! 15 cores with its swap full (2026-11-23, cmux#52200), the host's shared runtime
 //! fell behind: its workers were busy or blocked, so the keepalive tick and the reads of the
 //! service's pongs waited behind that work, the pings stopped, and the phone showed the Mac
 //! offline for 50 min while it was up. The socket's own work is a few small frames every 15 s,

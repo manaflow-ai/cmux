@@ -241,3 +241,72 @@ async fn a_network_change_keeps_a_link_that_answers() {
     serving.abort();
     answering.abort();
 }
+
+/// A Mac at load 90 on 15 cores with its swap full (cmux#52200): its daemon did not run
+/// for seconds at a time while its peers kept answering, and when it ran again its ping tick
+/// could fire before the reads of those answers and drop every link for "6-13 s without a
+/// frame". Here the runtime that serves the link is held by blocking work for 8 s at a time
+/// (past the 6 s budget), four times, beside 2x cores busy threads, while the peer answers each
+/// ping on its own thread: the link is kept. A peer that says nothing is still dropped in
+/// seconds (`a_silent_peer_still_loses_the_link_within_8_s`).
+#[test]
+fn a_starved_daemon_keeps_the_link_of_a_peer_that_kept_answering() {
+    use futures_util::StreamExt;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    const STALL: Duration = Duration::from_secs(8);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    // The peer: its own thread and runtime, answering each ping (tungstenite's own pong).
+    let answering = Arc::new(AtomicBool::new(true));
+    let answers = Arc::clone(&answering);
+    let peer_side = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async move {
+            let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+            while answers.load(Ordering::Relaxed) {
+                match tokio::time::timeout(Duration::from_millis(200), server.next()).await {
+                    Ok(Some(Ok(_))) | Err(_) => {}
+                    Ok(_) => return,
+                }
+            }
+        });
+    });
+    let stop = Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let spinners: Vec<_> = (0..cores * 2)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut x = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let ended = runtime.block_on(async move {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        // No handshake here: the stand-in only answers pings.
+        Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+            Duration::from_secs(3_600);
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let serving = tokio::spawn(async move { peer.serve(client, &mut out_rx).await });
+        for _ in 0..4 {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            // Blocking work on the daemon's runtime: nothing else here runs meanwhile.
+            tokio::spawn(async { std::thread::sleep(STALL) }).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if serving.is_finished() { Some(serving.await.unwrap()) } else { None }
+    });
+    stop.store(true, Ordering::Relaxed);
+    answering.store(false, Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+    drop(runtime);
+    let _ = peer_side.join();
+    assert!(ended.is_none(), "the link to a peer that kept answering ended: {ended:?}");
+}
