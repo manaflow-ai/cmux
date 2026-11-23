@@ -681,7 +681,7 @@ COLOUR_TOKEN_PATHS = (
     "webviews/src/find/", "webviews/src/gallery/", "webviews/src/pages/shared/desktop.css", "webviews/src/styles.css",
     "webviews/src/agent-session/shared/styles.css", "webviews/src/agent-session/shared/agentBrands.generated.ts",
     "webviews/src/agent-session/acpmux/diffTheme.ts", "webviews/src/agent-session/acpmux/projectGlyphs.tsx",
-    "webviews/src/agent-session/acpmux-preview/", "webviews/src/agent-session/acpmux/prototype/",
+    "webviews/src/agent-session/acpmux-preview/",
     "webviews/src/pages/settings/mockThemes.ts", "webviews/src/prototypes/",
     f"{NATIVE_SOURCES}/CmuxNextDesignTokens/", f"{NATIVE_SOURCES}/CmuxNextDesign/GroupColor",
     f"{NATIVE_SOURCES}/CmuxNextDesign/ThemeRGB", f"{NATIVE_SOURCES}/CmuxNextSettings/Schema/SettingsSchema+Samples.generated.swift",

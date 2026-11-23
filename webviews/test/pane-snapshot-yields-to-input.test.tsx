@@ -351,3 +351,21 @@ test("a pick coming back from the daemon (model, effort, access) draws at once; 
   );
   expect(drawsAtOnce(base, withSummary({ usage: { used: 10, size: 100 } })), "a usage update").toBe(false);
 });
+
+// Leo, 2026-11-22: "scrolling.. bit of blank screening when the content loads". A page of older history lands
+// while the reader scrolls up; as a transition, each scroll frame's urgent render restarted it, and a dragged
+// scroll drew none of it until it stopped (bench/transcript-scroll-up.bench.ts MODE=drag: 15 to 28 blank frames).
+test("older history the reader scrolls up to draws at once; a streamed reply under it does not", async () => {
+  const { drawsAtOnce } = await import("../src/agent-session/acpmux/paneSnapshotLane");
+  const { PromptHeads } = await import("../src/agent-session/acpmux/promptHeads");
+  const held = chat(10, [row("reply", "assistant", "Done.")], { canLoadOlder: true, historyFrom: 500 });
+  const page = { ...held, rows: [row("user-1", "user", "older"), ...held.rows], historyFrom: 1 } as AcpmuxSnapshot;
+  expect(drawsAtOnce(held, page), "a page lands above the first row").toBe(true);
+  expect(drawsAtOnce(held, { ...held, historyFrom: 400 } as AcpmuxSnapshot), "a read that drew no row").toBe(true);
+  expect(drawsAtOnce(held, { ...held, canLoadOlder: false } as AcpmuxSnapshot), "the top was reached").toBe(true);
+  expect(drawsAtOnce(held, { ...held, promptCount: 900 } as AcpmuxSnapshot), "the prompt count came").toBe(true);
+  const heads = PromptHeads.of([{ seq: 3, at: 0, text: "an older prompt" }]);
+  expect(drawsAtOnce(held, { ...held, earlierPrompts: heads } as AcpmuxSnapshot), "the prompt index came").toBe(true);
+  const grown = { ...held, rows: [...held.rows.slice(0, -1), row("reply", "assistant", "Done. More")] };
+  expect(drawsAtOnce(held, grown as AcpmuxSnapshot), "a reply that grows is still a transition").toBe(false);
+});

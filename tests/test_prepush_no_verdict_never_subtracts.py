@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -202,6 +203,177 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         self.fake_scanner("print('webviews/a.ts:1: [fake] old debt')\nraise SystemExit(1)\n")
         base, head = self.scanner_push()
         self.assertEqual(dict(self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)), {})
+
+    # Leo 2026-11-22: a gate refuses only for the pusher's own diff. A NoVerdict is never subtracted (above), but one
+    # whose cause is outside the diff (the check gave no verdict at the base too) carries that cause, and on a hook
+    # run main() warns with it and lets the push through (own_refusals). One the push's change caused still refuses,
+    # and every other run (CI's --base/--head and --commits, which take the check code from the pushed head on both
+    # sides) refuses any no verdict, as before (#50633 review B1/B3).
+
+    def test_a_scanner_that_crashes_alike_on_both_sides_warns_and_passes(self) -> None:
+        self.fake_scanner(CRASH)
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        self.assertRefusedWithNoVerdict(dict(found)["Fake check"], "crash alike")
+        refused, warned = self.gate.own_refusals(found, hook=True)
+        self.assertEqual(refused, [], "a check broken without the push refused it")
+        self.assertEqual(len(warned), 1, warned)
+        self.assertIn("WARNING: Fake check", warned[0])
+        self.assertIn("no verdict at the base either", warned[0])
+        self.assertNotIn("push is refused", warned[0], "the warning that lets the push through says it is refused")
+        self.assertEqual(self.gate.own_refusals(found, hook=False), (found, []), "off a hook run it must refuse")
+
+    def test_a_scanner_the_push_crashes_still_refuses(self) -> None:
+        # The base judges; only the pushed file crashes the scanner: the push's own change stopped it.
+        self.fake_scanner("import pathlib, sys\n"
+                          "if '2' in (pathlib.Path(sys.argv[1]) / 'webviews/a.ts').read_text():\n    " + CRASH)
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        refused, warned = self.gate.own_refusals(found, hook=True)
+        self.assertEqual(warned, [])
+        self.assertRefusedWithNoVerdict(dict(refused)["Fake check"], "a crash the push caused")
+
+    def short_timeout(self) -> None:
+        original = self.gate.loaded_timeout
+        self.gate.loaded_timeout = lambda seconds: 1.0
+        self.addCleanup(setattr, self.gate, "loaded_timeout", original)
+
+    def test_a_scanner_that_judged_the_base_and_times_out_at_the_head_refuses(self) -> None:
+        # #50633 review B2: a timeout at the head counts as outside the diff only when the base run of the same check
+        # gave no verdict too. Here the base judged and only the pushed file hangs the scanner, through run().
+        self.short_timeout()
+        self.fake_scanner("import pathlib, sys, time\n"
+                          "if '2' in (pathlib.Path(sys.argv[1]) / 'webviews/a.ts').read_text():\n    time.sleep(60)\n")
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        refused, warned = self.gate.own_refusals(found, hook=True)
+        self.assertEqual(warned, [], "a timeout the push caused was warned about and let through")
+        self.assertRefusedWithNoVerdict(dict(refused)["Fake check"], "a timeout the push caused")
+        self.assertTrue(any("timed out" in r for r in dict(refused)["Fake check"]), refused)
+
+    def test_a_scanner_that_judged_the_base_and_is_killed_at_the_head_refuses(self) -> None:
+        self.fake_scanner("import os, pathlib, signal, sys\n"
+                          "if '2' in (pathlib.Path(sys.argv[1]) / 'webviews/a.ts').read_text():\n"
+                          "    os.kill(os.getpid(), signal.SIGKILL)\n")
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        refused, warned = self.gate.own_refusals(found, hook=True)
+        self.assertEqual(warned, [])
+        self.assertRefusedWithNoVerdict(dict(refused)["Fake check"], "a kill the push caused")
+
+    def test_a_scanner_that_times_out_on_both_sides_warns_and_passes(self) -> None:
+        self.short_timeout()
+        self.fake_scanner("import time\ntime.sleep(60)\n")
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        refused, warned = self.gate.own_refusals(found + [("Other", ["webviews/a.ts:1: [other] a real finding"])],
+                                                 hook=True)
+        self.assertEqual(refused, [("Other", ["webviews/a.ts:1: [other] a real finding"])],
+                         "a real finding beside a timeout must still refuse")
+        self.assertEqual(len(warned), 1, warned)
+        self.assertIn("timed out", warned[0])
+
+    def test_the_reserved_keys_layer_crashing_alike_warns(self) -> None:
+        base, head = self.reserved_repo()
+        found = self.quiet(self.gate.reserved_keys, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "reserved keys")
+        self.assertEqual(self.gate.own_refusals([(self.gate.RESERVED_CHECK, found)], hook=True)[0], [])
+
+    def run_main(self, push_range=None, argv: list[str] | None = None, hook: bool = False) -> tuple[int, str]:
+        """main() with PUSH_RANGE in place of push_range.py: a hook run (--pre-push with the installed copy, off
+        GitHub Actions) when HOOK, else CI's --base/--head run (ARGV, by default HEAD against itself)."""
+        if push_range is not None:
+            original = self.gate.load_push_range
+            push_range.manual_range = push_range.given_range  # _main reads it before it takes --base's given_range
+            push_range.pushed_ranges = lambda repo, lines, remote: (push_range.given_range(repo, "HEAD", "HEAD"), [])
+            self.gate.load_push_range = lambda repo, scripts: push_range
+            self.addCleanup(setattr, self.gate, "load_push_range", original)
+        self.addCleanup(setattr, self.gate, "HOOK_RUN", False)
+        self.commit_any()
+        if hook:
+            argv = ["--pre-push", "--trusted-scripts-dir", str(self.installed)]
+        argv = ["--repo", str(self.repo), "--no-guardrails",
+                *(argv or ["--head", "HEAD", "--base", "HEAD"])]
+        environ = {k: v for k, v in os.environ.items() if k != "GITHUB_ACTIONS"}
+        out = io.StringIO()
+        with (unittest.mock.patch.dict(os.environ, environ, clear=True), unittest.mock.patch("sys.stdin", io.StringIO("")),
+              contextlib.redirect_stdout(out), contextlib.redirect_stderr(out)):
+            try:
+                code = self.gate.main(argv)
+            except SystemExit as error:  # a CannotDecide off a hook run: SystemExit(message), exit 1
+                print(error.code)
+                code = 1
+        return code, out.getvalue()
+
+    def commit_any(self) -> None:
+        self.write("any.txt", "any\n")
+        self.commit("any")
+
+    class Unbounded:
+        @staticmethod
+        def given_range(repo, base, head):
+            raise ValueError("refs/heads/x: nothing tells which commits are this push's own; run `git fetch origin`")
+
+    def cannot_decide(self):
+        gate = self.gate
+
+        class Broken:
+            @staticmethod
+            def given_range(repo, base, head):
+                raise gate.CannotDecide("prepush-gate: lint-tools.lock is missing; rerun scripts/install-git-hooks.sh")
+        return Broken
+
+    def test_an_unbounded_hook_push_warns_and_passes(self) -> None:
+        code, out = self.run_main(self.Unbounded, hook=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("goes through UNCHECKED", out)
+        self.assertIn("git fetch origin", out)
+
+    def test_an_unbounded_ci_run_still_fails(self) -> None:
+        code, out = self.run_main(self.Unbounded)
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("UNCHECKED", out)
+
+    def test_a_hook_gate_that_cannot_decide_warns_and_passes(self) -> None:
+        code, out = self.run_main(self.cannot_decide(), hook=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("lint-tools.lock is missing", out)
+        self.assertIn("goes through UNCHECKED", out)
+
+    def test_a_ci_gate_that_cannot_decide_still_fails(self) -> None:
+        code, out = self.run_main(self.cannot_decide())
+        self.assertEqual(code, 1, out)
+        self.assertIn("lint-tools.lock is missing", out)
+        self.assertNotIn("UNCHECKED", out)
+
+    def test_a_ci_run_with_a_no_verdict_fails(self) -> None:
+        # CI's --base/--head run: the scanner crashes alike on both sides, which a hook run warns about. Here it fails.
+        self.fake_scanner(CRASH)
+        base, head = self.scanner_push()
+        code, out = self.run_main(argv=["--only", "scanners", "--base", base, "--head", head])
+        self.assertEqual(code, 1, out)
+        self.assertIn("push refused", out)
+        self.assertNotIn("goes through unchecked", out)
+
+    def test_a_ci_run_of_a_push_that_breaks_its_checker_fails(self) -> None:
+        # B1: off a hook run the check code is the pushed head's on both sides, so a push that breaks the checker
+        # makes it stop at the base too ("no verdict at the base either"). CI must still fail it.
+        self.fake_scanner("print('webviews/a.ts:1: [fake] old debt')\nraise SystemExit(1)\n")
+        self.write("webviews/a.ts", "// a finding here\nexport const a = 1\n")
+        base = self.commit("base")
+        self.write("scripts/cmux-next/fake-check.py", CRASH)  # the push breaks the checker
+        self.write("webviews/a.ts", "// a finding here\nexport const a = 2\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        self.assertTrue(all(r.outside for r in dict(found)["Fake check"]), "the fixture is the review's case")
+        code, out = self.run_main(argv=["--only", "scanners", "--base", base, "--head", head])
+        self.assertEqual(code, 1, out)
+        self.assertIn("Fake check", out)
+        self.assertNotIn("UNCHECKED", out)
+
+    def test_a_deleted_input_is_the_push_s_own_and_refuses(self) -> None:
+        found = self.gate.deleted_input_refusals("Some check", ["a.json"])
+        self.assertEqual(self.gate.own_refusals([("Some check", found)], hook=True), ([("Some check", found)], []))
 
     def test_gate_own_never_takes_a_no_verdict_off(self) -> None:
         # A merge: the upstream range's run crashes the same way as the push's own, and must not take its refusal off.

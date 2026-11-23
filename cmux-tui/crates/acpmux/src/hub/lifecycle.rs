@@ -5,7 +5,7 @@ use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
-use super::new_request::{claude_resume_refusal, unique_name_among};
+use super::new_request::{claude_resume_refusal, suffixed_name_among, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
@@ -93,6 +93,7 @@ impl Hub {
             harness,
             preset,
             name,
+            suffix_taken_name,
             cwd,
             policy,
             model,
@@ -112,6 +113,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             stop_condition,
+            restricted,
             person,
             wait_start,
             throwaway,
@@ -228,6 +230,17 @@ impl Hub {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
         };
+        // Every model a chat starts on, from any entry point (`new -m`, `exec -m`, ACP and MCP
+        // starts, a preset, the defaults, a saved pick), as the catalog names it: `fable-5.2`
+        // runs as `claude-fable-5-2` (`model_alias.rs`).
+        let model_rewrite = match &model {
+            Some(m) => Some(self.canonical_model_for(agent, &profile, m)?).filter(|c| c.changed()),
+            None => None,
+        };
+        let model = match model_rewrite.as_ref() {
+            Some(c) => Some(c.model.clone()),
+            None => model,
+        };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
             (false, Some(start)) => (Some(start.value), true),
@@ -294,6 +307,14 @@ impl Hub {
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
         }
+        // Claude Code takes a plain start effort on its command line (`--effort`), as it takes
+        // the model: set after `initialize` it cost one `apply_flag_settings` round trip
+        // (213-271 ms on a Linux lane VM) before the chat could take its first prompt. Anything
+        // else (another harness, "default", Ultracode) is still set live below.
+        meta.effort_request = effort
+            .clone()
+            .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
+            .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -301,6 +322,11 @@ impl Hub {
         // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
             stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
+        // Read-only in a folder not trusted (`restricted.rs`): only a harness that can keep it.
+        if restricted && !super::restricted::kept_by(&profile) {
+            return Err(super::restricted::unsupported(&meta.harness));
+        }
+        meta.restricted = restricted;
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -326,6 +352,7 @@ impl Hub {
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && meta.stop_condition.is_none()
+            && !meta.restricted
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
@@ -379,11 +406,18 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
+                    let taken = sessions.values().any(|s| s.read_meta(|m| m.name == n));
+                    // A placed or forwarded start keeps its name, suffixed (`NAME-2`), never the
+                    // agent's; any other start is refused, so `new --reuse` finds the one running.
+                    let n = if taken && suffix_taken_name {
+                        suffixed_name_among(&sessions, &n)
+                    } else if taken {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
-                    }
+                    } else {
+                        n
+                    };
                     // The name is a handle (a lane's): the chat is still titled (`titles.rs`).
                     meta.title_source = Some(super::titles::LAUNCHED.to_owned());
                     meta.name_given = true;
@@ -449,6 +483,9 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(c) = &model_rewrite {
+            self.record_model_rewrite(&session, c, "new");
+        }
         // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
         cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
@@ -527,7 +564,17 @@ impl Hub {
                         }
                     }
                 }
-            if let Some(e) = &effort {
+            // A process spawned on this effort (`effort_request`), as it reported it, is not
+            // asked again; one that runs another (a pooled agent, which starts on the harness's
+            // own level) is switched live.
+            let spawned_on = |e: &str| {
+                let m = session.meta();
+                m.effort_request.as_deref() == Some(e) && current_effort(&m).as_deref() == Some(e)
+            };
+            if let Some(e) = effort.as_deref().filter(|e| spawned_on(e)) {
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).effort =
+                    Some(e.to_owned());
+            } else if let Some(e) = &effort {
                 match self.set_config(&session, "effort", json!(e)).await {
                     Ok(_) => {}
                     Err(err) if effort_soft => {
@@ -1249,7 +1296,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
+            let effort = spawn_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
                 &meta,
@@ -1323,6 +1370,8 @@ impl Hub {
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
             plan.args.extend(super::stop_condition::claude_args(&meta));
+            // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
+            plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
@@ -1917,6 +1966,10 @@ mod stop_fence_tests;
 #[cfg(test)]
 #[path = "probe_off_tests.rs"]
 mod probe_off_tests;
+
+#[cfg(test)]
+#[path = "taken_name_tests.rs"]
+mod taken_name_tests;
 
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it

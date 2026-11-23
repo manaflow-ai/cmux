@@ -73,6 +73,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "sound_rules":
       // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
       return "a sound_rules row on the page";
+    case "json":
+      // The sidebar row layouts are page_hidden until the row-layout editor gives them a control.
+      return "a json row on the page";
   }
 }
 
