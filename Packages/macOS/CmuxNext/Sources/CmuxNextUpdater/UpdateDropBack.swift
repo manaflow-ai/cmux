@@ -28,7 +28,7 @@ public struct UpdateDropBack {
     /// build left behind is no longer offered, and the app relaunches into the kept build with every
     /// session kept.
     @discardableResult
-    public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
+    public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?], picksBuild: Bool = true) async throws -> KeptVersion {
         if checkOnly {
             let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
             return try updater.rollbackDecision(to: build, inputs: inputs).get()
@@ -37,14 +37,14 @@ public struct UpdateDropBack {
         guard !updater.switchRunning else { throw RollbackRefusal.busy }
         updater.switchRunning = true
         defer { updater.switchRunning = false }
-        return try await runClaimed(to: build, stateDirectories: stateDirectories)
+        return try await runClaimed(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` once the caller holds ``UpdaterService/switchRunning``
     /// (``UpdaterService/switchToBuild(_:)`` holds it from before its download). Each step shows on
     /// the sidebar's notice card (``UpdaterService/revert``) and on the Channels card's pressed
     /// button (``UpdaterService/buildSwitchProgress``).
-    func runClaimed(to build: String?, stateDirectories: [URL?]) async throws -> KeptVersion {
+    func runClaimed(to build: String?, stateDirectories: [URL?], picksBuild: Bool = true) async throws -> KeptVersion {
         Self.mark("revert.clicked")
         let started = ContinuousClock.now
         updater.revert = RevertProgress(step: .checking, target: build)
@@ -53,7 +53,7 @@ public struct UpdateDropBack {
             let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
             Self.mark("revert.inputs_read")
             updater.log.append("rollback: checked \(build ?? "the previous build") in \(started.duration(to: .now))")
-            let swapped = try await updater.swapForRollback(to: build, inputs: inputs)
+            let swapped = try await updater.swapForRollback(to: build, inputs: inputs, picksBuild: picksBuild)
             try await restart(into: swapped)
             return swapped.target
         } catch {
@@ -129,11 +129,16 @@ public struct UpdateDropBack {
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
-    /// user reads (a refusal's message, or the swap's error).
-    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false) async -> String? {
-        if build == nil, !claimed { return await goBack(stateDirectories: stateDirectories) }
+    /// user reads (a refusal's message, or the swap's error). `picksBuild` false (the install
+    /// check's automatic rollback) leaves no pick, so the next newer build installs as set.
+    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false, picksBuild: Bool = true) async -> String? {
+        if build == nil, !claimed, picksBuild { return await goBack(stateDirectories: stateDirectories) }
         do {
-            if claimed { try await runClaimed(to: build, stateDirectories: stateDirectories) } else { try await run(to: build, stateDirectories: stateDirectories) }
+            if claimed {
+                try await runClaimed(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
+            } else {
+                try await run(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
+            }
             return nil
         } catch {
             return message(error)

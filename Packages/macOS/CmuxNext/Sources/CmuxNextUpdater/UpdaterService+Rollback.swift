@@ -196,8 +196,10 @@ extension UpdaterService {
     /// Puts `build` (nil: the previous build) in place of the running bundle when
     /// ``rollbackDecision`` allows it, and stops offering the build left behind. The swap runs on
     /// the files lane (it clones the running bundle). The caller relaunches
-    /// (``UpdateDropBack/run(to:checkOnly:stateDirectories:)``).
-    func swapForRollback(to build: String?, inputs: RollbackInputs) async throws -> RollbackSwapped {
+    /// (``UpdateDropBack/run(to:checkOnly:stateDirectories:)``). A person's rollback (`picksBuild`, the
+    /// default) makes the next newer build wait for their click; the install check's automatic one does
+    /// not, so the next NIGHTLY newer than the build it left behind installs as set.
+    func swapForRollback(to build: String?, inputs: RollbackInputs, picksBuild: Bool = true) async throws -> RollbackSwapped {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
         UpdateDropBack.mark("revert.decided")
         // A staged update would install as the quit ends and relaunch forward (cmux#41013 review
@@ -231,7 +233,7 @@ extension UpdaterService {
         }
         UpdateDropBack.mark("revert.swapped")
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
-        defaults.set(target.build, forKey: Self.pickedBuildKey)
+        recordPick(target.build, picksBuild: picksBuild)
         controller?.skipsBuildsThrough = identity.build
         log.append("rolled back \(identity.build) -> \(target.build)")
         return RollbackSwapped(target: target, targetRecord: targetRecord, skip: swapped.skip, picked: swapped.picked)
@@ -286,6 +288,12 @@ extension UpdaterService {
             }
         }
         return keptRunningBuild != .running
+    }
+
+    /// The pick a rollback to `build` leaves: the person's own (`picksBuild`) makes the next newer
+    /// build wait for their click; the install check's automatic one leaves none, so it installs as set.
+    func recordPick(_ build: String, picksBuild: Bool) {
+        if picksBuild { defaults.set(build, forKey: Self.pickedBuildKey) } else { defaults.removeObject(forKey: Self.pickedBuildKey) }
     }
 
     /// Restores the skip after a rollback at launch, and asks before installing while the build the
