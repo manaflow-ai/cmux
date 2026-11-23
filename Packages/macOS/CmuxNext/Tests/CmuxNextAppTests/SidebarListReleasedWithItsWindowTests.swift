@@ -56,6 +56,22 @@ import Testing
     func aClosedListLeavesNothingAlive(pinnedGroup: Bool) throws {
         let c = PinnedRowsShareHomeColumnTests.Case(density: .compact, minimal: .off, textSize: .standard, scale: 2)
         let made = try Self.makeAndClose(c, preset: .compact, pinnedGroup: pinnedGroup)
+        if let list = made.list {
+            // DIAG (scratch only): who holds the closed list. `leaks --referenceTree` names the paths to it.
+            let address = String(format: "%p", unsafeBitCast(list, to: Int.self))
+            print("LEAKDIAG list \(address) retain=\(CFGetRetainCount(list)) superview=\(String(describing: list.superview)) window=\(String(describing: list.window))")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/leaks")
+            p.arguments = ["\(ProcessInfo.processInfo.processIdentifier)", "--referenceTree", "--groupByType", "--debug=no-symbolication"]
+            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+            try? p.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            let text = String(decoding: data, as: UTF8.self)
+            for line in text.split(separator: "\n") where line.contains("SidebarListView") || line.contains(address) {
+                print("LEAKDIAG ref \(line.prefix(300))")
+            }
+        }
         #expect(made.alive.isEmpty, "alive after the window closed: \(made.alive)")
     }
 
