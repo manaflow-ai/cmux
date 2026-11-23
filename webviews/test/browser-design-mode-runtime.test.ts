@@ -22,11 +22,13 @@ type Api = {
   draft(text: string): Snapshot;
   commit(): Snapshot;
   removeSelection(selector: string): Snapshot;
+  setSendAvailable(available: boolean): void;
+  setThread(selection: string, value: { state: string; reply?: string } | null): boolean;
 };
 
 let dom: JSDOM;
 let api: Api;
-let posted: Array<{ type: string; snapshot?: Snapshot }>;
+let posted: Array<{ type: string; snapshot?: Snapshot; selector?: string }>;
 let roots: ShadowRoot[];
 let under: Element | null;
 
@@ -228,4 +230,35 @@ test("automation fills and adds the open bubble through the same path", () => {
   api.draft("From the tour");
   api.commit();
   expect(added()).toEqual([[1, "From the tour"]]);
+});
+
+// Comment threads (cmuxterm-hq goals/all-surface-comments-round-trip.md): Command-Return sends the pick
+// to the agent chat at once, but only for a real key; the pick's thread card shows "Sent", then the reply.
+test("Command-Return adds the pick; a synthetic key never asks native to send it", () => {
+  api.setSendAvailable(true);
+  click("h1");
+  type("Make this larger");
+  key("Enter", { metaKey: true });
+  expect(added()).toEqual([[1, "Make this larger"]]);
+  expect(posted.filter((message) => message.type === "send_requested")).toEqual([]);
+});
+
+test("a pick's thread card shows Sent, then the agent's reply, and goes when the thread does", () => {
+  click("h1");
+  type("Bigger");
+  key("Enter");
+  const [pick] = api.snapshot().selections;
+  const cards = () =>
+    Array.from(root().querySelectorAll("[data-cmux-thread]")).filter(
+      (card) => (card as HTMLElement).style.display !== "none",
+    );
+  expect(api.setThread(pick!.selector, { state: "sent" })).toBe(true);
+  expect(cards()).toHaveLength(1);
+  expect(cards()[0]!.textContent).toContain("Sent");
+  api.setThread(pick!.selector, { state: "answered", reply: "Done: 48 pt now." });
+  expect(cards()[0]!.textContent).toContain("Done: 48 pt now.");
+  // An unknown state is no thread.
+  api.setThread(pick!.selector, { state: "bogus" });
+  expect(cards()).toHaveLength(0);
+  expect(api.setThread("#nothing", { state: "sent" })).toBe(false);
 });
