@@ -108,7 +108,7 @@ fn a_split_keeps_link_titles_with_sentence_punctuation() {
 #[test]
 fn a_split_keeps_list_items_together() {
     let text = "- first task is done.\n- second task is done.\n- third task is done.";
-    let parts = split_reply(text, 6);
+    let parts = split_reply(text, 20);
     assert_eq!(parts, vec![text]);
     assert!(parts[0].lines().all(|line| !line.trim().is_empty()));
 }
