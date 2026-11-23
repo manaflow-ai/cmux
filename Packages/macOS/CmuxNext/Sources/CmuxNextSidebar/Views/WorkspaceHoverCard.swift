@@ -218,6 +218,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        body.configurePaneShape(workspace.paneShape)
         return content
     }
 
@@ -413,6 +414,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The kind icon, leading the name on the card's icon column; a Cloud or remote card has none
     /// (its machine reads once, in `hostLabel`).
     private let kindIcon = HoverCardIconView()
+    /// The shown screen's splits (ask-890db939a2); hidden for a one-pane workspace.
+    let paneShape = WorkspacePaneShapeView()
     /// Where a Cloud or remote workspace runs ("Cloud", the host's name), once, in the secondary ink
     /// after the name, its reachability dot beside it; local has none (Leo 2026-11-02, on a card that
     /// said Cloud four times: "the tiny cloud icon the repeated cloud cloud cloud").
@@ -564,8 +567,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         // The shipped card is Rex-style: tabs are immediately available and a one-click
         // details disclosure keeps the existing rich content available. Gallery variants
         // retain their requested tab placement when details are expanded.
-        var rows: [NSView] = [customSlot, titleRow, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
-        let tabIndex = tabPlacement == .afterTitle ? 3 : (tabPlacement == .afterStatus ? 5 : 9)
+        var rows: [NSView] = [customSlot, titleRow, paneShape, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
+        let tabIndex = tabPlacement == .afterTitle ? 4 : (tabPlacement == .afterStatus ? 6 : 10)
         rows.insert(tabList, at: tabIndex)
         rows.insert(detailsToggle, at: tabIndex + 1)
         let stack = NSStackView(views: rows)
@@ -597,6 +600,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            paneShape.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             activity.centerXAnchor.constraint(equalTo: activitySlot.centerXAnchor),
@@ -857,6 +861,13 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
+    /// Shows `shape`, the workspace's splits, under the title; nil hides the miniature.
+    func configurePaneShape(_ shape: SidebarPaneShape?) {
+        guard paneShape.shape != shape else { return }
+        contentChanged()
+        paneShape.shape = shape
+    }
+
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
         contentChanged()
         tabList.configure(title: title, tabs: tabs, now: now, machine: machine)
@@ -1068,6 +1079,7 @@ extension WorkspaceHoverCardView {
     func applyColors() {
         tabList.applyColors()
         detailsToggle.applyColors()
+        paneShape.applyColors()
         performWithTheme {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.

@@ -1,5 +1,6 @@
 """Unit tests for screen-share-vs.py: the budget table, compare, the motion frame score and the
-Apple (RFB) leg's focus click, click mode and stall handling, with fakes (no Mac, no network).
+Apple (RFB) leg's focus click, click mode and stall handling, and the --app-viewer presented leg,
+with fakes (no Mac, no network).
 
   python3 -m unittest cmux-tui/crates/cmux-rd-host/scripts/test_screen_share_vs.py
 """
@@ -10,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import socket
 import sys
 import tempfile
@@ -440,6 +442,241 @@ class RfbLeg(unittest.TestCase):
         finally:
             a.close()
             b.close()
+
+
+APP = "/Users/u/ss-ultra/cmux DEV ssultra54ea.app"
+
+
+def run_argv(*extra):
+    return ["run", "--host", "cmux20", "--viewer", "cmux17", "--host-ip", "10.0.0.20", *extra]
+
+
+class AppViewerArgs(unittest.TestCase):
+    def test_flags_reach_the_run_namespace(self):
+        a = vs.build_parser().parse_args(run_argv(
+            "--app-viewer", APP, "--app-viewer-env", "CMUX_AUTH_CREDENTIALS_FILE=/tmp/c.json",
+            "--app-host-app", "/Applications/cmux DEV host.app", "--presented-input", "click",
+            "--encode-profile", "ultra", "--max-fps", "120"))
+        self.assertEqual(a.app_viewer, APP)
+        self.assertEqual(a.app_viewer_env, ["CMUX_AUTH_CREDENTIALS_FILE=/tmp/c.json"])
+        self.assertEqual(a.app_host_app, "/Applications/cmux DEV host.app")
+        self.assertEqual(a.presented_input, "click")
+        self.assertEqual(a.app_viewer_frame, "0,0,1500,950")
+        self.assertFalse(a.app_viewer_background)
+        self.assertIs(a.fn, vs.cmd_run)
+
+    def test_defaults_keep_the_old_presented_leg(self):
+        a = vs.build_parser().parse_args(run_argv())
+        self.assertIsNone(a.app_viewer)
+        self.assertEqual(a.presented_input, "key")
+
+    def test_env_takes_only_cmux_variables(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--app-viewer-env", "PATH=/x"))
+
+    def test_app_subcommand_parses(self):
+        a = vs.build_parser().parse_args(["app", "rpc", "debug.device_hub", '{"action": "state"}',
+                                          "--app", APP])
+        self.assertEqual((a.action, a.method, a.params, a.fn), ("rpc", "debug.device_hub",
+                                                                '{"action": "state"}', vs.cmd_app))
+
+    def test_app_viewer_needs_marker_locate_and_no_presented_pid(self):
+        with tempfile.TemporaryDirectory() as tools:
+            a = vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--tools", tools))
+            with self.assertRaises(SystemExit) as e:
+                vs.Orchestrator(a)
+            self.assertIn("screen-eval-marker-locate", str(e.exception))
+            open(os.path.join(tools, "screen-eval-marker-locate"), "w").close()
+            a = vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--tools", tools,
+                                                      "--presented-pid", "7"))
+            with self.assertRaises(SystemExit):
+                vs.Orchestrator(a)
+
+
+class AppViewerHelpers(unittest.TestCase):
+    def test_socket_paths_follow_control_socket_path(self):
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.ssultra54ea", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux-debug-ssultra54ea.sock",
+                          "/tmp/cmux-debug-ssultra54ea.sock"])
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.nightly", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux-nightly.sock", "/tmp/cmux-nightly.sock"])
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.SS Ultra_1", "/Users/u")[1],
+                         "/tmp/cmux-debug-ss-ultra-1.sock")
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux.sock"])
+        long_home = "/Users/" + "u" * 90
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.x", long_home),
+                         ["/tmp/cmux-debug-x.sock"])
+
+    def test_app_call_speaks_the_control_socket(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.sock")
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(path)
+            srv.listen(1)
+            got = []
+
+            def serve():
+                conn, _ = srv.accept()
+                got.append(json.loads(conn.makefile().readline()))
+                conn.sendall(b'{"id":1,"ok":true,"result":{"tabs":[]}}\n')
+                conn.close()
+
+            t = threading.Thread(target=serve)
+            t.start()
+            try:
+                out = vs.app_call([os.path.join(d, "missing.sock"), path], "debug.mac_screen",
+                                  {"action": "state"}, timeout=5)
+            finally:
+                t.join(5)
+                srv.close()
+        self.assertEqual(out, {"tabs": []})
+        self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
+        self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
+
+    def test_locate_output(self):
+        self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
+        self.assertIsNone(vs.parse_locate("no marker\n"))
+
+    def test_ledger_is_the_newest_logged_line(self):
+        def line(msg):
+            return json.dumps({"eventMessage": msg})
+        led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 4, "p50_ms": 7, "p95_ms": 9}]}
+        text = "\n".join([line("other"), line("stage ledger: " + json.dumps({"schema": "old"})),
+                          "not json", line("stage ledger: " + json.dumps(led))])
+        self.assertEqual(vs.app_ledger_from_log(text), (led, 2))
+        self.assertEqual(vs.app_ledger_from_log(""), (None, 0))
+
+
+class FakeMac:
+    """A Remote whose `screen-share-vs.py app ...` and observe calls answer like the app would."""
+
+    def __init__(self, name, answer):
+        self.name, self.answer, self.calls = name, answer, []
+
+    def run(self, cmd, timeout=120, stdin=None):
+        self.calls.append(cmd)
+        return json.dumps(self.answer(cmd)) + "\n" if not cmd.startswith("scutil") else "cmux20\n"
+
+
+class AppViewerRun(unittest.TestCase):
+    def orchestrator(self, tools, *extra):
+        open(os.path.join(tools, "screen-eval-marker-locate"), "w").close()
+        a = vs.build_parser().parse_args(run_argv(
+            "--app-viewer", APP, "--tools", tools, "--encode-profile", "ultra", "--root", "/r", *extra))
+        return vs.Orchestrator(a)
+
+    def viewer_answer(self, opened, observe=None):
+        led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 5, "p50_ms": 6.0, "p95_ms": 8.0}]}
+        row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242,
+               "window_id": 99, "session_scope": "full", "hub_session": "s1", "transport": "rd_wg",
+               "path": "direct", "window_on_primary_display": True}
+
+        def answer(cmd):
+            argv = shlex.split(cmd)
+            if argv[1:3] == ["observe", "--pid"] or argv[0].endswith("cmux-rd"):
+                return observe or {"complete": True, "samples_us": [40000, 50000, 60000], "p50_ms": 50.0}
+            self.assertEqual(argv[2:4][0], "app")
+            action, app = argv[3], argv[argv.index("--app") + 1]
+            self.assertEqual(app, APP)
+            vs.build_parser().parse_args(argv[2:])  # what the Mac's copy would parse
+            if action == "launch":
+                return {"socket": "/tmp/s", "reused": False, "encode_profile_applied": True}
+            if action == "locate":
+                return {"origin": "812,402", "cell": 32, "at": "868,418"}
+            if action == "ledger":
+                return {"ledger": led, "lines": 2}
+            method, params = argv[4], json.loads(argv[5])
+            if method == "debug.device_hub" and params["action"] == "state":
+                return {"signed_in": True, "this_device": "V", "devices": [
+                    {"id": "H", "name": "cmux20", "online": True, "shared": True}]}
+            if method == "debug.device_hub" and params["action"] == "connect":
+                opened.append(params)
+                return {"ok": True}
+            if method == "debug.mac_screen":
+                if "tab" in params:
+                    return {"tabs": [row]}
+                return {"tabs": [row] if opened else []}
+            return {}
+        return answer
+
+    def run_leg(self, o, opened, **kw):
+        o.viewer = FakeMac("cmux17", self.viewer_answer(opened, **kw))
+        o.host = FakeMac("cmux20", lambda cmd: {"pending_requests": [{"id": "s1"}], "this_device": "H"})
+        rigs = []
+        o.rig = lambda req, timeout=30: rigs.append(req["cmd"]) or {"ok": True}
+        sleeps = []
+        orig = vs.time.sleep
+        vs.time.sleep = sleeps.append
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return o.run_presented(), rigs
+        finally:
+            vs.time.sleep = orig
+
+    def test_app_mode_fills_observe_and_labels_the_source(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--presented-input", "click")
+            opened = []
+            ms, rigs = self.run_leg(o, opened)
+        self.assertEqual(ms, [40.0, 50.0, 60.0])
+        self.assertEqual(opened, [{"action": "connect", "device": "H", "scope": "full"}])
+        self.assertEqual(rigs, ["marker", "stop"])
+        observe = [c for c in o.viewer.calls if " observe " in c][0]
+        argv = shlex.split(observe)
+        for flag, want in (("--pid", "4242"), ("--window", "99"), ("--input", "click"),
+                           ("--cell-size", "32"), ("--marker-origin", "812,402"), ("--at", "868,418")):
+            self.assertEqual(argv[argv.index(flag) + 1], want, flag)
+        launch = shlex.split([c for c in o.viewer.calls if " app launch " in c][0])
+        self.assertEqual(launch[launch.index("--encode-profile") + 1], "ultra")
+        self.assertNotIn("--background", launch)
+        self.assertTrue(any('"quitEndSessions"' in c for c in o.viewer.calls))  # it launched it
+        self.assertTrue(any('"end"' in c for c in o.viewer.calls))
+        src = o.presented_source
+        self.assertEqual((src["kind"], src["pid"], src["window"], src["transport"]), ("app-viewer", 4242, 99, "rd_wg"))
+        self.assertTrue(src["encode_profile_applied"])
+        b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
+                             "presented_source": src, "app_ledger": o.app_ledger}, None)
+        total = rows_named(b)["Total"]["cmux"]
+        self.assertEqual((total["to"], total["via"], total["p50"]), ("presented", "app-viewer", 50.0))
+        self.assertEqual(b["presented_source"]["kind"], "app-viewer")
+        self.assertEqual(b["app_ledger"]["stages"]["Present"]["p50"], 6.0)
+        text = "\n".join(vs.format_budget(b))
+        self.assertIn("presented via app-viewer", text)
+        self.assertIn("app viewer ledger: Present 6/8 (n 5)", text)
+
+    def test_host_app_approves_and_names_the_device(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--app-host-app", "/Applications/cmux DEV host.app")
+            opened = []
+            self.run_leg(o, opened)
+        self.assertTrue(any('"always_full"' in c for c in o.host.calls))
+        self.assertFalse(any(c.startswith("scutil") for c in o.host.calls))
+
+    def test_an_incomplete_observe_leaves_total_at_decode(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools)
+            ms, _ = self.run_leg(o, [], observe={"complete": False, "error": "pane obscured"})
+        self.assertIsNone(ms)
+        b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
+                             "presented_source": o.presented_source}, None)
+        self.assertEqual(rows_named(b)["Total"]["cmux"]["to"], "decoded")
+        self.assertEqual(b["presented_source"]["kind"], "app-viewer")
+        self.assertIn("null", b["presented_source"])
+
+
+class PresentedSourceLabel(unittest.TestCase):
+    def test_flags_source_and_no_source(self):
+        src = vs.presented_source("presented-flags", pid=1, window=2)
+        b = vs.build_budget({"rows": [breakdown_row()], "presented": [50.0], "presented_source": src}, None)
+        self.assertEqual(rows_named(b)["Total"]["cmux"]["via"], "presented-flags")
+        b = vs.build_budget({"rows": [breakdown_row()]}, None)
+        self.assertIn("null", b["presented_source"])
+        self.assertNotIn("via", rows_named(b)["Total"]["cmux"])
+        self.assertIn("null", b["app_ledger"])
+        with self.assertRaises(ValueError):
+            vs.presented_source("bogus")
 
 
 if __name__ == "__main__":
