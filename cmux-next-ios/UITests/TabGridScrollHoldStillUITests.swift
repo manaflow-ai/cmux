@@ -27,6 +27,9 @@ final class TabGridScrollHoldStillUITests: XCTestCase {
         XCTAssertTrue(count.waitForExistence(timeout: 60), "the 29-tab grid\n\(app.debugDescription)")
         pause(3.0)
         attach(app, "0-grid-at-rest")
+        let atRest = cardCorners(app)
+        XCTAssertGreaterThanOrEqual(atRest.count, 4, "the grid's first cards, by their Close buttons")
+        assertTwoColumns(atRest, "at rest")
 
         let window = app.windows.firstMatch
         let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
@@ -43,9 +46,37 @@ final class TabGridScrollHoldStillUITests: XCTestCase {
                 }
                 pause(2.0)
                 attach(app, "\(round)-\(direction)-rest")
+                let corners = cardCorners(app)
+                assertTwoColumns(corners, "round \(round) after flinging \(direction)")
+                // Back at the top, every card sits where it sat before the flings.
+                if direction == "up" {
+                    XCTAssertEqual(corners.count, atRest.count, "round \(round): the cards on screen changed: \(corners)")
+                    for (now, before) in zip(corners, atRest) {
+                        XCTAssertLessThanOrEqual(max(abs(now.x - before.x), abs(now.y - before.y)), 1,
+                                                 "round \(round): a card changed place or size: \(corners) was \(atRest)")
+                    }
+                }
             }
         }
         XCTAssertTrue(count.exists, "the grid is still up")
+    }
+
+    /// Where each visible card's Close button sits, in reading order: a card that
+    /// changed size or place moves its corner.
+    @MainActor
+    private func cardCorners(_ app: XCUIApplication) -> [CGPoint] {
+        app.buttons.matching(NSPredicate(format: "label == 'Close'")).allElementsBoundByIndex
+            .filter { $0.exists && $0.isHittable }
+            .map { CGPoint(x: $0.frame.midX.rounded(), y: $0.frame.midY.rounded()) }
+            .sorted { ($0.y, $0.x) < ($1.y, $1.x) }
+    }
+
+    /// Cards form two columns with one row pitch: no card grew, shrank or slid.
+    private func assertTwoColumns(_ corners: [CGPoint], _ when: String) {
+        XCTAssertEqual(Set(corners.map(\.x)).count, 2, "\(when): cards are not in two columns: \(corners)")
+        let rows = Array(Set(corners.map(\.y))).sorted()
+        let pitches = zip(rows, rows.dropFirst()).map { $1 - $0 }
+        XCTAssertLessThanOrEqual((pitches.max() ?? 0) - (pitches.min() ?? 0), 2, "\(when): rows are not evenly spaced: \(rows)")
     }
 
     @MainActor

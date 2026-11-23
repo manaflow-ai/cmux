@@ -542,7 +542,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // The grid is scrolling: the card keeps what it shows, and the text
             // lands once the grid stops (`overviewScrollingChanged`).
             if self.liveRefresh.isScrolling {
-                self.heldCardText[tab.id] = (model, text)
+                self.heldCardText[tab.id] = (model, text, live)
                 return
             }
             // Unchanged text is only re-dated (still the Mac's screen now), so
@@ -576,6 +576,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveRefreshTask?.cancel()
         liveRefreshTask = nil
         gridTabs = visible ? tabs : nil
+        // A grid that hid mid-scroll never reports its stop: nothing shows the
+        // cards now, so what was held lands here instead of staying held.
+        if !visible {
+            liveRefresh.setScrolling(false, now: CACurrentMediaTime())
+            applyHeldCardText()
+        }
         wakeLiveRefresh()
     }
 
@@ -587,15 +593,17 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     /// Screen reads that came back while the grid scrolled, newest per tab
     /// (Leo, 2026-11-22: "new updates even are a maybe").
-    private var heldCardText: [String: (model: TerminalModel, text: String)] = [:]
+    private var heldCardText: [String: (model: TerminalModel, text: String, live: Bool)] = [:]
 
     private func applyHeldCardText() {
         guard !heldCardText.isEmpty else { return }
         let held = heldCardText
         heldCardText = [:]
         for (id, entry) in held where hosts[id]?.model === entry.model {
-            if entry.model.pageStarted { continue }
-            if entry.model.cardScreenText != entry.text { entry.model.cardScreenText = entry.text } else { entry.model.confirmCardScreenText() }
+            // The same rule as a read that lands at rest: the grid's own refresh
+            // also fills a started tab's card, and only it re-dates unchanged text.
+            guard entry.live || !entry.model.pageStarted else { continue }
+            if entry.model.cardScreenText != entry.text { entry.model.cardScreenText = entry.text } else if entry.live { entry.model.confirmCardScreenText() }
         }
     }
 
