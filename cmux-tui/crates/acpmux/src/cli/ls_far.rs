@@ -5,10 +5,14 @@
 //! (Leo, 2026-11-22: "we need it to be able to run blazingly fast under duress"; `ls` exited 1
 //! after 15 s while `lane-gh sessions` stalled on a loaded lane VM).
 //!
-//! When a good listing is kept ([`CACHE_FILE`]), `ls` does not wait on the relay at all: it lists
-//! the kept rows, marked with their age, and starts one detached refresh for the next `ls`. Only
-//! without one does it read the relay, by the budget (lead, 2026-11-23: local `ls` p99 under
-//! 500 ms with the relay stalled).
+//! When a good listing is kept ([`CACHE_FILE`]) and is younger than [`FRESH_AGE_MS`], `ls` does
+//! not wait on the relay at all: it lists the kept rows, marked with their age, and starts one
+//! detached refresh for the next `ls` (lead, 2026-11-23: local `ls` p99 under 500 ms with the
+//! relay stalled). An older kept listing is as old as the caller's last `ls` (a 45 s pause served
+//! peers 85 s old while a fresh read takes about 0.4 s: cmuxterm-hq
+//! `docs/findings/2026-11-23-acpmux-ls-serves-idle-gap.md`), so `ls` reads the relay for it, by
+//! [`KEPT_WAIT`], and lists the kept rows only if that misses; while a refresh is already running
+//! (a slow relay) it lists them at once. Without a kept listing it reads the relay by the budget.
 //!
 //! A relay listing that misses the budget (or fails) is served from the last good one, kept in
 //! [`CACHE_FILE`] under the acpmux home with the time it was read: its rows are marked `stale`
@@ -45,6 +49,17 @@ const CACHE_MAX_AGE_MS: u64 = 24 * 3_600_000;
 /// A kept listing younger than this is listed without the stderr line: it is as good as a
 /// fresh read for the text view (its rows and the JSON `remote` still say `stale`).
 const QUIET_AGE_MS: u64 = 60_000;
+
+/// A kept listing younger than this is listed without reading the relay: the detached refresh an
+/// earlier `ls` started has just written it.
+const FRESH_AGE_MS: u64 = 10_000;
+
+/// How long `ls` reads the relay for an older kept listing before listing the kept rows: a
+/// healthy `lane-gh sessions` answers in about 0.4 s.
+const KEPT_WAIT: Duration = Duration::from_millis(500);
+
+/// After [`KEPT_WAIT`], how long `finish` still waits for the read the deadline killed.
+const KEPT_GRACE: Duration = Duration::from_millis(50);
 
 /// What [`RelayRead::missed`] says when the kept listing was served without reading the relay.
 pub(crate) const FROM_CACHE: &str = "from the last listing, refreshing";
@@ -131,10 +146,12 @@ pub(crate) struct Far {
 
 type RelayTask = tokio::task::JoinHandle<anyhow::Result<Option<Vec<Value>>>>;
 
-/// The relay's part, started: a read by the budget, or the kept listing, served at once.
+/// The relay's part, started: a read by the budget, the kept listing served at once, or a read
+/// by [`KEPT_WAIT`] with the kept listing to list if it misses.
 enum RelayPart {
     Reading(String, PathBuf, RelayTask),
     Kept(RelayRead),
+    Racing { cache: PathBuf, task: RelayTask, kept: RelayRead, until: Instant },
 }
 
 /// The far reads, running.
@@ -164,14 +181,22 @@ pub(crate) fn start_with(
     let deadline = Instant::now() + budget;
     let relay = relay.map(|relay| {
         let source = source_name(&relay);
-        if let Some((as_of_ms, rows)) = read_cache(&cache, crate::store::now_ms()) {
-            refresh_detached(&cache);
-            return RelayPart::Kept(RelayRead {
+        let now = crate::store::now_ms();
+        if let Some((as_of_ms, rows)) = read_cache(&cache, now) {
+            let kept = RelayRead {
                 rows,
                 state: RemoteState::Stale { as_of_ms },
                 source,
                 missed: Some(FROM_CACHE.to_owned()),
-            });
+            };
+            if now.saturating_sub(as_of_ms) < FRESH_AGE_MS || refreshing(&cache, now) {
+                refresh_detached(&cache);
+                return RelayPart::Kept(kept);
+            }
+            let read_by = deadline.min(Instant::now() + KEPT_WAIT);
+            let task =
+                tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(read_by)));
+            return RelayPart::Racing { cache, task, kept, until: read_by + KEPT_GRACE };
         }
         let task =
             tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(deadline)));
@@ -204,6 +229,21 @@ impl FarRead {
         let relay = async move {
             let (source, cache, mut task) = match relay? {
                 RelayPart::Kept(kept) => return Some(kept),
+                RelayPart::Racing { cache, mut task, kept, until } => {
+                    if let Ok(Ok(Ok(Some(rows)))) = tokio::time::timeout_at(until, &mut task).await
+                    {
+                        write_cache(&cache, &kept.source, &rows, crate::store::now_ms());
+                        return Some(RelayRead {
+                            rows,
+                            state: RemoteState::Fresh,
+                            source: kept.source,
+                            missed: None,
+                        });
+                    }
+                    task.abort();
+                    refresh_detached(&cache);
+                    return Some(kept);
+                }
                 RelayPart::Reading(source, cache, task) => (source, cache, task),
             };
             let read = tokio::time::timeout_at(until, &mut task).await;
@@ -306,14 +346,20 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
     Some((at, rows))
 }
 
+/// Whether a detached refresh started within the relay's own deadline is still marked.
+fn refreshing(cache: &Path, now: u64) -> bool {
+    let mark = cache.with_file_name(REFRESH_MARK);
+    let started = std::fs::read_to_string(&mark).ok().and_then(|t| t.trim().parse::<u64>().ok());
+    let bound = u64::try_from(send_relay::LS_DEADLINE.as_millis()).unwrap_or(u64::MAX) + 5_000;
+    started.is_some_and(|at| now.saturating_sub(at) < bound)
+}
+
 /// Starts `ls --refresh-relay-cache` detached, unless one started within the relay's own
 /// deadline is still marked. Not in tests: this process is the test binary there.
 fn refresh_detached(cache: &Path) {
     let mark = cache.with_file_name(REFRESH_MARK);
     let now = crate::store::now_ms();
-    let started = std::fs::read_to_string(&mark).ok().and_then(|t| t.trim().parse::<u64>().ok());
-    let bound = u64::try_from(send_relay::LS_DEADLINE.as_millis()).unwrap_or(u64::MAX) + 5_000;
-    if started.is_some_and(|at| now.saturating_sub(at) < bound) {
+    if refreshing(cache, now) {
         return;
     }
     // Not marked: start none, or two could race.
