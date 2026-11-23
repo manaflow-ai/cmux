@@ -590,8 +590,14 @@ fn serve(
                             .unwrap_or_default();
                     let interface = request["interface"].as_str().unwrap_or("");
                     let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
+                    // `surface: "widget"`, which gives its ctx the host-owned now() clock.
+                    let mut context = request["context"].clone();
+                    if interface == "cmux.widget/1" && context.is_object() {
+                        context["surface"] = json!("widget");
+                    }
                     out.push(
-                        match host_scene(app, &script, export, &request["context"]) {
+                        match host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },

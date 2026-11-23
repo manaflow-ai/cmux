@@ -80,11 +80,27 @@ public final class DaemonTerminalSession: TerminalSession {
         handler?(.hostGridOwner(name))
     }
 
-    /// The device that sets the Mac's grid, when it is not this phone.
+    /// The device that sets the Mac's grid, other than this view: the first
+    /// owner that is not this phone's view. Several views can own one grid
+    /// (under Fit the Smallest Viewer a narrow Mac pane sets the columns
+    /// while the phone sets the rows), so the phone owning one dimension
+    /// still names the device that set the other. Nil when no other view
+    /// owns it; the note then names no device.
     public var hostGridOwnerName: String? {
-        guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
-              let row = state.participants.first(where: { $0.id == owner }) else { return nil }
-        return row.deviceName ?? row.displayName
+        guard let state = sizing.state else { return nil }
+        let others = state.owners.filter { $0 != sizing.selfParticipant }
+        guard let row = others.lazy.compactMap({ owner in state.participants.first { $0.id == owner } }).first
+        else { return nil }
+        // Another view of this same phone (a second page on the terminal).
+        if let own = clientInfo["device_id"], row.deviceID == own, !row.isDesktop { return "this iPhone" }
+        if let name = row.deviceName ?? row.displayName { return name }
+        switch row.deviceKind {
+        case "mac": return "a Mac"
+        case "iphone": return "an iPhone"
+        case "ipad": return "an iPad"
+        case "tui": return "a terminal"
+        default: return nil
+        }
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
@@ -996,7 +1012,7 @@ public final class DaemonTerminalSession: TerminalSession {
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
-            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(agentCLIHybridDefaults), privacy: .public) wanted=\(hybridWanted, privacy: .public)")
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
             var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
             let setup = await client.requests(batch)
