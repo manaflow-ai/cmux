@@ -731,13 +731,29 @@ export const APT_FETCH_ATTEMPTS = 3;
  * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
  */
 export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the .debs it verified");
+}
+
+/**
+ * Runs of one store program's install before the bake fails. GitHub release downloads into the bake machine ran at
+ * about 100 KB/s a connection on 2026-11-23 (image rolls 45109809346 and 45113664312: store-codex, 109 MB, status
+ * 124 at 300 s twice), so codex needs about four 5-minute runs; programInstallCommand resumes the download.
+ */
+export const STORE_FETCH_ATTEMPTS = 6;
+
+/** One store program's install, run again when it fails, continuing its partial download (programInstallCommand). */
+export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = STORE_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
+}
+
+async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
       return;
     } catch (error) {
       if (attempt >= attempts) throw error;
-      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping ${kept}`);
     }
   }
 }
@@ -789,7 +805,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -1138,6 +1154,22 @@ export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unk
   return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
 }
 
+/**
+ * Fetch and unpack syft into `dir`, resuming a download a capped run left there: a whole file is kept, a partial one
+ * continues (`curl -C -`), a whole file with the wrong sha256 is removed so the next run starts over.
+ */
+export function syftFetchCommand(syft: { url: string; sha256: string; size: number }, dir: string): string {
+  const tgz = `${dir}/syft.tgz`;
+  return [
+    `mkdir -p ${dir}`,
+    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
+    `test "$(stat -c %s ${tgz})" = ${syft.size}`,
+    `tar -xzf ${tgz} -C ${dir} syft`,
+    `test -x ${dir}/syft`,
+  ].join(" && ");
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1147,16 +1179,19 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
   // passes its own OUT, so a cut-off try still running on the guest never shares its files.
   // allSettled: neither step is left running here when this throws.
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
-    `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
-    `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
-    `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
-    `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
+  // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
+  // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
+  // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  const scanSbom = async (): Promise<string> => {
+    await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
+    return L.step(vm, "sbom", [
     "t=$(date +%s)",
     `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "))]);
+  ].join(" && "));
+  };
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
@@ -1211,7 +1246,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {
