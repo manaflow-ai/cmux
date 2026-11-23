@@ -32,11 +32,22 @@ extension PageWebView {
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
     /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
+    /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
+    /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
+    /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
-        let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
-                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
-        chromiumSession?.setVisible(visible)
+        guard let session = chromiumSession else { return }
+        guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
+        let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
+        let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
+        let outside = liesOutsideWindowContent
+        let shown = outside || !clear
+        // Out of sight on purpose: parked, or outside the window under a clear ancestor (the reserved Cmd-N
+        // workspace, `addPrewarmedSubview`). A page outside the window with no clear ancestor (a column
+        // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
+        let away = shown && (inOffscreenParking || (outside && clear))
+        session.setVisible(away ? drawsAway : shown)
+        if away, drawsAway { drawAwayIfNeeded() }
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
@@ -110,6 +121,7 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        documentStarted()
         if let chromiumSession {
             chromiumSession.questionKeys?.invalidate()
             navigateChromium(chromiumSession) { $0.load(url) }
@@ -122,6 +134,9 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
+        // crash this reload answers, or the old document's silence, as a page to repair.
+        documentStarted()
         chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { navigateChromium(chromiumSession) { $0.reload() } } else { webView.reload() }
     }
@@ -241,6 +256,10 @@ extension PageWebView {
             guard let page else { return false }
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
+        inputReadiness.stateReader = { [weak page] in
+            guard let page else { return nil }
+            return await Self.readinessState(in: page)
+        }
         chromiumSession = session
         scriptTarget.bridge = bridge
         bridge.evaluate(chromiumZoomScript + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
@@ -288,6 +307,7 @@ extension PageWebView {
         chromiumDragged = nil
         chromiumDropConfirmed = nil
         inputReadiness.editor = nil
+        inputReadiness.stateReader = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
@@ -312,6 +332,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        inputReadiness.stateReader = nil
     }
 
     // MARK: Events
@@ -338,7 +359,7 @@ extension PageWebView {
                 return
             }
             // The Runtime domain off before the document's scripts run, and the binding again.
-            chromiumSession.bridge.documentCommitted()
+            chromiumSession.bridge.documentCommitted(resendInputReadiness: true)
             documentCommitted()
             chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:
@@ -544,5 +565,12 @@ extension PageWebView {
             return false
         }
         return ChromiumPageHostWire.evaluationIsTrue(json)
+    }
+
+    /// The readiness script's state now (``PageInputReadiness/refresh()``), as an evaluation's value: no binding call.
+    private static func readinessState(in page: any PageChromiumPage) async -> String? {
+        let params: [String: any Sendable] = ["expression": PageInputReadiness.stateExpression, "returnByValue": true]
+        guard let json = try? await page.devTools("Runtime.evaluate", params: params) else { return nil }
+        return ChromiumPageHostWire.evaluationString(json)
     }
 }
