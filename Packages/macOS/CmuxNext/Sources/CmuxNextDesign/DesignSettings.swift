@@ -37,6 +37,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
     /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
     public let motionChanges = MotionChanges()
+    /// The composite tokens a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    let tokenMemos = TokenMemos()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -163,6 +165,10 @@ public final class DesignSettings {
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
+    /// entry is centered and fills (today's look). Every window and pane backdrop observes it
+    /// (`WindowMaterialView.observePlacement`).
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -320,6 +326,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
+    /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
+    public var liquidGlass = false
     /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).

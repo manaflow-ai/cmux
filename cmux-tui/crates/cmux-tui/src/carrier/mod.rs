@@ -154,6 +154,7 @@ mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 pub(crate) mod tunnel_keeper;
+pub(crate) mod workspace;
 
 use std::io::Write as _;
 use std::path::PathBuf;

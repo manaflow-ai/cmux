@@ -64,6 +64,7 @@ the scripted walk below covers its path.
 | Dead-control walk | same file, `walkControls` | a tap that changes nothing (2.1(a), 2026-11-07) on sign-in, onboarding, Home, Settings (top and bottom) and Account; an already-selected option is skipped; sign out, Delete Account and Remove This iPhone are not tapped |
 | Guideline lint | `cmux-next-ios/scripts/app_review_gate.py lint` | the AppStore configuration (bundle `com.cmux.app`), metadata and every URL, account deletion, Sign in with Apple (source, shipping configuration, every entitlements file it can sign with, binary), outside purchase links, the subscription rules (below), purpose strings from `project.yml`, the App Store Connect processing rules (`scripts/cmux-next/check-app-store-rules.py`), privacy manifest, VPN and private APIs, entitlements, extensions, on the source and on the exact IPA |
 | Rejection history | `rejection-history.json` | every past rejection keeps a detector |
+| Common rejections | `common-rejections.json` | the rejections public repos catalogue (below), each mapped to a detector that exists or marked follow-up, not applicable or not deterministic, with the reason |
 | App Store Connect | `asc validate --strict` on the AppStore configuration's version, `asc metadata validate` | review state Apple will refuse |
 
 The NEXT app sells cmux Go, cmux Pro and cmux Max as monthly auto-renewable
@@ -82,7 +83,26 @@ lint's subscription rules apply once the judged sources use StoreKit:
 | `iap.disclosure` | 3.1.2 | the plans screen lacks the auto-renewal terms, the Terms of Use link or the Privacy Policy link |
 | `iap.manage` (warning) | 3.1.2 | no in-app Manage Subscription |
 | `metadata.subscription-terms` | 3.1.2 | no store description links the Terms of Use (EULA) |
-| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases") |
+| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases"). Lane internal-submission reads `review-notes-asc-internal.txt`; when the sources list its bundle (`dev.cmux.app.internal`) in `appsWithoutSubscriptions`, the rule inverts (the notes must name "Plan" and promise no "Subscribe", "Restore Purchases", "Manage Subscription" or Sandbox) and `iap.restore`, `iap.disclosure`, `iap.manage` and `metadata.subscription-terms` do not apply |
+
+The rules the common-rejections mapping added (Leo, 2026-11-22: "THERE ARE
+ENTIRE REPOS THAT WE CAN MAP FUCKING COMMON REJECTIONS AND APPLY SHIT TO OUR IOS
+APP"):
+
+| Rule | Guideline | Catches |
+| --- | --- | --- |
+| `privacy.manifest-reason-code` | 5.1.2 | a reason code Apple does not list for its category, or an SDK-only code (C56D.1, 0A2A.1), in our bundle (ITMS-91056) |
+| `privacy.reason-app-group` | 5.1.2 | App Group defaults (`UserDefaults(suiteName:)`, `sharedDefaults()`, `PushSharedPreference.live`) without reason 1C8F.1 in the manifest of the bundle that calls them |
+| `privacy.collected-data` | 5.1.2 | a collected data type or purpose that is not Apple's identifier (ITMS-91056) |
+| `privacy.tracking` | 5.1.2 | declared tracking without `NSPrivacyTrackingDomains` or without App Tracking Transparency |
+| `entitlement.unused` | 2.5.1 | a shipping entitlement (HealthKit, iCloud, Apple Pay, time-sensitive, App Group, ...) no linked source uses |
+| `background.unused-mode` | 2.5.4 | a `UIBackgroundModes` value no linked source uses for its purpose |
+| `api.uiwebview` | 2.5.1 | UIWebView in a linked source or the binary (ITMS-90809) |
+| `ats.exception` (warning) | 2.5.1 | an App Transport Security exception that needs a written reason |
+| `privacy.policy-in-app` | 5.1.1(i) | no linked source opens the listing's privacy policy URL |
+| `review-notes.sign-in` | 2.1 | a submission lane's notes give no demo account |
+| `metadata.keyword-trademark` | 2.3.7 | keywords that name another company or product |
+| `metadata.iap-claim` (warning) | 2.3.1 | a build that sells nothing whose en-US description says it sells in the app |
 
 App Review buys in the Sandbox against production. Production grants a
 Sandbox purchase only to the emails in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`
