@@ -74,11 +74,12 @@ pub(crate) async fn show(leftover: &Leftover) -> Value {
     answer
 }
 
-/// `apply`: the kept changes go into the chat's folder, merged where it moved on. The patch
-/// file stays until this succeeds.
+/// `apply`: the kept changes go into the chat's folder, merged where it moved on
+/// (`apply.rs`): uncommitted work there stays, and a conflict changes nothing. The patch file
+/// stays until this succeeds.
 pub(crate) async fn apply(leftover: &Leftover) -> Result<(), String> {
     let (top, path) = (PathBuf::from(&leftover.top), PathBuf::from(&leftover.path));
-    let applied = tokio::task::spawn_blocking(move || folder::apply(&top, &path)).await;
+    let applied = tokio::task::spawn_blocking(move || super::apply::apply(&top, &path)).await;
     match applied {
         Ok(Ok(())) => {
             discard(leftover).await;

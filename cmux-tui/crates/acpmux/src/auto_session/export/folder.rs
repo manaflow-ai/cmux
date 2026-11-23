@@ -48,7 +48,7 @@ pub(crate) struct PlainFolder {
 }
 
 /// Runs one fixed script on this machine, `input` on its stdin.
-fn sh(script: &str, input: &[u8]) -> Result<RemoteOut> {
+pub(super) fn sh(script: &str, input: &[u8]) -> Result<RemoteOut> {
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg(script)
@@ -145,13 +145,14 @@ git write-tree"#;
 
 /// The fixed script that diffs two trees: the top folder and the two trees on three lines of
 /// stdin. Prints the files that differ (one line, NUL-separated, base64), then the binary patch
-/// in base64.
+/// in base64. A moved file is a deletion and an addition in the patch, each with the blob ids
+/// that `apply.rs` merges from.
 const DIFF_SCRIPT: &str = r#"read -r top || exit 2; read -r from || exit 2; read -r to || exit 2
 cd -- "$top" || exit 2
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
 g diff --name-only -z --no-renames "$from" "$to" | base64 | tr -d '\n' || exit 3
 echo
-g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$from" "$to" | base64 | tr -d '\n' || exit 3
+g diff --binary --full-index --no-renames --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$from" "$to" | base64 | tr -d '\n' || exit 3
 echo"#;
 
 fn decode(text: &str) -> Result<Vec<u8>> {
@@ -329,24 +330,4 @@ pub(crate) fn since(top: &Path, anchor: &str) -> Result<Option<(Vec<String>, Vec
         return Ok(None);
     }
     Ok(Some((files, patch)))
-}
-
-/// Applies a kept patch to the folder at `top`, merging where the folder moved on.
-pub(crate) fn apply(top: &Path, patch: &Path) -> Result<()> {
-    let patch = patch.to_string_lossy().into_owned();
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(top)
-        .args(["-c", "core.fsmonitor=false", "apply", "--3way", "--binary", "--whitespace=nowarn"])
-        .arg(&patch)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .output()
-        .context("git apply")?;
-    if out.status.success() {
-        return Ok(());
-    }
-    let text = String::from_utf8_lossy(&out.stderr);
-    let last = text.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned();
-    Err(anyhow!("the changes do not apply to the folder as it is now: {last}"))
 }
