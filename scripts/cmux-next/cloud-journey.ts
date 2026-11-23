@@ -5358,7 +5358,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           log: (line) => console.log(scrub(line, J.secrets)),
           onResult: (r) => {
             results.push(r);
-            J.record({ step: `move: ${r.direction} ${r.step} ${r.kill}`, status: r.outcome === "pass" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.seen_ms ?? 0, detail: scrub(`seed ${r.seed}: lost ${r.lost.join("; ") || "nothing"}; open ${r.open}; queued ran ${r.queued_runs}; draft ${r.draft}; edit ${r.edit}; commit ${r.commit}; pump ${r.pump_first}${r.pump_retry !== "not run" ? `, retry ${r.pump_retry}` : ""}; ${r.detail}`, J.secrets) });
+            J.record({ step: `move: ${r.direction} ${r.step} ${r.kill}`, status: r.outcome === "pass" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.seen_ms ?? 0, detail: scrub(`seed ${r.seed}: lost ${r.lost.join("; ") || "nothing"}; open ${r.open}; queued ran ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}); draft ${r.draft}; edit ${r.edit}; commit ${r.commit}; pump ${r.pump_first}${r.pump_retry !== "not run" ? `, retry ${r.pump_retry}` : ""}; ${r.detail}`, J.secrets) });
             if (rowsFile) appendFileSync(rowsFile, `${scrub(JSON.stringify(r), J.secrets)}\n`);
           },
         }).catch((e: Error) => J.record({ step: "move drills", status: "fail", ms: 0, detail: scrub(e.message, J.secrets) }));

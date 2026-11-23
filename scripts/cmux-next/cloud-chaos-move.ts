@@ -555,7 +555,10 @@ export type MoveResult = {
   /** What the person lost; empty: nothing. */
   lost: string[];
   open: string;
+  /** Distinct runs of the queued prompt overall, and the turn_result records each side's journal holds for it. */
   queued_runs: number;
+  queued_src?: number;
+  queued_dst?: number;
   draft: string;
   edit: string;
   commit: string;
@@ -865,12 +868,12 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   let dstSum: any = null;
   let srcEv: any[] = [];
   let dstEv: any[] = [];
-  const runsOf = (evs: any[]) => evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).length;
+  const runsOf = (evs: any[]) => new Set(evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size;
   for (const until = Date.now() + 240_000; ; await sleep(5_000)) {
     [srcSum, dstSum] = await Promise.all([findSummary(a.src), findSummary(a.dst)]);
     [srcEv, dstEv] = await Promise.all([acpmuxOn(a.src, "events", session).catch(() => []), acpmuxOn(a.dst, "events", session).catch(() => [])]);
     const openSum = [srcSum, dstSum].find((s) => s && !s.error && s.status !== "closed");
-    if (runsOf(srcEv) + runsOf(dstEv) >= 1 && !openSum?.turn) break;
+    if (new Set([...srcEv, ...dstEv].filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size >= 1 && !openSum?.turn) break;
     if (Date.now() > until) break;
   }
   const isOpen = (s: any) => Boolean(s && !s.error && s.status !== "closed");
@@ -883,7 +886,12 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const bySeq = new Map(survivorEv.map((e: any) => [e.seq, e]));
   const missing = survivor ? before.filter((e) => !bySeq.has(e.seq) || bySeq.get(e.seq).kind !== e.kind) : before;
   if (missing.length) lost.push(`${missing.length} of ${before.length} chat records (first seq ${missing[0].seq} ${missing[0].kind})`);
-  const qRuns = runsOf(srcEv) + runsOf(dstEv);
+  // The queued prompt's runs on each side, and overall: a moved journal carries the source's records, so a run
+  // the source made before the move shows on both sides with the same seq and content and counts once.
+  const qRec = (evs: any[]) => evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`);
+  const qSrc = qRec(srcEv).length;
+  const qDst = qRec(dstEv).length;
+  const qRuns = new Set([...qRec(srcEv), ...qRec(dstEv)]).size;
   if (qRuns !== 1) lost.push(qRuns === 0 ? "queued prompt never ran" : `queued prompt ran ${qRuns} times`);
   let draft = "no survivor";
   if (survivor) {
@@ -908,7 +916,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   if (survivor === a.dst && !landed.commit && commitAt.length) strand.push(`commit only in the ${commit}`);
   return {
     run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill,
-    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, draft, edit, commit,
+    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
     pump_first: pumpText(first), pump_retry: pumpText(retry), seen_ms: seenMs, fault_s: faultS,
     detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}`,
     trace,
@@ -917,6 +925,6 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
 
 /** The results as a markdown table: direction × step × kill → what was lost. */
 export function moveTable(results: MoveResult[]): string {
-  const rows = results.map((r) => `| ${r.direction} | ${r.step} | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
+  const rows = results.map((r) => `| ${r.direction} | ${r.step} | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}) | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
   return ["| direction | step | kill | outcome | lost | open | queued ran | draft | edit | commit | pump (person sees) | seen ms | run | seed |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|", ...rows].join("\n");
 }
