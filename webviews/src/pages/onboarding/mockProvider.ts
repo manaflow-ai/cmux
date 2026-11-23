@@ -2,7 +2,7 @@
 // `?mock`: the page on fixture states, answering gestures the way the host would, closely enough to
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { agentToolsState, agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
 
 export class MockOnboardingProvider implements PageClient {
@@ -15,11 +15,9 @@ export class MockOnboardingProvider implements PageClient {
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
-          : step === "agentTools"
-            ? agentToolsState("found")
-            : step === "makeItYours"
-              ? makeItYoursState("fresh")
-              : agentsState("mixed");
+          : step === "makeItYours"
+            ? makeItYoursState("fresh")
+            : agentsState("mixed");
   }
 
   private change(next: OnboardingState): void {
@@ -42,7 +40,6 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.focused:
         return {} as R;
       case OPS.next:
-        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("added"));
         if (state.step === "importData" && state.importer?.phase === "idle") this.change(importState("ready"));
         else if (state.step === "importData" && state.importer?.phase === "ready") this.change(importState("finished"));
         else if (state.step === "importData" && state.importer?.phase === "explainingAccess")
@@ -103,7 +100,6 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
-        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("declined"));
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
