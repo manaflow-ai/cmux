@@ -24,6 +24,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
 #[cfg(test)]
+#[path = "requests/reopen_attach_bytes_tests.rs"]
+mod reopen_attach_bytes_tests;
+#[cfg(test)]
 #[path = "requests/session_load_newest_tests.rs"]
 mod session_load_newest_tests;
 mod settled_attach;
@@ -31,6 +34,7 @@ mod settled_attach;
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
 mod successor;
+mod time_breakdown_gate;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
@@ -1404,7 +1408,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1702,6 +1706,33 @@ async fn dispatch_request_with_identity(
                     cwd = Some(super::local_app::canonical_cwd(given).await?);
                 }
             }
+            // A create sent again after a restart cut its reply (`hub/create_key.rs`): the
+            // session the first one made answers it, before admission or a worktree runs again.
+            // The local socket's only: a key proves nothing about who sent it.
+            let create_key = match conn.origin {
+                Origin::Local => crate::hub::create_key::requested(meta)?,
+                _ => None,
+            };
+            if let Some(key) = create_key.as_deref()
+                && let Some(s) = hub.created_with_key(key).await
+            {
+                attach(hub, conn, &s.id);
+                if super::ephemeral::requested(&params) {
+                    heap(|| super::ephemeral::own(hub, conn, &s)).await;
+                }
+                let meta = s.meta();
+                let mut summary = hub.session_summary(&s);
+                summary.set(crate::hub::create_key::REPLAYED, Value::Bool(true));
+                if meta.stop_condition.is_some() {
+                    summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+                }
+                return Ok(json!({
+                    "sessionId": s.id,
+                    "modes": crate::hub::permission_modes::of_session(&meta),
+                    "configOptions": meta.config_options,
+                    "_meta": {"acpmux": summary},
+                }));
+            }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let adopting = adopt.is_some();
@@ -1863,6 +1894,7 @@ async fn dispatch_request_with_identity(
                         == Some(true),
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
+                create_key,
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -3414,13 +3446,15 @@ async fn dispatch_request_with_identity(
                 let presence = hub.presence.snapshot(&s.id);
                 let reader = crate::author::author(&params).ok().flatten();
                 let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
-                return Ok(json!({
+                let mut reply = json!({
                     "session": detail,
                     "lastSeq": last,
                     "presence": presence,
                     "readThrough": read_through,
                     "hold": true,
-                }));
+                });
+                time_breakdown_gate::apply(&mut reply, &params);
+                return Ok(reply);
             }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
             // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
@@ -3462,9 +3496,10 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) =
+                    if let Some(mut reply) =
                         crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
                     {
+                        time_breakdown_gate::apply(&mut reply, &params);
                         return Ok(reply);
                     }
                     Some(key)
@@ -3531,6 +3566,7 @@ async fn dispatch_request_with_identity(
                 reply["settled"] = Value::Null;
                 hub.settle_view_for_open(&s, key);
             }
+            time_breakdown_gate::apply(&mut reply, &params);
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3712,7 +3748,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.wake(&s)).await
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
-        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => {
+            super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
