@@ -37,4 +37,8 @@ public nonisolated extension RemoteRdHello {
     /// The cap a viewer offers when it draws the remote cursor itself (cmux-rd-core
     /// `caps::CURSOR`): the host then leaves the cursor out of its pictures.
     static let cursorCap = "cursor"
+    /// The cap a viewer offers when it shows a picture smaller than the stream scaled up to the
+    /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
+    /// host may then encode a smaller picture on a slow link (its resolution ladder).
+    static let videoScaledCap = "video.scaled"
 }
