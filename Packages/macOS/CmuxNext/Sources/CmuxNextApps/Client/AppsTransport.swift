@@ -77,9 +77,17 @@ public protocol AppsTransport: AnyObject {
     /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
     /// daemon picks the app). The answer is `{handled, app?, error?}`.
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+    /// `apps.chat_widgets.route`: the daemon's choice of chat widget for a tool call or a widget part,
+    /// `{widget: null}` or `{widget: {app, interface, title, symbol?, context}}`.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
 }
 
 public extension AppsTransport {
+    /// The daemon's chat widget route, as a store op (`apps.chat_widgets.route`); a transport that
+    /// serves no store ops answers `{}`, which the page reads as no widget.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.chat_widgets.route", args: args)
+    }
     /// A transport without web panes refuses every page call.
     func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
         // The wire command it lacks, not prose: the page shows the code.

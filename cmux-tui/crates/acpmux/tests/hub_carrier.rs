@@ -517,6 +517,8 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     };
     assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("carrier.not_serving"), "{said}");
+    // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
+    assert!(said.contains("another of your teams"), "{said}");
 }
 
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
@@ -1171,8 +1173,13 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         .await
         .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
-    assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 4, "a circuit a lane");
-    assert!(fixture.carrier_a.stats().dials.load(Ordering::Relaxed) >= 4);
+    // One pipe carries every lane (`MachinePipeDialer::parallel_links`), and it is a stream on
+    // the kept circuit to B: the refusals before it rode that circuit too, so no plain circuit.
+    let a = fixture.carrier_a.stats();
+    assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1);
+    assert!(a.kept_opens.load(Ordering::Relaxed) >= 1);
+    assert_eq!(a.kept_circuits.load(Ordering::Relaxed), 1);
+    assert_eq!(a.dials.load(Ordering::Relaxed), 0);
 }
 
 /// `future`'s output, or a panic naming `what` after 30 s: a stalled numbers run fails, not hangs.
@@ -1951,4 +1958,451 @@ async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open
         "a black-holed direct path delayed the relay: {black_holed:?} vs {relay_only:?}"
     );
     drop(hole);
+}
+
+// ---- One kept, multiplexed circuit per machine pair (`src/hub_carrier_mux.rs`). ----
+
+/// A TCP proxy that holds every chunk `delay` in each direction (latency, not a rate limit), as
+/// a relay a continent away would, and can cut every connection through it.
+struct DelayProxy {
+    port: u16,
+    cut: watch::Sender<u64>,
+}
+
+impl DelayProxy {
+    async fn start(target: SocketAddr, delay: Duration) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (cut, _) = watch::channel(0u64);
+        let cuts = cut.clone();
+        tokio::spawn(async move {
+            while let Ok((inbound, _)) = listener.accept().await {
+                let Ok(outbound) = tokio::net::TcpStream::connect(target).await else { continue };
+                let _ = inbound.set_nodelay(true);
+                let _ = outbound.set_nodelay(true);
+                let mut cut = cuts.subscribe();
+                tokio::spawn(async move {
+                    let (ir, iw) = inbound.into_split();
+                    let (or, ow) = outbound.into_split();
+                    tokio::select! {
+                        _ = delayed(ir, ow, delay) => {}
+                        _ = delayed(or, iw, delay) => {}
+                        _ = cut.changed() => {}
+                    }
+                });
+            }
+        });
+        Self { port, cut }
+    }
+
+    fn cut(&self) {
+        self.cut.send_modify(|n| *n += 1);
+    }
+}
+
+async fn delayed(
+    mut from: tokio::net::tcp::OwnedReadHalf,
+    mut to: tokio::net::tcp::OwnedWriteHalf,
+    delay: Duration,
+) {
+    let (tx, mut rx) = mpsc::unbounded_channel::<(tokio::time::Instant, Vec<u8>)>();
+    let read = async move {
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match from.read(&mut buf).await {
+                Ok(0) | Err(_) => return,
+                Ok(n) => {
+                    if tx.send((tokio::time::Instant::now() + delay, buf[..n].to_vec())).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    let write = async move {
+        while let Some((at, bytes)) = rx.recv().await {
+            tokio::time::sleep_until(at).await;
+            if to.write_all(&bytes).await.is_err() {
+                return;
+            }
+        }
+    };
+    tokio::join!(read, write);
+}
+
+const BANNER: &[u8] = b"SSH-2.0-standin\r\n";
+
+/// A stand-in for the far machine's sshd: a banner first, then it echoes what it reads until the
+/// dialer closes its side, then closes. A first line `bulk N` gets N bytes instead of echoes.
+async fn standin_sshd() -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (mut read, mut write) = socket.into_split();
+                if write.write_all(BANNER).await.is_err() {
+                    return;
+                }
+                let mut buf = vec![0u8; 16 * 1024];
+                let mut first = true;
+                loop {
+                    let n = match read.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => n,
+                    };
+                    if first && buf[..n].starts_with(b"bulk ") {
+                        let text = String::from_utf8_lossy(&buf[5..n]).trim().to_owned();
+                        let total: usize = text.parse().unwrap();
+                        let block = vec![0x42u8; 64 * 1024];
+                        let mut left = total;
+                        while left > 0 {
+                            let take = left.min(block.len());
+                            if write.write_all(&block[..take]).await.is_err() {
+                                return;
+                            }
+                            left -= take;
+                        }
+                        break;
+                    }
+                    first = false;
+                    if write.write_all(&buf[..n]).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = write.shutdown().await;
+            });
+        }
+    });
+    address
+}
+
+struct KeptFixture {
+    a: Arc<HubCarrier>,
+    b: Arc<HubCarrier>,
+    b_key: String,
+    sshd_port: u16,
+    gate: Arc<TestGate>,
+    proxy: DelayProxy,
+    _serving: acpmux::hub_carrier::HubServe,
+}
+
+impl KeptFixture {
+    fn service(&self) -> CircuitService {
+        CircuitService::CmuxTui { port: self.sshd_port }
+    }
+
+    async fn dial(&self) -> Result<acpmux::hub_carrier::HubStream, String> {
+        self.a.dial_service(&self.b_key, self.service()).await
+    }
+
+    /// A dial, its banner read: the time `carrier-pipe health` measures.
+    async fn dial_to_banner(&self) -> acpmux::hub_carrier::HubStream {
+        let mut stream = within("a dial", self.dial()).await.unwrap();
+        let mut banner = vec![0u8; BANNER.len()];
+        within("the banner", stream.read_exact(&mut banner)).await.unwrap();
+        assert_eq!(banner, BANNER);
+        stream
+    }
+
+    fn kept_circuits(&self) -> u64 {
+        self.a.stats().kept_circuits.load(Ordering::Relaxed)
+    }
+
+    fn kept_opens(&self) -> u64 {
+        self.a.stats().kept_opens.load(Ordering::Relaxed)
+    }
+
+    fn plain_dials(&self) -> u64 {
+        self.a.stats().dials.load(Ordering::Relaxed)
+    }
+}
+
+/// A dials B's stand-in sshd over the in-process relay, A's leg `delay` away each way. Returns once B
+/// serves (its gate's refusal came back), with control not granted yet unless `granted`.
+async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) -> KeptFixture {
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        max_allocations_per_second_per_slot: 1_000,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    // Only A's leg runs through the proxy: a cut drops A's circuits, not B's registration.
+    let proxy = DelayProxy::start(relay_address, delay).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+    let direct = format!("relay+ws://{relay_address}");
+    let sshd = standin_sshd().await;
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: direct,
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    b.serve_kept_circuits(b_keeps_circuits);
+    let gate =
+        Arc::new(TestGate { daemon: std::sync::Mutex::new(sshd), granted: AtomicBool::new(false) });
+    b.set_cmux_tui_gate(gate.clone());
+    let acpmux_b = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let acpmux_b_address = acpmux_b.local_addr().unwrap();
+    tokio::spawn(async move { while acpmux_b.accept().await.is_ok() {} });
+    let serving = b.serve(acpmux_b_address);
+    let a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let fixture = KeptFixture {
+        a,
+        b,
+        b_key: public(&key_b),
+        sshd_port: sshd.port(),
+        gate,
+        proxy,
+        _serving: serving,
+    };
+    let mut last = String::new();
+    let mut serves = false;
+    for _ in 0..80 {
+        match fixture.dial().await {
+            Err(e) if e.contains("consent_required") => {
+                serves = true;
+                break;
+            }
+            Err(e) => last = e,
+            Ok(_) => panic!("a stream reached B before its owner granted control"),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(serves, "B never served: {last}");
+    fixture.gate.granted.store(granted, Ordering::SeqCst);
+    fixture
+}
+
+/// Echo `text` through `stream` and read it back.
+async fn echo(stream: &mut acpmux::hub_carrier::HubStream, text: &[u8]) {
+    stream.write_all(text).await.unwrap();
+    let mut back = vec![0u8; text.len()];
+    within("an echo", stream.read_exact(&mut back)).await.unwrap();
+    assert_eq!(back, text);
+}
+
+/// The first named-service dial opens one kept circuit; every later dial to that machine is a
+/// stream on it, refusals included. Streams carry bytes on their own: one closing its side ends
+/// only itself, and one whose reader stalls on 4 MiB does not hold up another.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    // The readiness refusals rode it already: one circuit, no plain ones.
+    assert_eq!(fixture.kept_circuits(), 1);
+    assert_eq!(fixture.plain_dials(), 0);
+    let opens = fixture.kept_opens();
+
+    let mut first = fixture.dial_to_banner().await;
+    let mut second = fixture.dial_to_banner().await;
+    echo(&mut first, b"one\n").await;
+    echo(&mut second, b"two\n").await;
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
+
+    // A half close: the far side reads the end, closes, and the stream ends; the other lives on.
+    first.shutdown().await.unwrap();
+    let mut rest = Vec::new();
+    within("the first stream's end", first.read_to_end(&mut rest)).await.unwrap();
+    assert!(rest.is_empty(), "{rest:?}");
+    echo(&mut second, b"still\n").await;
+
+    // A stalled reader: 4 MiB the dialer does not read yet, while another stream echoes.
+    let mut bulk = fixture.dial_to_banner().await;
+    bulk.write_all(b"bulk 4194304\n").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let started = std::time::Instant::now();
+    echo(&mut second, b"not held up\n").await;
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    let mut got = Vec::new();
+    within("the bulk stream", bulk.read_to_end(&mut got)).await.unwrap();
+    assert_eq!(got.len(), 4 << 20);
+    assert!(got.iter().all(|b| *b == 0x42));
+
+    // A refusal comes back over the kept circuit too, and the circuit stays.
+    fixture.gate.granted.store(false, Ordering::SeqCst);
+    let refused = fixture.dial().await.err().expect("no consent, no stream");
+    assert!(refused.contains("consent_required"), "{refused}");
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _again = fixture.dial_to_banner().await;
+
+    assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
+    assert_eq!(fixture.plain_dials(), 0);
+    assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// Twenty dials at once to a machine with no kept circuit open one circuit between them, not
+/// twenty, and each gets its own stream.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_twenty_dials_at_once_share_one_new_kept_circuit() {
+    let _ = HERMETIC;
+    let fixture = Arc::new(kept_fixture(Duration::from_millis(5), true, true).await);
+    assert!(fixture.a.cut_kept(&fixture.b_key).await);
+    let before = fixture.kept_circuits();
+    let dials: Vec<_> = (0..20)
+        .map(|i| {
+            let fixture = fixture.clone();
+            tokio::spawn(async move {
+                let mut stream = fixture.dial_to_banner().await;
+                echo(&mut stream, format!("dial {i}\n").as_bytes()).await;
+                stream
+            })
+        })
+        .collect();
+    let mut streams = Vec::new();
+    for dial in dials {
+        streams.push(dial.await.unwrap());
+    }
+    assert_eq!(fixture.kept_circuits() - before, 1);
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(20));
+    assert_eq!(fixture.plain_dials(), 0);
+}
+
+/// A kept circuit cut under its streams (the relay drops every connection) ends them, and the
+/// next dial opens a new kept circuit at once and works: no error reaches the dialer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_kept_circuit_cut_under_its_streams_is_opened_again_by_the_next_dial() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let mut live = fixture.dial_to_banner().await;
+    echo(&mut live, b"before\n").await;
+    let before = fixture.kept_circuits();
+
+    fixture.proxy.cut();
+    // The stream ends (its read sees the end or an error), soon, by the cut itself.
+    let mut buf = [0u8; 16];
+    let ended = within("the cut stream's end", live.read(&mut buf)).await;
+    assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+
+    let started = std::time::Instant::now();
+    let mut next = fixture.dial_to_banner().await;
+    echo(&mut next, b"after\n").await;
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    assert_eq!(fixture.kept_circuits() - before, 1, "one new kept circuit");
+
+    // Cut by this side (`cut_kept`) the same way.
+    assert!(fixture.a.cut_kept(&fixture.b_key).await);
+    let ended = within("the cut stream's end", next.read(&mut buf)).await;
+    assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+    let _third = fixture.dial_to_banner().await;
+    assert_eq!(fixture.kept_circuits() - before, 2);
+    assert_eq!(fixture.plain_dials(), 0);
+}
+
+/// A machine whose acpmux keeps no circuits (it answers the `mux` hello `service.unknown`, as
+/// one that predates them does) gets a plain circuit per dial, as before, with no error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_that_keeps_no_circuits_gets_a_plain_circuit_per_dial() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, false, true).await;
+    let plain = fixture.plain_dials();
+    let mut one = fixture.dial_to_banner().await;
+    let mut two = fixture.dial_to_banner().await;
+    echo(&mut one, b"one\n").await;
+    echo(&mut two, b"two\n").await;
+    assert_eq!(fixture.kept_circuits(), 0);
+    assert_eq!(fixture.plain_dials() - plain, 2);
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), None);
+    let _ = &fixture.b;
+}
+
+/// Cold, warm and twenty-at-once dial numbers with the dialer 25 ms from the relay each way (run on demand:
+/// `cargo test -p acpmux --features hub-carrier --test hub_carrier kept_circuit_numbers --
+/// --ignored --nocapture`). A dial is timed to the far sshd's banner, as `carrier-pipe health`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "numbers on demand"]
+async fn hub_carrier_kept_circuit_numbers() {
+    let _ = HERMETIC;
+    let delay = Duration::from_millis(25);
+    let fixture = Arc::new(kept_fixture(delay, true, true).await);
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    let mut cold = Vec::new();
+    for _ in 0..10 {
+        fixture.a.cut_kept(&fixture.b_key).await;
+        let started = std::time::Instant::now();
+        let _stream = fixture.dial_to_banner().await;
+        cold.push(started.elapsed());
+    }
+    let mut warm = Vec::new();
+    for _ in 0..20 {
+        let started = std::time::Instant::now();
+        let _stream = fixture.dial_to_banner().await;
+        warm.push(started.elapsed());
+    }
+    let parallel = |fixture: Arc<KeptFixture>| async move {
+        let started = std::time::Instant::now();
+        let dials: Vec<_> = (0..20)
+            .map(|_| {
+                let fixture = fixture.clone();
+                tokio::spawn(async move {
+                    let started = std::time::Instant::now();
+                    let stream = fixture.dial_to_banner().await;
+                    (started.elapsed(), stream)
+                })
+            })
+            .collect();
+        let mut each = Vec::new();
+        let mut keep = Vec::new();
+        for dial in dials {
+            let (took, stream) = dial.await.unwrap();
+            each.push(took);
+            keep.push(stream);
+        }
+        (started.elapsed(), each)
+    };
+    let (warm_wall, mut warm_each) = parallel(fixture.clone()).await;
+    fixture.a.cut_kept(&fixture.b_key).await;
+    let (cold_wall, mut cold_each) = parallel(fixture.clone()).await;
+    // The plain path, for the same harness: B keeps no circuits.
+    let plain_fixture = Arc::new(kept_fixture(delay, false, true).await);
+    let mut plain = Vec::new();
+    for _ in 0..10 {
+        let started = std::time::Instant::now();
+        let _stream = plain_fixture.dial_to_banner().await;
+        plain.push(started.elapsed());
+    }
+    let (plain_wall, mut plain_each) = parallel(plain_fixture.clone()).await;
+    eprintln!(
+        "KEPT-NUMBERS rtt=50ms plain p50={:.1} p95={:.1} n=10; kept cold p50={:.1} p95={:.1} n=10; \
+         kept warm p50={:.1} p95={:.1} n=20",
+        ms(percentile(&mut plain, 0.5)),
+        ms(percentile(&mut plain, 0.95)),
+        ms(percentile(&mut cold, 0.5)),
+        ms(percentile(&mut cold, 0.95)),
+        ms(percentile(&mut warm, 0.5)),
+        ms(percentile(&mut warm, 0.95)),
+    );
+    eprintln!(
+        "KEPT-NUMBERS Duress: 20 parallel plain wall={:.1} p95={:.1}; kept from cold wall={:.1} \
+         p95={:.1}; kept warm wall={:.1} p95={:.1}",
+        ms(plain_wall),
+        ms(percentile(&mut plain_each, 0.95)),
+        ms(cold_wall),
+        ms(percentile(&mut cold_each, 0.95)),
+        ms(warm_wall),
+        ms(percentile(&mut warm_each, 0.95)),
+    );
 }

@@ -102,6 +102,71 @@ const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
+/// Layout and behaviour looks (c-07be086806, Leo: "im saying the big stuff"): each is a look
+/// folder in `examples/looks`, and the recipe is that look's `cmux-setup.json` with its
+/// `keybindings.json`, so the gallery's install test and these tests hold the same files.
+const LEADER: &[(&str, &str)] =
+    &[("keybindings.json", include_str!("../../../../examples/looks/leader/keybindings.json"))];
+
+const REVIEW_DESK: &[(&str, &str)] = &[(
+    "keybindings.json",
+    include_str!("../../../../examples/looks/review-desk/keybindings.json"),
+)];
+
+/// Hairline carries the gallery look's own files, so the recipe and the
+/// installable look stay one design.
+const HAIRLINE: &[(&str, &str)] = &[
+    (
+        "themes/hairline.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline.json"),
+    ),
+    (
+        "themes/hairline-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-light.json"),
+    ),
+    (
+        "themes/hairline-slate.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate.json"),
+    ),
+    (
+        "themes/hairline-slate-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate-light.json"),
+    ),
+    (
+        "themes/hairline-stone.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone.json"),
+    ),
+    (
+        "themes/hairline-stone-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone-light.json"),
+    ),
+    (
+        "agent-pane/theme.css",
+        include_str!("../../../../examples/looks/hairline/agent-pane/theme.css"),
+    ),
+    ("markdown/theme.css", include_str!("../../../../examples/looks/hairline/markdown/theme.css")),
+];
+
+/// A look's theme file, kept beside its recipe in `recipes/looks/NAME/theme.json`.
+macro_rules! look {
+    ($name:literal) => {
+        &[(
+            concat!("themes/", $name, ".json"),
+            include_str!(concat!("../recipes/looks/", $name, "/theme.json")),
+        )]
+    };
+}
+
+const CODEX_APP_DARK: &[(&str, &str)] = &[
+    ("themes/codex-app-dark.json", include_str!("../recipes/apps/codex-app-dark/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app-dark/agent-pane.css")),
+];
+
+const VIOLET_APP: &[(&str, &str)] = &[
+    ("themes/violet-app.json", include_str!("../recipes/apps/violet-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/violet-app/agent-pane.css")),
+];
+
 /// Every recipe, in the order a guide lists them.
 pub const RECIPES: &[Recipe] = &[
     Recipe {
@@ -185,6 +250,14 @@ pub const RECIPES: &[Recipe] = &[
         includes: &[],
     },
     Recipe {
+        name: "hairline",
+        title: "Hairline: flat and neutral",
+        group: Group::Look,
+        ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass",
+        profile: include_str!("../recipes/hairline.json"),
+        includes: HAIRLINE,
+    },
+    Recipe {
         name: "codex-app",
         title: "Like the Codex app",
         group: Group::Apps,
@@ -209,6 +282,190 @@ pub const RECIPES: &[Recipe] = &[
             "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
         ),
         includes: &[],
+    },
+    Recipe {
+        name: "review-desk",
+        title: "A review desk",
+        group: Group::Layout,
+        ask: "set up a review layout with the chat, the diff and a terminal side by side",
+        profile: include_str!("../../../../examples/looks/review-desk/cmux-setup.json"),
+        includes: REVIEW_DESK,
+    },
+    Recipe {
+        name: "bottom-deck",
+        title: "Every bar at the bottom",
+        group: Group::Layout,
+        ask: "move the tab bar, the address bars and the docks to the bottom",
+        profile: include_str!("../../../../examples/looks/bottom-deck/cmux-setup.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "workspace-tabs",
+        title: "Workspaces like browser tabs",
+        group: Group::Layout,
+        ask: "make my workspaces work like browser tabs",
+        profile: include_str!("../../../../examples/looks/workspace-tabs/cmux-setup.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "leader",
+        title: "A keyboard mode on Command-J",
+        group: Group::Keys,
+        ask: "give me leader keys to split, zoom, resize and move panes",
+        profile: include_str!("../../../../examples/looks/leader/cmux-setup.json"),
+        includes: LEADER,
+    },
+    Recipe {
+        name: "ukiyo-e",
+        title: "Ukiyo-e: the Great Wave",
+        group: Group::Look,
+        ask: "make it look like a Japanese woodblock print",
+        profile: include_str!("../recipes/ukiyo-e.json"),
+        includes: look!("ukiyo-e"),
+    },
+    Recipe {
+        name: "hiroshige-dusk",
+        title: "Hiroshige at dusk",
+        group: Group::Look,
+        ask: "make it look like a Hiroshige print at dusk",
+        profile: include_str!("../recipes/hiroshige-dusk.json"),
+        includes: look!("hiroshige-dusk"),
+    },
+    Recipe {
+        name: "fuji-mist",
+        title: "Fuji in mist",
+        group: Group::Look,
+        ask: "make it pale and misty like a Hokusai Fuji view",
+        profile: include_str!("../recipes/fuji-mist.json"),
+        includes: look!("fuji-mist"),
+    },
+    Recipe {
+        name: "nio-guardian",
+        title: "Nio guardian",
+        group: Group::Look,
+        ask: "make it dark and warm like a Kano school painting",
+        profile: include_str!("../recipes/nio-guardian.json"),
+        includes: look!("nio-guardian"),
+    },
+    Recipe {
+        name: "sumi-ink",
+        title: "Sumi ink",
+        group: Group::Look,
+        ask: "make it black ink on rice paper",
+        profile: include_str!("../recipes/sumi-ink.json"),
+        includes: look!("sumi-ink"),
+    },
+    Recipe {
+        name: "water-lilies",
+        title: "Water lilies",
+        group: Group::Look,
+        ask: "make it look like Monet's water lilies",
+        profile: include_str!("../recipes/water-lilies.json"),
+        includes: look!("water-lilies"),
+    },
+    Recipe {
+        name: "starry-night",
+        title: "Starry night",
+        group: Group::Look,
+        ask: "make it look like The Starry Night",
+        profile: include_str!("../recipes/starry-night.json"),
+        includes: look!("starry-night"),
+    },
+    Recipe {
+        name: "gilded",
+        title: "Gilded",
+        group: Group::Look,
+        ask: "make it gold like a Klimt painting",
+        profile: include_str!("../recipes/gilded.json"),
+        includes: look!("gilded"),
+    },
+    Recipe {
+        name: "moonrise",
+        title: "Moonrise",
+        group: Group::Look,
+        ask: "make it quiet and moonlit like Friedrich",
+        profile: include_str!("../recipes/moonrise.json"),
+        includes: look!("moonrise"),
+    },
+    Recipe {
+        name: "engraving",
+        title: "Engraving",
+        group: Group::Look,
+        ask: "make it black and white like a Dore engraving",
+        profile: include_str!("../recipes/engraving.json"),
+        includes: look!("engraving"),
+    },
+    Recipe {
+        name: "aurora-night",
+        title: "Aurora",
+        group: Group::Look,
+        ask: "put a moving aurora behind the window",
+        profile: include_str!("../recipes/aurora-night.json"),
+        includes: look!("aurora-night"),
+    },
+    Recipe {
+        name: "still-water",
+        title: "Still water",
+        group: Group::Look,
+        ask: "put moving ripples behind the window",
+        profile: include_str!("../recipes/still-water.json"),
+        includes: look!("still-water"),
+    },
+    Recipe {
+        name: "deep-currents",
+        title: "Deep currents",
+        group: Group::Look,
+        ask: "put moving ocean currents behind the window",
+        profile: include_str!("../recipes/deep-currents.json"),
+        includes: look!("deep-currents"),
+    },
+    Recipe {
+        name: "dot-grid",
+        title: "Dot grid",
+        group: Group::Look,
+        ask: "put a moving dot grid behind a black and white window",
+        profile: include_str!("../recipes/dot-grid.json"),
+        includes: look!("dot-grid"),
+    },
+    Recipe {
+        name: "aero-sky",
+        title: "Aero sky",
+        group: Group::Look,
+        ask: "put a glossy moving sky behind a light window",
+        profile: include_str!("../recipes/aero-sky.json"),
+        includes: look!("aero-sky"),
+    },
+    Recipe {
+        name: "editorial-type",
+        title: "Editorial type",
+        group: Group::Type,
+        ask: "use a serif for the chats and the pages",
+        profile: include_str!("../recipes/editorial-type.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "readable-type",
+        title: "Readable type",
+        group: Group::Type,
+        ask: "use the most readable font everywhere",
+        profile: include_str!("../recipes/readable-type.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "codex-app-dark",
+        title: "Like the Codex app, dark",
+        group: Group::Apps,
+        ask: "make cmux look like the Codex app, in dark",
+        profile: include_str!("../recipes/codex-app-dark.json"),
+        includes: CODEX_APP_DARK,
+    },
+    Recipe {
+        name: "violet-app",
+        title: "A violet coding app",
+        group: Group::Apps,
+        ask: "make cmux look like a violet desktop coding app",
+        profile: include_str!("../recipes/violet-app.json"),
+        includes: VIOLET_APP,
     },
 ];
 
