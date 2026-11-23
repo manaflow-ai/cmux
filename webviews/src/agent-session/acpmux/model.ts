@@ -1088,6 +1088,9 @@ export type AcpmuxPermission = {
   /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
   /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
   plan?: string;
+  /// Whether the person may edit the plan before approving it: Claude Code's ExitPlanMode, whose
+  /// allow carries the edited plan back to the agent (`_acpmux/plan/build` `plan`).
+  planEditable?: boolean;
   pending: boolean;
   options: {
     id: string;
@@ -1717,6 +1720,9 @@ export type ConversationLayout = {
   /// Some row keeps its height from another width (layoutConversation `near`), so the tops below it
   /// are not this width's: nothing may keep them as measured (transcriptHeights.ts keepPromptTops).
   remembered?: true;
+  /// A cold open's layout (layoutConversation `roughAbove`): rows above the measured end hold rough
+  /// heights until the transcript lays the chat out whole, after the first paint. Also `remembered`.
+  rough?: true;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -3821,6 +3827,11 @@ export function layoutConversation(
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   near?: { from: number; to: number },
+  /// A cold open at the chat's end: the rows within this many px of the end are measured, and every
+  /// row above them with no known height takes its rough height (`fallbackRowHeight`, no text is
+  /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
+  /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
+  roughAbove?: number,
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3865,6 +3876,18 @@ export function layoutConversation(
   let nextDrawn = start;
   // The drawn row above the current one, carried along the pass for the same reason.
   let prevDrawn = prevDrawnRow(rows, start);
+  // The first row measured whole in a cold open (`roughAbove`); rows before it are rough.
+  let roughBefore = 0;
+  let rough = false;
+  if (roughAbove !== undefined && start === 0 && !resizing) {
+    let below = 0;
+    roughBefore = rows.length;
+    while (roughBefore > 0 && below < roughAbove) {
+      roughBefore -= 1;
+      const row = rows[roughBefore]!;
+      if (!drawsNothing(row)) below += fallbackRowHeight(row, width);
+    }
+  }
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // The mark is taken against the row the gap is taken from (`previousContent`, the last row with
@@ -3896,6 +3919,27 @@ export function layoutConversation(
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       if (
+        !custom &&
+        index < roughBefore &&
+        !kept &&
+        (row.kind === "assistant" || row.kind === "user") &&
+        row.text &&
+        !row.received &&
+        !cache.has(row.id)
+      ) {
+        // Above a cold open's measured rows: its rough height, never recorded as this width's.
+        height = fallbackRowHeight(
+          row,
+          width,
+          edge?.startsWith("footer") === true,
+          edge?.startsWith("last-turn") === true,
+          edge?.endsWith(ACTIONS_EDGE) === true,
+          sessionId,
+        );
+        if (height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
+        rough = true;
+        remembered = true;
+      } else if (
         !custom &&
         near &&
         kept &&
@@ -3957,6 +4001,7 @@ export function layoutConversation(
     ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     totalHeight: top,
     ...(remembered ? { remembered: true as const } : {}),
+    ...(rough ? { rough: true as const } : {}),
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
