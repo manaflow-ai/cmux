@@ -315,6 +315,21 @@ async fn ensure_records_a_new_trigger_chat_as_a_scripts() {
     );
 }
 
+/// The turns the journal admitted for `delivery`: its daemon-written `queued` and `user_message`
+/// records (a prompt that waits behind a running turn is `queued` first), by turn id.
+fn admitted_turns(hub: &Hub, session: &str, delivery: &str) -> std::collections::BTreeSet<String> {
+    hub.events(session, 0, 10_000)
+        .expect("events")
+        .into_iter()
+        .filter(|rec| {
+            rec.dir == "mux"
+                && matches!(rec.kind.as_str(), "queued" | "user_message")
+                && rec.msg.get("promptId").and_then(Value::as_str) == Some(delivery)
+        })
+        .filter_map(|rec| rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
 /// Wake kind 3 (RFD 0017): a CI result reaches a paused machine, the platform wakes it and calls
 /// `ensure` then `send`. Its delivery is retried with the same delivery id whenever an attempt's
 /// answer is lost: the attempt waited out a slow wake, the platform crashed after the send, or a
@@ -354,17 +369,12 @@ async fn a_retried_trigger_delivery_runs_its_turn_once_in_turn_or_at_once() {
         assert_eq!(answer["duplicate"], true, "a retry is a replay");
     }
     let session = hub.resolve(&scoped.session).expect("trigger chat");
-    let ran = hub
-        .events(&session.id, 0, 10_000)
-        .expect("events")
-        .into_iter()
-        .filter(|rec| {
-            rec.dir == "mux"
-                && rec.kind == "user_message"
-                && rec.msg.get("promptId").and_then(Value::as_str) == Some(scoped.delivery.as_str())
-        })
-        .count();
-    assert_eq!(ran, 1, "the event ran as one turn, not one per retry");
+    let admitted = admitted_turns(&hub, &session.id, &scoped.delivery);
+    assert_eq!(
+        admitted.into_iter().collect::<Vec<_>>(),
+        [turn.clone()],
+        "one turn, not one per retry"
+    );
 
     // A second event whose first two sends race (the slow wake's attempt and its retry both reach
     // the guest before either is journaled): one turn, and both answer with it.
@@ -374,16 +384,11 @@ async fn a_retried_trigger_delivery_runs_its_turn_once_in_turn_or_at_once() {
         tokio::join!(send(&hub, &second, body.to_owned()), send(&hub, &second, body.to_owned()));
     let (a, b) = (a.expect("racing send a"), b.expect("racing send b"));
     assert_eq!(a["turnId"], b["turnId"], "racing first sends answer with one turn");
-    let ran = hub
-        .events(&session.id, 0, 10_000)
-        .expect("events")
-        .into_iter()
-        .filter(|rec| {
-            rec.dir == "mux"
-                && rec.kind == "user_message"
-                && rec.msg.get("promptId").and_then(Value::as_str) == Some("delivery-2")
-        })
-        .count();
-    assert_eq!(ran, 1, "racing first sends ran one turn");
+    let admitted = admitted_turns(&hub, &session.id, "delivery-2");
+    assert_eq!(
+        admitted.into_iter().collect::<Vec<_>>(),
+        [a["turnId"].as_str().expect("racing turn").to_owned()],
+        "racing first sends admitted one turn"
+    );
     hub.shutdown_all().await;
 }
