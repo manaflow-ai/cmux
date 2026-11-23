@@ -341,6 +341,195 @@ impl Hub {
     }
 }
 
+/// Longest a digest read waits: it may page through a long feed.
+pub const DIGEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// Longest rendered digest a caller may ask for, in characters.
+pub const MAX_DIGEST_BUDGET: usize = 20_000;
+
+/// What a `digest` asks for.
+pub struct DigestRequest {
+    pub space: String,
+    /// Move the person's cursor past this digest.
+    pub ack: bool,
+    /// The read-back counts records at or after this (ms since the epoch).
+    pub since: u64,
+    /// Areas the person owns, as globs over paths or labels.
+    pub areas: Vec<String>,
+    pub budget: Option<usize>,
+    /// The person the digest is for (the proven app's account, else the OS user).
+    pub person: String,
+}
+
+/// What a `digest_act` asks for.
+pub struct DigestActRequest {
+    pub space: String,
+    pub item: String,
+    pub action: String,
+    pub person: String,
+}
+
+fn store_refusal(forum: &HostedForum, e: &acpmux_team_space::StoreError) -> RpcError {
+    use acpmux_team_space::StoreError;
+    let (reason, text) = match e {
+        StoreError::Forbidden { space } => {
+            ("forum.forbidden", format!("This agent is not admitted to space {space}."))
+        }
+        StoreError::NotFound { space } => ("forum.not_found", format!("No such space: {space}")),
+        StoreError::Unavailable(why) => ("forum.unavailable", format!("The digest failed: {why}")),
+    };
+    RpcError::internal(forum.redact(text)).with_data(json!({"reason": reason}))
+}
+
+impl Hub {
+    /// The log of each person's digests, actions and cursors: a file beside the forum log, or
+    /// memory when the daemon keeps no store on disk or the file cannot open.
+    fn digest_log(&self) -> Arc<acpmux_team_space::log::JsonlLog> {
+        self.digest_log
+            .get_or_init(|| {
+                let log = self.forum_root.get().and_then(|root| {
+                    acpmux_team_space::log::JsonlLog::open_with(
+                        root.join("digest.jsonl"),
+                        crate::forum::append_private,
+                    )
+                    .inspect_err(|e| {
+                        tracing::warn!("digest log unavailable, keeping it in memory: {e}");
+                    })
+                    .ok()
+                });
+                Arc::new(log.unwrap_or_else(acpmux_team_space::log::JsonlLog::in_memory))
+            })
+            .clone()
+    }
+
+    /// `_acpmux/forum/digest`: the person's digest of `space` after their stored cursor, the
+    /// raised items, the summarized remainder, and the read-back counts since `req.since`. The
+    /// cursor moves only when `req.ack` is set.
+    pub async fn forum_digest(
+        &self,
+        session: &Session,
+        req: DigestRequest,
+    ) -> Result<Value, RpcError> {
+        use acpmux_team_space::digest::{DigestOptions, Person};
+        use acpmux_team_space::hosted::HostedStore;
+        use acpmux_team_space::service::{Ask, Counts, DEFAULT_BUDGET, run};
+        required("space", &req.space)?;
+        let forum = self.forum_hosted()?;
+        let client = forum.client(&session.id);
+        let log = self.digest_log();
+        let (handle, name) =
+            session.read_meta(|m| (m.spoken_handle().into_owned(), m.name.clone()));
+        let mut agents = vec![session.id.clone(), handle];
+        agents.extend(Some(name).filter(|n| !n.trim().is_empty()));
+        let person = Person {
+            id: req.person.clone(),
+            handle: req.person.clone(),
+            agents,
+            areas: req.areas.clone(),
+        };
+        let space = req.space.trim().to_owned();
+        let budget = req.budget.unwrap_or(DEFAULT_BUDGET).clamp(200, MAX_DIGEST_BUDGET);
+        let (ack, since) = (req.ack, req.since);
+        let runtime = tokio::runtime::Handle::current();
+        let job = tokio::task::spawn_blocking(move || {
+            let store = HostedStore::new(client, runtime, log.clone());
+            let options = DigestOptions::default();
+            run(
+                &store,
+                &*log,
+                &Ask {
+                    person: &person,
+                    space: &space,
+                    options: &options,
+                    budget,
+                    ack,
+                    now: crate::store::now_ms(),
+                    since,
+                },
+            )
+        });
+        let got = match tokio::time::timeout(DIGEST_TIMEOUT, job).await {
+            Ok(Ok(Ok(got))) => got,
+            Ok(Ok(Err(e))) => return Err(store_refusal(&forum, &e)),
+            Ok(Err(e)) => {
+                return Err(RpcError::internal(format!("The digest did not finish: {e}")));
+            }
+            Err(_) => {
+                return Err(RpcError::internal(format!(
+                    "The digest did not finish within {} s; try again.",
+                    DIGEST_TIMEOUT.as_secs()
+                ))
+                .with_data(json!({"reason": "forum.timeout"})));
+            }
+        };
+        let d = &got.digest;
+        let summarized: Vec<Value> = d
+            .rest
+            .iter()
+            .map(|g| json!({"kind": g.kind.as_str(), "posts": g.posts, "items": g.items.len()}))
+            .collect();
+        Ok(json!({
+            "forum": "digest",
+            "space": d.space,
+            "text": got.rendered.text,
+            "fromSeq": d.from_seq,
+            "toSeq": d.to_seq,
+            "head": d.head,
+            "behind": d.behind,
+            "postsRead": d.posts_seen,
+            "duplicatesFolded": d.duplicates_folded,
+            "needsYou": d.needs_you,
+            "affectsYou": d.affects_you,
+            "summarized": summarized,
+            "shown": got.rendered.shown,
+            "cut": got.rendered.cut,
+            "acked": got.acked,
+            "cursor": got.cursor,
+            "counts": Counts::new(&got.stats, since),
+        }))
+    }
+
+    /// `_acpmux/forum/digest_act`: the person opened, answered or dismissed digest item `item`.
+    pub async fn forum_digest_act(
+        &self,
+        session: &Session,
+        req: DigestActRequest,
+    ) -> Result<Value, RpcError> {
+        use acpmux_team_space::Action;
+        use acpmux_team_space::hosted::HostedStore;
+        use acpmux_team_space::service::{ActError, act};
+        required("space", &req.space)?;
+        required("item", &req.item)?;
+        let action = match req.action.trim() {
+            "opened" => Action::Opened,
+            "answered" => Action::Answered,
+            "dismissed" => Action::Dismissed,
+            _ => return Err(invalid("action must be one of opened, answered, dismissed")),
+        };
+        let forum = self.forum_hosted()?;
+        let store = HostedStore::new(
+            forum.client(&session.id),
+            tokio::runtime::Handle::current(),
+            self.digest_log(),
+        );
+        let (person, space, item) = (req.person, req.space.trim().to_owned(), req.item);
+        let record = tokio::task::spawn_blocking(move || {
+            act(&store, &person, &space, item.trim(), action, crate::store::now_ms())
+        })
+        .await
+        .map_err(|e| RpcError::internal(format!("The record did not finish: {e}")))?
+        .map_err(|e| match e {
+            ActError::UnknownItem(_) => invalid(e.to_string()),
+            ActError::Store(e) => store_refusal(&forum, &e),
+        })?;
+        Ok(json!({
+            "forum": "digest_act",
+            "item": record.item,
+            "action": record.action.as_str(),
+            "at": record.at,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

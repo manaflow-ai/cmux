@@ -127,6 +127,8 @@ cmux-cloud-api.workspace = true
 cmux-build-space.workspace = true
 # The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.
 cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
+# A person's digest of the team feed (`hub/forum_hosted.rs`): cmux-forum's digest tools.
+acpmux-team-space = { path = "../acpmux-team-space" }
 cmux-cloud-client.workspace = true
 # The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
 cmux-cloud-wire.workspace = true

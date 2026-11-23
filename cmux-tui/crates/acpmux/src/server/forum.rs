@@ -10,6 +10,9 @@
 //! - `_acpmux/forum/post {space, title, body, kind?, labels?}`,
 //!   `_acpmux/forum/reply {thread, body}`, `_acpmux/forum/search {query, space?}`: the
 //!   team's hosted forum (`hub/forum_hosted.rs`), as the calling session (its caller token).
+//! - `_acpmux/forum/digest {space, ack?, since?, areas?, budget?}` and
+//!   `_acpmux/forum/digest_act {space, item, action}`: this Mac's person's digest of the team
+//!   feed, and what they did with an item of it (`hub/forum_hosted.rs`).
 //!
 //! Web and peer connections are refused: rules are for this Mac's sessions.
 
@@ -17,7 +20,7 @@ use super::{Conn, str_param};
 use crate::forum::{Author, MAX_KEY_BYTES};
 use crate::hub::Hub;
 use crate::hub::forum::AnnounceRequest;
-use crate::hub::forum_hosted::PostRequest;
+use crate::hub::forum_hosted::{DigestActRequest, DigestRequest, PostRequest};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -101,6 +104,46 @@ async fn handle(
             let post_id = str_param(params, "postId")
                 .ok_or_else(|| RpcError::invalid_params("postId is required"))?;
             hub.forum_ack(&session, post_id)
+        }
+        method::MUX_FORUM_DIGEST | method::MUX_FORUM_DIGEST_ACT => {
+            let caller = conn.caller().ok_or_else(|| {
+                RpcError::invalid_params(
+                    "a digest is read from an agent session (its caller token), for the person it works for",
+                )
+                .with_data(json!({"reason": "forum.caller_required"}))
+            })?;
+            let session = hub.resolve(caller)?;
+            let text = |k: &str| str_param(params, k).unwrap_or_default().to_owned();
+            // The person is this Mac's user, never a request field.
+            let person = account(&json!({}))?;
+            if m == method::MUX_FORUM_DIGEST {
+                let areas = match params.get("areas") {
+                    None | Some(Value::Null) => Vec::new(),
+                    Some(Value::Array(a)) => a
+                        .iter()
+                        .map(|l| l.as_str().map(str::to_owned))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| RpcError::invalid_params("areas must be strings"))?,
+                    Some(_) => return Err(RpcError::invalid_params("areas must be a list")),
+                };
+                let req = DigestRequest {
+                    space: text("space"),
+                    ack: flag("ack"),
+                    since: params.get("since").and_then(Value::as_u64).unwrap_or(0),
+                    areas,
+                    budget: params.get("budget").and_then(Value::as_u64).map(|b| b as usize),
+                    person,
+                };
+                hub.forum_digest(&session, req).await
+            } else {
+                let req = DigestActRequest {
+                    space: text("space"),
+                    item: text("item"),
+                    action: text("action"),
+                    person,
+                };
+                hub.forum_digest_act(&session, req).await
+            }
         }
         method::MUX_FORUM_POST | method::MUX_FORUM_REPLY | method::MUX_FORUM_SEARCH => {
             let caller = conn.caller().ok_or_else(|| {
