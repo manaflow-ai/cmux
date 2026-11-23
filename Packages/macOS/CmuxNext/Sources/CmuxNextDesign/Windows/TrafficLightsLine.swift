@@ -112,7 +112,7 @@ public struct TrafficLightsLine {
         owner.watch(container: container, buttons: buttons.map(\.1), in: window)
         let offsets = owner.offsets(for: window.styleMask)
         let leftToRight = window.windowTitlebarLayoutDirection == .leftToRight
-        owner.place {
+        let settled = owner.place {
             let placement = placement(centerY: centerY, buttonHeight: close.frame.height, nativeHeight: native,
                                       scale: window.backingScaleFactor)
             let containerFrame = CGRect(x: container.frame.minX,
@@ -131,6 +131,8 @@ public struct TrafficLightsLine {
             }
             return !moved
         }
+        // Where this placement left them, for the owner's next "AppKit moved them" (only a placement that settled).
+        owner.rest = settled ? TrafficLightsOwner.Rest(in: window) : nil
     }
 }
 
@@ -166,6 +168,44 @@ public final class TrafficLightsOwner {
     private static var key: UInt8 = 0
     /// macOS's own spacing of the buttons for this window's style mask (``nativeOffsets(for:)``), read once per mask.
     private var spacing: (mask: UInt, offsets: [NSWindow.ButtonType: CGFloat])?
+
+    /// The lights and their container as seen from the window's top-left corner, with what the placement reads from the
+    /// window (its titlebar's height, its scale, its style). A live resize of the window moves the container with the
+    /// window's top edge and widens it each step, so AppKit's frame change arrives with every light where the last
+    /// placement put it; placing them again there read the top row's line (every density token) for nothing.
+    struct Rest: Equatable {
+        var nativeHeight: CGFloat
+        var scale: CGFloat
+        var styleMask: UInt
+        var containerHeight: CGFloat
+        var containerTopGap: CGFloat
+        var buttons: [CGPoint]
+
+        init?(in window: NSWindow) {
+            guard let close = window.standardWindowButton(.closeButton), close.window === window,
+                  let titlebar = close.superview, let container = titlebar.superview, let frameView = container.superview else { return nil }
+            let height = window.frame.height
+            nativeHeight = height - window.contentLayoutRect.maxY
+            scale = window.backingScaleFactor
+            styleMask = window.styleMask.rawValue
+            containerHeight = container.frame.height
+            containerTopGap = frameView.isFlipped ? container.frame.minY : frameView.bounds.maxY - container.frame.maxY
+            buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> CGPoint? in
+                guard let button = window.standardWindowButton(type), button.superview === titlebar else { return nil }
+                let frame = button.convert(button.bounds, to: nil)
+                return CGPoint(x: frame.minX, y: height - frame.maxY) // from the window's top: a resize moves neither
+            }
+        }
+    }
+    /// Where the last settled placement left the lights (``TrafficLightsLine/apply(in:centerY:)``); nil before one, or
+    /// after a placement AppKit fought for all three runs. A new line reaches the lights through the root view's layout,
+    /// which places them unconditionally; this only spares the frame changes that moved nothing of ours.
+    var rest: Rest?
+    /// The lights and their container are where the last placement left them.
+    private func isAtRest(_ window: NSWindow) -> Bool {
+        guard let rest else { return false }
+        return Rest(in: window) == rest
+    }
 
     /// The owner of `window`'s lights, made on first use.
     public static func of(_ window: NSWindow) -> TrafficLightsOwner {
@@ -221,12 +261,15 @@ public final class TrafficLightsOwner {
     /// Runs `body` as the lights' placement until a run finds every frame already in place (`body` returns true when it
     /// changed nothing), at most three runs: a move AppKit makes inside it (its tiling, run by one of our frame changes)
     /// is undone by the next run, which reads nothing from the frames AppKit set.
-    func place(_ body: () -> Bool) {
-        guard !isPlacing else { return }
+    /// Returns whether a run found every frame in place (false when AppKit fought all three, or a placement was running).
+    @discardableResult
+    func place(_ body: () -> Bool) -> Bool {
+        guard !isPlacing else { return false }
         isPlacing = true
         placements += 1
         defer { isPlacing = false }
-        for _ in 0..<3 where body() { return }
+        for _ in 0..<3 where body() { return true }
+        return false
     }
 
     /// Hears `container` and `buttons` (once per view), and lets go of views that left `window`.
@@ -243,16 +286,18 @@ public final class TrafficLightsOwner {
     }
 
     /// AppKit moved a button or resized their container: back onto the line in the same call, and once more before the
-    /// frame commits.
+    /// frame commits. A change that left every light where the last placement put them, seen from the window's top
+    /// (``Rest``: a live resize step), places nothing; the commit pass still looks, for a move AppKit makes with no frame
+    /// change heard (its titlebar view's bounds).
     private func appKitMovedThem() {
         guard !isPlacing, let window else { return }
-        TrafficLightsLine.apply(in: window)
+        if !isAtRest(window) { TrafficLightsLine.apply(in: window) }
         guard !commitPassPending else { return }
         commitPassPending = true
         MainRunLoopObserver.once(activities: .beforeWaiting, order: Self.commitPassOrder) { [weak self] in
             guard let self else { return }
             commitPassPending = false
-            if let window = self.window { TrafficLightsLine.apply(in: window) }
+            if let window = self.window, !isAtRest(window) { TrafficLightsLine.apply(in: window) }
         }
     }
 }

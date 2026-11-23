@@ -411,6 +411,81 @@ impl Heard {
     }
 }
 
+/// How long this daemon may keep a link from reading before the silence it saw meanwhile is
+/// no longer counted as the peer's (`ReaderHeld`).
+pub const READER_HELD: Duration = Duration::from_millis(500);
+
+/// When this daemon last stopped reading a link, and since when it reads it again after holding
+/// it at least `READER_HELD`. The link's loop reads only while it waits in its `select!`: a step
+/// that awaits (a notice waiting for room in the hub's queue, a write behind a large frame)
+/// reads nothing, and the transport's `Heard` marks no byte however many the peer sent.
+/// Counted as the peer's silence, a few seconds of that dropped a healthy link: about 42 resets
+/// in two hours of the link from the Mac to a lane VM, each "machine is unreachable; queued
+/// here" for the sends meanwhile.
+#[derive(Debug)]
+pub struct ReaderHeld {
+    stopped: std::sync::Mutex<Option<tokio::time::Instant>>,
+    since: tokio::time::Instant,
+}
+
+impl Default for ReaderHeld {
+    fn default() -> Self {
+        Self { stopped: std::sync::Mutex::new(None), since: tokio::time::Instant::now() }
+    }
+}
+
+impl ReaderHeld {
+    /// The read for one `select!`: dropped as the select returns, before any branch's handler
+    /// runs, so the time it stops is the time this daemon stopped reading.
+    pub fn listen<F>(&self, read: F) -> Listen<'_, F> {
+        Listen { read, held: self }
+    }
+
+    /// The loop is about to read again: how long it did not, when that was `READER_HELD` or
+    /// more (the silence measured from now on).
+    pub fn resume(&mut self) -> Option<Duration> {
+        let stopped =
+            self.stopped.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).take()?;
+        let now = tokio::time::Instant::now();
+        let held = now.saturating_duration_since(stopped);
+        if held < READER_HELD {
+            return None;
+        }
+        self.since = now;
+        Some(held)
+    }
+
+    /// How long this daemon has read the link without holding it `READER_HELD`: no silence
+    /// longer than this is the peer's.
+    pub fn reading(&self) -> Duration {
+        self.since.elapsed()
+    }
+}
+
+/// A link's read inside its `select!` (`ReaderHeld::listen`).
+pub struct Listen<'a, F> {
+    read: F,
+    held: &'a ReaderHeld,
+}
+
+impl<F: std::future::Future + Unpin> std::future::Future for Listen<'_, F> {
+    type Output = F::Output;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<F::Output> {
+        std::pin::Pin::new(&mut self.read).poll(cx)
+    }
+}
+
+impl<F> Drop for Listen<'_, F> {
+    fn drop(&mut self) {
+        *self.held.stopped.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(tokio::time::Instant::now());
+    }
+}
+
 /// A stream that marks its `Heard` on each read that returned bytes.
 pub struct HeardStream<S> {
     inner: S,
