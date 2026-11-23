@@ -16,13 +16,17 @@
 //! changes the folder between the 2 calls makes the second call refuse: the
 //! person did what the first call said and gets an error. Each of these rows
 //! makes the first call 2 times and wants the same text from both: that says
-//! that the folder is at rest when no check runs.
+//! that the folder is at rest when no check runs. 2 of the 4 rows are for a
+//! store that has the 2 files before the first call, as a store that an
+//! earlier check read one time: the row makes them with a plain read of its
+//! own.
 //!
 //! The rows after them are for the conditions of the read that makes no
 //! file. That read does not look at a `-wal` file, so the check uses it only
-//! for a store with no `-wal` file or an empty one, and only for a store file
-//! that nothing wrote for some time. For each other store the check reads as
-//! it did before, and that read can make the 2 files.
+//! for a store with no `-wal` file or an empty one, with no `-journal` file,
+//! and with a store file that nothing wrote for some time. For each other
+//! store the check reads as it did before, and that read can make the 2
+//! files.
 //!
 //! No row here measures a time, and no row waits. A row that needs a store
 //! file with an old time or with a time ahead sets that time. Each call gets
@@ -67,17 +71,68 @@ fn a_state_root_with_a_closed_session(session: &str) -> (tempfile::TempDir, Path
     let folder = tempfile::tempdir().unwrap();
     let state = fs::canonicalize(folder.path()).unwrap().join("state");
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
-    let files: Vec<PathBuf> = fs::read_dir(&state)
+    set_written(&the_registry_file(&state), long_ago());
+    (folder, state)
+}
+
+/// The registry's file of the one session folder in the state root `state`.
+fn the_registry_file(state: &Path) -> PathBuf {
+    let mut files: Vec<PathBuf> = fs::read_dir(state)
         .unwrap()
         .filter_map(Result::ok)
         .map(|entry| entry.path().join(REGISTRY_FILE))
         .filter(|file| file.is_file())
         .collect();
     assert_eq!(files.len(), 1, "the state root does not have one registry file: {files:?}");
-    for file in &files {
-        set_written(file, long_ago());
+    files.pop().unwrap()
+}
+
+/// One plain read of the closed store at `file` by the row itself: a
+/// read-only connection, one query, then closed. The rollback check read
+/// each store that way before, so a store that it read one time has the 2
+/// files that such a read leaves: a `-wal` file of 0 bytes and a `-shm`
+/// file. The 2 files must be there after the read, and no other side file.
+/// Then the time of the last write of the store file and of the 2 files is
+/// set to long ago, so a later write of one of them shows.
+fn a_plain_read_leaves_its_two_files(file: &Path) {
+    let session_dir = file.parent().unwrap();
+    let store = Connection::open_with_flags(
+        file,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap();
+    let tables: i64 =
+        store.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0)).unwrap();
+    drop(store);
+    assert!(tables > 0, "the store at {} has no table", file.display());
+    let shm = format!("{REGISTRY_FILE}-shm");
+    let wal = format!("{REGISTRY_FILE}-wal");
+    let files = side_files(session_dir);
+    assert!(
+        files.len() == 2
+            && files.iter().any(|(name, length)| *name == shm && *length > 0)
+            && files.iter().any(|(name, length)| *name == wal && *length == 0),
+        "the plain read of the row did not leave a -shm file and a -wal file of 0 bytes: {files:?}"
+    );
+    for written in [file.to_path_buf(), session_dir.join(shm), session_dir.join(wal)] {
+        set_written(&written, long_ago());
     }
-    (folder, state)
+}
+
+/// Each file in `session_dir` with its length in bytes and its time of the
+/// last write in seconds and nanoseconds, in the order of the names.
+fn files_with_lengths_and_times(session_dir: &Path) -> Vec<(String, u64, i64, i64)> {
+    let mut files: Vec<(String, u64, i64, i64)> = fs::read_dir(session_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let file = entry.metadata().ok()?;
+            Some((name, file.len(), file.mtime(), file.mtime_nsec()))
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 /// The executable with its config file and its log file in `folder`, and
@@ -264,15 +319,15 @@ fn the_reset_command_does_the_reset_after_a_rollback_check_between_its_two_calls
     );
 }
 
-/// The control of the row after it: a rollback check read the store before
-/// the first call, and no check runs between the 2 calls. What the check
-/// left in the folder is in the confirmation text, nothing changes it, and
-/// the reset is done.
+/// The control of the row after it: the store has the 2 files of a plain
+/// read before the first call, and no check runs between the 2 calls. The 2
+/// files are in the confirmation text, nothing changes them, and the reset
+/// is done.
 #[test]
-fn the_reset_command_does_the_reset_of_a_store_that_a_rollback_check_read_before_its_two_calls() {
-    let session = "reset-row-after-a-check-before";
+fn the_reset_command_does_the_reset_of_a_store_that_has_the_two_files_of_a_plain_read() {
+    let session = "reset-row-with-the-two-files";
     let (folder, state) = a_state_root_with_a_closed_session(session);
-    a_rollback_check_that_gives_the_number(folder.path(), &state);
+    a_plain_read_leaves_its_two_files(&the_registry_file(&state));
     let (session_dir, confirmation) = first_call(folder.path(), &state, session);
     the_folder_is_at_rest(folder.path(), &state, session, &confirmation);
     let files = side_files(&session_dir);
@@ -287,16 +342,17 @@ fn the_reset_command_does_the_reset_of_a_store_that_a_rollback_check_read_before
     );
 }
 
-/// A rollback check read the store before the first call, and one more run
-/// of the check reads it between the 2 calls. The reset must be done all the
-/// same. When it is red, its text gives the side files, and the length and
-/// the time of the last write of the `-shm` file, directly before the second
-/// run and directly after it.
+/// The store has the 2 files of a plain read before the first call, as a
+/// store that an earlier rollback check read one time. One run of the check
+/// reads it between the 2 calls. The reset must be done all the same: the
+/// check must not write the 2 files again. When the row is red, its text
+/// gives the side files, and the length and the time of the last write of
+/// the `-shm` file, directly before the check and directly after it.
 #[test]
-fn the_reset_command_does_the_reset_after_a_second_rollback_check_of_the_store() {
-    let session = "reset-row-after-a-second-check";
+fn the_reset_command_does_the_reset_after_a_rollback_check_of_a_store_that_has_the_two_files() {
+    let session = "reset-row-after-a-check-with-the-two-files";
     let (folder, state) = a_state_root_with_a_closed_session(session);
-    a_rollback_check_that_gives_the_number(folder.path(), &state);
+    a_plain_read_leaves_its_two_files(&the_registry_file(&state));
     let (session_dir, confirmation) = first_call(folder.path(), &state, session);
     the_folder_is_at_rest(folder.path(), &state, session, &confirmation);
     let before = side_files(&session_dir);
@@ -307,10 +363,10 @@ fn the_reset_command_does_the_reset_after_a_second_rollback_check_of_the_store()
     let reset = second_call(folder.path(), &state, session, &confirmation);
     assert!(
         reset.status.success() && !session_dir.exists(),
-        "the reset is not done after a second rollback check; the session's folder is there: \
-         {}; side files in it with their lengths before the second check: {before:?}, after the \
-         second check: {after:?}; the -shm file before the second check: {shm_before}; after the \
-         second check: {shm_after}; the second call: {}",
+        "the reset is not done after a rollback check of a store with the 2 files; the session's \
+         folder is there: {}; side files in it with their lengths before the check: {before:?}, \
+         after the check: {after:?}; the -shm file before the check: {shm_before}; after the \
+         check: {shm_after}; the second call: {}",
         session_dir.exists(),
         text_of(&reset)
     );
@@ -378,6 +434,58 @@ fn the_check_of_a_store_with_a_time_that_is_ahead_reads_it_as_before() {
         names,
         [format!("{REGISTRY_FILE}-shm"), format!("{REGISTRY_FILE}-wal")],
         "the read of a store that is not at rest did not leave the 2 files"
+    );
+}
+
+/// A closed store at rest that has the 2 files of a plain read, as a store
+/// that an earlier rollback check read one time. The check gives the number
+/// and leaves the folder as it found it: no new file, and the same length
+/// and the same time of the last write for the store file, the `-shm` file
+/// and the `-wal` file. When the row is red, its text gives each file with
+/// its length and its time before the check and after it.
+#[test]
+fn the_check_of_a_store_that_has_the_two_files_of_a_plain_read_changes_no_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("sessions");
+    let session = a_closed_store_at_rest(&state, 7);
+    a_plain_read_leaves_its_two_files(&session.join(REGISTRY_FILE));
+    let before = files_with_lengths_and_times(&session);
+    let (code, answer, stderr) = rollback_check(folder.path(), &state);
+    let after = files_with_lengths_and_times(&session);
+    assert_eq!(
+        (code, answer),
+        (Some(0), json!({ "workspace_registry": 7 })),
+        "the check gave another answer; stderr: {stderr}"
+    );
+    assert_eq!(
+        before, after,
+        "the check changed the folder of the closed store; each file with its length and its \
+         time of the last write, before the check (left) and after it (right)"
+    );
+}
+
+/// A closed store at rest with an empty `-journal` file next to it. A
+/// `-journal` file is the sign of a write in the other journal mode, so the
+/// check does not use the read that makes no file: it reads the store as it
+/// did before. That read leaves the `-shm` file and the `-wal` file, and
+/// that is what shows it here.
+#[test]
+fn the_check_of_a_store_with_an_empty_journal_file_reads_it_as_before() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("sessions");
+    let session = a_closed_store_at_rest(&state, 7);
+    fs::write(session.join(format!("{REGISTRY_FILE}-journal")), "").unwrap();
+    let (code, answer, stderr) = rollback_check(folder.path(), &state);
+    assert_eq!(
+        (code, answer),
+        (Some(0), json!({ "workspace_registry": 7 })),
+        "the check gave another answer; stderr: {stderr}"
+    );
+    let files = side_files(&session);
+    let has = |tail: &str| files.iter().any(|(name, _)| *name == format!("{REGISTRY_FILE}{tail}"));
+    assert!(
+        has("-shm") && has("-wal"),
+        "the read of a store with a -journal file did not leave the 2 files: {files:?}"
     );
 }
 
