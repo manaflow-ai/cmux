@@ -2869,6 +2869,7 @@ dependencies = [
  "arc-swap",
  "base64",
  "cmux-agent-cli-render",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
