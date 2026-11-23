@@ -302,6 +302,28 @@ struct AttachmentSourceTests {
 
     // MARK: The page's ask
 
+    /// Before its handshake a page on a remote route still reads `remoteChat == false`: its ask then
+    /// gets only the pasteboard's claim, never a file's own metadata (a download's website, #45756 F1).
+    @Test func beforeTheHandshakeOnlyThePasteboardsClaimAnswers() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("source-\(UUID().uuidString).png")
+        try Data([0x89, 0x50]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        AttachmentSource.markOwn(file, bundleId: Self.own)
+        let model = AgentPaneModel(host: NoHost())
+        func ask() async -> String? {
+            model.droppedPaths.stashSource([file], items: 1, claimed: "com.apple.finder", kind: .drop)
+            let answer = await model.attachSource(.drop, names: [file.lastPathComponent], apps: Self.apps)
+            let sources = (answer["value"] as? [String: Any])?["sources"] as? [[String: Any]]
+            return sources?.first?["name"] as? String
+        }
+        model.hasHandshake = false
+        #expect(await ask() == "Finder")
+        model.hasHandshake = true
+        #expect(await ask() == "cmux")
+        model.remoteChat = true
+        #expect(await ask() == "Finder")
+    }
+
     @Test func eachNameGetsItsFilesSourceElseThePasteboardsClaim() {
         let finder = AttachmentSource(name: "Finder", bundleId: "com.apple.finder")
         let urls = [URL(fileURLWithPath: "/tmp/a.png"), URL(fileURLWithPath: "/tmp/docs")]
