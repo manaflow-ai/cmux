@@ -28,8 +28,8 @@ pub mod fit_policy;
 pub mod project;
 pub mod style;
 pub mod terminal;
-pub mod zoom;
 pub mod unicode;
+pub mod zoom;
 
 pub use project::{Paint, View};
 pub use terminal::Terminal;
