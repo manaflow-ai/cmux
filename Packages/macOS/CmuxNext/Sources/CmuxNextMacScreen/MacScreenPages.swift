@@ -190,6 +190,8 @@ public final class MacScreenPages {
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
         approval.follow(remoteHosted ? nil : hub)
         watchDeviceNames()
+        // Tabs that asked before the hub came (a launch-time open while sign-in restored) ask now.
+        if hub != nil { for viewer in hubViewers { viewer.hubArrived() } }
     }
 
     /// One `session.*` push: the viewer tab or the host it is for.
