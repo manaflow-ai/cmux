@@ -45,6 +45,11 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
 
+    /// What a cancel or normal title asks above ``minimumContrast`` where some ink can give it: its translucent fill
+    /// sits on several grounds at once, and a title fit to exactly 4.5:1 on a popover's glass over a black page read
+    /// 4.31:1 in the capture (Rose Pine Dawn's Cancel, Grass's 4.39:1, NativeControlContrastAuditTests).
+    static let translucentTitleHeadroom = 0.35
+
     /// The least contrast of a disabled button's inks: dimmer than an enabled title, still legible
     /// (WCAG exempts disabled controls; cmux holds them above its 2.5:1 legible floor).
     public static let disabledMinimumContrast = 3.0
@@ -84,16 +89,22 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
             fill = fill.alpha < 1 ? fill.withAlpha(fill.alpha * 0.5) : fill.mixed(toward: base, 0.5)
         }
         var surfaces = card.map { fill.composited(over: $0) }
-        if isEnabled, role == .cancel || role == .normal {
+        let translucentTitle = isEnabled && (role == .cancel || role == .normal)
+        let roomy = Self.minimumContrast + Self.translucentTitleHeadroom
+        if translucentTitle {
             // A translucent gray over grounds no one ink reads on (a mid-tone theme's popover glass over a white and a
             // black page) densifies until one does: Hot Dog Stand's Stop read 4.08:1 in black over the page and its
             // Open Agent Activity 2.66:1 in the gray the passes ended on.
-            for _ in 0..<12 where fill.alpha < 1 && !Self.fits(Self.readable(ink, over: surfaces), over: surfaces) {
+            for _ in 0..<12 where fill.alpha < 1
+                && !Self.fits(Self.readable(ink, over: surfaces, minimum: roomy), over: surfaces, minimum: roomy) {
                 fill = fill.withAlpha(min(1, fill.alpha + 0.08))
                 surfaces = card.map { fill.composited(over: $0) }
             }
         }
-        if isEnabled {
+        let roomyInk = translucentTitle ? Self.readable(ink, over: surfaces, minimum: roomy) : nil
+        if let roomyInk, Self.fits(roomyInk, over: surfaces, minimum: roomy) {
+            ink = roomyInk
+        } else if isEnabled {
             ink = Self.readable(ink, over: surfaces)
         } else if let under = surfaces.first {
             ink = Self.readable(ink.mixed(toward: under, 0.5), over: surfaces, minimum: Self.disabledMinimumContrast)
@@ -124,14 +135,13 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
 
     /// The card a button on a floating menu or popover sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``,
     /// the omnibar's bookmark bubble): the menu glass (the theme's glass tint at the menu level, then the theme veil,
-    /// ``GlassMenuMaterial/veil``) over the theme's own window, the opaque popup surface (Reduce Transparency), and the
+    /// ``GlassMenuMaterial/veil(for:)``) over the theme's own window, the opaque popup surface (Reduce Transparency), and the
     /// glass over the brightest and the darkest page. No scrim dims what is behind a popover as one dims a dialog's
     /// window, so a button's inks are fit over any page that can show through (a1273: the bubble's More… and Remove).
     /// The third surface is the theme's window again: the focus ring's gap sits on the glass the card really shows.
     public static func menuCardSurfaces(_ tokens: ThemeTokens, lift: Double = 0.14) -> [ThemeRGB] {
-        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassLevel.menu.tintStrength))
-        let veil = tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil))
-        func glass(over page: ThemeRGB) -> ThemeRGB { veil.composited(over: tint.composited(over: page)) }
+        let veil = GlassMenuMaterial.veil(for: tokens)
+        func glass(over page: ThemeRGB) -> ThemeRGB { GlassMenuMaterial.glass(tokens, veil: veil, over: page) }
         let own = glass(over: tokens.windowBackground.withAlpha(1))
         // glass-opaque-allow: a contrast reference only (the card under Reduce Transparency); nothing paints it here
         return [own, tokens.opaqueOverlayFill(lift: lift), own, glass(over: white), glass(over: black)]

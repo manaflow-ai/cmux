@@ -16,17 +16,26 @@
 //! On by default for every chat started from a local folder, whatever its size and whether or
 //! not it is a git repository: a chat started from a GitHub repository the person picked is
 //! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
-//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes
-//! stays on the machine until Bring Back applies it here ([`super::project_back`]).
+//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on.
+//!
+//! What the agent writes lands in the mount's upper layer on the machine and stays there until
+//! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
+//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
+//! changed since is a conflict. `project back` plans the same from the upper layer and its
+//! whiteouts ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
+//!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
 //!     cmux link project enable | disable | status
 
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
@@ -64,6 +73,8 @@ pub(crate) enum NotProjected {
 struct Listed {
     manifest: Manifest,
     served: Vec<Option<Served>>,
+    /// The symlinks kept as symlinks, as a push records them.
+    links: BTreeMap<String, super::Linked>,
 }
 
 fn ok(answer: &Value) -> bool {
@@ -95,9 +106,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
+        Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+             archived|deleted] | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -233,17 +246,31 @@ pub(crate) fn start(
     let name = chat_name(chat);
     let stderr = std::fs::File::create(log.join(format!("{server}.log")))?;
     let mut command = cmux_process::Command::new(exe);
+    // The store this Mac signs in to goes to the server on its stdin (never its arguments), so
+    // it can keep the folder's listing there and fetch it by hash on a resume.
+    let handoff = super::store::handoff();
     command
         .args(["link", "project", "serve", "--socket"])
         .arg(socket)
-        .args(["--at", remote, "--name", &name])
+        .args(["--at", remote, "--name", &name]);
+    if handoff.is_some() {
+        command.arg("--store-stdin");
+    }
+    command
         .arg(local)
-        .stdin(cmux_process::Stdio::null())
+        .stdin(if handoff.is_some() {
+            cmux_process::Stdio::piped()
+        } else {
+            cmux_process::Stdio::null()
+        })
         .stdout(cmux_process::Stdio::piped())
         .stderr(stderr)
         // Its own process group: the server outlives this command and the app's run of it.
         .process_group(0);
     let mut child = command.spawn().context("cannot start the folder's server")?;
+    if let (Some(handoff), Some(mut stdin)) = (handoff, child.stdin.take()) {
+        let _ = stdin.write_all(handoff.as_bytes());
+    }
     let stdout = child.stdout.take().context("no pipe from the folder's server")?;
     // The server answers one line once the machine mounted the folder or refused it; its own dial
     // waits are bounded (START_WAIT), and an exit closes the pipe.
@@ -471,6 +498,7 @@ fn machine_id(socket: &Path) -> Option<String> {
 /// answer as one line; then answers the machine's reads until the dial ends, and dials again.
 fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let (mut socket, mut at, mut name, mut folder, mut any_size) = (None, None, None, None, false);
+    let mut store_handed = false;
     let mut words = args.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -479,9 +507,14 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
             "--name" => name = words.next().cloned(),
             // Projects a folder within the copy's limits too (tests and the bench).
             "--any-size" => any_size = true,
+            // The store this server keeps the folder's listing in, on stdin ([`start`]).
+            "--store-stdin" => store_handed = true,
             other if other.starts_with("--") => bail!("unknown flag {other}"),
             other => folder = Some(PathBuf::from(other)),
         }
+    }
+    if store_handed && let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
+        eprintln!("cmux link project: no store for the listing: {error:#}");
     }
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
@@ -495,9 +528,21 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
+    // Bring Back's base, kept here while the machine mounts the folder.
+    let (dialed, kept) = std::thread::scope(|scope| {
+        let kept = scope.spawn(|| keep_base(&folder, &at, &listed));
+        (dial(&socket, &name, &at, &encoded, None), kept.join())
+    });
+    let (stream, mut answer) = dialed?;
     if !ok(&answer) {
         return Ok(answer);
+    }
+    // The folder is mounted and the chat can start; without a base, Bring Back says so
+    // (`sync_no_base`) rather than guess.
+    match kept {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("cmux link project: no base for Bring Back: {error:#}"),
+        Err(_) => eprintln!("cmux link project: no base for Bring Back: its thread panicked"),
     }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("listed_ms".into(), json!(listed_ms));
@@ -513,8 +558,64 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{answer}");
     let _ = stdout.flush();
-    serve_until_gone(&socket, &name, &at, &encoded, &listed, stream);
+    // The listing goes to the store in the background: the chat is already running, and a resume
+    // fetches it from there instead of sending it over this Mac's uplink.
+    let published: Published = Arc::new(Mutex::new(None));
+    let mut revisions = Revisions { published: Arc::clone(&published), resent: 0 };
+    let pair = pair_of(&name);
+    std::thread::scope(|scope| {
+        if super::store::on() {
+            scope.spawn(|| match super::store::publish(&listed.manifest, &pair) {
+                Ok(done) => {
+                    eprintln!(
+                        "cmux link project: the listing is in the store: {} pieces, {} bytes sent",
+                        done.pieces, done.sent
+                    );
+                    if let Ok(mut slot) = published.lock() {
+                        *slot = Some(done.root);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("cmux link project: the listing stays off the store: {error:#}");
+                }
+            });
+        }
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+    });
     Ok(Value::Null)
+}
+
+/// The revision of the listing this server published, once it has.
+type Published = Arc<Mutex<Option<String>>>;
+
+/// How a redial names the listing without sending it.
+struct Revisions {
+    published: Published,
+    /// Redials that fell back to the whole manifest.
+    resent: u32,
+}
+
+impl Revisions {
+    /// The reference to send in place of the manifest, when the listing is in the store.
+    fn reference(&self) -> Option<Value> {
+        let root = self.published.lock().ok()?.clone()?;
+        match super::store::reference(&root) {
+            Ok(reference) => Some(reference),
+            Err(error) => {
+                eprintln!("cmux link project: no read grant for the listing: {error:#}");
+                None
+            }
+        }
+    }
+}
+
+/// The store pair that keeps projection `name`'s listing alive.
+fn pair_of(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' })
+        .collect();
+    format!("listing.{clean}").chars().take(128).collect()
 }
 
 fn elapsed_ms(since: Instant) -> u64 {
@@ -533,6 +634,7 @@ fn serve_until_gone(
     encoded: &[u8],
     listed: &Listed,
     first: BufReader<UnixStream>,
+    revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
     let mut unreachable_since: Option<Instant> = None;
@@ -564,12 +666,39 @@ fn serve_until_gone(
             return;
         }
         std::thread::sleep(retry_wait(via_quiet, &mut backoff));
-        let (dialed, quiet) = redial(socket, name, at, &[]);
+        let (dialed, quiet) = redial(socket, name, at, &[], None);
         via_quiet = quiet;
         match dialed {
             Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
-                match redial(socket, name, at, encoded).0 {
+                // The machine forgot the folder: it fetches the listing from the store when it
+                // can, and only then is the whole manifest sent over this Mac's uplink.
+                let by_store = revisions
+                    .reference()
+                    .map(|reference| redial(socket, name, at, &[], Some(&reference)).0);
+                let again = match by_store {
+                    Some(Ok((reader, answer))) if ok(&answer) => Some(Ok((reader, answer))),
+                    Some(Ok((_, answer))) => {
+                        eprintln!(
+                            "cmux link project: the machine would not fetch the listing: {answer}"
+                        );
+                        None
+                    }
+                    Some(Err(error)) => Some(Err(error)),
+                    None => None,
+                };
+                let again = match again {
+                    Some(done) => done,
+                    None => {
+                        revisions.resent += 1;
+                        eprintln!(
+                            "cmux link project: sending the whole listing ({} so far)",
+                            revisions.resent
+                        );
+                        redial(socket, name, at, encoded, None).0
+                    }
+                };
+                match again {
                     Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
                     Ok((_, answer)) => {
                         eprintln!(
@@ -627,13 +756,14 @@ fn redial(
     name: &str,
     at: &str,
     encoded: &[u8],
+    revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
     if let Some(quiet) = quiet_socket(socket)
         && let Ok(stream) = UnixStream::connect(&quiet)
     {
-        return (ask(stream, name, at, encoded), true);
+        return (ask(stream, name, at, encoded, revision), true);
     }
-    (dial(socket, name, at, encoded), false)
+    (dial(socket, name, at, encoded, revision), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -643,10 +773,11 @@ fn dial(
     name: &str,
     at: &str,
     encoded: &[u8],
+    revision: Option<&Value>,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    ask(stream, name, at, encoded)
+    ask(stream, name, at, encoded, revision)
 }
 
 /// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
@@ -671,8 +802,9 @@ fn ask(
     name: &str,
     at: &str,
     encoded: &[u8],
+    revision: Option<&Value>,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
-    let line = json!({
+    let mut line = json!({
         "id": 1,
         "cmd": cmux_tui_core::projection::SERVE,
         "name": name,
@@ -682,6 +814,10 @@ fn ask(
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
     });
+    if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
+        // The listing is in the store: the machine fetches it from there by this reference.
+        object.insert("revision".into(), revision.clone());
+    }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     let sent = stream
@@ -727,17 +863,17 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
         });
         kept.push((relative, Served { file, size, mtime_ns: mtime }));
     }
-    for (relative, linked) in set.links {
-        let mtime = std::fs::symlink_metadata(folder.join(&relative))
+    for (relative, linked) in &set.links {
+        let mtime = std::fs::symlink_metadata(folder.join(relative))
             .map(|meta| mtime_ns(&meta))
             .unwrap_or(0);
         items.push(Item {
-            path: relative,
+            path: relative.clone(),
             kind: Kind::Link,
             mode: 0o777,
             size: 0,
             mtime_ns: mtime,
-            link: Some(linked.target),
+            link: Some(linked.target.clone()),
         });
     }
     let manifest = Manifest::build(root_mtime, items)?;
@@ -750,7 +886,61 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served })
+    Ok(Listed { manifest, served, links: set.links })
+}
+
+/// What a projected file's bytes are named by in Bring Back's base until a pull reads them: its
+/// size and modification time on this Mac when the folder was projected. Its bytes are this Mac's
+/// file's for as long as that file still has both ([`stand_in_matches`]); a pull hashes only the
+/// files the machine changed.
+pub(super) fn stand_in(size: u64, mtime_ns: i64) -> String {
+    format!("{STAND_IN}s{size}-n{mtime_ns}")
+}
+
+const STAND_IN: &str = "projected:";
+
+/// Whether `sha256` is a [`stand_in`], not a hash.
+pub(super) fn is_stand_in(sha256: &str) -> bool {
+    sha256.starts_with(STAND_IN)
+}
+
+/// Whether this Mac's file `meta` is still the one the [`stand_in`] `sha256` names.
+pub(super) fn stand_in_matches(sha256: &str, meta: &std::fs::Metadata) -> bool {
+    meta.is_file() && sha256 == stand_in(meta.len(), mtime_ns(meta))
+}
+
+/// Keeps Bring Back's base for `folder` projected at `at`: the files as [`list`] found them (by
+/// [`stand_in`], their revision the one the machine's `fs-v1` gives a file of that size and mtime,
+/// which the projection reports for every file it did not change), the symlinks, and in git the
+/// branch and staged changes. `cmux link sync pull` merges against it as against a push's record.
+fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
+    let manifest = &listed.manifest;
+    let mut files = BTreeMap::new();
+    for index in 0..u32::try_from(manifest.len()).unwrap_or(u32::MAX) {
+        let Some(entry) = manifest.entry(index).filter(|entry| entry.kind == Kind::File) else {
+            continue;
+        };
+        let mtime_ms = u64::try_from(entry.mtime_ns / 1_000_000).ok();
+        files.insert(
+            manifest.path_of(index),
+            super::Pushed {
+                sha256: stand_in(entry.size, entry.mtime_ns),
+                permissions: entry.mode,
+                revision: cmux_tui_core::fs_ops::revision(entry.size, mtime_ms),
+            },
+        );
+    }
+    let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
+    let repos = super::git_back::nested_bases(folder, files.keys());
+    let base = super::Manifest {
+        version: 1,
+        files,
+        git,
+        links: listed.links.clone(),
+        projected: true,
+        repos,
+    };
+    super::base::save(folder, at, &base)
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {

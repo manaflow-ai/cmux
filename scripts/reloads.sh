@@ -195,6 +195,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
+  -skipPackagePluginValidation
   -configuration Release
   -destination 'platform=macOS'
 )
@@ -222,7 +223,6 @@ if [[ -z "${CMUX_NEXT_TUI_BIN:-}" && "$CMUX_NEXT_TUI_MODE" != deferred ]]; then
   "$(dirname "${BASH_SOURCE[0]}")/cmux-next/pin-cmux-tui.sh" fetch
 fi
 xcodebuild "${XCODEBUILD_ARGS[@]}"
-sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
@@ -347,10 +347,18 @@ OPEN_CLEAN_ENV=(
 
 # The launch environment names the staging build's own socket for tools in
 # it; the app picks its socket from its bundle id and ignores this value.
+PIDS_BEFORE=" $(pgrep -f "${APP_PATH}/Contents/MacOS/" | tr '\n' ' ') "
 "${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
-# Safety: ensure only one instance is running.
-sleep 0.2
+# Safety: ensure only one instance is running. With none running before, first wait (10s at
+# most) until the launched one shows up; with one running, `open` activated it or registered
+# the new launch before returning, so pgrep sees every instance now.
+if [[ "$PIDS_BEFORE" == "  " ]]; then
+  for _ in $(seq 1 100); do
+    pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null && break
+    sleep 0.1
+  done
+fi
 PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
 if [[ "${#PIDS[@]}" -gt 1 ]]; then
   NEWEST_PID=""

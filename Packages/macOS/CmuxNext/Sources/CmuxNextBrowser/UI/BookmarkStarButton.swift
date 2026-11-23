@@ -121,7 +121,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hover?.refresh()
+        // A theme repaint reaches only views in a window: one meanwhile left the star the old theme's ink, and only
+        // a click (a state change) redrew it (https://github.com/manaflow-ai/cmux/issues/50986).
+        if window != nil { needsDisplay = true }
     }
+
+    /// The star's tint now (tests).
+    var shownTint: NSColor? { image.contentTintColor }
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
@@ -129,7 +135,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         // A redraw during a hover fade leaves the fade running.
         if layer?.animation(forKey: "backgroundColor") == nil { paintFill(animated: false) }
         performWithTheme {
-            image.contentTintColor = state == .on ? OmnibarStyle.textPrimary : OmnibarStyle.textSecondary
+            // One ink, hollow or filled: the shape says bookmarked, not the color. The hollow star drew the secondary
+            // tone and the filled one the primary, so a click turned a dim star white (issue 50986).
+            image.contentTintColor = OmnibarStyle.iconInk
         }
     }
 

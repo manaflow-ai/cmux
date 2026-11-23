@@ -19,15 +19,19 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
+import { listedNoDefault } from "./newtab/chipDefaults";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
 import type { QuickSetup } from "./quickModelMenuModel";
@@ -218,6 +222,7 @@ export function ComposerPickers({
   startsChat = false,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
+  const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
@@ -418,6 +423,7 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           values: fastOption.options.map((option) => option.value),
+          choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -436,6 +442,7 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
+  const onNewTab = useContext(OnNewTab);
   // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
   // reports (`confirmedModel`, set while a pick is unconfirmed).
   const shown = summary?.model;
@@ -1268,8 +1275,12 @@ export function ComposerPickers({
         ...(quickDetail ? { detail: quickDetail } : {}),
         ...(quickShort ? { detailShort: quickShort } : {}),
       });
+  // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
+  // on no agent (newTabStart): its chip is Add harness, as with none installed.
+  const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
+    !unpickedNewTab &&
+    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.dialog}
@@ -1312,7 +1323,9 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1320,7 +1333,8 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={quick}
+          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
               ? { detail: heldDetail }
@@ -2043,6 +2057,7 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2055,6 +2070,8 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2112,6 +2129,7 @@ export function Picker({
                         section={section}
                         current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
+                        returnHint={returnHint}
                         close={() => setMenuOpen(false)}
                       />
                     ))}
@@ -2124,6 +2142,7 @@ export function Picker({
                       section={section}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
+                      returnHint={returnHint}
                       close={() => setMenuOpen(false)}
                     />
                   ))
@@ -2142,12 +2161,14 @@ function PickerMenuItem({
   section,
   current,
   warnUnrestricted,
+  returnHint,
   close,
 }: {
   choice: Choice;
   section: Section;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   close(): void;
 }) {
   return (
@@ -2173,6 +2194,14 @@ function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <Keycap>↩</Keycap>
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );
