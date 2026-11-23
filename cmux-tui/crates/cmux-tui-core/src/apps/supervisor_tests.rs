@@ -62,13 +62,20 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { main, .. } => {
+            ToHost::Init { main, settings, .. } => {
                 scene_text = main
                     .split("SCENE_TEXT ")
                     .nth(1)
                     .and_then(|rest| rest.split_whitespace().next())
                     .map(String::from);
                 send(FromHost::Ready { runtime: "scripted".into() });
+                // An app with settings reports the values it loaded with.
+                if settings.as_object().is_some_and(|s| !s.is_empty()) {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("init-settings {settings}"),
+                    });
+                }
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
                 if let Some(stream) = main
                     .split("SUBSCRIBE_AT_INIT ")
@@ -171,11 +178,23 @@ fn scripted_app_host() {
                 if export == "crash" {
                     std::process::exit(70);
                 }
+                // `spin`: the op runs past its entry deadline, as `while (true) {}` does.
+                if export == "spin" {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "run".into() });
+                    std::process::exit(70);
+                }
                 if export == "openLink" {
                     // An opener (`cmux.opener/1`): the link it was asked to open.
                     send(FromHost::Log {
                         level: "info".into(),
                         message: format!("open {}", args["url"]),
+                    });
+                }
+                if args.get("action").is_some() {
+                    // A message action (`cmux.chat.action/1`): what it was asked to run on.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("chat-action {args}"),
                     });
                 }
                 if let Some(gesture) = &gesture {
@@ -208,9 +227,16 @@ fn scripted_app_host() {
             ToHost::Settings { values } => {
                 if let Some(barrier) = values["test_event_barrier"].as_str() {
                     send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                } else {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("settings {values}"),
+                    });
                 }
             }
             ToHost::Unmount { .. } => {}
+            // The scripted host never watches a signal.
+            ToHost::Watch { .. } => {}
             // A widget tick: the scripted render draws the clock it got.
             ToHost::Tick { mount, now_ms } => {
                 send(FromHost::Scene {
@@ -428,6 +454,8 @@ fn fixture_sources(
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: customize.clone(),
+                setups: None,
+                saved_prompts: Some(root.0.join("saved-prompts")),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -508,6 +536,52 @@ impl Fixture {
 
 fn app_entry(list: &Value, id: &str) -> Value {
     list["apps"].as_array().unwrap().iter().find(|a| a["id"] == id).cloned().unwrap_or(Value::Null)
+}
+
+/// A third-party app `acme/<dir>` from the store (the bundled folder) with the manifest
+/// `server` block `server` and two read ops, `acme.<dir>.go` (export `go`)
+/// and `acme.<dir>.spin` (export `spin`: the scripted host runs it past its
+/// deadline). `approve`: the manifest asks for `server:execute`, which the
+/// consent card grants at install.
+fn write_server_app_3p(root: &Path, dir: &str, server: Value, approve: bool) {
+    let app = root.join("bundled").join(dir);
+    std::fs::create_dir_all(app.join("dist")).unwrap();
+    std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};").unwrap();
+    let id = format!("acme/{dir}");
+    let family = cmux_app_manifest::app_namespace(&id);
+    let op = |verb: &str| {
+        json!({
+            "name": format!("{family}.{verb}"), "owner": format!("app:{id}"), "class": "read",
+            "risk": "read", "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d",
+            "since": format!("{dir}/1"), "export": verb
+        })
+    };
+    let catalog = json!({ "family": family, "operations": [op("go"), op("spin")] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    let mut scopes = json!({ format!("{family}:read"): "Read." });
+    if approve {
+        scopes["server:execute"] = json!("Run its server.");
+    }
+    let manifest = json!({
+        "manifestVersion": 2, "id": id, "name": "Server", "version": "1.0.0", "description": "d",
+        "engines": { "cmux": "^2.0" }, "repository": "https://github.com/acme/server", "runtime": { "main": "dist/main.js" },
+        "catalog": "catalog.json", "server": server, "scopes": scopes,
+        "files": ["dist/", "catalog.json"]
+    });
+    std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+}
+
+/// Runs `op` of `app` with `origin` and waits for its answer.
+fn run_op(
+    f: &Fixture,
+    app: &str,
+    op: &str,
+    origin: Origin,
+) -> Result<Value, super::supervisor::ApiError> {
+    let (tx, rx) = channel();
+    f.supervisor
+        .run(run_request(app, op, None, origin, None), Box::new(move |r| tx.send(r).unwrap()));
+    rx.recv_timeout(Duration::from_secs(10)).unwrap()
 }
 
 // MARK: install mirror over the wire shape
@@ -657,6 +731,31 @@ fn focus_ops_need_the_gesture_the_supervisor_minted() {
     );
 }
 
+/// A run of an app the catalog lacks names what the catalog holds, so a
+/// missing `cmux/cloud` says whether its folder was refused or never found.
+#[test]
+fn a_run_of_an_unknown_app_names_the_catalog_and_its_refusals() {
+    let root = temp_dir();
+    let broken = root.0.join("bundled/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("cmux-app.json"), "{").unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let error = run_op(&f, "cmux/cloud", "cloud.machine.list", Origin::Cli).unwrap_err();
+    assert_eq!(error.code, "apps.unknown");
+    assert_eq!(error.message, "no such app");
+    let details = error.details.expect("details");
+    assert_eq!(details["app"], "cmux/cloud");
+    assert!(details["first_party"].is_null(), "{details}");
+    let packages = details["packages"].as_array().unwrap();
+    assert!(packages.contains(&json!("cmux/demo")), "{details}");
+    let rejected = details["rejected"].as_array().unwrap();
+    let refused = rejected
+        .iter()
+        .find(|r| r["dir"].as_str().is_some_and(|d| d.ends_with("broken")))
+        .unwrap_or_else(|| panic!("{details}"));
+    assert!(!refused["issue"].as_str().unwrap().is_empty(), "{details}");
+}
+
 #[test]
 fn unknown_ops_ungranted_ops_storage_and_egress() {
     let f = fixture();
@@ -793,10 +892,12 @@ fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_githu
     f.install("local/spy");
     f.supervisor.logs(CLIENT, "cmux/demo", true);
     f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
-    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    // Before the next mount: its wait for a first scene drops every other event, and the
+    // liveness log lands while the spy's host is still starting.
     f.wait("liveness", |e| {
         e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
     });
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
     f.supervisor.publish(stream, json!({}));
     f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
     let heard = |app: &str| {
@@ -1069,6 +1170,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
     assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
@@ -1084,6 +1187,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
@@ -1124,6 +1229,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
+                saved_prompts: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1141,6 +1248,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
     let list = supervisor.list();
@@ -1226,12 +1335,16 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_action_tests.rs"]
+mod chat_actions;
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
 #[path = "supervisor_community_tests.rs"]
 mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_settings_tests.rs"]
+mod extension_settings;
 #[path = "supervisor_github_tests.rs"]
 mod github_gateway;
 #[path = "supervisor_inventory_demand_tests.rs"]
@@ -1240,16 +1353,26 @@ mod inventory_demand;
 mod local_reload;
 #[path = "supervisor_opener_tests.rs"]
 mod openers;
+#[path = "supervisor_overlay_tests.rs"]
+mod overlay;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_safe_mode_tests.rs"]
 mod safe_mode;
+#[path = "supervisor_safe_mode_bisect_tests.rs"]
+mod safe_mode_bisect;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_signal_source_tests.rs"]
+mod signal_sources;
+#[path = "supervisor_status_item_tests.rs"]
+mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_toolbar_tests.rs"]
+mod toolbar;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
@@ -1261,6 +1384,11 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+#[path = "supervisor_store_sections_tests.rs"]
+mod store_sections;
+
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
 
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;

@@ -38,6 +38,17 @@ MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
+# A red that refuses the exception. For the newest check run of a name, every one of these: that is the verdict for
+# the name and nothing else speaks for it. For an older same-named sibling -- another workflow's job of that name, or
+# an earlier run of the same workflow (check_runs_at) -- only the two that are a verdict a job actually reached.
+# `cancelled` and `stale` are what concurrency does to a superseded run, and a `startup_failure` attempt ran no job
+# at all, so none of them is a result anybody must explain. (Only a sibling is read that way. check_runs_at keeps the
+# highest id per check suite and reads no conclusion, so a `startup_failure` that is the newest of its name is still
+# that name's verdict and still refuses.) Reading them as reds
+# would refuse nearly every real head: 8375182a4233 had three runs of each workflow, and three names whose newest was
+# green over a `cancelled` sibling (`language-boundaries`, `pr-capture-check, ...`, `risk evidence`).
+VERDICT_REDS = {"failure", "timed_out"}
+ALL_REDS = VERDICT_REDS | {"cancelled", "action_required", "startup_failure", "stale"}
 
 
 class Refused(RuntimeError):
@@ -78,21 +89,34 @@ class GitHub:
                          "--job", str(job["id"]), "--log"])
 
 
-def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
-    """The newest check run of each name on SHA: its last real attempt. Every attempt is read (filter=all), since
-    GitHub's default lists only each check suite's newest attempt, and one that ended in startup_failure ran no
-    jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt is no result: the
-    newest check run of a name is the last attempt that ran it, red or green."""
-    checks = {}
+def check_runs_at(repo: str, sha: str, github: GitHub) -> dict:
+    """Every check run of each name on SHA, newest first: one per check suite, its last real attempt. Every attempt is
+    read (filter=all), since GitHub's default lists only each check suite's newest attempt, and one that ended in
+    startup_failure ran no jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt
+    is no result: the newest check run of a name is the last attempt that ran it, red or green.
+    A name is several check runs whenever several workflows have a job of that name -- three were named `tests` at
+    hq#17005's head -- so they are kept apart by check suite, the run each belongs to (base_red_excuse's named_check
+    tells them apart by its workflow). Keying by name alone kept the highest id and read the name as that one check run, so a
+    caller naming another of them was answered about a check it had not asked about (2026-11-21)."""
+    newest: dict[tuple, dict] = {}
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page["check_runs"]:
             # A third-party app cannot provide compile or test evidence.
             if check.get("app", {}).get("slug") != "github-actions":
                 continue
-            previous = checks.get(check["name"], {})
-            if check["id"] > previous.get("id", -1):
-                checks[check["name"]] = check
-    return checks
+            key = (check["name"], (check.get("check_suite") or {}).get("id"))
+            if check["id"] > newest.get(key, {}).get("id", -1):
+                newest[key] = check
+    by_name: dict[str, list[dict]] = {}
+    for check in sorted(newest.values(), key=lambda found: found["id"], reverse=True):
+        by_name.setdefault(check["name"], []).append(check)
+    return by_name
+
+
+def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
+    """The newest check run of each name on SHA (check_runs_at), for a caller that asks only that. A caller that must
+    not answer about a sibling of the name reads check_runs_at itself."""
+    return {name: found[0] for name, found in check_runs_at(repo, sha, github).items()}
 
 
 def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
@@ -189,7 +213,12 @@ def validate(repo: str, number: int, github: GitHub) -> str:
     head, base = pr["head"]["sha"], pr["base"]["sha"]
     if pr["base"]["ref"] != "feat-cmux-next":
         raise Refused("--main-fix compile evidence is defined for feat-cmux-next only; use normal green merging for other bases")
-    checks = latest_checks(repo, head, github)
+    at_head = check_runs_at(repo, head, github)
+    # The newest of each name for the build and web-validation reads below; the sweep over every failed check at the
+    # end reads at_head itself, since a red whose same-named sibling in another workflow is newer and green must not
+    # go unexplained -- this caller's whole job (hq#17005's class, in the one reader that grants the exception).
+    # A sibling is held to VERDICT_REDS only, so a run concurrency superseded does not refuse a merge.
+    checks = {name: found[0] for name, found in at_head.items()}
     jobs = {}
     audit = [f"--main-fix evidence for head `{head}`, base `{base}`:"]
     for name, build in BUILDS.items():
@@ -258,13 +287,20 @@ def validate(repo: str, number: int, github: GitHub) -> str:
         matched = True
     # A completed ci-status failure may aggregate the proven Swift test red;
     # unrelated failures still refuse the exception.
-    for name, check in checks.items():
-        if check.get("conclusion") in {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}:
-            if name == SWIFT and matched:
+    for name, found in at_head.items():
+        for check in found:
+            # The waiver the base matching earned belongs to the check run it examined -- the newest of the name --
+            # and not to a sibling whose own job was never compared with the base.
+            newest = check["id"] == found[0]["id"]
+            if check.get("conclusion") not in (ALL_REDS if newest else VERDICT_REDS):
                 continue
-            if name == "ci-status" and matched and check.get("conclusion") == "failure":
+            if name == SWIFT and matched and newest:
                 continue
-            raise Refused(f"{name}: failed check has no same-base test match")
+            if name == "ci-status" and matched and newest and check.get("conclusion") == "failure":
+                continue
+            raise Refused(f"{name}: failed check has no same-base test match" if newest else
+                          f"{name}: failed check has no same-base test match (check run {check['id']}, "
+                          f"{check.get('conclusion')}, a same-named sibling of the newest {found[0]['id']})")
     status = checks.get("ci-status", {})
     if not completed_success(status) and not (matched and status.get("status") == "completed" and status.get("conclusion") == "failure"):
         raise Refused("ci-status must complete on the exact head")
