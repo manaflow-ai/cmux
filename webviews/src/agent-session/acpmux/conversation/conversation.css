@@ -87,7 +87,6 @@
      2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
      28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
      there's sometimes too much spacing between tool calls"). */
-<<<<<<< HEAD
   /* The air every one-line row gets over its 22 line of words, half above and half below (transcriptGrid.ts
      ROW_AIR_LOOKS, which model.ts places the rows with): one token, so every activity, tool, notice and message
      row moves together. Leo, 2026-11-22 10:55Z, beside the newer ChatGPT's tool list: "it's just too much fucking
@@ -99,10 +98,7 @@
      chips stop reading as a second row of buttons (same ask; gallery agent-pane.row-air, `data-chip-look`). */
   --cv-chip-bg: color-mix(in srgb, var(--cv-text) 7%, transparent);
   --cv-chip-ink: color-mix(in srgb, var(--cv-text) 82%, transparent);
-=======
-  --cv-tool-row-height: 22px;
   --cv-thought-pitch: 20px; /* an opened thought's line pitch (.cv-thought__text line-height) */
->>>>>>> origin/feat-cmux-next
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
