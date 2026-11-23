@@ -804,8 +804,7 @@ struct QueuedPromptsView: View {
         .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
                presenting: editing) { item in
             TextField("Message", text: $editText, axis: .vertical)
-                // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
+                // Prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }

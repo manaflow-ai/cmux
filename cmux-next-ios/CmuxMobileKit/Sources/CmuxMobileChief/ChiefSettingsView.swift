@@ -771,7 +771,6 @@ struct ChiefFieldEditor: View {
                 TextField(title, text: $value)
                     .focused($focused)
                     .submitLabel(.done)
-                    .autocorrectionDisabled()
                     .onSubmit { if canSave { Task { await commit() } } }
                     .accessibilityIdentifier("chief.settings.field")
             } footer: {
