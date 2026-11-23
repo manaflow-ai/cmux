@@ -387,15 +387,20 @@ export class LocalMachine {
   }
 }
 
-/** `cmux carrier serve` for one Cloud machine: the app-link socket the app hands the pump. */
+/**
+ * `cmux carrier serve` for one Cloud machine: the app-link socket the app hands the pump. Serve ends when its stdin
+ * closes and removes the socket, so stdin stays an open pipe for as long as this serves (with "ignore" it printed its
+ * ready line and left at once: run 45162400826's seed pushes all found no socket). `env` is read at each start, so a
+ * restart carries the journey's current access token.
+ */
 export class CarrierServe {
   proc: ChildProcess | null = null;
-  constructor(readonly machine: string, readonly socket: string, private cmux: string, private env: Record<string, string | undefined>, private team?: string) {}
+  constructor(readonly machine: string, readonly socket: string, private cmux: string, private env: () => Record<string, string | undefined>, private team?: string) {}
 
   async start(): Promise<void> {
     const args = ["carrier", "serve", "--machine", this.machine, "--socket", this.socket];
     if (this.team) args.push("--team", this.team);
-    const p = spawn(this.cmux, args, { env: this.env as NodeJS.ProcessEnv, stdio: ["ignore", "ignore", "pipe"] });
+    const p = spawn(this.cmux, args, { env: this.env() as NodeJS.ProcessEnv, stdio: ["pipe", "ignore", "pipe"] });
     this.proc = p;
     let err = "";
     await new Promise<void>((resolve, reject) => {
@@ -409,6 +414,7 @@ export class CarrierServe {
   }
 
   stop(): void {
+    this.proc?.stdin?.end();
     this.proc?.kill("SIGKILL");
     this.proc = null;
   }
@@ -529,7 +535,7 @@ export function countFilesCommand(dir: string, tag: string, n = MOVE_COUNT_STEPS
 /** What the drill gives each Cloud machine and what it may do to one, supplied by cloud-journey.ts. */
 export type MoveContext = {
   cmux: string;
-  /** The carrier's environment: the Cloud API and the person's bearer. */
+  /** The carrier's environment: the Cloud API and the person's bearer, read at each carrier start (the journey refreshes the token in place). */
   env: Record<string, string | undefined>;
   machines: [string, string];
   team?: string;
@@ -641,7 +647,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
   const local = new LocalMachine(path.join(root, "L"), ctx.cmux, ctx.stubPy, ctx.stubScript, ctx.claudeBin);
   await local.start();
   ctx.log(`move: local machine up at ${local.dir} (stub on ${local.stubPort})`);
-  const carriers = ctx.machines.map((m, i) => new CarrierServe(m, path.join(root, `c${i}.sock`), ctx.cmux, { ...ctx.env, CMUX_TUI_STATE_DIR: path.join(root, `cs${i}`) }, ctx.team));
+  const carriers = ctx.machines.map((m, i) => new CarrierServe(m, path.join(root, `c${i}.sock`), ctx.cmux, () => ({ ...ctx.env, CMUX_TUI_STATE_DIR: path.join(root, `cs${i}`) }), ctx.team));
   for (const c of carriers) await c.start();
   const cloudSide = (i: number): MoveSide => ({ name: i === 0 ? "A" : "B", kind: "cloud", socket: carriers[i].socket, exec: ctx.execFor(ctx.machines[i]), guest: ctx.guest, home: "/home/cmux", machine: ctx.machines[i] });
   const localSide: MoveSide = { name: "L", kind: "local", socket: local.socket, exec: local.exec, guest: local.guest, home: local.home, local };

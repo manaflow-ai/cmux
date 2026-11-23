@@ -471,6 +471,8 @@ const stepNotes = new AsyncLocalStorage<string[]>();
 
 export class Api {
   bearer = "";
+  /** Environments handed to long-lived children (the move drills' carriers): keepBearerFresh updates their token too. */
+  readonly tokenEnvs: Array<Record<string, string | undefined>> = [];
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
@@ -3738,6 +3740,29 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
+/**
+ * How often a long journey signs in again. A Stack access token outlives minutes, not a --chaos-move run's hours: run
+ * 45162400826 signed in once, and every move cell after its first ~40 min ended in 401 auth.unauthenticated.
+ */
+const BEARER_REFRESH_MS = 5 * 60_000;
+
+/**
+ * Signs in again every BEARER_REFRESH_MS for as long as the process lives (the timer holds nothing open): `api.bearer`
+ * and each of `api.tokenEnvs` take the new token, and both tokens join `secrets` so every log scrubs them. A failed
+ * sign-in is logged and the old token kept; the next tick tries again.
+ */
+export function keepBearerFresh(api: Api, signIn: () => Promise<{ access: string; refresh: string }>, secrets: string[], log: (line: string) => void, everyMs = BEARER_REFRESH_MS): () => void {
+  const timer = setInterval(() => {
+    signIn().then((s) => {
+      secrets.push(s.access, s.refresh);
+      api.bearer = s.access;
+      for (const env of api.tokenEnvs) env.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+    }, (e: Error) => log(`bearer refresh failed, the old token kept: ${e.message}`));
+  }, everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
 export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -4317,11 +4342,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     const stack = STACK[backend.stack];
-    if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
-      const s = await passwordSignIn(stack, email!, password!);
-      J.secrets.push(s.access, s.refresh);
-      return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
-    });
+    if (signIn === "password") {
+      api.bearer = await J.step("sign in (agent test account)", async () => {
+        const s = await passwordSignIn(stack, email!, password!);
+        J.secrets.push(s.access, s.refresh);
+        return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
+      });
+      keepBearerFresh(api, () => passwordSignIn(stack, email!, password!), J.secrets, (line) => console.log(scrub(line, J.secrets)));
+    }
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -5344,10 +5372,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const claudeBin = argValue("--claude-bin", argv) ?? (spawnSync("sh", ["-c", "command -v claude"], { encoding: "utf8" }).stdout.trim() || "claude");
         const results: MoveResult[] = [];
         const rowsFile = outDir ? path.join(outDir, "move.jsonl") : null;
+        const moveEnv: Record<string, string | undefined> = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+        api.tokenEnvs.push(moveEnv);
         await runMoveChaos({
           cmux, machines: [created.id, b?.id ?? created.id], team: api.team, execFor, guest: GUEST,
           credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: login } },
-          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          env: moveEnv,
           pause: async (id) => { await api.op("cloud.machine.pause", { machine: id }, `${tag}-mv-pause-${Date.now()}`); },
           start: async (id) => {
             await api.op("cloud.machine.start", { machine: id }, `${tag}-mv-start-${Date.now()}`).catch((e: Error) => { if (!/running|already/i.test(e.message)) throw e; });
