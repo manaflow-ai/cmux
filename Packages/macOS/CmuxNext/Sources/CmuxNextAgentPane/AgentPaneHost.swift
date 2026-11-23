@@ -385,6 +385,25 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return environment.socketPath
     }
 
+    /// The install check's canary (``AcpmuxInstallCanary``) against this host's own daemon, started
+    /// on this build when none runs (an older one is handed off to it). Nil when this host starts no
+    /// daemon or its daemon is attached (another app's).
+    public func installCanary() async -> AcpmuxInstallCanary.Outcome? {
+        guard startsDaemons else { return nil }
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, !environment.isAttached else { return nil }
+        guard (try? await endpoint(startsDaemon: true)) != nil else { return .inconclusive("the agent service did not start") }
+        // The lookup can hand back an older build's daemon: one whose handoff request failed, that
+        // did not exit within the handoff's wait, or whose socket this launch already handed off
+        // once (AcpmuxVersionHandoff.handOffIfStale returns false and the lookup serves it). Its
+        // answer says nothing about this build.
+        if let bundled = await AcpmuxVersionHandoff.bundledBuild(environment) {
+            let running = (try? await Self.lookupStatus(socketPath: environment.socketPath))?.build
+            if running != bundled { return .inconclusive("the agent service runs build \(running ?? "?"), not \(bundled)") }
+        }
+        return await AcpmuxInstallCanary.run(socketPath: environment.socketPath)
+    }
+
     /// This host's own daemon, only when `socket` is its socket: the Chief home's host answers for
     /// the Chief home's chats, the app's for the app's.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {

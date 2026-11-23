@@ -208,6 +208,17 @@ def motion_link(series):
     }
 
 
+def fine_rate(rows):
+    """The viewer bench's `series_100ms` rows ([ms, bytes, kbps]) as [ms, Mbit/s, kbps]: the
+    received rate over each 100 ms bucket beside the host's newest target."""
+    out, prev = [], 0
+    for ms, nbytes, kbps in rows:
+        span = max(ms - prev, 1)
+        out.append([ms, round(nbytes * 8 / span / 1e3, 2), kbps])
+        prev = ms
+    return out
+
+
 def host_frames(lines, cap_fps):
     """Where a tick run's frames went, from the host's CMUX_RD_TIMING_LOG frame lines (µs on
     the host clock): how many the host encoded a second against the cap, the gaps between
@@ -858,6 +869,10 @@ def read_marker_rgb(rgb, width, origin, cell):
 # --- the clock probe --------------------------------------------------------------------
 
 
+# The longest one clock probe runs on the viewer; its control call gets this plus a margin.
+CLOCK_PROBE_SECONDS = 20.0
+
+
 def cmd_clock_serve(args):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
@@ -880,7 +895,12 @@ def cmd_clock_probe(args):
     best = None
     rtts = []
     misses = 0
+    # A deadline, not only a count: on a lossy link each miss costs the 0.5 s socket timeout, so
+    # 200 probes could outlast the control call's own timeout and end the run with no offset.
+    deadline = time.time() + args.max_seconds
     for i in range(args.count):
+        if time.time() >= deadline:
+            break
         t0 = mono_ns()
         s.sendto(struct.pack("!Q", i), (host, int(port)))
         try:
@@ -917,8 +937,21 @@ MARKER_FLAGS = ("--motion", "--tick", "--verbose")
 # maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
 # options all take a value; `--flag=0` turns a switch off).
 NUMBER = r"[0-9]{1,9}"
-HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER}
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
+             "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+
+
+def test_loss_pct(value):
+    """`run --host-test-loss PCT` as the string the host's CMUX_RD_TEST_LOSS_PCT gets: a number
+    above 0 and at most 100 (cmux-rd-host's test_loss.rs drops that share of video and parity
+    datagrams after the loss meter counts them sent, so the host measures it as loss). The
+    dummynet `plr` of a mac-holds.sh hold can leave a run with 0 % measured loss while its
+    delay applies; this needs no shaper and no sudo. Anything else raises ValueError."""
+    pct = float(value)
+    if not 0 < pct <= 100:
+        raise ValueError(f"--host-test-loss {value!r}: not above 0 and at most 100")
+    return f"{pct:g}"
 
 
 def checked_args(items, allowed, what):
@@ -1040,6 +1073,8 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                if req.get("test_loss_pct") is not None:
+                    env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
                     open(timing, "w").close()
                     env["CMUX_RD_TIMING_LOG"] = timing
@@ -1504,8 +1539,10 @@ class Remote:
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
-        p = subprocess.run(self.argv(cmd), input=stdin, capture_output=True, text=True,
-                           timeout=timeout)
+        # With no input, stdin is /dev/null: an inherited stdin lets `reach`/`ssh` read (and
+        # swallow) the orchestrator's own stdin, or wait on it, and the call stalls to its timeout.
+        kw = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        p = subprocess.run(self.argv(cmd), capture_output=True, text=True, timeout=timeout, **kw)
         if p.returncode != 0:
             raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {p.returncode}: {p.stderr.strip()[-400:]}")
         return p.stdout
@@ -1778,6 +1815,8 @@ class Orchestrator:
         self.host_args = list(getattr(args, "host_arg", None) or [])
         self.viewer_args = list(getattr(args, "viewer_arg", None) or [])
         try:
+            loss = getattr(args, "host_test_loss", None)
+            self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
@@ -1805,7 +1844,9 @@ class Orchestrator:
                     self.rev = f.read().strip() or None
 
     def log(self, rec):
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args})
+        pct = getattr(self, "host_test_loss", None)
+        loss = {"host_test_loss_pct": float(pct)} if pct else {}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -1896,7 +1937,8 @@ class Orchestrator:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             try:
                 out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                      f"--count {self.a.clock_count}", timeout=120)
+                                      f"--count {self.a.clock_count} --max-seconds {CLOCK_PROBE_SECONDS}",
+                                      timeout=CLOCK_PROBE_SECONDS + 60)
             except RuntimeError as e:
                 if tailnet(self.a.host_ip):
                     raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
@@ -1934,6 +1976,7 @@ class Orchestrator:
                                        + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
+                                                                 "test_loss_pct": getattr(self, "host_test_loss", None),
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -2002,6 +2045,10 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("series_100ms"):
+                        # [ms into the window, Mbit/s received, host target kbps] every 100 ms
+                        # (the target is fresh only with the host on --stats-every-ms 100).
+                        rec["rate_100ms"] = fine_rate(rep["series_100ms"])
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
                         # Each second's end (viewer wall ms) and the host's newest stats then.
@@ -2128,6 +2175,9 @@ class Orchestrator:
         # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
+        pct = getattr(self, "host_test_loss", None)
+        if pct:
+            env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -2655,6 +2705,10 @@ def build_parser():
                    help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
                         "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "
                         + ", ".join(sorted(HOST_ARGS)) + " (a switch is sent as `--flag 1`)")
+    r.add_argument("--host-test-loss", type=float, metavar="PCT",
+                   help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
+                        "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
+                        "row records host_test_loss_pct")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
@@ -2667,7 +2721,9 @@ def build_parser():
     r.add_argument("--encode-profile", choices=("standard", "ultra"),
                    help="the cmux stack's profile, asked in the setup line as the app's viewer "
                         "asks it (default: none sent, so the host runs standard)")
-    r.add_argument("--clock-count", type=int, default=200)
+    r.add_argument("--clock-count", type=int, default=60,
+                   help="clock probes per try; the probe also stops after "
+                   f"{CLOCK_PROBE_SECONDS:g} s (the minimum-RTT sample needs few replies)")
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))
     r.add_argument("--vnc-password-file", help="path on the viewing Mac (0600)")
@@ -2749,6 +2805,8 @@ def build_parser():
     p = sub.add_parser("clock-probe")
     p.add_argument("--addr", required=True)
     p.add_argument("--count", type=int, default=200)
+    p.add_argument("--max-seconds", type=float, default=CLOCK_PROBE_SECONDS,
+                   help="stop probing after this long, replies or not (a lossy link)")
     p.add_argument("--gap-ms", type=float, default=5)
     p.set_defaults(fn=cmd_clock_probe)
     b = sub.add_parser("rfb-bench")
