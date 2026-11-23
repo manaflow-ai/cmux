@@ -56,7 +56,12 @@ test("the prompts' Map is the same object until an editable prompt changes", () 
   const finished = trackEditableTurns([...streamed.slice(0, -1), reply(4, "tok"), summary(4)], "claude", third);
   expect(finished.seqs).not.toBe(third.seqs);
   expect(finished.seqs.get("user-4")).toBe(3);
-  const next = trackEditableTurns([...finished.rows, user(5)], "claude", finished);
+  // A new prompt the agent has read, with its turn running, offers no Edit yet: the Map is unchanged
+  // until that turn's summary closes it (docs/design/user-message-lifecycle.md).
+  const running = trackEditableTurns([...finished.rows, user(5)], "claude", finished);
+  expect(running.seqs).toBe(finished.seqs);
+  expect(running.seqs.has("user-5")).toBe(false);
+  const next = trackEditableTurns([...running.rows, reply(5, "ok"), summary(5)], "claude", running);
   expect(next.seqs).not.toBe(finished.seqs);
   expect(next.seqs.get("user-5")).toBe(4);
 });
