@@ -1,17 +1,15 @@
 // Permission prompts (CefPermissionHandler). Chromium's own bubble anchors to
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The kinds the host asks about in its prompt bar
-// (kHostPermissions) go to the host as PERMISSION_PROMPT, answered with
-// cmux_shim_permission_continue; a notification request ends at once, unanswered; every
-// other kind keeps Chromium's default (permission_prompt_policy.h).
+// (kHostPermissions, and notifications alone) go to the host as PERMISSION_PROMPT, answered
+// with cmux_shim_permission_continue; every other kind keeps Chromium's default
+// (permission_prompt_policy.h).
 // Chromium persists Accept and Deny in its own content settings.
 
 #include <map>
 
 #include "cmux_page_path.h"
 #include "include/cef_permission_handler.h"
-#include "include/cef_request_context.h"
-#include "include/cef_values.h"
 #include "permission_prompt_policy.h"
 #include "shim_internal.h"
 
@@ -34,29 +32,23 @@ std::map<int, CefRefPtr<CefPermissionPromptCallback>>& prompts() {
   return *table;
 }
 
+static_assert(kMediaDesktopAudioCapture == CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE, "desktop audio bit");
+static_assert(kMediaDesktopVideoCapture == CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE, "desktop video bit");
+
+// A waiting getDisplayMedia() by token, UI thread: the allowed bits and the callback. Tokens start
+// above every permission-prompt token (those are below 0x7fffffff), so the two tables never clash.
+struct DisplayCaptureRequest {
+  uint32_t grant;
+  CefRefPtr<CefMediaAccessCallback> callback;
+};
+std::map<int, DisplayCaptureRequest>& displayCaptures() {
+  static auto* table = new std::map<int, DisplayCaptureRequest>();
+  return *table;
+}
+int nextDisplayCaptureToken = 0x40000000;
+
 int TokenOf(uint64_t prompt_id) {
   return static_cast<int>(prompt_id % 0x7fffffff) + 1;
-}
-
-// Chromium counts each prompt that ends ignored and, at the fourth for one site and kind, blocks
-// the site for a week: the page then reads `denied`, a stored answer. No switch turns the count
-// off (PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo), so the site's notification entry
-// is removed before each request cmux ends unanswered: the count is 1 after it, never 4. Other
-// kinds' entries of the site stay.
-void ForgetNotificationPromptCount(CefRefPtr<CefBrowser> browser, const CefString& origin) {
-  if (!browser) return;
-  CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
-  if (!context) return;
-  CefRefPtr<CefValue> stored =
-      context->GetWebsiteSetting(origin, CefString(), CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA);
-  if (!stored || stored->GetType() != VTYPE_DICTIONARY) return;
-  CefRefPtr<CefDictionaryValue> counts = stored->GetDictionary();
-  if (!counts || !counts->HasKey(kNotificationsAutoblockKey)) return;
-  CefRefPtr<CefDictionaryValue> kept = counts->Copy(false);
-  kept->Remove(kNotificationsAutoblockKey);
-  CefRefPtr<CefValue> value = CefValue::Create();
-  value->SetDictionary(kept);
-  context->SetWebsiteSetting(origin, CefString(), CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA, value);
 }
 
 class Handler : public CefPermissionHandler {
@@ -72,11 +64,6 @@ class Handler : public CefPermissionHandler {
     switch (RoutePermissionPrompt(requested_permissions)) {
       case PermissionPromptRoute::kChromium:
         return false;
-      case PermissionPromptRoute::kEndUnanswered:
-        // IGNORE ends the request now and stores no content setting (DENY would).
-        ForgetNotificationPromptCount(browser, requesting_origin);
-        callback->Continue(CEF_PERMISSION_RESULT_IGNORE);
-        return true;
       case PermissionPromptRoute::kHost:
         break;
     }
@@ -84,6 +71,24 @@ class Handler : public CefPermissionHandler {
     const int token = TokenOf(prompt_id);
     prompts()[token] = callback;
     Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, requested_permissions, 0,
+         requesting_origin.ToString());
+    return true;
+  }
+
+  // getDisplayMedia(): the host asks in its prompt bar and answers with cmux_shim_permission_continue.
+  // Every request ends: granted the desktop kinds it named, or cancelled (the page rejects with
+  // NotAllowedError). Any other media request keeps Chromium's default.
+  bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
+                                      const CefString& requesting_origin, uint32_t requested_permissions,
+                                      CefRefPtr<CefMediaAccessCallback> callback) override {
+    if (!IsDisplayCaptureRequest(requested_permissions)) return false;
+    if (!browser) {
+      callback->Cancel();
+      return true;
+    }
+    const int token = ++nextDisplayCaptureToken;
+    displayCaptures()[token] = {DisplayCaptureGrant(requested_permissions), callback};
+    Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, kPermissionDisplayCapture, 0,
          requesting_origin.ToString());
     return true;
   }
@@ -110,6 +115,8 @@ CefRefPtr<CefPermissionHandler> PermissionHandler() {
 
 void ForgetPermissionPrompts() {
   prompts().clear();
+  for (auto& entry : displayCaptures()) entry.second.callback->Cancel();
+  displayCaptures().clear();
 }
 
 }  // namespace cmux_shim
@@ -119,6 +126,17 @@ using namespace cmux_shim;
 extern "C" {
 
 int cmux_shim_permission_continue(int prompt_token, int result) {
+  auto capture = displayCaptures().find(prompt_token);
+  if (capture != displayCaptures().end()) {
+    DisplayCaptureRequest request = capture->second;
+    displayCaptures().erase(capture);
+    if (result == 1) {
+      request.callback->Continue(request.grant);
+    } else {
+      request.callback->Cancel();  // never left pending: the page rejects
+    }
+    return 1;
+  }
   auto it = prompts().find(prompt_token);
   if (it == prompts().end()) return 0;
   CefRefPtr<CefPermissionPromptCallback> callback = it->second;

@@ -20,7 +20,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return 1;
     }
     match args {
-        [] => cmux_computer_use::worker::run_stdio(std::io::stdin().lock(), std::io::stdout()),
+        [] => cmux_computer_use::worker::run_stdio(
+            std::io::BufReader::new(std::io::stdin()),
+            std::io::stdout(),
+        ),
         [flag, name] if flag == "--control" && control_name(name) => control_pipes(name),
         _ => {
             eprintln!(
