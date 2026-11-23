@@ -552,6 +552,21 @@ class WorkflowShape(unittest.TestCase):
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
 
+    def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
+        # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
+        # It failed every time, adding 605 s (median) to a job whose gates then installed cold anyway.
+        steps = job(workflow())["steps"]
+        restore = step_named(steps, "Restore the Bun package cache")
+        self.assertLessEqual(restore["timeout-minutes"], 3)
+        self.assertIs(restore["continue-on-error"], True)
+        drop = step_named(steps, "Drop a partly restored Bun package cache")
+        self.assertIn(f"steps.{restore['id']}.outcome == 'failure'", drop["if"])
+        self.assertIn(f"steps.{restore['id']}.outcome == 'cancelled'", drop["if"])
+        self.assertIn("~/.bun/install/cache", drop["run"])
+        self.assertEqual(steps.index(drop), steps.index(restore) + 1)
+        gates = step_named(steps, "Fast gates on the merge")
+        self.assertLess(steps.index(drop), steps.index(gates))
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
