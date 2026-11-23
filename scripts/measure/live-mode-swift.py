@@ -144,10 +144,16 @@ def seed(path, out):
         made = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
         print(f"live-mode-swift: seed: newSurface answered {json.dumps(made)[:400]}", flush=True)
         tabs += [str(i) for i in made.get("created") or [] if str(i).startswith("tab_") and str(i) not in tabs]
-    time.sleep(3)
-    # An answer without the ids it made: the tabs the snapshot has now and had not before.
-    if len(tabs) < 2:
-        tabs += [t for t in sorted(ids_in(rpc_at(path, "snapshot.get", timeout=10) or {}, "tab_") - had) if t not in tabs]
+    # Wait until the snapshot shows the new tabs (an answer without the ids it made: the tabs the snapshot
+    # has now and had not before).
+    deadline = time.time() + 20
+    while True:
+        now = ids_in(rpc_at(path, "snapshot.get", timeout=10) or {}, "tab_")
+        if len(tabs) < 2:
+            tabs += [t for t in sorted(now - had) if t not in tabs]
+        if (len(tabs) >= 2 and set(tabs) <= now) or time.time() >= deadline:
+            break
+        time.sleep(0.2)
     print(f"live-mode-swift: seed: tabs {tabs}", flush=True)
     files = []
     for n, tab in enumerate(tabs):
@@ -156,7 +162,13 @@ def seed(path, out):
         rpc_at(path, "action.run", {"action": "terminal.sendText", "target": f"tab:{tab}",
                                     "args": {"text": f"echo $$ > '{pid_file}'; sleep 86400\r"}}, timeout=10)
         files.append(pid_file)
-    time.sleep(2)
+    # Each shell has run the command once it wrote its pid file.
+    deadline = time.time() + 20
+    while not all(os.path.exists(f) and open(f).read().strip() for f in files) and time.time() < deadline:
+        time.sleep(0.1)
+    missing = [os.path.basename(f) for f in files if not os.path.exists(f)]
+    if missing:
+        print(f"live-mode-swift: seed: no shell wrote {missing} in 20 s", flush=True)
     if first:
         rpc_at(path, "action.run", {"action": "goToWorkspace", "args": {"workspace": first}}, timeout=30)
     return files
@@ -194,7 +206,6 @@ def forced_rollback(tag, out, live_pid):
     with open(os.path.join(folder, f"zz-bad-{stamp}.dylib"), "wb") as f:
         f.write(b"not a dylib\n")
     refused = wait_log(rf"zz-bad-{stamp}\.dylib refused", since, 60)
-    time.sleep(1)
     path = socket(tag)
     bad = {"refused": bool(refused), "same_pid": rpc_at(path, "system.identify").get("pid") == live_pid,
            **snap(tag, out, "bad-patch")}
@@ -202,7 +213,6 @@ def forced_rollback(tag, out, live_pid):
     with open(os.path.join(folder, f"zz-undo-{stamp}.rollback"), "w") as f:
         f.write("")
     undone = wait_log(r"rolled back \S+ functions=(\d+) rollback_ms=(\d+)", since, 60)
-    time.sleep(1)
     back = {"rolled_back": bool(undone), "functions": int(undone.group(1)) if undone else None,
             "rollback_ms": int(undone.group(2)) if undone else None,
             "same_pid": rpc_at(socket(tag), "system.identify").get("pid") == live_pid, **snap(tag, out, "rolled-back")}
@@ -222,9 +232,18 @@ def snap(tag, out, name):
     png = os.path.join(out, f"{name}.png")
     try:
         rpc_at(path, "action.run", {"action": "home.show", "focus": True}, timeout=30)  # Home is what turns red or blue
-        time.sleep(1)
-        rpc_at(path, "debug.window_snapshot", {"kind": "main", "path": png}, timeout=60)
-        red, blue = pixels(png)
+        # Snapshot until two in a row count the same red and blue: Home is shown and the patch has drawn.
+        deadline, last = time.time() + 15, None
+        while True:
+            rpc_at(path, "debug.window_snapshot", {"kind": "main", "path": png}, timeout=60)
+            counts = pixels(png)
+            if counts == last:
+                break
+            if time.time() >= deadline:
+                safe_print(f"live-mode-swift: {name} pixels still changing after 15 s", file=sys.stderr)
+                break
+            last = counts
+        red, blue = counts
         return {"png": os.path.basename(png), "red_px": red, "blue_px": blue}
     except Exception as error:  # noqa: BLE001 (evidence only)
         return {"error": str(error)}
@@ -266,7 +285,6 @@ def main():
         result["live_pid"] = rpc_at(path, "system.identify").get("pid")
         result["watching"] = bool(wait_log(r"live code: watching", since, 60))
         first = wait_log(r"applied \S+ functions=(\d+)", since, 60)
-        time.sleep(1)
         # The edit is in one of two ways: patched in after the restart (the commit's live code build was
         # already built), or compiled into that build (its first start builds from the checkout as it is).
         compiled = bool(result["start"].get("built_s")) and not (result["start"].get("edits") or {}).get("files")
@@ -280,7 +298,6 @@ def main():
         with open(VIEW, "w") as f:
             f.write(source.replace(ORIGINAL, BLUE))
         applied = wait_log(r"applied \S+ functions=(\d+) load_ms=(\d+)", since, 90)
-        time.sleep(1)
         result["save_edit"] = {"applied": bool(applied), "functions": int(applied.group(1)) if applied else None,
                                "save_to_applied_s": round(time.time() - edited, 2) if applied else None,
                                "same_pid": rpc_at(path, "system.identify").get("pid") == result["live_pid"],
@@ -296,7 +313,6 @@ def main():
         code, result["stop"] = live_mode("stop", opts.tag)
         result["stop"]["exit"], result["stop"]["wall_s"] = code, round(time.time() - started, 1)
         path = wait_socket(opts.tag, 60)
-        time.sleep(2)
         result["after"] = snap(opts.tag, opts.out, "after-stop")
         result["status_after"] = status_line(opts.tag)
         result["shells_after"] = shells(pid_files)

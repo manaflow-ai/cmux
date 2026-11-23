@@ -127,6 +127,11 @@ pub(super) fn trusted(
     };
     let kept: Manifest = serde_json::from_slice(&kept)
         .with_context(|| format!("{} is not a sync record", path.display()))?;
+    // A projected folder's base was made here when it was projected: the machine has no record of
+    // it until its first Bring Back writes one there.
+    if machine.is_none() && kept.projected {
+        return Ok(kept);
+    }
     let machine: Option<Manifest> = machine.and_then(|bytes| serde_json::from_slice(bytes).ok());
     if machine.as_ref() != Some(&kept) {
         return Err(Mismatch.into());

@@ -9,7 +9,7 @@ extension CmuxDialogView {
     func readOnlyFieldViews(_ field: CmuxDialogField, width: CGFloat) -> [NSView] {
         switch field {
         case .preview(let text):
-            let preview = label(text, font: Typography.system(.monospaced, size: TypeScale.body), role: .primary, width: width)
+            let preview = label(text, font: Typography.cardMonospaced(TypeScale.Base.body), role: .primary, width: width)
             preview.maximumNumberOfLines = 8
             preview.lineBreakMode = .byTruncatingTail
             return [preview]
@@ -31,17 +31,17 @@ extension CmuxDialogView {
         case .progress(let text):
             let spinner = StatusIndicatorView.spinner()
             spinner.translatesAutoresizingMaskIntoConstraints = false
-            let side = Typography.body.pointSize
+            let side = Typography.cardMessage.pointSize
             NSLayoutConstraint.activate([spinner.widthAnchor.constraint(equalToConstant: side), spinner.heightAnchor.constraint(equalToConstant: side)])
             spinner.spin(true)
-            let words = label(text, font: Typography.body, role: .secondary, width: width - side - Metrics.space2)
+            let words = label(text, font: Typography.cardMessage, role: .secondary, width: width - side - Metrics.space2)
             let row = NSStackView(views: [spinner, words])
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = Metrics.space2
             return [row]
         case .note(let text, let danger):
-            return [label(text, font: Typography.caption, role: danger ? .danger : .secondary, width: width)]
+            return [label(text, font: Typography.cardBody, role: danger ? .danger : .secondary, width: width)]
         case .steps(let steps):
             let list = NSStackView(views: steps.map { stepRow($0, width: width) })
             list.orientation = .vertical
@@ -60,7 +60,7 @@ extension CmuxDialogView {
     private func stepRow(_ step: CmuxDialogStep, width: CGFloat) -> NSView {
         let glyph = StatusIndicatorView(frame: .zero)
         glyph.translatesAutoresizingMaskIntoConstraints = false
-        let side = Typography.body.pointSize
+        let side = Typography.cardMessage.pointSize
         NSLayoutConstraint.activate([glyph.widthAnchor.constraint(equalToConstant: side), glyph.heightAnchor.constraint(equalToConstant: side)])
         switch step.state {
         case .pending, .skipped: glyph.configure(.idle)
@@ -70,13 +70,13 @@ extension CmuxDialogView {
         case .failed: glyph.configure(.error)
         }
         let textWidth = width - side - Metrics.space2
-        let text = NSStackView(views: [label(step.title, font: Typography.body, role: step.state == .pending || step.state == .skipped ? .secondary : .primary,
+        let text = NSStackView(views: [label(step.title, font: Typography.cardMessage, role: step.state == .pending || step.state == .skipped ? .secondary : .primary,
                                              width: textWidth)])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = Metrics.space1
-        if !step.detail.isEmpty { text.addArrangedSubview(label(step.detail, font: Typography.caption, role: .secondary, width: textWidth)) }
-        if let fix = step.fix { text.addArrangedSubview(label(fix, font: Typography.caption, role: step.state == .failed ? .danger : .secondary, width: textWidth)) }
+        if !step.detail.isEmpty { text.addArrangedSubview(label(step.detail, font: Typography.cardBody, role: .secondary, width: textWidth)) }
+        if let fix = step.fix { text.addArrangedSubview(label(fix, font: Typography.cardBody, role: step.state == .failed ? .danger : .secondary, width: textWidth)) }
         let row = NSStackView(views: [glyph, text])
         row.orientation = .horizontal
         row.alignment = .top
@@ -99,7 +99,7 @@ extension CmuxDialogView {
     /// long line (a command) on one line, cut in the middle, as a path is.
     func codeWell(_ text: String, width: CGFloat, truncates: Bool = false, font: NSFont? = nil) -> NSView {
         let inset = CmuxDialogMetrics.codeInset
-        let code = label(text, font: font ?? Typography.system(.monospaced, size: TypeScale.body), role: .primary,
+        let code = label(text, font: font ?? Typography.cardMonospaced(TypeScale.Base.body), role: .primary,
                          width: width - inset * 2)
         if truncates {
             code.maximumNumberOfLines = 1
@@ -132,16 +132,16 @@ extension CmuxDialogView {
         column.alignment = .leading
         column.spacing = Metrics.space2
         let columnWidth = width - qrSide - gap
-        let big = Typography.system(.monospaced, size: TypeScale.heading, weight: TypeScale.emphasis)
+        let big = Typography.cardMonospaced(TypeScale.Base.heading, weight: TypeScale.emphasis)
         let well = codeWell(code.code, width: columnWidth, font: big)
         well.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.pairingCode")
         column.addArrangedSubview(well)
         if let id = code.copyID { column.addArrangedSubview(inlineButton(id, code.copyTitle)) }
         if let expiresAt = code.expiresAt {
-            let line = label("", font: Typography.captionDigits, role: .secondary, width: columnWidth)
+            let line = label("", font: Typography.cardBodyDigits, role: .secondary, width: columnWidth)
             column.addArrangedSubview(CmuxDialogCountdownView(line, until: expiresAt, format: code.expiresFormat))
         }
-        for note in code.notes { column.addArrangedSubview(label(note, font: Typography.caption, role: .secondary, width: columnWidth)) }
+        for note in code.notes { column.addArrangedSubview(label(note, font: Typography.cardBody, role: .secondary, width: columnWidth)) }
         guard let data = code.image, let image = NSImage(data: data) else { return column }
         let qr = CmuxDialogQRView(image: image)
         qr.setAccessibilityLabel(code.imageLabel)
