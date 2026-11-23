@@ -68,7 +68,12 @@ final class ComposerTypingLagUITests: XCTestCase {
         for name in attachments ? ["Photo 1.png", "Photo 2.png"] : [] {
             let remove = app.buttons["Remove \(name)"]
             XCTAssertTrue(remove.waitForExistence(timeout: 15), "the remove badge of \(name)\n\(app.debugDescription)")
-            remove.tap()
+            // By its point: XCUITest calls the badge not hittable (it pokes out of the
+            // strip, over the thumbnail's corner), yet a finger on its x removes the photo.
+            remove.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            let gone = NSPredicate(format: "exists == false")
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: gone, evaluatedWith: remove)], timeout: 10), .completed,
+                           "\(name) removed by its badge\n\(app.debugDescription)")
             RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         }
         XCTAssertFalse(app.buttons["Remove Photo 1.png"].exists || app.buttons["Remove Photo 2.png"].exists, "both photos removed")

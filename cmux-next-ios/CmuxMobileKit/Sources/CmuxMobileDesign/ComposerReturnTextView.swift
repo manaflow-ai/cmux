@@ -112,8 +112,9 @@ open class ComposerReturnTextView: UITextView {
         #if DEBUG
         if Self.measuresWholeDraft {
             // The old rule, for a before/after from one harness: the whole draft, one answer kept.
-            if let last = measured.last { measured = [last] }
-            return measure(full as String, width: width, whole: true)
+            let height = measure(full as String, width: width, whole: true)
+            measured = measured.filter { $0.key.width == width }
+            return height
         }
         #endif
         var limit = Self.measureChunk
@@ -132,13 +133,25 @@ open class ComposerReturnTextView: UITextView {
 
     /// The height of `text` at `width` in this view's font and insets. `whole`: the view's
     /// own text (measured by the view, as before); else a prefix, measured by a probe
-    /// configured the same. SwiftUI asks for the field's size several times in one update,
-    /// at more than one width: the last few answers stand while text, width, font and
-    /// insets are the same.
+    /// configured the same. SwiftUI's HStack asks for the field's size at several widths in
+    /// one pass (none, zero, unbounded, the offered one) and asks again in each pass: one
+    /// answer per width stands while text, font and insets are the same. A short ring of
+    /// answers visited in turn by more widths than it holds never hit (the gate measured
+    /// 45 prefix layouts per key with four slots).
     private func measure(_ text: String, width: CGFloat, whole: Bool) -> CGFloat {
+        #if DEBUG
+        Self.measureCalls += 1
+        #endif
         let key = MeasureKey(text: text, width: width, font: font, inset: textContainerInset,
                              padding: textContainer.lineFragmentPadding)
-        if let hit = measured.first(where: { $0.key == key }) { return hit.height }
+        if let index = measured.firstIndex(where: { $0.key.width == width }) {
+            if measured[index].key == key { return measured[index].height }
+            measured.remove(at: index)
+        }
+        #if DEBUG
+        let began = CACurrentMediaTime()
+        defer { Self.measureSeconds += CACurrentMediaTime() - began }
+        #endif
         let height: CGFloat
         if whole {
             height = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
@@ -154,7 +167,7 @@ open class ComposerReturnTextView: UITextView {
         Self.measuredUnits += (text as NSString).length
         #endif
         measured.append((key, height))
-        if measured.count > 4 { measured.removeFirst(measured.count - 4) }
+        if measured.count > Self.measuredWidths { measured.removeFirst(measured.count - Self.measuredWidths) }
         return height
     }
 
@@ -171,6 +184,8 @@ open class ComposerReturnTextView: UITextView {
         var inset: UIEdgeInsets
         var padding: CGFloat
     }
+    /// One answer per width, the oldest width dropped past this many.
+    private static let measuredWidths = 16
     private var measured: [(key: MeasureKey, height: CGFloat)] = []
 
     /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
@@ -213,6 +228,10 @@ open class ComposerReturnTextView: UITextView {
     /// test can see what one keystroke costs in text layout
     /// (`<field id>_key_layout_units`, ComposerTypingLagUITests).
     public static var measuredUnits = 0
+    /// Height lookups (cached or not) and the widths asked, per key (`_key_measure_calls`).
+    public static var measureCalls = 0
+    /// Time spent laying out text to measure it (`_key_measure_ms`).
+    public static var measureSeconds: CFTimeInterval = 0
 
     /// `-cmux-mobile-composer-measure-whole`: measure the whole draft on every key with one
     /// answer kept, as before the fix (ComposerTypingLagUITests' before rows).
@@ -226,10 +245,16 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         let units = Self.measuredUnits
+        let calls = Self.measureCalls
+        let seconds = Self.measureSeconds
         super.insertText(text)
         trace.sampleAtNextFrame("\(id)_key_frame", since: start)
         trace.sampleAfterCommit("\(id)_key_commit", since: start)
-        trace.atNextFrame { trace.sample("\(id)_key_layout_units", ms: Double(Self.measuredUnits - units)) }
+        trace.atNextFrame {
+            trace.sample("\(id)_key_layout_units", ms: Double(Self.measuredUnits - units))
+            trace.sample("\(id)_key_measure_calls", ms: Double(Self.measureCalls - calls))
+            trace.sample("\(id)_key_measure_ms", ms: (Self.measureSeconds - seconds) * 1_000)
+        }
     }
     #endif
 
