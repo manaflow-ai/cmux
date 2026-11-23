@@ -163,15 +163,6 @@ public final class CloudSetup {
         public init(team: String?, serves: Set<String>? = nil, errorCode: String? = nil) {
             (self.team, self.serves, self.errorCode) = (team, serves, errorCode)
         }
-
-        /// The gate's read of the install's own team gateway: the install token the app holds, with the owner API that issued it
-        /// (`apiOrigin`), goes to the CLI on stdin, so the read mints none (hq#19758: the CLI's own mint ran inside its 10 s bound).
-        public static func read(cli: CloudMoveCLI, identity: MacInstallIdentity, apiOrigin: URL) async -> GatewayRead {
-            guard let token = try? await identity.installToken(), let team = MacInstallIdentity.team(ofToken: token) else {
-                return GatewayRead(team: nil, errorCode: noInstallToken)
-            }
-            return await cli.inferenceGatewayStatus(team: team, token: token, apiOrigin: apiOrigin)
-        }
     }
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).

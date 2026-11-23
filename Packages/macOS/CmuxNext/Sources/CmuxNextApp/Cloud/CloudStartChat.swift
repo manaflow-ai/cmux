@@ -311,6 +311,52 @@ extension CloudStartChat {
     /// button names (Models for Cloud: Claude, ChatGPT, API key). Lane D's `cmux.settings.models.run` takes
     /// over ``CloudSetup/run`` for Continue with ChatGPT and Set up Claude (`claudeSetupToken`), and calls
     /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
+    /// The agents the gateway of the team a start's machine is made in serves now, for the start gate
+    /// (``CloudSetup/gateway``; hq#15762): a team in inference gateway mode, its gateway online, serves a chat with no
+    /// connection of the person's own. The teams are the install token's and the person's own (#51322; production makes
+    /// the machine in either), never the active team's. The token waits for this launch's bind, as the relay's does: a start right after launch otherwise read no
+    /// team and refused ("No Cloud connection serves claude yet") with the gateway online (hq cloud-chat-works,
+    /// production 2026-11-23 00:03Z and 00:34Z). Each unread or empty answer logs why.
+    @MainActor static func gatewayServes(_ services: AppServices) async -> Set<String>? {
+        let log = services.cloud.logger
+        guard !services.accounts.agentKeys.scopeIsSignedOut else { log.info("cloud start gate: gateway unread: no team scope"); return nil }
+        guard let binary = services.cloud.move.cli else { log.error("cloud start gate: gateway unread: no bundled cmux"); return nil }
+        var installTeam: String?, installToken: String?
+        do {
+            let token = try await services.cloud.installIdentity.installToken(awaitingBind: .seconds(8))
+            installTeam = MacInstallIdentity.team(ofToken: token)
+            installToken = token
+            if installTeam == nil { log.error("cloud start gate: the install token names no team") }
+        } catch {
+            log.error("cloud start gate: install token: \(String(describing: error), privacy: .public)")
+        }
+        services.cloud.setup.gatewayRead = CloudSetup.GatewayRead(team: nil, errorCode: CloudSetup.GatewayRead.noInstallToken)
+        let auth = services.cloud.auth
+        // The person's own team too (#51322): production makes a start's machine there while the install token names another.
+        let personal = auth.managedTeamID == nil ? auth.user.map { GitHubConnections.personalTeam(user: GitHubConnections.backendUser(project: auth.configuration.stackProjectID, stackUser: $0.id)) } : nil
+        let cli = CloudMoveCLI(binary: binary)
+        var asked: Set<String> = [], serves: Set<String>?
+        for team in [installTeam, personal].compactMap({ $0 }) where asked.insert(team).inserted {
+            // The install team is read with the install token the app holds, so the CLI mints none (hq#19758); a refusal carries this read.
+            let read: (serves: Set<String>?, why: String?)
+            if team == installTeam, let installToken {
+                let held = await cli.inferenceGatewayStatus(team: team, token: installToken, apiOrigin: services.cloud.configuration.ownerAPIBaseURL())
+                services.cloud.setup.gatewayRead = held
+                read = (held.serves, held.errorCode)
+            } else {
+                read = await cli.inferenceGatewayRead(team: team)
+            }
+            if let answer = read.serves {
+                log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
+                serves = (serves ?? []).union(answer)
+            } else {
+                log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+            }
+        }
+        if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
+        return serves
+    }
+
     @MainActor static func wireSetup(_ services: AppServices) {
         services.cloud.setup.read = { [weak services] in
             guard let services else { return .init(personal: nil, organization: nil) }
@@ -321,7 +367,7 @@ extension CloudStartChat {
             let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
-        services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli else { return nil }; let cli = CloudMoveCLI(binary: binary), auth = services.cloud.auth; let read = await CloudSetup.GatewayRead.read(cli: cli, identity: services.cloud.installIdentity, apiOrigin: services.cloud.configuration.ownerAPIBaseURL()); services.cloud.setup.gatewayRead = read; let personal = auth.managedTeamID == nil ? auth.user.map { GitHubConnections.personalTeam(user: GitHubConnections.backendUser(project: auth.configuration.stackProjectID, stackUser: $0.id)) } : nil; guard let personal, personal != read.team else { return read.serves }; let own = await cli.inferenceGatewayServes(teams: [personal]); return read.serves.map { $0.union(own ?? []) } ?? own } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762), never the active team's: the install token's team, read with the install token the app holds so the CLI mints none (hq#19758), and the person's own team, where production made every probe machine (#51322)
+        services.cloud.setup.gateway = { [weak services] in guard let services else { return nil }; return await gatewayServes(services) }
         services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
