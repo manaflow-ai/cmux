@@ -38,6 +38,13 @@
   will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+/* A selection drag that began in the text (ThreadMinimap.tsx textPress): the rail and its strip take
+   no pointer until it ends, so a drag along the pane edge keeps selecting and never reveals, widens or
+   captures the rail (Leo, 2026-11-22: "a lot of awkwardness when you try to e.g. copy text along this area"). */
+.acpmux-minimap__rail[data-text-press],
+.acpmux-minimap__strip[data-text-press] {
+  pointer-events: none !important;
+}
 .acpmux-minimap__strip {
   position: absolute;
   left: 0;
