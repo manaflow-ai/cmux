@@ -398,3 +398,154 @@ fn a_row_the_relay_lists_is_reached_through_the_relay() {
     let said = String::from_utf8_lossy(&last.stderr);
     assert!(said.contains("send relay") && said.contains("acpmux send"), "{}", text(&last));
 }
+
+/// gcp-agent-lane-5, 2026-11-22 (Leo: "we need it to be able to run blazingly fast under
+/// duress"): `acpmux ls` ran the relay's `lsArgv` inside its 15 s bound and, with `lane-gh
+/// sessions` stalled, took 15 s and exited 1 blaming machine "local". With a relay listing that
+/// sleeps 30 s, `ls` (text and `--json`) lists this daemon's session, exits 0 and takes under
+/// 2 s each time, says on stderr what is not listed, and a cached listing is served stale. The
+/// wall times print as p50/p99 (the PR's before/after numbers come from this test).
+#[test]
+fn a_stalled_relay_listing_never_holds_or_fails_ls() {
+    let dir = scratch("stall");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    let listing = dir.join("relay-ls");
+    fs::write(&listing, "#!/bin/sh\nsleep 30\n").unwrap();
+    fs::set_permissions(&listing, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+    config["sendRelay"]["lsArgv"] = json!([listing.display().to_string()]);
+    fs::write(dir.join("config.json"), config.to_string()).unwrap();
+
+    // `ACPMUX_LS_STALL_REPORT=1` prints the numbers without asserting: the same harness on the
+    // base build, for a PR's before/after.
+    let report_only = std::env::var_os("ACPMUX_LS_STALL_REPORT").is_some();
+    let runs: usize =
+        std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
+    let idle = stall_leg(&dir, "idle", runs, 0);
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let hogged = stall_leg(&dir, "cpu hogs", runs, cores * 10);
+    if report_only {
+        return;
+    }
+    assert!(idle.failures.is_empty(), "{}", idle.failures.join("\n"));
+    assert!(hogged.failures.is_empty(), "{}", hogged.failures.join("\n"));
+    assert!(idle.max < Duration::from_secs(2), "idle max {:?}", idle.max);
+
+    // A kept listing is listed, marked stale.
+    let row = json!({"sessionId": "01far-kept", "name": "kept", "peer": "far", "status": "idle",
+        "updatedAt": 1_794_884_348_976_u64});
+    fs::write(
+        dir.join("relay-ls-cache.json"),
+        json!({"version": 1, "readAtMs": now_ms() - 60_000, "source": "relay-ls", "sessions": [row]})
+            .to_string(),
+    )
+    .unwrap();
+    let ls = cli(&dir, &["--json", "ls"]);
+    assert!(ls.status.success(), "{}", text(&ls));
+    let v: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
+    assert_eq!(v["remote"]["state"], "stale", "{v}");
+    let kept: Vec<&serde_json::Value> = v["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["sessionId"] == "01far-kept")
+        .collect();
+    assert_eq!(kept.len(), 1, "{v}");
+    assert_eq!(kept[0]["stale"], true, "{v}");
+    assert!(String::from_utf8_lossy(&ls.stderr).contains("listed as of 1m ago"), "{}", text(&ls));
+}
+
+struct Leg {
+    max: Duration,
+    failures: Vec<String>,
+}
+
+/// Times `runs` each of `ls --all` and `--json ls` with `hogs` busy-loop processes running, and
+/// prints p50, p99, max and each outcome (exit code and error code) with its count.
+fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
+    let mut busy: Vec<std::process::Child> = (0..hogs)
+        .map(|_| {
+            std::process::Command::new("sh")
+                .args(["-c", "while :; do :; done"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut times = Vec::new();
+    let mut failures = Vec::new();
+    let mut outcomes = std::collections::BTreeMap::<String, usize>::new();
+    for n in 0..runs * 2 {
+        let json_out = n % 2 == 1;
+        let args: &[&str] = if json_out { &["--json", "ls"] } else { &["ls", "--all"] };
+        let started = Instant::now();
+        let ls = cli(dir, args);
+        let took = started.elapsed();
+        times.push(took);
+        let out = String::from_utf8_lossy(&ls.stdout);
+        let said = String::from_utf8_lossy(&ls.stderr);
+        *outcomes.entry(outcome(&ls)).or_default() += 1;
+        if !ls.status.success() || !out.contains("lane") {
+            failures.push(format!("{label} {args:?} after {took:?}: {}", text(&ls)));
+        } else if json_out {
+            let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+            if v["remote"]["state"] != "missing" {
+                failures.push(format!("{label}: remote {}", v["remote"]));
+            }
+        } else if !said.contains("not read within 1.5s; not listed") {
+            failures.push(format!("{label}: no stale line: {said}"));
+        }
+    }
+    for hog in &mut busy {
+        let _ = hog.kill();
+        let _ = hog.wait();
+    }
+    let mut sorted = times;
+    sorted.sort();
+    let at = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
+    let max = *sorted.last().unwrap();
+    eprintln!(
+        "ls with a stalled relay, {label} ({hogs} busy loops): {} runs, p50 {:?}, p99 {:?}, max {:?}, outcomes {outcomes:?}",
+        sorted.len(),
+        at(0.5),
+        at(0.99),
+        max,
+    );
+    Leg { max, failures }
+}
+
+/// `exit N` and, on a failure, the error's code (the JSON `code`, else the text label).
+fn outcome(out: &Output) -> String {
+    let code = out.status.code().map_or("signal".to_string(), |c| c.to_string());
+    if out.status.success() {
+        return format!("exit {code}");
+    }
+    let said =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let named = serde_json::from_str::<serde_json::Value>(said.trim())
+        .ok()
+        .and_then(|v| {
+            [&v["error"]["code"], &v["code"], &v["error"]["detail"]]
+                .into_iter()
+                .find_map(|c| c.as_str().map(str::to_string))
+        })
+        .or_else(|| {
+            said.lines()
+                .find_map(|l| l.strip_prefix("acpmux: "))
+                .and_then(|l| l.split(':').next())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    format!("exit {code} {named}")
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap()
+}
