@@ -209,7 +209,11 @@ mod imp {
                     return Err(error);
                 }
                 let n = usize::try_from(n).unwrap_or(0);
-                exited.extend(events[..n].iter().filter_map(|e| u32::try_from({ e.u64 }).ok()));
+                // `epoll_event` is packed on x86_64: copy the field out before use.
+                exited.extend(events[..n].iter().filter_map(|e| {
+                    let data = e.u64;
+                    u32::try_from(data).ok()
+                }));
                 return Ok(());
             }
         }
