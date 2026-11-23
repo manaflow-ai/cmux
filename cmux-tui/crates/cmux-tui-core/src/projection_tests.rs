@@ -38,6 +38,97 @@ fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     assert_eq!(refused(line("never-mounted")), "projection.unknown");
 }
 
+#[test]
+fn a_revision_the_machine_cannot_fetch_is_refused_with_its_own_code() {
+    let reference = |origin: &str| RevisionRef {
+        root: "0".repeat(64),
+        origin: origin.into(),
+        grant: "csg_x".into(),
+    };
+    // Not https: the machine never sends the grant over it.
+    assert_eq!(
+        fetch_revision(&reference("http://store.example")).err().unwrap().0,
+        "projection.revision_unavailable"
+    );
+    // A store that does not answer.
+    assert_eq!(
+        fetch_revision(&reference("http://127.0.0.1:1")).err().unwrap().0,
+        "projection.revision_unavailable"
+    );
+}
+
+#[test]
+fn a_revision_in_the_store_is_fetched_and_assembled() {
+    use std::io::{BufRead as _, Write as _};
+
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+
+    let items: Vec<Item> = (0..3000)
+        .map(|n| Item {
+            path: format!("d{:02}/s{}/file-{n:05}-with-a-long-enough-name.rs", n % 40, n % 3),
+            kind: Kind::File,
+            mode: 0o644,
+            size: n,
+            mtime_ns: 5,
+            link: None,
+        })
+        .collect();
+    let manifest = Manifest::build(1, items).unwrap();
+    let split = cmux_projection::revision::split(&manifest).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let pieces: std::collections::HashMap<String, Vec<u8>> =
+        split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
+    let served = std::thread::spawn(move || {
+        // One request per connection, until the test drops the last reference.
+        for conn in listener.incoming().flatten() {
+            let mut reader = std::io::BufReader::new(conn.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap_or(0);
+            let sha =
+                line.split_whitespace().nth(1).and_then(|p| p.rsplit('/').next()).unwrap_or("");
+            let mut authed = false;
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                    break;
+                }
+                authed |= header.to_ascii_lowercase().starts_with("authorization:")
+                    && header.contains("csg_good");
+            }
+            let mut conn = conn;
+            let _ = match pieces.get(sha) {
+                Some(bytes) if authed => {
+                    let mut out = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        bytes.len()
+                    )
+                    .into_bytes();
+                    out.extend_from_slice(bytes);
+                    conn.write_all(&out)
+                }
+                _ => conn.write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                ),
+            };
+        }
+    });
+    let origin = format!("http://127.0.0.1:{port}");
+    let fetched = fetch_revision(&RevisionRef {
+        root: split.root.clone(),
+        origin: origin.clone(),
+        grant: "csg_good".into(),
+    })
+    .ok()
+    .unwrap();
+    assert_eq!(fetched, manifest);
+    // A grant the store refuses is the same refusal, not a hang or a panic.
+    let refused =
+        fetch_revision(&RevisionRef { root: split.root, origin, grant: "csg_bad".into() });
+    assert_eq!(refused.err().unwrap().0, "projection.revision_unavailable");
+    drop(served);
+}
+
 /// The whole path on a machine with FUSE: a dial with a manifest mounts it, the mount lists what
 /// the manifest has without asking the Mac, a read asks the Mac over the same dial, and a write
 /// stays on the machine.
@@ -228,6 +319,40 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     };
     assert_eq!(check(&at.join("repo")), "minimal");
     assert_eq!(check(&other), "");
+}
+
+/// RFD 0007: the agent is told once that the Mac is away and which reads failed; the notice names
+/// the folder, says the Mac is away, and lists the failed paths, at most a cap, with a count.
+#[test]
+fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
+    use cmux_projection::away::Report;
+    let at = Path::new("/home/cmux/work/chat");
+    let report = Report {
+        episode: 1,
+        paths: vec!["README.md".into(), "src/main.rs".into()],
+        failed: 2,
+        back: false,
+    };
+    let (title, body) = away_notice(at, &report);
+    assert_eq!(
+        away_prompt(&title, &body),
+        "[notice from cmux · WARN] The Mac is away: 2 reads in a projected folder failed\n\
+         The Mac that projects /home/cmux/work/chat is asleep or offline. A read of a file not \
+         fetched from it yet waits 5 s, then fails with EHOSTDOWN (\"Host is down\"); files \
+         already read keep working. Nothing retries on its own: read these again once the Mac is \
+         back.\n\
+         Reads that failed (2):\n\
+         - README.md\n\
+         - src/main.rs"
+    );
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let (title, body) = away_notice(at, &capped);
+    assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
+    assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
+    let back = Report { back: true, failed: 1, paths: vec!["a".into()], ..report };
+    let (title, body) = away_notice(at, &back);
+    assert_eq!(title, "The Mac was away: 1 read in a projected folder failed");
+    assert!(body.contains("is back now"), "{body}");
 }
 
 #[test]

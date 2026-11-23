@@ -76097,6 +76097,77 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action chief-toggle-computer",
+      "computed" : {
+        "canonical_action_id" : "chief.toggleComputer",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "chief.toggleComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "computer",
+        "screen",
+        "cloud",
+        "profile",
+        "panel",
+        "show",
+        "hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Chief: Toggle Computer",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isAskedInPalette" : false,
           "isRequired" : false,
@@ -88960,6 +89031,235 @@
       "arguments" : [
         {
           "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Status",
+                "value" : "status",
+                "subtitle" : null,
+                "symbol" : null
+              },
+              {
+                "title" : "Take Over",
+                "value" : "take_over",
+                "subtitle" : null,
+                "symbol" : null
+              },
+              {
+                "title" : "Give Back to Chief",
+                "value" : "hand_back",
+                "subtitle" : null,
+                "symbol" : null
+              },
+              {
+                "title" : "Ask the Person to Take Over",
+                "value" : "request_human",
+                "subtitle" : null,
+                "symbol" : null
+              }
+            ]
+          },
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "Control"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "reason",
+          "suggestions" : null,
+          "title" : "Reason"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud computer-control",
+      "computed" : {
+        "canonical_action_id" : "cloud.computerControl",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Who drives the Chief's computer on a Cloud machine (--machine <id>, the bare id): action status, request_human (with --reason: what the person should do), hand_back (ends your own ask) or take_over (the person only). Returns machine, holder (chief or human), since_ms and reason. While holder is human, send the computer no input.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.computerControl",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "control",
+        "take over",
+        "hand back",
+        "human"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "hand.raised.square",
+      "targets" : [
+
+      ],
+      "title" : "Chief Computer Control…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : null,
+          "title" : "Chief"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "op",
+          "suggestions" : null,
+          "title" : "Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "args",
+          "suggestions" : null,
+          "title" : "Arguments"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud chief-computer",
+      "computed" : {
+        "canonical_action_id" : "cloud.chiefComputer",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "A Chief of this Mac uses its own Cloud computer (Set Up Computer in its profile; engine.json computer chief:<id>): --chief <id>, --op screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human, hand_back or start, --args a JSON object of the op's fields (x, y, to_x, to_y, button, count, text, keys, direction, amount, url, reason, shot). Returns done, image (base64 PNG or JPEG), windows, screen and control; refused with computer.human_has_control while the person holds it.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.chiefComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "screenshot",
+        "click",
+        "type"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Use Chief’s Own Computer…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96664,121 +96964,6 @@
 
       ],
       "title" : "All Themes Playground",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : {
-            "int" : {
-              "max" : 7,
-              "min" : 1
-            }
-          },
-          "name" : "variant",
-          "suggestions" : null,
-          "title" : "Variant"
-        },
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : {
-            "int" : {
-              "max" : 9,
-              "min" : 0
-            }
-          },
-          "name" : "state",
-          "suggestions" : null,
-          "title" : "Menu State"
-        },
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "bool",
-          "name" : "dark",
-          "suggestions" : null,
-          "title" : "Dark Look"
-        }
-      ],
-      "category" : "settings",
-      "cliName" : "action debug-env-secrets-playground",
-      "computed" : {
-        "canonical_action_id" : "debug.envSecretsPlayground",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "debug.envSecretsPlayground",
-      "isDebugOnly" : true,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "environment",
-        "variables",
-        "secrets",
-        "env",
-        "cloud",
-        "keys",
-        "hosts",
-        "playground",
-        "variants",
-        "debug"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "devOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "key.horizontal",
-      "targets" : [
-
-      ],
-      "title" : "Environment Secrets Playground",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
