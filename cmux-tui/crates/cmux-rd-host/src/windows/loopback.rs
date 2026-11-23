@@ -228,6 +228,8 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         "60".into(),
         "--codec".into(),
         opts.str_or("codec", "openh264"),
+        "--capture".into(),
+        opts.str_or("capture", "auto"),
     ];
     let host_opts = Opts::parse(&args)?;
     // Connect before spawning, so accept cannot wait forever if viewer setup fails.
@@ -253,6 +255,8 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         // A reset caused by cleanup must not hide the original decoder/readback failure.
         let mut report = result?;
         let metrics = host_result??;
+        report["capture"] = metrics.capture_details["backend"].clone();
+        report["capture_details"] = metrics.capture_details;
         report["capture_ms"] = distribution(&metrics.capture_ms);
         report["convert_ms"] = distribution(&metrics.convert_ms);
         report["encode_ms"] = distribution(&metrics.encode_ms);
@@ -412,6 +416,13 @@ mod tests {
 
     #[test]
     fn viewer_reads_exact_sample_surrounded_by_different_pixels() {
+        // A runner service in session 0, or a locked session, has no desktop a
+        // visible window can paint, so GetPixel reads white. The selftest skips
+        // its capture cell for the same reason.
+        if let Some(reason) = crate::windows::no_interactive_desktop() {
+            eprintln!("skipped: {reason}");
+            return;
+        }
         let (width, height) = (640, 360);
         let mut rgb = vec![0; width * height * 3];
         let center = (height / 2 * width + width / 2) * 3;
