@@ -141,6 +141,7 @@ name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
  "cmux-embed",
+ "cmux-theme-tokens",
  "cmux-wallpaper",
  "hex",
  "jsonschema",
@@ -220,6 +221,13 @@ name = "cmux-terminal-iface"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "cmux-theme-tokens"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed",
 ]
 
 [[package]]
