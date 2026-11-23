@@ -171,6 +171,19 @@ export type SectionItem =
   | { type: "row"; key: string; row: MachineRow; afterHeader: boolean }
   | { type: "add"; key: string; gap: boolean };
 
+/** A new snapshot with each row that did not change kept as the previous object. */
+export function keptSnapshot(previous: MachinesSnapshot | undefined, next: MachinesSnapshot): MachinesSnapshot {
+  if (!previous) return next;
+  const rows = new Map(previous.rows.map((row) => [row.id, row]));
+  return {
+    ...next,
+    rows: next.rows.map((row) => {
+      const old = rows.get(row.id);
+      return old && JSON.stringify(old) === JSON.stringify(row) ? old : row;
+    }),
+  };
+}
+
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
 export function sectionItems(
   snapshot: Pick<MachinesSnapshot, "rows" | "style">,

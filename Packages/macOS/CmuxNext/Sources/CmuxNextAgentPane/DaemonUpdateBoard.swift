@@ -53,7 +53,7 @@ public final class DaemonUpdateBoard {
         }
         machines += events.compactMap { event in Self.notice(event).map { OtherMachine(id: event.id, line: $0, canUpdate: false) } }
         guard !machines.isEmpty else { return nil }
-        return (String(localized: "agentPane.daemonUpdate.machines.title", defaultValue: "Other machines", bundle: .module),
+        return (String(localized: "agentPane.daemonUpdate.machines.title", defaultValue: "Other machines", bundle: .localizedModule),
                 machines.map(\.line), machines)
     }
 
@@ -76,26 +76,26 @@ public final class DaemonUpdateBoard {
 
     /// The Update button of a machine in ``otherMachines``.
     public nonisolated static var updateLabel: String {
-        String(localized: "agentPane.daemonUpdate.machines.update", defaultValue: "Update", bundle: .module)
+        String(localized: "agentPane.daemonUpdate.machines.update", defaultValue: "Update", bundle: .localizedModule)
     }
 
     /// Why an Update click did not run: the machine is gone from this run, or updates of other
     /// machines are off.
     public nonisolated static var updateRefused: String {
         String(localized: "agentPane.daemonUpdate.machines.updateRefused",
-               defaultValue: "This machine can't be updated now. Try again once it's connected.", bundle: .module)
+               defaultValue: "This machine can't be updated now. Try again once it's connected.", bundle: .localizedModule)
     }
 
     /// The row's "updating" line of machine `name`.
     nonisolated static func updatingLine(_ name: String) -> String {
         String(format: String(localized: "agentPane.daemonUpdate.machines.updating", defaultValue: "Updating %@ to this Mac's build…",
-                              bundle: .module), name)
+                              bundle: .localizedModule), name)
     }
 
     /// The row's line of machine `name` while it is offline.
     nonisolated static func offlineLine(_ name: String) -> String {
         String(format: String(localized: "agentPane.daemonUpdate.machines.offline", defaultValue: "%@ is offline; it will update when it's back",
-                              bundle: .module), name)
+                              bundle: .localizedModule), name)
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.
@@ -118,21 +118,21 @@ public final class DaemonUpdateBoard {
     public nonisolated static func line(_ state: DaemonUpdateEvent.State) -> String {
         switch state {
         case .updating:
-            String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's version…", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's version…", bundle: .localizedModule)
         case .retrying:
-            String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .localizedModule)
         case .offline:
-            String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .localizedModule)
         case .updated(let build):
-            String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
+            String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .localizedModule), build)
         case .kept(let kept):
             keptLine(kept)
         case .failed(let reason, _) where AcpmuxPeerUpdateReply.linkLost(reason):
-            String(localized: "agentPane.daemonUpdate.noAnswer", defaultValue: "Didn't answer", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.noAnswer", defaultValue: "Didn't answer", bundle: .localizedModule)
         case .failed(let reason, false):
-            String(format: String(localized: "agentPane.daemonUpdate.failed", defaultValue: "Update failed: %@", bundle: .module), reason)
+            String(format: String(localized: "agentPane.daemonUpdate.failed", defaultValue: "Update failed: %@", bundle: .localizedModule), reason)
         case .failed(let reason, true):
-            String(format: String(localized: "agentPane.daemonUpdate.rolledBack", defaultValue: "Update rolled back: %@", bundle: .module), reason)
+            String(format: String(localized: "agentPane.daemonUpdate.rolledBack", defaultValue: "Update rolled back: %@", bundle: .localizedModule), reason)
         case .cannotUpdate(let reason):
             reason
         case .cleared:
@@ -146,17 +146,17 @@ public final class DaemonUpdateBoard {
     nonisolated static func keptLine(_ kept: DaemonUpdateOutcome.Kept) -> String {
         switch kept {
         case .newerInstalled:
-            String(localized: "agentPane.daemonUpdate.kept.newerInstalled", defaultValue: "Kept its build: newer build installed", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.kept.newerInstalled", defaultValue: "Kept its build: newer build installed", bundle: .localizedModule)
         case .ownBuild:
             String(localized: "agentPane.daemonUpdate.kept.ownBuild", defaultValue: "Kept its build: it runs a build with local changes",
-                   bundle: .module)
+                   bundle: .localizedModule)
         case .restartWindow(let next?):
             String(format: String(localized: "agentPane.daemonUpdate.kept.restartWindowUntil",
-                                  defaultValue: "Kept its build: restarted recently; next update after %@ UTC", bundle: .module),
+                                  defaultValue: "Kept its build: restarted recently; next update after %@ UTC", bundle: .localizedModule),
                    next)
         case .restartWindow(nil):
             String(localized: "agentPane.daemonUpdate.kept.restartWindow", defaultValue: "Kept its build: restarted recently",
-                   bundle: .module)
+                   bundle: .localizedModule)
         }
     }
 
@@ -167,12 +167,12 @@ public final class DaemonUpdateBoard {
         guard case .failed(let reason, let rolledBack) = event.state else { return nil }
         if AcpmuxPeerUpdateReply.linkLost(reason) {
             return String(format: String(localized: "agentPane.daemonUpdate.notice.noAnswer", defaultValue: "%@ didn't answer",
-                                         bundle: .module), event.displayName)
+                                         bundle: .localizedModule), event.displayName)
         }
         return rolledBack
             ? String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBack",
-                                    defaultValue: "%1$@ is still on its previous version: %2$@", bundle: .module), event.displayName, reason)
+                                    defaultValue: "%1$@ is still on its previous version: %2$@", bundle: .localizedModule), event.displayName, reason)
             : String(format: String(localized: "agentPane.daemonUpdate.notice.failed", defaultValue: "Couldn't update %1$@: %2$@",
-                                    bundle: .module), event.displayName, reason)
+                                    bundle: .localizedModule), event.displayName, reason)
     }
 }

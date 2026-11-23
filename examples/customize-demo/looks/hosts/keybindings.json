@@ -1,0 +1,9 @@
+// The hosts look's keys: Command-K to find a session, Shift-Command-O for a new session,
+// Shift-Command-[ and ] between tabs. Each key's old action stays in the Command Palette.
+// `cmux customize discard` puts your own keys back.
+[
+  { "key": "cmd+k", "command": "agentPane.searchChats" },
+  { "key": "cmd+shift+o", "command": "palette.newAgentChat" },
+  { "key": "cmd+shift+leftbracket", "command": "prevSidebarTab" },
+  { "key": "cmd+shift+rightbracket", "command": "nextSidebarTab" }
+]

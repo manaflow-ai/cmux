@@ -62,6 +62,10 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
+            // An agent's or the CLI's chat on a machine whose computer the person holds waits until they give it back.
+            if let held = request.machineID ?? request.name.flatMap({ name in services.machines.cloud.first(where: { $0.machine.title == name })?.machineID }) {
+                if let refusal = services.cloud.computerControl.heldRefusal(invocation, machine: held) { throw ActionFailure(message: refusal) }
+            }
             guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
             // A person's palette or menu run without a machine means the one they look at.
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
@@ -221,7 +225,7 @@ struct CloudStartSession {
     private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        try still(request.name ?? request.machineID ?? ""); if case .setup = await services.cloud.setup.decide(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, command: request.command)) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
+        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command)) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
@@ -239,7 +243,7 @@ struct CloudStartSession {
         let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
             let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
         }, cwd = copy?.chat ?? request.cwd
-        try still(name); steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        try still(name); steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }

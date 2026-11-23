@@ -71,7 +71,7 @@ CMUX_SWIFT_BIN_PATH="$(swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_
 # than this marker (checked below).
 marker="$(mktemp)"
 cmux_next_cleanup_paths+=("$marker")
-sleep 1 # the marker's mtime must be older than anything the tests write
+sleep 1 # sleep-ok: an mtime-granularity tick: the marker must be older than anything the tests write
 status=0
 CMUX_UPDATE_MDM_SCHEMA=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter ManagedPreferencesManifestTests || status=$?
 CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter SettingsSchemaExportTests || status=$?

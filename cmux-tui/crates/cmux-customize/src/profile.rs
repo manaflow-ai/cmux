@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cmux_app_manifest::hidden;
+use cmux_config::migrations::{self, Notice};
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,6 +40,56 @@ pub struct Profile {
     /// Whole text files by logical path (`themes/night.json`).
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+}
+
+impl Profile {
+    /// This profile with every key an older cmux named differently under
+    /// its new name, and a removed key left out
+    /// (`cmux_config::migrations`), and what changed.
+    pub fn migrated(&self) -> (Profile, Vec<Notice>) {
+        let (settings, notices) = migrations::migrate_dotted(&self.settings);
+        (Profile { settings, ..self.clone() }, notices)
+    }
+}
+
+/// A setting a setup sets that this cmux leaves out at install.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Skipped {
+    pub key: String,
+    pub reason: String,
+}
+
+/// A profile as it installs here: migrated, and (for a setup) without the
+/// keys this cmux does not have.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Settled {
+    pub profile: Profile,
+    /// Keys it named by an older name, rewritten or left out.
+    pub notices: Vec<Notice>,
+    /// Keys this cmux has no setting for, left out.
+    pub skipped: Vec<Skipped>,
+}
+
+/// `profile` migrated, with every key this cmux's schema does not have taken
+/// out and listed. A setup is lenient at install (it may be written for a
+/// newer cmux, or use a key a later cmux removed and this one never had);
+/// a known key with a bad value, or one only the person may set, is still
+/// refused by [`Customize::check_profile`].
+pub(crate) fn settle_lenient(profile: &Profile) -> Settled {
+    let (mut profile, notices) = profile.migrated();
+    let schema = Schema::embedded();
+    let mut skipped = Vec::new();
+    profile.settings.retain(|key, _| {
+        let known = schema.row(key).is_some();
+        if !known {
+            skipped.push(Skipped {
+                key: key.clone(),
+                reason: "this cmux has no setting by that name (a newer cmux may)".to_owned(),
+            });
+        }
+        known
+    });
+    Settled { profile, notices, skipped }
 }
 
 /// What a save wrote.
@@ -111,7 +162,13 @@ impl Customize {
                 live.insert(path.clone(), bytes);
             }
         }
-        let problems = validate::problems(&live);
+        let all = validate::problems(&live);
+        // A value the schema refuses in the person's own settings does not
+        // stop a save: that key is left out of the profile (and said so),
+        // since no one could use a profile that carries it.
+        let refused: Vec<String> =
+            all.iter().filter_map(validate::Problem::refused_setting).map(str::to_owned).collect();
+        let problems = validate::introduced(all.clone(), &all);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -146,6 +203,13 @@ impl Customize {
                     let (settings, credentials, private) =
                         shareable_settings(&String::from_utf8_lossy(bytes));
                     profile.settings = settings;
+                    for key in &refused {
+                        if profile.settings.remove(key).is_some() {
+                            left_out.push(format!(
+                                "the setting {key}: its value is one this setting does not accept"
+                            ));
+                        }
+                    }
                     for key in credentials {
                         left_out.push(format!(
                             "the setting {key}: its value carries a credential (a user, password or token)"
@@ -225,6 +289,12 @@ impl Customize {
         } else {
             PathBuf::from(source)
         };
+        if path.file_name().is_some_and(|name| name == crate::setup::SETUP_FILE) {
+            return crate::setup::read_dir(
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map(|setup| setup.profile);
+        }
         read_profile(&path)
     }
 
@@ -253,9 +323,12 @@ impl Customize {
             if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
                 // The key says where to look; the refused value (which may be
                 // a credential under the wrong key) stays in the file.
-                return Err(Error::Profile(format!(
-                    "the profile's value for {key} is not one that setting accepts"
-                )));
+                let message = if key == "workspaceColors.indicatorStyle" {
+                    "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                } else {
+                    format!("the profile's value for {key} is not one that setting accepts")
+                };
+                return Err(Error::Profile(message));
             }
         }
         for (path, text) in &profile.files {
@@ -298,13 +371,17 @@ impl Customize {
     /// Makes a profile live as a draft: nothing is recorded until the person
     /// applies it. The whole profile is checked first (every path is one a
     /// part owns, every setting is one an agent may set and a value its row
-    /// accepts, every file validates); one failure writes nothing.
+    /// accepts, every file validates); one failure writes nothing. A key an
+    /// older cmux named differently is taken under its new name first
+    /// ([`Profile::migrated`]); a key this cmux does not know is refused.
     pub fn preview_profile(
         &self,
         profile: &Profile,
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         // One import at a time, from the first read to the last write: two
         // that merged into the same settings text would each write theirs
@@ -321,6 +398,8 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         let schema = Schema::embedded();
         let mut files: BTreeMap<String, Vec<u8>> = profile
@@ -391,6 +470,19 @@ impl Customize {
             .into_iter()
             .filter(|problem| files.contains_key(&problem.path))
             .collect();
+        // What the person's own files already hold that the schema refuses
+        // (a value an older build wrote) is theirs and stays as written; only
+        // what this profile brings stops it. "Already" is what the apply
+        // after this will judge by, so a preview never writes what its apply
+        // then refuses: with no preview open, the live files (the begin below
+        // records them as a generation); with one open, the applied
+        // generation (the open preview's edits are not the person's yet).
+        let before = if self.store().draft()?.is_some() {
+            self.settings_problems_in(&self.current_tree(&self.store().index()?)?)?
+        } else {
+            self.live_problems(files.keys())?
+        };
+        let problems = validate::introduced(problems, &before);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -460,16 +552,26 @@ pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<St
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
-    // Where it stops reading, never what it read there: the parser's own
-    // message quotes the value it did not expect.
-    serde_json::from_str::<Profile>(&text).map_err(|error| {
+    // Parse errors never quote a value, which might contain credentials.
+    let invalid = |error: serde_json::Error| {
         Error::Profile(format!(
             "{}: not a cmux profile (line {}, column {})",
             path.display(),
             error.line(),
             error.column()
         ))
-    })
+    };
+    let original_error = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => return Ok(profile),
+        Err(error) => error,
+    };
+    let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+    crate::file_refs::resolve(
+        &mut value,
+        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+    )
+    .map_err(Error::Profile)?;
+    serde_json::from_value(value).map_err(|_| invalid(original_error))
 }
 
 #[cfg(test)]

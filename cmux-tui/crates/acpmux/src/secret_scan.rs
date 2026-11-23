@@ -44,7 +44,8 @@ pub struct Found {
     pub range: Range<usize>,
 }
 
-const GITLEAKS: &str = include_str!("../rules/secrets/gitleaks.toml");
+static GITLEAKS: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../rules/secrets/gitleaks.toml"));
 const LABELS: &str = include_str!("../rules/secrets/labels.toml");
 
 // Shared by assignment scanning and structured tool-input redaction. The structured
@@ -237,7 +238,7 @@ fn own(id: &str, label: &str, pattern: &str, group: usize) -> Rule {
 /// gitleaks' rules in file order, then cmux's own, then gitleaks' `generic-*`,
 /// so a known shape names its kind where a generic match overlaps it.
 static RULES: LazyLock<Rules> = LazyLock::new(|| {
-    let config: Config = toml::from_str(GITLEAKS).expect("constant pattern"); // crash-allow: constant pattern
+    let config: Config = toml::from_str(&GITLEAKS.inflate()).expect("constant pattern"); // crash-allow: constant pattern
     let labels: LabelsConfig = toml::from_str(LABELS).expect("constant pattern"); // crash-allow: constant pattern
     let mut rules: Vec<Rule> = config
         .rules

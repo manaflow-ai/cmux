@@ -12,6 +12,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { promptIndexOf } from "./support/promptIndex";
 import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -143,6 +144,7 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
         <VirtualTranscript
           rows={turnView(held, new Set())}
           {...props}
+          earlier={promptIndexOf(props.earlier)}
           sessionId="rail-full"
           dock={dock}
           onToggleActivity={() => {}}
@@ -222,6 +224,7 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
         <VirtualTranscript
           rows={turnView(held, new Set())}
           {...props}
+          earlier={promptIndexOf(props.earlier)}
           sessionId="rail-over"
           dock={dock}
           onToggleActivity={() => {}}
@@ -279,6 +282,7 @@ for (const count of [45, 80])
           <VirtualTranscript
             rows={turnView(rows, new Set())}
             {...props}
+            earlier={promptIndexOf(props.earlier)}
             sessionId={`rail-pages-${count}`}
             dock={dock}
             onToggleActivity={() => {}}

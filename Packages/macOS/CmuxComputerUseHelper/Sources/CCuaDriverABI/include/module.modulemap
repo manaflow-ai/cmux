@@ -1,4 +1,0 @@
-module CCuaDriverABI {
-    header "cua_driver_abi.h"
-    export *
-}

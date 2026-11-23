@@ -138,7 +138,8 @@ enum TabLifecycle {
         // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
         // shown pane whose daemon holds agent tabs.
         let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map { ctx.services.agentTabs.isNewTabPage($0) } == true,
-                                     user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
+                                     user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false,
+                                     terminalFirst: ctx.services.settings?.snapshot.newTabTemplate == .terminal)
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, in: controller, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
                                      ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonDefault : ctx.services.settings?.snapshot.newTabPosition)
@@ -236,10 +237,10 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement), not in the chat's pane; the header's Preview as an agent's.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement); the header's Preview as an agent's. A lone chat's New Browser Tab (Shift-Cmd-L, menus, palette) stays a tab in its pane, never docks (#49625).
         let pane: PaneModel
         var docked = false
-        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
+        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked), ChatColumnPlacement.resolve(from: chat, services: ctx.services) != .dockChat {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane
