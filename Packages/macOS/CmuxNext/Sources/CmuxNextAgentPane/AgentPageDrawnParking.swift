@@ -216,6 +216,7 @@ extension AgentPaneView {
         dictation.handle(.stop)
         popupHostStorage?.dismiss()
         page?.setDrawnAway(true)
+        transportPacer?.visibilityChanged()
         toastAvoidanceMoved()
         if let page { PageWebView.syncChromiumVisibility(in: page) }
         // A Chromium page's window follows its view only when told.
@@ -225,6 +226,7 @@ extension AgentPaneView {
     /// Shown again: the page is no longer drawn away.
     func cameBackDrawn() {
         page?.setDrawnAway(false)
+        transportPacer?.visibilityChanged()
         toastAvoidanceMoved()
     }
 }

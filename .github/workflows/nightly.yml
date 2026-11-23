@@ -7351,6 +7351,9 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 240 || 120 }}
     permissions:
       contents: read
+    # continue-on-error makes this job's result success even when it failed: sign gates on built, not the result.
+    outputs:
+      built: ${{ steps.live-code-built.outputs.built }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7378,11 +7381,16 @@ jobs:
         if: "!cancelled() && steps.upload-live-code.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: *live-code-upload
+      - name: Mark the live code overlay built
+        id: live-code-built
+        env:
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh built "$COMMIT" "$RUNNER_TEMP/live-code"
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
     needs: [decide, nightly-next-one, build-live-code-variant]
-    if: "!cancelled() && needs.build-live-code-variant.result == 'success'"
+    if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
     # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
