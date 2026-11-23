@@ -403,6 +403,28 @@
           ]
         },
         {
+          "key": "updates.keepWindowsDuringRestart",
+          "note": "The relaunch afterimage (RelaunchAfterimage): on, a relaunch pictures each window and keeps the pictures on screen until the new process drew. Off by default (Leo 2026-11-23: \"restart to update, just do the normal close to update again ... the layout shift and the jarringness is a bit too much. for now...\"): the windows leave, and the relaunched app opens them again.",
+          "title": {
+            "key": "settings.updates.keepWindowsDuringRestart",
+            "text": "Keep Windows on Screen While Restarting"
+          },
+          "help": {
+            "key": "settings.updates.keepWindowsDuringRestart.help",
+            "text": "Shows a picture of each window until the updated cmux has drawn. Off: windows close, then reopen."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "restart",
+            "relaunch",
+            "windows",
+            "afterimage",
+            "picture"
+          ]
+        },
+        {
           "key": "updates.notify",
           "note": "How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.",
           "title": {

@@ -29,8 +29,11 @@ extension UpdaterService {
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
-        // A relaunch's windows stay pictured on screen until the new process drew them; a failed install brings them back (`UpdateWindowHandoff`).
-        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        // A relaunch's windows leave the screen and the new process opens them again; with `updates.keepWindowsDuringRestart` (off by default)
+        // they stay pictured on screen until the new process drew them. A failed install brings them back (`UpdateWindowHandoff`).
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) { [weak services] in
+            services?.settings?.snapshot.updates.keepWindowsDuringRestart == true
+        }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); handoff.relaunchDecided() }
         handoff.attach(to: self)
         isSheetPresented = { sheet.isPresented }
