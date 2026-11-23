@@ -254,7 +254,8 @@ fn a_sender_with_no_session_is_a_program() {
     ask["text"] = json!("blocked: need permission from leo to merge #12");
     assert!(needs_person("block", ask["text"].as_str().unwrap(), "leo"));
     assert!(program_fyi(&ask));
-    ask["text"] = json!("[notice from runner-vars \u{b7} FIRE] target down; leo, approve a restart");
+    ask["text"] =
+        json!("[notice from runner-vars \u{b7} FIRE] target down; leo, approve a restart");
     assert!(!program_fyi(&ask), "a FIRE still wakes");
     assert!(!program_fyi(&relayed));
     relayed["text"] = json!(
