@@ -8,6 +8,7 @@ fn held(id: &str, thread: &str, class: &str, text: &str) -> Held {
         from: format!("host/{thread}"),
         class: class.into(),
         text: text.into(),
+        program: false,
     }
 }
 
@@ -232,4 +233,62 @@ fn digest_is_bounded() {
     assert!(
         text.starts_with("Held during a message surge: 320 message(s) in 320 thread(s) need you.")
     );
+}
+
+#[test]
+fn a_sender_with_no_session_is_a_program() {
+    let base = json!({"promptId":"p","threadId":"t","from":"glaeda-land","class":"result",
+        "text":"merged #12","surgeHeld":true,"sender":{"session":null,"relay":null}});
+    assert!(program_notice(&base));
+    assert!(held_from_inbox(&base).unwrap().program);
+    let mut machine_only = base.clone();
+    machine_only["sender"]["relay"] = json!({"machine":"gcp-agent-lane-4"});
+    assert!(program_notice(&machine_only), "a lane VM tool relays only its machine");
+    for agent in [
+        json!({"fromSession":"s1"}),
+        json!({"sender":{"session":"s1"}}),
+        json!({"sender":{"relay":{"machine":"m","session":"lane-x"}}}),
+    ] {
+        let mut msg = base.clone();
+        for (k, v) in agent.as_object().unwrap() {
+            msg[k] = v.clone();
+        }
+        assert!(!program_notice(&msg), "{msg}");
+    }
+}
+
+#[test]
+fn only_a_fire_keeps_a_programs_notice_out_of_fyi() {
+    assert!(fire_text("FIRE lane-cap-watch: hosts above budget"));
+    assert!(fire_text("[fire] base red"));
+    assert!(fire_text("x\nseverity: fire"));
+    assert!(!fire_text("fire up the runner"), "the word in lower case is no FIRE");
+    assert!(!fire_text("FIREWALL changed"));
+}
+
+#[test]
+fn a_programs_notice_is_fyi_by_rule_whatever_the_model_or_its_class_says() {
+    let mut program = held("p1", "landed", "result", "merged #12");
+    program.program = true;
+    let mut asks = held("p2", "watch", "question", "hang-watch: stuck turn?");
+    asks.program = true;
+    let mut fire = held("p3", "now", "result", "FIRE runner label stalled");
+    fire.program = true;
+    let agent = held("p4", "review", "result", "pick a base for #9");
+    let (rule, model) = split_urgent(&[program.clone(), asks.clone(), fire.clone(), agent.clone()]);
+    assert_eq!(rule.iter().map(|h| h.prompt_id.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+    assert_eq!(model.iter().map(|h| h.prompt_id.as_str()).collect::<Vec<_>>(), ["p3", "p4"]);
+    let b = batch_of(vec![program, asks, fire, agent]);
+    let d = known(&b, Some("1 this\n2 this\n3 this\n4 this"), &Owners::default());
+    let cats: Vec<(Category, DecidedBy)> = d.iter().map(|d| (d.category, d.decided_by)).collect();
+    assert_eq!(
+        cats,
+        [
+            (Category::Fyi, DecidedBy::Rule),
+            (Category::Fyi, DecidedBy::Rule),
+            (Category::NeedsThisSession, DecidedBy::Model),
+            (Category::NeedsThisSession, DecidedBy::Model),
+        ]
+    );
+    assert_eq!(actionable_topics(&lines_of(&b, &d)), 2, "the FIRE and the agent's ask");
 }

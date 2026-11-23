@@ -18,8 +18,8 @@
 //! The model is a filter, never an authority:
 //! - it only picks one word per message index; none of its text is kept, shown or routed.
 //!   Digest lines come from the original messages;
-//! - a program's notice that is not a FIRE, or a message its sender classed `fyi`, is `fyi`
-//!   with no model ([`Held::fyi_by_rule`]): it never counts toward the chat's needYou;
+//! - a program's notice that is not a FIRE is `fyi` with no model ([`Held::fyi_by_rule`]):
+//!   it never counts toward the chat's needYou;
 //! - a blocker or a question (`class` block or question) is `needs_this_session` with no model
 //!   ([`split_urgent`]);
 //! - a message the model skips, garbles or answers twice, and every message of a call that
@@ -93,12 +93,11 @@ impl Held {
         !self.fyi_by_rule() && matches!(self.class.as_str(), "block" | "question")
     }
 
-    /// Filed as [`Category::Fyi`] with no model: a program's notice that is not a FIRE, or a
-    /// message its sender itself classed `fyi` (it asked to wake no one). Leo, 2026-11-23,
+    /// Filed as [`Category::Fyi`] with no model: a program's notice that is not a FIRE. Leo, 2026-11-23,
     /// about his inbox's "245 need you": the "ok this likely/definitely doesnt actually need
     /// me" thing. hq `docs/handbook/notice-flood.md` rule 1: a program's message is an inbox fyi.
     pub fn fyi_by_rule(&self) -> bool {
-        (self.program || self.class == "fyi") && !fire_text(&self.text)
+        self.program && !fire_text(&self.text)
     }
 }
 
