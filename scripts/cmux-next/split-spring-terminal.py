@@ -23,6 +23,7 @@ With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, wor
 and palette animations at a 120 Hz frame budget).
 With --suite=split-scale it runs scripts/cmux-next/split-scale-bench.py (split, close, bottom pane, divider drag and
 side pane across 1/4/9 splits, four pane contents and 1/10/30 workspaces).
+With --suite=split-move it runs that bench's move family (--moves: a tab or a pane from one split to another).
 
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
@@ -131,6 +132,13 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=split-move`: the same bench's move family (a tab or a pane from one split to another, forth and back, in a
+# half, a third and a quarter, per pane content), judged frame by frame by split_move_metrics.py.
+if "--suite=split-move" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    rest = [a for a in sys.argv[1:] if a != "--suite=split-move"]
+    os.execv(sys.executable, [sys.executable, suite] + rest + ([] if any(a.startswith("--moves") for a in rest) else ["--moves=all"]))
 # `--suite=sidebar-stress`: sidebar scroll, switch, theme switch during a scroll and custom sidebar sections at 20 and
 # 500 workspaces (scripts/cmux-next/sidebar-stress-profiles.py, which runs sidebar-stress-bench.py per profile).
 if "--suite=sidebar-stress" in sys.argv:

@@ -716,6 +716,10 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.phonePictures = PhoneTabPictures(iphone: iphone, surface: { [weak cache] in cache?.phoneSurface($0) }) { image, fit, quality in
+            let cut = PreviewImageCache.fitted(image, fit)  // browser tabs' pictures for the phones' tab overview
+            return PreviewImageCache.compressed(cut, quality: quality).map { ($0.data, cut.width, cut.height) }
+        }
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
