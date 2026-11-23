@@ -25,7 +25,7 @@ and a fake sysctl that reports FAKE_MEMSIZE, and checks that:
   target/<triple>/release, where "Stage binary" and the dSYM upload read them;
 - acpmux is staged from acpmux-standalone, with the shipping features for the target.
 
-lane = "manual" (no new CI tests, Lawrence 2026-10-23).
+lane = "manual" (no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18).
 Run: python3 tests/test_ci_cmux_tui_mac_legs_cargo_groups.py
 """
 

@@ -18,15 +18,15 @@ struct HomeQuotePreview {
     static let maxCardWidth: CGFloat = 300
 
     /// The root part as the quote draws it. An agent's text part arrives rendered (HomeMarkdown: no markers left)
-    /// with its inline pictures still in it as "!alt": the quote leaves the pictures out, and a text of only
-    /// pictures says how many ("2 images"). Any other part is itself.
+    /// with its inline pictures in it as their alt text (tagged runs): the quote leaves the pictures out, and a
+    /// text of only pictures says how many ("2 images"). Any other part is itself.
     static func part(_ part: Part?, markdown: Bool) -> Part? {
         guard markdown, case let .text(t, runs) = part else { return part }
-        let pictures = runs.filter { ($0.style ?? []).contains(HomeMarkdown.imageMark) }.reduce(0) { $0 + max(0, $1.length) }
+        let pictures = runs.filter { ($0.style ?? []).contains(HomeMarkdown.imageMark) }.count
         guard pictures > 0 else { return part }
         let text = NSMutableString(string: t)
         // Last run first, so each cut leaves the earlier offsets as they were.
-        for r in runs.reversed() where (r.style ?? []).contains(where: { $0 == HomeMarkdown.imageMark || $0 == HomeMarkdown.imageAlt }) {
+        for r in runs.reversed() where (r.style ?? []).contains(HomeMarkdown.imageAlt) {
             guard r.start >= 0, r.length > 0, r.start + r.length <= text.length else { continue }
             text.replaceCharacters(in: NSRange(location: r.start, length: r.length), with: "")
         }
@@ -89,8 +89,10 @@ struct HomeQuotePreview {
     /// `s` cut with "…" to fit `maxWidth` in the card's title font.
     static func fit(_ s: String, maxWidth: CGFloat) -> String {
         guard TextDraw.width(s, font: ThreadPreview.titleFont) > maxWidth else { return s }
-        // No 12 pt glyph is narrower than 2 pt: more characters than this never fit.
-        var head = s.prefix(Int(maxWidth / 2) + 1)
+        // No 12 pt glyph is narrower than 2 pt: more characters than this never fit. A width that is not finite or
+        // does not fit an Int keeps every character (no trap); a negative one keeps none but the first.
+        let fits = Int(exactly: (maxWidth / 2).rounded(.down)) ?? s.count
+        var head = s.prefix(max(0, min(fits, s.count)) + 1)
         while !head.isEmpty, TextDraw.width(head.trimmingCharacters(in: .whitespaces) + "…", font: ThreadPreview.titleFont) > maxWidth {
             head = head.dropLast()
         }

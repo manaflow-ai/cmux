@@ -86,23 +86,23 @@ export default agentPaneEntry({
   ],
   variants: {
     "cloud-missing": {
-      note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Owner VM without a Claude login: explains the missing credential and offers the sign-in on the machine. Compare the three existing surfaces; keep the glass card.",
+      ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("Claude failed to authenticate: credential is missing"),
     },
     "cloud-expired": {
-      note: "Expired login: the cause and the same setup action, with no provider output in the sentence.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Expired login: the cause and the same sign-in, with no provider output in the sentence.",
+      ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
     },
     "cloud-rejected": {
-      note: "Rejected login: preserves the HTTP status and offers setup on this Cloud machine.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Rejected login: preserves the HTTP status and offers the sign-in on this Cloud machine.",
+      ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
     "cloud-no-team-account": {
       note: "A team Cloud machine whose team has no Codex account: the card names the team's way (cr add), and Use an API key goes on now where the machine signs agents in.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("Codex needs a team account on this machine: run cr add codex to add one"),
     },
     "trust-pending": {

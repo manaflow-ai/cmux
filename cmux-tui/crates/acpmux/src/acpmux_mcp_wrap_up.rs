@@ -14,15 +14,10 @@ use serde_json::{Value, json};
 
 pub(super) const NAME: &str = "wrap_up";
 /// What every chat with the tool is told: when to call it and how.
-pub(super) const STEER: &str = "When you end a turn that did work, call wrap_up as your last \
-step: recap says in two or three plain sentences what changed and where things stand, including \
-what is not done or not verified. When the turn leaves the person a decision (a choice of \
-approach, a go-ahead), add ask, one short question, and actions, one or two answers with your \
-pick first; their click comes back as their next message. Leave ask out when nothing waits on \
-them. When the person corrected you this turn, or a command failed and a later one worked, add \
-learned: at most three short facts about this project worth keeping in its instructions file \
-(\"Use pnpm, not npm.\", \"Tests need DATABASE_URL set.\"); the person accepts or dismisses each. \
-Leave learned out otherwise. Then end the turn without repeating the recap.";
+pub(super) const STEER: &str = "When a turn did work, call wrap_up as your last step: a two or \
+three sentence recap including what is not done or verified; ask and actions only when a decision \
+waits on the person; learned only after a correction or a failed then working command. Then end \
+the turn without repeating the recap.";
 /// The most answers the box draws.
 const MAX_ACTIONS: usize = 2;
 /// The longest answer a button takes.

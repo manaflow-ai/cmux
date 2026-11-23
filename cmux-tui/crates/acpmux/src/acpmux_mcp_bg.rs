@@ -17,7 +17,10 @@
 //! GitHub poller, which waits on PR events where GitHub grants them), else `gh run watch` or `gh pr checks
 //! --watch`, under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
-//! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//! JOB, JOB". A machine with no `gh` is refused before a task starts. Given a background task's id
+//! (`{"id": "bg-...", "timeoutSeconds": 900}`, as agents call it to wait for a task), it blocks
+//! until the task ends or the bound passes (at most [`TASK_WAIT_MAX`], a longer one clamped and
+//! said so), then answers as `bg_output` does.
 //!
 //! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
 //! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
@@ -62,9 +65,11 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed.",
+        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed. Given a background task's id (bg-...) and timeoutSeconds instead, it blocks until that task ends or the timeout passes (at most 1800 s; a longer one is clamped and the result says so), then answers as bg_output does.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
+                "id": {"type": "string", "description": "Instead of repo: a background task's id (bg-...) to wait for, with timeoutSeconds."},
+                "timeoutSeconds": {"type": "number", "minimum": 0, "description": "With id: how long to block for the task to end (at most 1800). Without it the task is read at once."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
                 "pr": {"type": "integer", "minimum": 1, "description": "The pull request whose checks to wait for (instead of run)."},
                 "sha": {"type": "string", "description": "With pr: the head commit the checks must be for; a pull request whose head is another commit, before or after the wait, fails."},
@@ -86,17 +91,32 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
     params.set("sessionId", json!(session));
     // A background task's id given to run_wait (`{"id": "bg-..."}`): run_wait waits for GitHub,
     // and a bg task's end already comes as a message, so read it as bg_output does and say so.
+    // With a timeout (`{"id": "bg-...", "timeoutSeconds": 900}`), it first blocks until the task
+    // ends or the bound passes (`TaskWait`), and says which.
     let mut note = None;
+    let mut waited = None;
     let name = match bg_task_given_to_run_wait(name, &params) {
         Some(task) => {
-            note = Some(format!(
-                "run_wait waits for a GitHub run or pull request (repo with run or pr); {task} is a background task, whose end comes to this chat as one message, so there is nothing to wait on. Its output so far, as bg_output {{\"id\": \"{task}\"}} reads it:"
-            ));
+            let bound = match TaskWait::of(&params) {
+                Ok(bound) => bound,
+                Err(why) => return error_result(why),
+            };
             let sub = params.get("callerSubagent").cloned();
             params = json!({"sessionId": session, "id": task});
             if let Some(sub) = sub {
                 params.set("callerSubagent", sub);
             }
+            note = Some(match bound {
+                None => format!(
+                    "run_wait waits for a GitHub run or pull request (repo with run or pr); {task} is a background task, whose end comes to this chat as one message, so there is nothing to wait on. Its output so far, as bg_output {{\"id\": \"{task}\"}} reads it:"
+                ),
+                Some(bound) => {
+                    let waited_for = bound.wait(daemon, &params).await;
+                    let line = bound.line(&task, waited_for);
+                    waited = Some((bound, waited_for));
+                    line
+                }
+            });
             "bg_output"
         }
         None => name,
@@ -177,6 +197,9 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 text = format!("{note}\n{text}");
                 structured.set("redirectedFrom", json!("run_wait"));
             }
+            if let Some((bound, waited)) = &waited {
+                structured.set("wait", bound.view(*waited));
+            }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
                 // Claude Code shows the structured result, not the text, when there is one.
@@ -201,6 +224,105 @@ fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
         let v = params.get(*k)?.as_str()?.trim();
         v.starts_with("bg-").then(|| v.to_owned())
     })
+}
+
+/// The most a `run_wait` on a background task blocks (`timeoutSeconds`); a longer bound is
+/// clamped to it, and the result says so.
+const TASK_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(1800);
+/// The first and the longest pause between two reads of the task's state while it runs.
+const TASK_LOOK_FIRST: std::time::Duration = std::time::Duration::from_millis(100);
+const TASK_LOOK_MAX: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long a `run_wait` given a background task blocks for it to end: the bound the call gave
+/// under `timeoutSeconds`, `timeout` or `timeout_seconds` (seconds, a number or a numeric
+/// string), clamped to [`TASK_WAIT_MAX`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TaskWait {
+    /// The seconds the call asked for.
+    asked: f64,
+    /// What it waits: `asked`, or [`TASK_WAIT_MAX`] when that is less.
+    bound: std::time::Duration,
+}
+
+impl TaskWait {
+    /// The call's bound; `None` when it gives none (or 0), so the task is read at once.
+    fn of(params: &Value) -> Result<Option<Self>, String> {
+        let Some((key, v)) = ["timeoutSeconds", "timeout", "timeout_seconds"]
+            .iter()
+            .find_map(|k| params.get(*k).filter(|v| !v.is_null()).map(|v| (*k, v)))
+        else {
+            return Ok(None);
+        };
+        let asked = match v {
+            Value::String(s) => s.trim().trim_end_matches('s').parse::<f64>().ok(),
+            v => v.as_f64(),
+        };
+        let asked = asked
+            .filter(|a| a.is_finite() && *a >= 0.0)
+            .ok_or_else(|| format!("{key} must be a number of seconds, 0 or more (it was {v})"))?;
+        if asked == 0.0 {
+            return Ok(None);
+        }
+        let bound = std::time::Duration::from_secs_f64(asked).min(TASK_WAIT_MAX);
+        Ok(Some(Self { asked, bound }))
+    }
+
+    fn clamped(&self) -> bool {
+        std::time::Duration::from_secs_f64(self.asked) > self.bound
+    }
+
+    /// Blocks until the task `params` names is no longer running or the bound passes: how long
+    /// it waited, and whether it timed out with the task still running. A read the daemon
+    /// refuses (no such task) ends the wait at once: the read after it says why.
+    async fn wait(&self, daemon: &Arc<Client>, params: &Value) -> (std::time::Duration, bool) {
+        let start = tokio::time::Instant::now();
+        let deadline = start + self.bound;
+        let mut look = params.clone();
+        look.set("maxBytes", json!(1));
+        let mut pause = TASK_LOOK_FIRST;
+        loop {
+            let running = match daemon.request(method::MUX_BG_OUTPUT, look.clone()).await {
+                Ok(r) => r.get("state").and_then(Value::as_str) == Some("running"),
+                Err(_) => return (start.elapsed(), false),
+            };
+            let now = tokio::time::Instant::now();
+            if !running || now >= deadline {
+                return (now - start, running);
+            }
+            tokio::time::sleep(pause.min(deadline - now)).await;
+            pause = (pause * 2).min(TASK_LOOK_MAX);
+        }
+    }
+
+    /// The line the result starts with: how the wait ended, and a clamp when there was one.
+    fn line(&self, task: &str, (waited, timed_out): (std::time::Duration, bool)) -> String {
+        let clamp = if self.clamped() {
+            format!(
+                " (you asked for {} s; clamped to the most, {} s)",
+                self.asked,
+                TASK_WAIT_MAX.as_secs()
+            )
+        } else {
+            String::new()
+        };
+        let (secs, bound) = (waited.as_secs_f64(), self.bound.as_secs_f64());
+        if timed_out {
+            format!(
+                "{task} is a background task; timed out after waiting {bound:.0} s{clamp} and it is still running. Its output so far, as bg_output reads it:"
+            )
+        } else {
+            format!(
+                "{task} is a background task; it is not running after a wait of {secs:.1} s of {bound:.0} s{clamp}. Its output, as bg_output reads it:"
+            )
+        }
+    }
+
+    /// The result's `wait`: what was asked, what was waited, and whether it clamped or timed out.
+    fn view(&self, (waited, timed_out): (std::time::Duration, bool)) -> Value {
+        json!({"askedSeconds": self.asked, "boundSeconds": self.bound.as_secs_f64(),
+            "clamped": self.clamped(), "waitedSeconds": waited.as_secs_f64(),
+            "timedOut": timed_out})
+    }
 }
 
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
@@ -232,8 +354,11 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
         return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
+    // Every task of the caller's, counted before the page's state filter, offset and limit
+    // (`bg_list::Page::apply` takes the page after this line is built), so the line says so:
+    // a reader took "1 running" for the page's own count and read 29 exited tasks as running.
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
+        "{} background task{plural} in all, not only the page below: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -291,8 +416,12 @@ mod tests {
         let task =
             |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
         let r = json!({"tasks": [task("running", 0), task("exited", 0), task("exited", 1)]});
-        let line = "3 background tasks: 1 running, 1 ok, 1 failed".to_owned();
+        let line = "3 background tasks in all, not only the page below: 1 running, 1 ok, 1 failed"
+            .to_owned();
         assert_eq!(outcome("bg_list", &r), (line, "running"));
+        // The counts are the whole list's, never the page's (`bg_list::Page::apply` pages after
+        // this line is built), and the line says which.
+        assert!(outcome("bg_list", &r).0.contains("in all, not only the page below"));
         let done = json!({"tasks": [task("exited", 0), task("exited", 1)]});
         assert_eq!(outcome("bg_list", &done).1, "failed");
         assert_eq!(
@@ -306,6 +435,31 @@ mod tests {
         ));
         let none = json!({"tasks": [], "otherOwners": 1});
         assert!(outcome("bg_list", &none).0.starts_with("No background tasks of yours; 1 more"));
+    }
+
+    /// A bg task's wait bound comes from timeoutSeconds, timeout or timeout_seconds, as a number
+    /// or a numeric string; 0 or none reads at once, a bound past the most is clamped and says so,
+    /// and anything else is refused.
+    #[test]
+    fn a_task_waits_bound_is_read_and_clamped() {
+        let of = |v: Value| TaskWait::of(&v);
+        let b = of(json!({"id": "bg-1", "timeoutSeconds": 900})).unwrap().unwrap();
+        assert_eq!((b.bound.as_secs(), b.clamped()), (900, false));
+        assert_eq!(of(json!({"timeout": "60"})).unwrap().unwrap().bound.as_secs(), 60);
+        assert_eq!(of(json!({"timeout_seconds": 1.5})).unwrap().unwrap().bound.as_millis(), 1500);
+        assert_eq!(of(json!({"id": "bg-1"})).unwrap(), None);
+        assert_eq!(of(json!({"timeoutSeconds": 0})).unwrap(), None);
+        let long = of(json!({"timeoutSeconds": 7200})).unwrap().unwrap();
+        assert_eq!((long.bound, long.clamped()), (TASK_WAIT_MAX, true));
+        let timed_out = long.line("bg-1", (TASK_WAIT_MAX, true));
+        assert!(timed_out.contains("timed out after waiting 1800 s"), "{timed_out}");
+        assert!(
+            timed_out.contains("you asked for 7200 s; clamped to the most, 1800 s"),
+            "{timed_out}"
+        );
+        assert_eq!(long.view((TASK_WAIT_MAX, true))["clamped"], true);
+        assert!(of(json!({"timeoutSeconds": -1})).unwrap_err().contains("timeoutSeconds must be"));
+        assert!(of(json!({"timeout": "soon"})).is_err());
     }
 
     /// A call names a repo and a run or a pull request (with an optional sha); anything else is
