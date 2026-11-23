@@ -66,6 +66,14 @@ pub(crate) const NO_MUX_ASK_AGAIN: Duration = Duration::from_secs(600);
 /// counts as dead only if nothing at all came back since the OPEN (its PING's PONG included).
 pub(crate) const ANSWER_SUSPECT: Duration = Duration::from_secs(3);
 
+/// The owner of every kept circuit's tasks. Each ends on its own: a stream when both its
+/// directions end or it is reset, a circuit's reader when the circuit ends, its keepalive when
+/// the circuit closes or the carrier that kept it is gone.
+fn scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("hub carrier kept circuits"))
+}
+
 /// The hello record of a kept circuit.
 pub(crate) fn mux_hello() -> Bytes {
     let mut record = SERVICE_HELLO.to_vec();
@@ -236,7 +244,7 @@ impl Mux {
                     let Some((events, credit)) = self.register(id, None) else { break };
                     let mux = self.clone();
                     let (incoming, from) = (incoming.clone(), from.clone());
-                    tokio::spawn(async move {
+                    scope().spawn_named("hub carrier kept stream (serving)", async move {
                         mux.serve_open(incoming, from, id, payload, events, credit).await
                     });
                 }
@@ -468,7 +476,9 @@ impl Mux {
                 self.stats.kept_opens.fetch_add(1, Ordering::Relaxed);
                 let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
                 let mux = self.clone();
-                tokio::spawn(async move { mux.carry(id, theirs, events, credit).await });
+                scope().spawn_named("hub carrier kept stream", async move {
+                    mux.carry(id, theirs, events, credit).await
+                });
                 Ok(Ok(ours))
             }
         }
@@ -508,8 +518,8 @@ pub(crate) fn start_dialer(
     idle: Duration,
 ) -> Arc<Mux> {
     let mux = Mux::new(link, Role::Dialer, stats);
-    tokio::spawn(mux.clone().read(None));
-    tokio::spawn(mux.clone().keep(owner, every, idle));
+    scope().spawn_named("hub carrier kept circuit reader", mux.clone().read(None));
+    scope().spawn_named("hub carrier kept circuit keepalive", mux.clone().keep(owner, every, idle));
     mux
 }
 
@@ -556,7 +566,10 @@ impl KeptCircuits {
             if let Ok(kept) = slot.try_lock()
                 && let Some(mux) = kept.live.clone()
             {
-                tokio::spawn(async move { mux.close().await });
+                scope().spawn_named(
+                    "hub carrier kept circuit close",
+                    async move { mux.close().await },
+                );
             }
         }
     }
