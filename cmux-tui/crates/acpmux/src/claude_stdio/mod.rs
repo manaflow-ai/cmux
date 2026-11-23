@@ -199,6 +199,14 @@ fn cli_effort(effort: &str) -> Option<&str> {
     }
 }
 
+/// Whether a new chat's `effort` can go on its command line (`--effort`) instead of the live
+/// `apply_flag_settings` channel after `initialize` (`hub/lifecycle.rs` `effort_request`): a
+/// plain Reasoning level. "default" stays live (it clears an effort the person's settings set,
+/// which no flag does), as do Ultracode and the retired Ultrathink.
+pub fn takes_effort_at_spawn(effort: &str) -> bool {
+    effort != "default" && EFFORTS.iter().any(|(v, _)| *v == effort)
+}
+
 /// The `apply_flag_settings` settings for a session effort. Every level
 /// clears `ultracode`.
 fn effort_settings(effort: &str) -> Value {
