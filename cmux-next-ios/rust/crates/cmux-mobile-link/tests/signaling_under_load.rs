@@ -1,6 +1,6 @@
 //! A Mac stays listed online on a host under full load (cmux#52200, cmuxterm-hq#21260).
 //!
-//! cosmic-gray at load 89-92 on 15 cores with 21.5 of 22.5 GB of swap used showed offline on the
+//! A Mac at load 89-92 on 15 cores with 21.5 of 22.5 GB of swap used showed offline on the
 //! iPhone for about 50 min while it was up. The service lists a Mac online while its signaling
 //! socket is open and fresh while its application pings keep coming at most `FRESH_WITHIN`
 //! (18 s) apart (PROTOCOL.md "Mac freshness").

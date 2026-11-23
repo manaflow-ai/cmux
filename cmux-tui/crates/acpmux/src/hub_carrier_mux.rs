@@ -469,8 +469,10 @@ impl Mux {
         tokio::pin!(answer);
         let answered = match tokio::time::timeout(ANSWER_SUSPECT, &mut answer).await {
             Ok(answered) => answered,
-            Err(_) if self.heard() > sent_at => {
-                // Alive but slow to admit (a loaded machine reading its consent): wait it out.
+            // Alive but slow to admit (a loaded machine reading its consent), or this machine
+            // did not run for a whole suspect window (its timer fired that late, so its reader
+            // had no turn to hear the far side either, cmux#52200): wait it out.
+            Err(_) if self.heard() > sent_at || sent_at.elapsed() >= ANSWER_SUSPECT * 2 => {
                 match tokio::time::timeout(answer_wait.saturating_sub(ANSWER_SUSPECT), answer).await
                 {
                     Ok(answered) => answered,
