@@ -1,0 +1,155 @@
+name: Hybrid start first run (staging, published NEXT DEV app, PR CLI)
+
+# One-off evidence run for cmux#52145 (the hybrid chat start): the published, signed NEXT DEV app signs in to
+# staging with the agent test account, and this pull request's macOS cmux-tui runs
+# `CMUX_HYBRID_START=1 cmux chat --on vm:new --prompt ...` against it three times, then one follow-up and one
+# CMUX_HYBRID_START=0 control (scripts/cmux-next/hybrid-start-first-run.py). Every machine it makes is killed.
+# It checks out the pull request's head, not the merge with the base (the base did not compile acpmux on its own
+# when this ran). Same-repo pull requests only.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/hybrid-start-first-run.py
+      - .github/workflows/hybrid-start-first-run.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hybrid-start-first-run-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 150
+    env:
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Init ghostty submodules
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache
+        uses: ./.github/actions/zig-global-cache
+      - name: Fetch the ghostty-next Zig packages
+        uses: ./.github/actions/ghostty-zig-packages
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build this pull request's macOS cmux-tui
+        id: build
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          binary="${CARGO_TARGET_DIR:-$PWD/target}/debug/cmux-tui"
+          test -x "$binary"
+          echo "built in $(( $(date +%s) - start )) s at $(git rev-parse HEAD)"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+      - name: Resolve and download the published NEXT DEV app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/published"
+          mkdir -p "$dir"
+          for attempt in 1 2 3; do
+            row="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cmux-next-dev" \
+              --jq '[.assets[] | select(.name == "cmux-NEXT-DEV.zip")][0] | "\(.id) \(.digest // "")"')"
+            id="${row%% *}"
+            sha="${row#* }"; sha="${sha#sha256:}"
+            case "$id" in ''|null|*[!0-9]*) echo "::error::no cmux-NEXT-DEV.zip"; exit 1;; esac
+            if [ "${#sha}" -ne 64 ]; then echo "::error::the asset has no sha256 digest"; exit 1; fi
+            rm -f "$dir/app.zip"
+            if curl -fsSL --retry 3 -o "$dir/app.zip" -H "Authorization: Bearer $GH_TOKEN" \
+                 -H "Accept: application/octet-stream" \
+                 "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+               && echo "$sha  $dir/app.zip" | shasum -a 256 -c -; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::asset $id unreadable at its sha256"; exit 1; fi
+          done
+          ditto -x -k "$dir/app.zip" "$dir"
+          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          [ -n "$app" ] || { echo "::error::the zip holds no app"; exit 1; }
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          [ "$bundle" = com.cmuxterm.app.debug.next ] || { echo "::error::bundle $bundle"; exit 1; }
+          codesign --verify --deep --strict "$app"
+          team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          [ "$team" = 7WLXT3NR37 ] || { echo "::error::team '$team'"; exit 1; }
+          xattr -cr "$app"
+          echo "Published NEXT DEV asset $id sha256:$sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "HFR_APP=$app" >> "$GITHUB_ENV"
+      - name: Materialize the staging agent account and seed its sign-in
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from this job's environment"; exit 1
+          fi
+          out="$RUNNER_TEMP/hfr"
+          mkdir -p "$out" "$HOME/.secrets"
+          ( umask 077; printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD" ) > "$out/active.env"
+          chmod 600 "$out/active.env"
+          cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
+          echo "HFR_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
+          python3 -I scripts/cmux-next/dev-signin-token.py --seed
+      - name: Hybrid start, three runs, follow-up, control
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          HFR_CLI: ${{ steps.build.outputs.path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/hybrid-start-first-run.py --app "$HFR_APP" --cli "$HFR_CLI" \
+            --credentials-file "$HFR_CREDENTIALS" --out "$RUNNER_TEMP/hfr/out"
+          cat "$RUNNER_TEMP/hfr/out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the evidence and the driver logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/hfr/out/driver-logs"
+          find "$HOME/Library" "$HOME/.local" "$HOME/.cmux" "$TMPDIR" -path '*hybrid-start/*.log' -type f 2>/dev/null \
+            -exec cp {} "$RUNNER_TEMP/hfr/out/driver-logs/" \; || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: hybrid-start-first-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hfr/out
+          if-no-files-found: warn
+          retention-days: 7
