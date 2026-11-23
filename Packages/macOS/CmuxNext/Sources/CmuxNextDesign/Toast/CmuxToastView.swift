@@ -74,7 +74,7 @@ public final class CmuxToastView: NSView {
     /// The surface's corner radius now: the geometry's outer corner, at most half the height (a capsule's is
     /// always half).
     public var cornerRadius: CGFloat {
-        look.shape == .capsule ? bounds.height / 2 : geometry.outerRadius(fitting: bounds.size)
+        look.shape == .capsule ? bounds.height / 2 : look.flat ? Metrics.buttonCornerRadius : geometry.outerRadius(fitting: bounds.size)
     }
     private var pointerHover: PointerHover?
     /// Whether the pointer is on the toast now (as of the last refresh).
@@ -269,9 +269,10 @@ public final class CmuxToastView: NSView {
         content.frame = surface.contentView.bounds
         surface.contentView.addSubview(content)
         addSubview(surface)
+        if look.flat { addFlatFill(in: content) }
         if look.accentBar { addAccentBar(in: content) }
         if look.showsCountdown, toast.duration != CmuxToast.untilClosed { addCountdownRing(in: content) }
-        castShadow()
+        if !look.flat { castShadow() }
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -477,6 +478,20 @@ public final class CmuxToastView: NSView {
 
     /// The accent bar's width (``CmuxToastLook/accentBar``).
     static let accentBarWidth: CGFloat = 4
+
+    /// The flat style's fill (``CmuxToastLook/flat``): the window's background color under the content, inside the
+    /// opaque surface's 1 px edge.
+    private func addFlatFill(in content: NSView) {
+        let fill = ThemeChangeView()
+        fill.wantsLayer = true
+        fill.frame = content.bounds
+        fill.autoresizingMask = [.width, .height]
+        fill.onThemeChange = { [weak fill] in
+            guard let fill else { return }
+            fill.layer?.backgroundColor = fill.performWithTheme { Palette.windowBackground.cgColor }
+        }
+        content.addSubview(fill, positioned: .below, relativeTo: nil)
+    }
 
     /// A bar in the tone's color along the leading edge, under the glass's rounded corner.
     private func addAccentBar(in content: NSView) {

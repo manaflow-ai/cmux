@@ -214,6 +214,8 @@ let package = Package(
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
                 .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])),
+                // The window's layout at its size (one pane or two), decided in Rust.
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
@@ -232,7 +234,7 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel", .product(name: "CMUXAuthCore", package: "CMUXAuthCore")]),
         .testTarget(name: "CmuxMobileAuthTests", dependencies: [
-            "CmuxMobileAuth", .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            "CmuxMobileAuth", "CmuxMobileModel", .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
         ]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),

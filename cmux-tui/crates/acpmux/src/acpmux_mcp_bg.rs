@@ -15,7 +15,7 @@
 //!
 //! `run_wait` is a `bg_start` the server writes: one blocking `glaeda-gh wait` (the machine's one
 //! GitHub poller, which waits on PR events where GitHub grants them), else `gh run watch` or `gh pr checks
-//! --watch`, under the daemon, then the failed jobs read once, and the outcome printed last, which
+//! --watch` (one per target for every chat on the machine, `SHARED_WATCH`), under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
 //! JOB, JOB". A machine with no `gh` is refused before a task starts. Given a background task's id
 //! (`{"id": "bg-...", "timeoutSeconds": 900}`, as agents call it to wait for a task), it blocks
@@ -65,7 +65,7 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed. Given a background task's id (bg-...) and timeoutSeconds instead, it blocks until that task ends or the timeout passes (at most 1800 s; a longer one is clamped and the result says so), then answers as bg_output does.",
+        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed, else through one gh watch per pull request or run that every chat on the machine shares. Given a background task's id (bg-...) and timeoutSeconds instead, it blocks until that task ends or the timeout passes (at most 1800 s; a longer one is clamped and the result says so), then answers as bg_output does.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
                 "id": {"type": "string", "description": "Instead of repo: a background task's id (bg-...) to wait for, with timeoutSeconds."},
@@ -506,7 +506,7 @@ case "$*" in
   "run view"*"--json jobs"*) echo "build, lint" ;;
   "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
   "pr checks"*--watch*) exit 0 ;;
-  "pr checks"*) echo "" ;;
+  "pr checks"*) echo "lint" ;;
 esac
 "#,
             calls.display()
@@ -522,6 +522,7 @@ esac
                 .arg("-c")
                 .arg(script)
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -534,8 +535,11 @@ esac
             "{all}"
         );
         assert!(all.contains("failed jobs: build, lint"), "{all}");
-        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
-        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"));
+        // A passing wait names no failed checks, even when gh still lists a superseded run's cancelled
+        // check ("lint" here): cmux#50630's own wait printed six of those above its "passed".
+        let (code, last, all) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{all}");
+        assert!(!all.contains("failed checks"), "{all}");
         let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "fedcba9"}));
         assert_eq!(code, Some(2));
         assert!(last.contains("its head is 0123456789abcdef"), "{last}");
@@ -587,6 +591,7 @@ esac
                 .arg("-c")
                 .arg(RunWait::of(&args).unwrap().script())
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -667,6 +672,7 @@ esac
                         .script(),
                 )
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -714,6 +720,73 @@ esac
             "Checks of o/r#3 failed: its head could not be read (gh-quota: refused: a jobs sweep is forbidden)"
         );
         assert!(sleeps(&calls).is_empty() && !calls.contains("glaeda-gh"), "{calls}");
+    }
+
+    /// With no glaeda-gh, chats waiting for the same pull request share one `gh` watch: the second
+    /// waiter makes no GitHub call and takes the first's outcome; a lock left by a waiter that died is
+    /// taken over, so that wait still polls once and ends on its outcome.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_without_glaeda_gh_shares_one_gh_watch_per_target() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-share");
+        let calls = dir.path().join("calls");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr checks"*--watch*) /bin/sleep 2; exit 1 ;;
+  "pr checks"*) echo "build" ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display()
+        );
+        let file = dir.path().join("gh");
+        std::fs::write(&file, gh).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let share = dir.path().join("share");
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let script = RunWait::of(&json!({"repo": "o/r", "pr": 3})).unwrap().script();
+        let spawn = || {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", &share)
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap()
+        };
+        let last = |child: std::process::Child| {
+            let out = child.wait_with_output().unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned())
+        };
+        let first = spawn();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let second = spawn();
+        for child in [first, second] {
+            assert_eq!(last(child), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        }
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "one watch for both waiters: {text}");
+
+        // A leader that died: its lock names a pid that no longer runs.
+        let mut gone = std::process::Command::new("true").spawn().unwrap();
+        gone.wait().unwrap();
+        let name = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("printf '%s' 'pr o/r#3' | cksum | tr -c '0-9\\n' -")
+            .output()
+            .unwrap();
+        let name = String::from_utf8_lossy(&name.stdout).trim().to_owned();
+        std::os::unix::fs::symlink(gone.id().to_string(), share.join(format!("{name}.lock")))
+            .unwrap();
+        std::fs::remove_file(&calls).unwrap();
+        assert_eq!(last(spawn()), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "the stale lock was taken over: {text}");
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
@@ -806,9 +879,10 @@ impl RunWait {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
                 lines.push(glaeda_wait(&format!("run {repo}/{run}")));
-                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(SHARED_WATCH.to_owned());
+                lines.push(format!("case $rc in 3|64) shared_watch \"run {repo}/{run}\" gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
-                lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
                 lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
@@ -823,8 +897,14 @@ impl RunWait {
                 }
                 let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
                 lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
-                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
-                lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(SHARED_WATCH.to_owned());
+                let key = if sha.is_some() {
+                    format!("pr {repo}#{number} $head")
+                } else {
+                    format!("pr {repo}#{number}")
+                };
+                lines.push(format!("case $rc in 3|64) shared_watch \"{key}\" gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} ;; esac"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
                     lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read after the wait${{refusal:+ ($refusal)}}\"; exit 2; }}"));
@@ -857,6 +937,37 @@ fn glaeda_wait(target: &str) -> String {
          case $rc in 2) why='timed out after 6 h' ;; 4) why='conflicts with its base' ;; 6) why='no check ever reported' ;; 7) why='inconclusive' ;; esac"
     )
 }
+
+/// `shared_watch KEY CMD...`: the `gh` watch of a machine with no glaeda-gh (or one whose daemon is
+/// down), shared by every chat on the machine that waits for the same KEY (`run OWNER/REPO/ID`, or
+/// `pr OWNER/REPO#N [HEAD]`). The first waiter takes the lock, a symlink whose target is its pid
+/// (`ln -s` makes it atomically or fails), runs CMD, and writes its exit code with the time it
+/// ended; every other waiter reads GitHub not at all, checks every 5 s that the lock's pid lives,
+/// and takes the outcome once it is newer than its own start. A waiter whose leader died (stopped,
+/// killed, the machine slept) removes the stale lock and becomes the leader, so a wait is never
+/// less reliable than its own poll. This is glaeda-gh's one-poller-per-machine for a paying user or
+/// a teammate who never installed it (Leo, ask-922dfe5e36: "we need to be able to make sure
+/// arbitrary paying users/teammates can properly use it with the way that we properly use it"):
+/// ten sessions waiting on one pull request spent ten logins' worth of polls on one login before.
+/// The folder is `ACPMUX_RUN_WAIT_SHARE` (tests), else this user's own under `TMPDIR`.
+const SHARED_WATCH: &str = r#"shared_watch() {
+  key=$1; shift
+  share=${ACPMUX_RUN_WAIT_SHARE:-${TMPDIR:-/tmp}/acpmux-run-wait-$(id -u)}
+  mkdir -p "$share" 2>/dev/null && chmod 700 "$share" 2>/dev/null
+  name=$(printf '%s' "$key" | cksum | tr -c '0-9\n' -)
+  lock="$share/$name.lock"; out="$share/$name.rc"; since=$(date +%s)
+  while :; do
+    if ln -s "$$" "$lock" 2>/dev/null; then
+      "$@" >/dev/null 2>&1; rc=$?
+      printf '%s %s\n' "$(date +%s)" "$rc" > "$out.$$" && mv -f "$out.$$" "$out"
+      rm -f "$lock"; return 0
+    fi
+    pid=$(readlink "$lock" 2>/dev/null)
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -f "$lock"; continue; fi
+    sleep 5
+    if [ -f "$out" ] && read t r < "$out" && [ "$t" -gt "$since" ] 2>/dev/null; then rc=$r; return 0; fi
+  done
+}"#;
 
 /// How long a refused head read waits at most for the quota to come back: the wait's own bound.
 const HEAD_READ_DEADLINE_S: u64 = 21600;

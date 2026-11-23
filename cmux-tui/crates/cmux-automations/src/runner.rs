@@ -354,7 +354,13 @@ pub fn start_event(
         id: event_run_id(&a.id, key),
         automation: a.id.clone(),
         // `CMUX_AUTOMATION_TRIGGER`: `event` for `--when NAME`, `watch` for `--watch CMD`.
-        trigger: if matches!(a.trigger, Trigger::Event { .. }) { "event" } else { "watch" }.into(),
+        // `webhook` for `--webhook`.
+        trigger: match a.trigger {
+            Trigger::Event { .. } => "event",
+            Trigger::Webhook { .. } => "webhook",
+            _ => "watch",
+        }
+        .into(),
         event: Some(clip_event(event)),
         dropped: store.take_dropped(&a.id)?,
         scheduled_at: None,

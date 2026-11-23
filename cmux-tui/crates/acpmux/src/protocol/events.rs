@@ -67,6 +67,13 @@ pub struct AttachParams {
     /// Default 2000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier
+    /// attach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`
+    /// out (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.
+    pub time_breakdown_version: Option<String>,
+    /// True from a client that never draws the breakdown (the phone): the reply's `session`
+    /// leaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).
+    pub omit_time_breakdown: Option<bool>,
 }
 
 /// A session as `_acpmux/attach` returns it: its summary plus what an
@@ -113,6 +120,10 @@ pub struct AttachResult {
     /// The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
     /// saw while attending; null before they saw any. An older acpmux leaves it out.
     pub read_through: Option<u64>,
+    /// The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.
+    /// Sent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy
+    /// out of `session`. An older acpmux leaves it out.
+    pub time_breakdown_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -128,8 +139,9 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
-    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
-    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    /// The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut
+    /// to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the
+    /// page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.
     pub prompt_index: Option<bool>,
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
