@@ -154,6 +154,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Scrolling up a long chat page by page at 1k, 10k and 100k rows: each older page's ask to its drawn frame (target
+  // 50 ms p95), loading and blank frames, the anchor's shift, and the 100k / 1k ratio (target 1.2x). perf-cron.py's
+  // web-ui-scroll-up part runs it.
+  {
+    name: "transcript-scroll-up-scale",
+    file: "transcript-scroll-up-scale.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.
@@ -268,6 +278,19 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-open.bench.ts",
     args: ["7", "300"],
     env: { FIXTURE: "god", PAIRED: "1" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // A chat's cold open to its composer taking a key, ten rounds (goal startup-every-path; Leo 2026-11-22: "i hope
+  // we're still pursuing startup times for the app itself aka percieved time and percieved interactive time"):
+  // dom_content_loaded, first_row and composer_interactive with each round's value (COMPOSER=1, chat-open.bench.ts).
+  // cmuxterm-hq's synthetic-probes.yml web-startup job runs it (`--only chat-open-startup`) and records the
+  // web-chat-open-startup probe's p50 and p95; the perf cron does not.
+  {
+    name: "chat-open-startup",
+    file: "chat-open.bench.ts",
+    args: ["10", "300"],
+    env: { COMPOSER: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },

@@ -33,13 +33,11 @@ fn launch_with(
     settings.iter().map(|s| s.to_string_lossy().into_owned()).collect()
 }
 
-/// The server goes in only with the person's yes, under the name `cmux`, for every new
+/// The server goes in unless the person turned it off, under the name `cmux`, for every new
 /// session: interactive, with a prompt, exec, review.
 #[test]
-fn the_server_goes_in_as_cmux_only_with_the_persons_yes() {
-    for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
-        assert!(launch(choice, &["exec", "hi there"]).is_empty(), "{choice:?}");
-    }
+fn the_server_goes_in_as_cmux_unless_turned_off() {
+    assert!(launch(AgentsCmuxMcp::Off, &["exec", "hi there"]).is_empty());
     for args in [
         &[][..],
         &["fix the bug"],
@@ -55,14 +53,15 @@ fn the_server_goes_in_as_cmux_only_with_the_persons_yes() {
     }
 }
 
-/// Without the yes, a person's own stdio `cmux` entry, as Codex answers it, gets the answer
-/// with exactly its command and args beside it (the same entry); an HTTP one (no env), none,
-/// and no answer get nothing. With the yes, an HTTP entry keeps cmux's server out.
+/// With the setting off, a person's own stdio `cmux` entry, as Codex answers it, gets the
+/// answer with exactly its command and args beside it (the same entry); an HTTP one (no env),
+/// none, and no answer get nothing. With it on, an HTTP entry keeps cmux's server out.
 #[test]
-fn without_the_yes_a_persons_stdio_entry_gets_the_answer_and_stays_whole() {
+fn off_a_persons_stdio_entry_gets_the_answer_and_stays_whole() {
     use acpmux::codex_cmux_entry::CmuxEntry;
     let stdio = CmuxEntry::Stdio { command: "/c".into(), args: vec!["a b".into()] };
-    for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
+    {
+        let choice = AgentsCmuxMcp::Off;
         assert_eq!(
             launch_with(choice, &["exec", "hi"], &stdio),
             [
@@ -84,12 +83,12 @@ fn without_the_yes_a_persons_stdio_entry_gets_the_answer_and_stays_whole() {
 
 /// Skip on doubt: no answer from Codex, a project file Codex's answer does not show it
 /// loads, or a launch whose loaded config can differ from the question gets no setting at
-/// all (neither the server nor env keys), with the yes or without it, whatever the answer.
+/// all (neither the server nor env keys), on or off, whatever the answer.
 #[test]
 fn a_launch_in_doubt_gets_no_setting_at_all() {
     use acpmux::codex_cmux_entry::CmuxEntry;
     let stdio = CmuxEntry::Stdio { command: "/c".into(), args: vec![] };
-    for choice in [AgentsCmuxMcp::On, AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
+    for choice in [AgentsCmuxMcp::On, AgentsCmuxMcp::Off] {
         for entry in [CmuxEntry::Unknown, CmuxEntry::Doubt("a project file".into())] {
             assert!(launch_with(choice, &["exec", "hi"], &entry).is_empty(), "{entry:?}");
         }
