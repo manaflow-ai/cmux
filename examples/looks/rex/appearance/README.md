@@ -11,7 +11,7 @@ records. The pack contains no vendor implementation, fonts, icons, or generated
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/appearance@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/appearance@feat-cmux-next
 ```
 
 The setup selects Graphite. Switch with `cmux theme use rex-paper` or
