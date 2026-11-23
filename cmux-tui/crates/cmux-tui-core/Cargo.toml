@@ -128,6 +128,8 @@ cmux-computer-use = { workspace = true, features = ["server"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Idle terminal-host links wait on one shared poller, not a thread each (surface/idle_links.rs).
+mio.workspace = true
 # Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
 cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).

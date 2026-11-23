@@ -110,6 +110,7 @@ pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
 pub mod god_fixture;
+pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -179,6 +180,8 @@ mod lost_home_race_tests;
 pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// File and command actions for another of the person's machines (`machine_call_service.rs`).
+pub mod machine_files;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
@@ -244,6 +247,7 @@ pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod prompt_uploads;
+pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
@@ -323,6 +327,7 @@ pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
+pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;

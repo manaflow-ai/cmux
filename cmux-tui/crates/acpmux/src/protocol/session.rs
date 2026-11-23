@@ -1071,6 +1071,36 @@ pub struct SessionChanged {
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
     pub list_seq: u64,
+    /// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+    /// this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+    /// chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_seq: Option<u64>,
+}
+
+/// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+/// place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+/// (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+/// of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+/// an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPatch {
+    pub session_id: String,
+    /// A peer's chat: the id its row has here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualified_session_id: Option<String>,
+    pub patch: Value,
+    pub row_seq: u64,
+    pub base_row_seq: u64,
+    /// As `session_changed`'s.
+    pub kind: String,
+    pub record_kind: String,
+    pub seq: u64,
+    /// The peer a remote session runs on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    pub list_seq: u64,
 }
 
 /// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
