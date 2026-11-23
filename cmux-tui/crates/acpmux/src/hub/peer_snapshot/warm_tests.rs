@@ -546,5 +546,8 @@ fn peer_copies_follow_bench() {
         steady.2
     );
     assert!(follow_reads > 0, "some chats are followed past their copy");
-    assert!(follow_records <= follow_reads * per_round, "a read past a copy takes only new records");
+    assert!(
+        follow_records <= follow_reads * per_round,
+        "a read past a copy takes only new records"
+    );
 }
