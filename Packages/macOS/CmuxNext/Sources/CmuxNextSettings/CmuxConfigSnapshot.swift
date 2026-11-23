@@ -113,6 +113,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalLinkOpener: TerminalLinkOpener = .fallback
     /// `files.textEditor`: the app for a path's Open in Text Editor; empty for the system's.
     public var textEditor = TextEditorSetting()
+    /// `editor.default`: the editor Open in Editor uses; nil for the first installed one.
+    public var editorDefault = EditorDefaultSetting()
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
@@ -410,6 +412,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
         snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
+        snapshot.take(EditorDefaultSetting.parse(root), \.editorDefault)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
