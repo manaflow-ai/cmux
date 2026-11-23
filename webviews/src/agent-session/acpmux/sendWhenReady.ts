@@ -102,6 +102,17 @@ export const sendsHeldForHost = {
   },
 };
 
+/// The prompts sent straight to the chat that acpmux has not taken (or refused) yet, and the wait for
+/// the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`). `noAcpmux`:
+/// the host answered that this page has no acpmux to reach (a preview host, the gallery): no
+/// `chat.send` will ever come, so a send is not "made while the chat loads" and never waits for one
+/// in the pane's queue; the composer keeps it, as before (`untilAcpmuxTakesSends`).
+export const paneSends: { direct: number; inFlight: Promise<void>; noAcpmux: boolean } = {
+  direct: 0,
+  inFlight: Promise.resolve(),
+  noAcpmux: false,
+};
+
 /// The sends waiting for this page to connect to acpmux (`window.cmuxAcpmuxActions` has no
 /// `chat.send` yet: the chat still loads, or acpmux restarts). Each goes, in its turn, the moment the
 /// page connects (`acpmuxSendsReady`), never refused and never left in the composer (Leo,

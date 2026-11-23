@@ -44,6 +44,7 @@ const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remo
 const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
+/// The app sends its switches at every launch; until then this file is the last word.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RemoteConfig {
     #[serde(default)]
@@ -169,6 +170,9 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// Told whether a viewer is connected (the host's `busy`) on each status, and false when
+    /// the host goes away: the agent share's auto-off timer (`agent_share.rs`).
+    viewer_observer: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>>,
     /// The Computer Use worker's activity the host reported last
     /// (`workers["computer-use"].activity`), and where a change goes (the
     /// mux's `computer-use-activity` event, set by `configure_remote_host`).
@@ -249,6 +253,13 @@ impl RemoteHostSupervisor {
         if let Some(value) = update.get("headless").and_then(Value::as_bool) {
             config.headless = value;
         }
+        if previous.computer_use && !config.computer_use {
+            // Only the app turns it off (its Computer Use mode `off`, or a managed
+            // setting): never silent, so a switch nobody meant to flip shows in the log.
+            eprintln!(
+                "cmux-tui: cmux Remote: Computer Use turned off by the app (Settings > Computer Use mode is off, or a managed setting)"
+            );
+        }
         *lock(&self.inner.config) = config.clone();
         if let Some(paths) = lock(&self.inner.paths).clone() {
             write_config(&paths.config(), &config);
@@ -306,6 +317,11 @@ impl RemoteHostSupervisor {
             Inner::ensure_locked(&self.inner, None)?
         };
         connection.call(method, params)
+    }
+
+    /// Calls `observer` with whether a viewer is connected, on each host status (set once).
+    pub(crate) fn observe_viewer(&self, observer: Box<dyn Fn(bool) + Send + Sync>) {
+        let _ = self.inner.viewer_observer.set(observer);
     }
 
     /// The host's state for `remote-host-status` (never starts one).
@@ -672,6 +688,12 @@ impl Inner {
                 }
                 *lock(&connection.status) = status.clone();
                 Self::update_screen_device_id(this, connection, &status);
+                if let Some(inner) = this.upgrade()
+                    && let Some(observer) = inner.viewer_observer.get()
+                {
+                    // The timer only records the change; it never calls the host from here.
+                    observer(!idle);
+                }
                 if idle
                     && this.upgrade().is_some_and(|inner| {
                         *lock(&inner.upgrade_pending) && capture::require_open(&inner).is_ok()
@@ -686,6 +708,9 @@ impl Inner {
         *lock(&connection.closed.0) = true;
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
+        if let Some(observer) = inner.viewer_observer.get() {
+            observer(false);
+        }
         Self::host_gone(&inner, connection);
     }
 
@@ -949,11 +974,27 @@ fn mint_secret() -> Result<String, String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// The saved switches. No file is the defaults (nothing on until the app sends its
+/// switches); a file that cannot be read or parsed is said in the log, never
+/// turned into everything off with nothing shown.
 fn read_config(path: &Path) -> RemoteConfig {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            eprintln!(
+                "cmux-tui: cmux Remote: {} is not valid ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RemoteConfig::default(),
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: cmux Remote: cannot read {} ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }
+    }
 }
 
 fn write_config(path: &Path, config: &RemoteConfig) {
@@ -1053,6 +1094,17 @@ impl crate::mux::Mux {
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+        // An agent's share turns itself off with no viewer: the host's status says who views,
+        // and the host's own session may turn sharing off (the hub allows it that much).
+        let agents = Arc::clone(&self.control_clients.remote_agents);
+        self.control_clients
+            .remote_host
+            .observe_viewer(Box::new(move |viewer| agents.viewer(viewer)));
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_agents.set_turn_off(Box::new(move || {
+            let mux = mux.upgrade().ok_or("the daemon is stopping")?;
+            mux.control_clients.remote_host.call("screen.share", json!({"on": false})).map(|_| ())
+        }));
     }
 }
 

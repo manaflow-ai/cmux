@@ -12,6 +12,7 @@ import {
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import {
   SceneAppeared,
@@ -23,14 +24,14 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
-  sceneGlass,
+  sceneGradient,
   sceneNumber,
   sceneStyle,
   sceneText,
   textStyle,
-  sceneGradient,
   sceneRecord,
   type SceneStyle,
+  sceneGlass,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
@@ -42,6 +43,8 @@ export type SceneAssetResolver = (bundlePath: string) => string | undefined;
 type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+/** False where a scene shares the page with a field of cmux's own (the New Tab slot): its `autofocus` is ignored. */
+const AutofocusContext = createContext(true);
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -120,7 +123,8 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
-  const autofocus = node.props.autofocus === true;
+  const autofocusAllowed = useContext(AutofocusContext);
+  const autofocus = autofocusAllowed && node.props.autofocus === true;
   useEffect(() => {
     if (autofocus) input.current?.focus();
   }, [autofocus]);
@@ -402,9 +406,20 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
   const style: SceneStyle = sceneStyle(props);
@@ -530,22 +545,27 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  autofocus = true,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** False: the scene's fields never take focus on their own; a click still focuses them. */
+  autofocus?: boolean;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneAppeared key={generation} store={store} generation={generation}>
-            <SceneNodeView id={root} store={store} dispatch={dispatch} />
-          </SceneAppeared>
-        </div>
-      ) : null}
+      <AutofocusContext.Provider value={autofocus}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneAppeared key={generation} store={store} generation={generation}>
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </SceneAppeared>
+          </div>
+        ) : null}
+      </AutofocusContext.Provider>
     </AssetContext.Provider>
   );
 }

@@ -116,6 +116,32 @@ final class BrowserPageRequests: BrowserTabDelegate {
         downloads.latestBlocked.flatMap { services?.cache.existingBrowser($0.tab) } != nil
     }
 
+    /// A row of the DevTools divider or of the Back and Forward menus: the palette's action on this tab
+    /// (Developer Tools, Go Back or Forward to…), so the row and the palette run one handler. The row
+    /// stands in for its page as a right-click on the page does (`implied`). Where the action does not
+    /// run (the active window's focus is elsewhere, the tab is not adopted yet, the feature is off),
+    /// the row acts on its page itself, as it did before. False for any other intent.
+    private func runMenuRow(_ intent: BrowserTabIntent, of page: any BrowserTab) -> Bool {
+        let id: ActionID, implied: ActionContext, arguments: [String: ActionValue], direct: () -> Void
+        switch intent {
+        case .devTools(let command):
+            id = ActionID(rawValue: command.actionID); implied = [.browserFocused, .webViewFocused]; arguments = [:]
+            direct = { if let placement = command.placement { (page as? any BrowserDevToolsHosting)?.performDevTools(placement) } }
+        case .goToHistoryEntry(let offset):
+            id = "browser.goToHistoryEntry"; implied = .browserFocused; arguments = ["entry": .string(String(offset))]
+            direct = { (page as? any BrowserBackForwardListing)?.goToEntry(offset: offset) }
+        default:
+            return false
+        }
+        if let services, let key = services.cache.key(of: page) {
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), arguments: arguments)
+            invocation.keyContext = services.registry.context.union(implied)
+            if services.registry.perform(id, invocation: invocation) { return true }
+        }
+        direct()
+        return true
+    }
+
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
         // A popup panel's page: the panel handles it (window.close closes
         // the panel), except links it opens in tabs (its opener's pane).
@@ -124,6 +150,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
+        if runMenuRow(intent, of: page) { return }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
               let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
@@ -222,6 +249,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.verificationAutofill.pageWaiting(page)
         case .designMode(let message):
             services.designMode.receive(message, from: page)
+        case .devTools, .goToHistoryEntry:
+            break // run above (`runMenuRow`)
         case .protectedMediaUnavailable(let media):
             reopenInWebKit(page, for: media, tab: openerTab, pane: pane)
         case .unhandledEscape, .resizePopup:

@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.7"
+version = "0.2.9"
 dependencies = [
  "cc",
  "cmux-codecs",
@@ -650,6 +650,7 @@ dependencies = [
  "pipewire",
  "serde",
  "serde_json",
+ "windows",
  "windows-sys 0.61.2",
  "x11rb",
  "zbus",
@@ -659,6 +660,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",

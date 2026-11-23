@@ -38,6 +38,10 @@
 # with no name. A command that starts after EPOCH gets 1 s. --wait gives up 60 s after it too,
 # and every minute it waits it prints which of its commands are still running and for how long
 # (CHECK_POOL_HEARTBEAT seconds, 60 by default).
+#
+# --affected BASE (with --start or the plain form): a command whose inputs the change from BASE leaves as they
+# were is not run; it passes as "skipped: inputs unchanged" (scripts/ci/check_pool_affected.py reads each
+# command's inputs). An empty BASE, or a selection that fails, runs every command.
 set -euo pipefail
 
 jobs=""
@@ -45,6 +49,8 @@ mode=run
 dir=""
 name=""
 deadline_at=""
+affected=""
+affected_set=0
 usage() {
   echo "usage: run-checks-concurrently.sh [--jobs N] [--deadline-at EPOCH] < commands" >&2
   echo "       run-checks-concurrently.sh --start DIR [--jobs N] [--deadline-at EPOCH] < [name] lines and commands" >&2
@@ -55,6 +61,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --jobs) jobs="${2:-}"; shift 2 ;;
     --deadline-at) deadline_at="${2:-}"; shift 2 || usage ;;
+    --affected) affected="${2:-}"; affected_set=1; shift 2 || usage ;;
     --start) mode=start; dir="${2:-}"; shift 2 ;;
     --wait) mode=wait; dir="${2:-}"; name="${3:-}"; shift 3 || usage ;;
     *) usage ;;
@@ -107,18 +114,25 @@ export -f run_one
 # Prints each listed command's output in order and exits 1 when any failed.
 report() {
   local work="$1"; shift
-  local failed=() index command status seconds verdict
+  local failed=() skipped=0 index command status seconds verdict
   for index in "$@"; do
     command="$(cat "$work/$index.cmd")"
     read -r status seconds < "$work/$index.rc" 2>/dev/null || { status=1; seconds=0; }
     verdict=ok
+    if [ -e "$work/$index.skipped" ]; then
+      echo "skipped (inputs unchanged): $command"
+      skipped=$((skipped + 1))
+      continue
+    fi
     [ "$status" = 0 ] || { verdict="failed (exit $status)"; failed+=("$index"); }
     [ ! -e "$work/$index.timedout" ] || verdict="timed out at the pool deadline after ${seconds}s"
     echo "::group::$command: $verdict, ${seconds}s"
     cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
     echo "::endgroup::"
   done
-  echo "$# checks, $jobs at a time: $(( $# - ${#failed[@]} )) passed, ${#failed[@]} failed"
+  local skipped_note=""
+  [ "$skipped" -eq 0 ] || skipped_note=", $skipped skipped (inputs unchanged)"
+  echo "$# checks, $jobs at a time: $(( $# - skipped - ${#failed[@]} )) passed, ${#failed[@]} failed$skipped_note"
   [ "${#failed[@]}" -eq 0 ] && exit 0
   for index in "${failed[@]}"; do
     command="$(cat "$work/$index.cmd")"
@@ -174,6 +188,19 @@ else
 fi
 count=0
 current=""
+: > "$work/run"
+lines_in=/dev/stdin
+if [ "$affected_set" = 1 ]; then
+  # Fails open: a selection that errors runs every command, unmarked.
+  cat > "$work/lines"
+  if [ -n "$affected" ] && python3 "$(dirname "${BASH_SOURCE[0]}")/check_pool_affected.py" --base "$affected" \
+      < "$work/lines" > "$work/lines.marked"; then
+    lines_in="$work/lines.marked"
+  else
+    [ -z "$affected" ] || echo "check-pool affected: the selection failed; every command runs" >&2
+    lines_in="$work/lines"
+  fi
+fi
 while IFS= read -r line || [ -n "$line" ]; do
   command="${line#"${line%%[![:space:]]*}"}"
   command="${command%"${command##*[![:space:]]}"}"
@@ -187,9 +214,16 @@ while IFS= read -r line || [ -n "$line" ]; do
     exit 2
   fi
   count=$((count + 1))
+  if [ "${command#@skip }" != "$command" ]; then
+    command="${command#@skip }"
+    : > "$work/$count.skipped"
+    echo "0 0" > "$work/$count.rc"
+  else
+    echo "$count" >> "$work/run"
+  fi
   printf '%s\n' "$command" > "$work/$count.cmd"
   if [ "$mode" = start ]; then echo "$count" >> "$work/names/$current"; fi
-done
+done < "$lines_in"
 [ "$count" -gt 0 ] || { echo "error: no commands on stdin" >&2; exit 2; }
 
 [ -z "$deadline_at" ] || echo "$deadline_at" > "$work/deadline"
@@ -197,17 +231,17 @@ if [ "$mode" = start ]; then
   echo "$jobs" > "$work/jobs"
   # Detached from this step: the job's later steps read the results; the runner ends the pool with the job.
   (
-    seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
+    xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} < "$work/run" || true
     touch "$work/pool.done"
   ) < /dev/null > "$work/pool.log" 2>&1 &
   echo "$!" > "$work/pool.pid"
   for names in "$work/names"/*; do
     echo "${names##*/}: $(wc -l < "$names") commands"
   done
-  echo "$count commands started, $jobs at a time${deadline_at:+, deadline in $(( deadline_at - $(date +%s) ))s}"
+  echo "$(wc -l < "$work/run") of $count commands started, $jobs at a time${deadline_at:+, deadline in $(( deadline_at - $(date +%s) ))s}"
   exit 0
 fi
 
 # A killed xargs still leaves the logs it has to print; a missing result counts as failed.
-seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
+xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} < "$work/run" || true
 report "$work" $(seq 1 "$count")
