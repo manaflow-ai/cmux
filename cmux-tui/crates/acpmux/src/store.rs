@@ -577,6 +577,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
@@ -1714,6 +1720,19 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Moves a cold-archived chat's archive to the person's cloud history store (opt-in,
+    /// `cmux-session-cloud`), leaving a stub; its next read fetches it back. The bytes freed, or
+    /// None when the chat is not archived here, cloud history is off, or the archive changed.
+    fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+    /// Registers this machine's cloud history GC root: one tree naming the blob of every chat
+    /// offloaded here, so the store keeps them (roots expire unless registered again within 90
+    /// days). Call it after a batch of offloads, not per chat. The blobs named, or None when cloud
+    /// history is off.
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -2100,13 +2119,15 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is a segment
-    /// zstd'd in place (`store/sealed_segments.rs`), which its first read decodes back.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is its cloud stub
+    /// (an archive offloaded to cloud history), and a segment zstd'd in place
+    /// (`store/sealed_segments.rs`), which its first read decodes back.
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
         if crate::home_fs::try_exists_nofollow(self.marker(id))?
             || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
             return Ok(true);
         }
@@ -2841,6 +2862,15 @@ impl Store for LocalStore {
 
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
+    }
+
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let _open = self.writable()?;
+        LocalStore::offload_cold(self, id)
+    }
+
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        LocalStore::register_cloud_root(self)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
