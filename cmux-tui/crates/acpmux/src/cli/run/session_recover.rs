@@ -109,7 +109,8 @@ pub(super) async fn run(args: RecoverArgs, json_out: bool) -> Result<()> {
                 after_turn: false,
                 turn_timeout: super::session_move::DEFAULT_TURN_TIMEOUT,
                 leave_dirty: false,
-                carry_changes: false,
+                // A dead lane's uncommitted edits go with it, as `session move --carry-changes`.
+                carry_changes: true,
                 cwd: None,
                 dry_run: false,
                 resume_there: false,
