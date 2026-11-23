@@ -10,8 +10,15 @@
 //   bun scripts/chat-sim.ts --long 1000 --trace /tmp/long.jsonl
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
-//   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
+//   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson [--family claude]
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
+//   bun scripts/chat-sim.ts basic --emit-ndjson /tmp/basic.ndjson   (a scenario as records: --replay reads it back,
+//                                                                    and bench/simLogs.ts serves it to the load benches)
+//
+// --emit-ndjson OUT writes the records the one scenario run (a name, --long N or --replay) folds, one JSON per
+// line, as acpmux writes them (reader steps such as scrolls are not records and are left out). A record names no
+// harness family, so a replay folds as Codex does unless --family names one: replay a scenario's file with the
+// --family it prints (claude for every named scenario and --long).
 //   bun scripts/chat-sim.ts --capture SESSION --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-x
 //   bun scripts/chat-sim.ts --capture SESSION --report "WHY DID IT" [--minutes 6]   (the minutes before that prompt)
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions   (record kinds live chats write that no fixture or scenario plays)
@@ -35,6 +42,20 @@ import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/si
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 
 const args = process.argv.slice(2);
+/** Flags that take the argument after them (never read as a scenario's name). */
+const TAKES_VALUE = new Set([
+  "--replay",
+  "--from",
+  "--to",
+  "--limit",
+  "--sanitize",
+  "--long",
+  "--trace",
+  "--rows-up-to",
+  "--show",
+  "--emit-ndjson",
+  "--family",
+]);
 const flag = (name: string) => args.includes(name);
 const value = (name: string) => {
   const at = args.indexOf(name);
@@ -43,10 +64,11 @@ const value = (name: string) => {
 const number = (name: string) => (value(name) === undefined ? undefined : Number(value(name)));
 
 function usage(code: number): never {
+  const lines = readFileSync(import.meta.path, "utf8").split("\n");
+  const end = lines.findIndex((line) => line.startsWith("import "));
   console.log(
-    readFileSync(import.meta.path, "utf8")
-      .split("\n")
-      .slice(1, 19)
+    lines
+      .slice(1, end)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -365,21 +387,34 @@ if (replay) {
     const clean = sanitizeRecords(raw, range);
     writeFileSync(sanitizeTo, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
     console.log(`wrote ${clean.length} sanitized records (of ${raw.length}) to ${sanitizeTo}`);
-    scenarios.push(replayScenario(`replay:${sanitizeTo}`, clean));
+    scenarios.push({ ...replayScenario(`replay:${sanitizeTo}`, clean), family: value("--family") });
   } else {
     const kept = raw
       .filter((record) => record.seq >= (range.from ?? 0) && record.seq <= (range.to ?? Number.POSITIVE_INFINITY))
       .slice(0, range.limit ?? Number.POSITIVE_INFINITY);
-    scenarios.push(replayScenario(`replay:${replay}`, kept));
+    scenarios.push({ ...replayScenario(`replay:${replay}`, kept), family: value("--family") });
   }
 } else if (value("--long")) {
   scenarios.push(longRun(Number(value("--long"))));
 } else if (flag("--all")) {
   for (const name of scenarioNames()) scenarios.push(SCENARIOS[name]!());
 } else {
-  const name = args.find((arg) => !arg.startsWith("--"));
+  const name = args.find((arg, at) => !arg.startsWith("--") && !TAKES_VALUE.has(args[at - 1] ?? ""));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
+}
+
+const emitTo = value("--emit-ndjson");
+if (emitTo) {
+  const only = scenarios.length === 1 ? scenarios[0]! : undefined;
+  if (!only) {
+    console.error("--emit-ndjson writes one scenario: name one, or pass --long N or --replay PATH (not --all)");
+    process.exit(2);
+  }
+  writeFileSync(emitTo, only.events.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  console.log(
+    `wrote ${only.events.length} records of ${only.name} to ${emitTo}${only.family ? ` (replay it with --family ${only.family})` : ""}`,
+  );
 }
 
 const tracePath = value("--trace");

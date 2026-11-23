@@ -36,6 +36,37 @@ export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
 }
 
+/// What the copy's composer shows, read once per drawn copy (the copy never changes once drawn).
+let copyDraft: { host: Element; shows: boolean } | undefined;
+
+/// Whether the copy on screen shows an unsent draft in its composer: text in the prompt, or an
+/// attachment. The live page's prompt is empty until the composer read the chat's saved draft
+/// (Composer `onDraftSettled`), so over a copy that shows one the page waits for that read
+/// (App.tsx, draftSettleHold.ts); over a copy whose prompt is empty, the empty live prompt is
+/// what the copy showed, and nothing waits on the read. That read needs acpmux connected: under
+/// load (6 restored chats, CPU ×4, bench/first-load-after-restart.bench.ts) it answered ~2 s
+/// after the chat's kept tail was drawn, so the copy stayed until DRAFT_SETTLE_HOLD_MS ran out
+/// (live 6.4 s against 2.5 s with no copy). A copy whose composer is not found counts as showing
+/// one: it waits as before.
+export function chatSnapshotShowsDraft(): boolean {
+  if (typeof document === "undefined") return true;
+  const host = document.querySelector(SNAPSHOT_HOST_TAG);
+  if (!host) return true;
+  if (copyDraft?.host === host) return copyDraft.shows;
+  const composer = host.shadowRoot?.querySelector("[data-composer-grid]");
+  const field = composer?.querySelector(".acpmux-md-field");
+  const placeholder = field?.querySelector(".acpmux-md-placeholder");
+  const shows =
+    !composer ||
+    !field ||
+    !placeholder ||
+    placeholder.hasAttribute("hidden") ||
+    (field.querySelector(".acpmux-md-root")?.textContent ?? "").trim() !== "" ||
+    composer.querySelector(".acpmux-attachment, .acpmux-attachments, .acpmux-md-inline-chip") !== null;
+  copyDraft = { host, shows };
+  return shows;
+}
+
 /// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
 /// which a kept tail cannot draw, since it keeps rows and not the turn's state.
 export function copyShowsRunningTurn(): boolean {

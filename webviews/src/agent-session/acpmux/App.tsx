@@ -602,7 +602,13 @@ import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHin
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import {
+  chatSnapshotShowsDraft,
+  copyShowsRunningTurn,
+  showsChatSnapshot,
+  swapChatSnapshot,
+  watchChatSnapshot,
+} from "./chatSnapshot/live";
 import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
@@ -6249,8 +6255,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The chat whose saved draft the composer read (Composer `onDraftSettled`), and the chat whose
   // wait for it ran out: until one names the chat, its draft is not in the prompt yet.
   const [draftSettled, setDraftSettled] = useState<string>();
-  // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
-  // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (draftSettleHold.ts).
+  // A chat read from a kept tail before its connect answers has no draft in its prompt yet: a
+  // copy that shows a draft waits for the read, at most DRAFT_SETTLE_HOLD_MS (draftSettleHold.ts).
+  // A copy whose prompt is empty waits for nothing: the live page's empty prompt is what it showed
+  // (chatSnapshot/live.ts `chatSnapshotShowsDraft`).
   const rowsReadFor = clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   const draftWaitOver = useDraftWaitOver(rowsReadFor, draftSettled);
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
@@ -6295,7 +6303,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         clientSnapshot.sessionId !== undefined &&
         (clientSnapshot.chatAttached === true || clientSnapshot.isWorking || !copyShowsRunningTurn()) &&
         adoptionDrawn &&
-        (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
+        (draftSettled === clientSnapshot.sessionId ||
+          draftWaitOver === clientSnapshot.sessionId ||
+          !chatSnapshotShowsDraft()),
       openRefused: clientSnapshot.connection === "failed",
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });

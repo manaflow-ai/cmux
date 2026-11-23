@@ -133,6 +133,8 @@ const SUMMARY = {
 /// open socket, as a daemon that restarts does.
 class Daemon {
   static attachDelayMs = 0;
+  /// The chat's saved draft (`_acpmux/draft_get`); null: the person left none.
+  static draft: string | null = DRAFT;
   static metadataOnlyAttach = false;
   static recordOffset = 0;
   static tailCursor = 100;
@@ -198,7 +200,7 @@ class Daemon {
             ],
           }
         : { session: SUMMARY, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
-    else if (message.method === "_acpmux/draft_get") result = { draft: DRAFT };
+    else if (message.method === "_acpmux/draft_get") result = { draft: Daemon.draft };
     else if (message.method === "_acpmux/events")
       result = {
         events:
@@ -238,7 +240,12 @@ function look(): Record<Surface, State> {
   const root = doc().getElementById("root")!;
   const transcript: State = (root.textContent ?? "").includes(REPLY) ? "real" : "placeholder";
   const prompt = root.querySelector(".acpmux-composer-prompt")?.textContent ?? "";
-  const draft: State = prompt.includes(DRAFT) ? "real" : "placeholder";
+  // A chat with no saved draft: its empty prompt is its own value.
+  // The empty prompt still shows its placeholder, so read only the field's own text.
+  const typed = root.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent ?? "";
+  const draft: State = (Daemon.draft === null ? typed.trim() === "" : prompt.includes(Daemon.draft))
+    ? "real"
+    : "placeholder";
   const chips = root.querySelector(".acpmux-chips")?.textContent ?? "";
   const model: State = chips.includes("Sonnet 4.5") ? "real" : "placeholder";
   const ringButton = root.querySelector(".acpmux-context-ring");
@@ -271,9 +278,10 @@ function stepsDown(states: State[]): string[] {
 }
 
 /// The copy the last launch's boot script drew (boot.ts / paint.ts), as the live page finds it.
-function drawCopy(): void {
+/// `composer`: the copy's composer markup (Composer.tsx, MarkdownField.tsx), or none drawn.
+function drawCopy(composer = ""): void {
   const host = doc().createElement("cmux-chat-snapshot");
-  host.attachShadow({ mode: "open" }).innerHTML = `<div>${REPLY}</div>`;
+  host.attachShadow({ mode: "open" }).innerHTML = `<div>${REPLY}</div>${composer}`;
   doc().body.appendChild(host);
   (dom.window as unknown as Record<string, unknown>).__cmuxChatSnapshotShown = { at: 1 };
 }
@@ -326,11 +334,11 @@ async function until(check: () => boolean, what: string, within = 20_000) {
 /// A relaunch: the copy is up, the page mounts, the host answers its handshake at once, acpmux
 /// refuses the page's first `refusals` connects (it restores), then answers. Returns each surface's
 /// trace.
-async function relaunch(options: { tail: boolean; refusals: number; attachDelayMs?: number }) {
+async function relaunch(options: { tail: boolean; refusals: number; attachDelayMs?: number; copyComposer?: string }) {
   Daemon.refusing = options.refusals > 0;
   Daemon.refused = 0;
   Daemon.attachDelayMs = options.attachDelayMs ?? 0;
-  drawCopy();
+  drawCopy(options.copyComposer);
   const tail = options.tail ? keptTail() : null;
   Object.assign(dom.window, {
     webkit: {
@@ -411,6 +419,7 @@ function expectMonotonic(trace: Record<Surface, State[]>) {
 afterEach(() => {
   Daemon.drop();
   Daemon.attachDelayMs = 0;
+  Daemon.draft = DRAFT;
   Daemon.listsChat = true;
   Daemon.answered = [];
 });
@@ -431,6 +440,40 @@ test("a relaunch while acpmux restores keeps the last frame until the chat is li
 
 test("a relaunch where acpmux answers at once swaps the copy for the chat in one step", async () => {
   expectMonotonic(await finished(relaunch({ tail: true, refusals: 0 })));
+});
+
+/// A copy's composer as the live page draws it: an empty prompt shows its placeholder; a draft hides it.
+const copyComposer = (draft: string) =>
+  `<form data-composer-grid=""><div class="acpmux-composer-prompt"><div class="acpmux-md-field">` +
+  `<span class="acpmux-md-placeholder"${draft ? " hidden" : ""}>Ask anything</span>` +
+  `<div class="acpmux-md-root"><p>${draft}</p></div></div></div></form>`;
+
+/// What acpmux had answered when the copy left the screen (filled once it goes).
+function watchSwap(): { answered?: string[] } {
+  const seen: { answered?: string[] } = {};
+  const observer = new dom.window.MutationObserver(() => {
+    if (seen.answered || copyShown()) return;
+    seen.answered = [...Daemon.answered];
+    observer.disconnect();
+  });
+  observer.observe(doc().body, { childList: true });
+  return seen;
+}
+
+test("a copy whose prompt is empty hands over to the kept tail without waiting on acpmux for the draft", async () => {
+  // Under load the draft read answers seconds after the tail is drawn (bench/first-load-after-restart.bench.ts
+  // MODE=reopen PAGES=6 CPU=4): a copy with nothing in its prompt has nothing that read can change.
+  Daemon.draft = null;
+  const swap = watchSwap();
+  expectMonotonic(await finished(relaunch({ tail: true, refusals: 3, copyComposer: copyComposer("") })));
+  expect(swap.answered).toBeDefined();
+  expect(swap.answered).not.toContain("_acpmux/draft_get");
+});
+
+test("a copy that shows a draft keeps it until the chat's draft is read", async () => {
+  const swap = watchSwap();
+  expectMonotonic(await finished(relaunch({ tail: true, refusals: 0, copyComposer: copyComposer(DRAFT) })));
+  expect(swap.answered).toContain("_acpmux/draft_get");
 });
 
 test("a relaunch whose attach outlasts the page's draw hold keeps the copy, not an empty chat", async () => {

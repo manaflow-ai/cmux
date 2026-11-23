@@ -68,6 +68,17 @@
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
+// Duress offline (Leo, 2026-11-22: "testing under duress. you should also be able to simulate duress 'offline' aka
+// without a true agent thing, just like how i introduced that stuff in the gui"): SIM=<scenario|long:N|path> records
+// a chat-sim transcript (bench/simLogs.ts: a scenario of `bun scripts/chat-sim.ts --list`, long:N for chat-sim's
+// `--long N`, or an .ndjson from its `--emit-ndjson` or `--sanitize`, or a session directory) instead of the
+// TURNS-turn chat, and the bench waits for that transcript's newest reply instead of `Answer TURNS:` (TURNS and
+// CONTENT are then unused). With RUNNING=1 the daemon holds the transcript up to a turn that has just started, and
+// from the relaunched page's attach on it streams the transcript's remaining records (about as many as the
+// recording takes at the rate, at most half the chat) at SIM_RATE records/s (60 by default) to every page attached
+// to the chat, so each load is measured while the chat streams: its shift frames and settle then include the rows
+// the stream adds. `FIRST_LOAD_JSON` and `RESTART_SETTLED_JSON` carry `sim` (the transcript, records served,
+// records streamed, rate). Unset, every mode and default is as above.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -91,6 +102,7 @@ import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { restartSettled } from "./restartSettled";
+import { simChat, simLog } from "./simLogs";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -158,7 +170,9 @@ if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRA
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
-/// printed as the functions with the most self time over all rounds (an unminified build).
+/// printed as the functions with the most self time over all rounds (an unminified build). MODE=reopen and
+/// reopen-no-copy: the warm renderer's profile from navigation to the live page showing the newest answer, the
+/// same tables, busy ms per 250 ms, and the recorded page's long tasks (over 50 ms) per round.
 const PROFILE = process.env.PROFILE === "1";
 const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
@@ -174,12 +188,21 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
-const LATEST = `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
 /// RUNNING=1: the chat's last turn is still running when the app restarts, as a working agent's is.
 const RUNNING = process.env.RUNNING === "1";
+/// SIM=<scenario|long:N|path>: the recorded chat is that chat-sim transcript (bench/simLogs.ts); SIM_RATE: the
+/// records a second a running one streams after the relaunch.
+const SIM = process.env.SIM || undefined;
+const SIM_RATE = Number(process.env.SIM_RATE ?? 60);
+if (!Number.isFinite(SIM_RATE) || SIM_RATE <= 0) throw new Error("SIM_RATE must be a positive number of records/s");
+const simulated = SIM
+  ? simChat(simLog(SIM, PAPERCUT_CHAT), { running: RUNNING, restRecords: (SIM_RATE * RECORD_MS) / 1000 })
+  : undefined;
+/// The newest answer's text: the bench waits until a row in view holds it.
+const LATEST = simulated?.latest ?? `Answer ${TURNS}:`;
 /// CPU=N slows each relaunched page's CPU N times (CDP Emulation.setCPUThrottlingRate), as a loaded
 /// Mac does after an update (Leo's cosmic-gray, 2026-11-16: load1 150 on 15 cores, 100-570 ms frames for
 /// 40 s after the restart): a settle that takes several frames then shows each of them. 1 (the default) is off.
@@ -234,12 +257,102 @@ const REPORTED = {
     },
   ],
 };
-const { events, session } = papercutEvents({
-  turns: TURNS,
-  running: RUNNING,
-  session: REPORTED,
-  ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
-});
+const { events, session }: ReturnType<typeof papercutEvents> = simulated
+  ? (() => {
+      // The chat-sim transcript's summary: the papercut chat's fields, with its own turns and running turn.
+      const base = papercutEvents({ turns: 0, running: false, session: REPORTED }).session;
+      const served = simulated.served.map(({ seq, at, dir, kind, msg }) => ({
+        sessionId: PAPERCUT_CHAT,
+        seq,
+        at,
+        dir,
+        kind,
+        msg,
+      }));
+      const last = served.at(-1)!;
+      return {
+        events: served,
+        session: {
+          ...base,
+          status: simulated.turn ? "running" : "ready",
+          ...(simulated.turn ? { turn: simulated.turn } : {}),
+          turnCount: simulated.turns,
+          updatedAt: last.at,
+          lastSeq: last.seq,
+        },
+      };
+    })()
+  : papercutEvents({
+      turns: TURNS,
+      running: RUNNING,
+      session: REPORTED,
+      ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
+    });
+/// SIM with RUNNING=1: the records the daemon holds before the restart (the log is cut back to them before each
+/// warm load), and the stream of the rest (`streamSim`), from the relaunched page's attach on.
+const SERVED_RECORDS = events.length;
+const simStream = {
+  armed: false,
+  timer: undefined as ReturnType<typeof setInterval> | undefined,
+  sent: 0,
+  /// The sockets with the chat attached: each streamed record goes to every one, as acpmux sends a chat's records.
+  attached: new Set<{ send(data: string): unknown }>(),
+};
+/// Starts streaming the transcript's rest once (when armed): every tick sends what is due at SIM_RATE since the
+/// start, so a late tick on a loaded runner catches up rather than slowing the rate.
+const streamSim = () => {
+  if (!simulated || !simStream.armed || simulated.rest.length === 0) return;
+  simStream.armed = false;
+  const startedAt = Date.now();
+  let next = 0;
+  simStream.timer = setInterval(
+    () => {
+      const due = Math.min(simulated.rest.length, Math.floor(((Date.now() - startedAt) * SIM_RATE) / 1000) + 1);
+      for (; next < due; next += 1) {
+        const event = { ...simulated.rest[next]!, sessionId: PAPERCUT_CHAT, at: Date.now() };
+        events.push(event);
+        (session as { lastSeq: number }).lastSeq = event.seq;
+        simStream.sent += 1;
+        const frame = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event });
+        for (const ws of simStream.attached) {
+          try {
+            ws.send(frame);
+          } catch {
+            // Closed: its page reads the log again on its next attach.
+          }
+        }
+      }
+      if (next >= simulated.rest.length) stopSim();
+    },
+    Math.max(4, Math.floor(1000 / SIM_RATE)),
+  );
+};
+const stopSim = () => {
+  simStream.armed = false;
+  if (simStream.timer) clearInterval(simStream.timer);
+  simStream.timer = undefined;
+};
+/// Before a warm load: the daemon holds the served records again, and nothing streams.
+const resetSim = () => {
+  if (!simulated) return;
+  stopSim();
+  simStream.sent = 0;
+  events.length = SERVED_RECORDS;
+  (session as { lastSeq: number }).lastSeq = events.at(-1)?.seq ?? 0;
+};
+/// What `sim` in the JSON lines says (undefined without SIM, so the lines are as before).
+const simJson = () =>
+  simulated
+    ? {
+        spec: SIM,
+        records: SERVED_RECORDS + simulated.rest.length,
+        served: SERVED_RECORDS,
+        streamable: simulated.rest.length,
+        rate: SIM_RATE,
+        turns: simulated.turns,
+        latest: LATEST,
+      }
+    : undefined;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -563,13 +676,61 @@ type CpuProfile = {
   samples: number[];
   timeDeltas: number[];
 };
-/// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
-const selfMs = new Map<string, number>();
-/// Inclusive ms: each function counted once per sample it is on the stack of.
-const totalMs = new Map<string, number>();
-/// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
-const nativeByCaller = new Map<string, number>();
-let profiled = 0;
+/// PROFILE=1: per profiled kind (the spare's adopt, a reopen, a reopen with no copy): self ms per function over
+/// every round, inclusive ms (each function counted once per sample it is on the stack of), a built-in's (no url:
+/// style reads, layout, DOM calls) self ms by the nearest bundle function that called it, and how many rounds.
+type ProfileSums = {
+  selfMs: Map<string, number>;
+  totalMs: Map<string, number>;
+  nativeByCaller: Map<string, number>;
+  /// Busy ms per 250 ms bucket of the window (a reopen's, from navigation), summed over the rounds.
+  busyByBucket: number[];
+  /// Per 500 ms bucket: inclusive ms of the page's own functions (React's work loop left out), over the rounds.
+  ownByBucket: Map<number, Map<string, number>>;
+  /// CDP Performance.getMetrics of the recorded page at the end of each round.
+  metrics: Record<string, number>[];
+  profiled: number;
+};
+const profileSums = new Map<string, ProfileSums>();
+const sumsFor = (label: string): ProfileSums => {
+  let sums = profileSums.get(label);
+  if (!sums) {
+    sums = {
+      selfMs: new Map(),
+      totalMs: new Map(),
+      nativeByCaller: new Map(),
+      busyByBucket: [],
+      ownByBucket: new Map(),
+      metrics: [],
+      profiled: 0,
+    };
+    profileSums.set(label, sums);
+  }
+  return sums;
+};
+/// React's own scheduler and reconciler frames, left out of the per-bucket table so the pane's functions show.
+const REACT_FRAME =
+  /^(perform|render|workLoop|begin|complete|commit|flush|recursively|update[A-Z]|mount[A-Z]|reconcile|process|run|call|dispatch|scheduleUpdate|batched|exports\.)/;
+/// PROFILE=1: the vite build the profile's urls name, so a printed `file:line` shows the line it is.
+let profileSourceDir: string | undefined;
+const sourceLines = new Map<string, string[]>();
+function sourceLine(key: string): string {
+  const match = / ([^ :]+\.js):(\d+)$/.exec(key);
+  if (!match || !profileSourceDir) return "";
+  const [, file, line] = match;
+  let lines = sourceLines.get(file!);
+  if (!lines) {
+    const found = [path.join(profileSourceDir, "assets", file!), path.join(profileSourceDir, file!)].find((at) =>
+      fs.existsSync(at),
+    );
+    lines = found ? fs.readFileSync(found, "utf8").split("\n") : [];
+    sourceLines.set(file!, lines);
+  }
+  const text = (lines[Number(line) - 1] ?? "").trim().replace(/\s+/g, " ").slice(0, 110);
+  return text ? `  | ${text}` : "";
+}
+/// PROFILE=1 (reopen, reopen-no-copy): the recorded page's long tasks (over 50 ms), ms from navigation, per round.
+const longTasksByMode = new Map<string, { start: number; duration: number }[][]>();
 /// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
 /// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
 const adoptSyncMs: number[] = [];
@@ -585,53 +746,121 @@ const bump = (map: Map<string, number>, key: string, ms: number) => map.set(key,
 /// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
 /// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
 function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
+  let from: number | undefined;
+  const span = untilMs - atMs + 17;
+  addSamples(sumsFor("reopen-spare adopt"), profile, (t, frame) => {
+    if (from === undefined) {
+      if (OUTSIDE.has(frame.functionName)) return undefined;
+      from = t;
+    }
+    return t - from > span ? undefined : t - from;
+  });
+}
+/// Adds the samples of a reopen's page: the renderer's main thread (every page of the warm renderer shares it)
+/// from navigation to `untilMs` (ms from navigation). `stopAtMs` is when the profile ended on the page's clock,
+/// so a sample's time from navigation is `stopAtMs` less its time before the profile's end.
+function addReopenProfile(mode: string, profile: CpuProfile & { endTime: number }, stopAtMs: number, untilMs: number) {
+  let total = 0;
+  for (const delta of profile.timeDeltas) total += delta;
+  // The profile's own clock: its last sample is near `endTime`; one sample interval of error is far below 1 ms.
+  const startAtMs = stopAtMs - total / 1000;
+  addSamples(sumsFor(mode), profile, (t) => {
+    const at = startAtMs + t;
+    return at < 0 || at > untilMs ? undefined : at;
+  });
+}
+/// `keep(t, frame)`: the sample's time on the window's clock (ms) to count it, else undefined.
+function addSamples(
+  sums: ProfileSums,
+  profile: CpuProfile,
+  keep: (t: number, frame: ProfileNode["callFrame"]) => number | undefined,
+): void {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const parent = new Map<number, number>();
   for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
   let t = 0;
-  let from: number | undefined;
-  const span = untilMs - atMs + 17;
   profile.samples.forEach((id, index) => {
     const ms = profile.timeDeltas[index] / 1000;
     t += ms;
     const node = byId.get(id);
     if (!node) return;
     const frame = node.callFrame;
-    if (from === undefined) {
-      if (OUTSIDE.has(frame.functionName)) return;
-      from = t;
-    }
-    if (t - from > span || frame.functionName === "(idle)") return;
-    bump(selfMs, nodeKey(frame), ms);
+    const at = keep(t, frame);
+    if (at === undefined || frame.functionName === "(idle)") return;
+    const bucket = Math.max(0, Math.floor(at / 250));
+    sums.busyByBucket[bucket] = (sums.busyByBucket[bucket] ?? 0) + ms;
+    bump(sums.selfMs, nodeKey(frame), ms);
     const seen = new Set<string>();
     let caller: string | undefined;
-    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
-      const up = byId.get(at);
-      if (!up || up.callFrame.functionName === "(root)") break;
-      const key = nodeKey(up.callFrame);
-      if (!seen.has(key)) bump(totalMs, key, ms);
+    const half = Math.max(0, Math.floor(at / 500));
+    let own = sums.ownByBucket.get(half);
+    if (!own) sums.ownByBucket.set(half, (own = new Map()));
+    for (let up: number | undefined = id; up !== undefined; up = parent.get(up)) {
+      const node = byId.get(up);
+      if (!node || node.callFrame.functionName === "(root)") break;
+      const key = nodeKey(node.callFrame);
+      if (!seen.has(key)) {
+        bump(sums.totalMs, key, ms);
+        if (node.callFrame.url && !REACT_FRAME.test(node.callFrame.functionName || "(anonymous)")) bump(own, key, ms);
+      }
       seen.add(key);
-      if (caller === undefined && at !== id && up.callFrame.url) caller = key;
+      if (caller === undefined && up !== id && node.callFrame.url) caller = key;
     }
-    if (!frame.url && caller) bump(nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
+    if (!frame.url && caller) bump(sums.nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
   });
-  profiled += 1;
+  sums.profiled += 1;
 }
 function printProfile(): void {
-  if (!profiled) return;
-  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
-  const top = (title: string, map: Map<string, number>, count: number) => {
-    console.log(title);
-    for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
-      console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
-  };
-  top(
-    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
-    selfMs,
-    30,
-  );
-  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
-  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
+  for (const [label, sums] of profileSums) {
+    const { profiled } = sums;
+    if (!profiled) continue;
+    const total = [...sums.selfMs.values()].reduce((a, b) => a + b, 0);
+    const top = (title: string, map: Map<string, number>, count: number) => {
+      console.log(title);
+      for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
+        console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}${sourceLine(key)}`);
+    };
+    const per = label === "reopen-spare adopt" ? "adopt" : "round";
+    top(
+      `${label} profile: ${(total / profiled).toFixed(1)} ms busy per ${per} (n=${profiled}), top self time:`,
+      sums.selfMs,
+      30,
+    );
+    top(`${label} profile, inclusive:`, sums.totalMs, 45);
+    top(`${label} profile, built-ins by caller:`, sums.nativeByCaller, 20);
+    if (label === "reopen-spare adopt") continue;
+    console.log(
+      `${label} profile, busy ms per 250 ms from navigation: ${Array.from(sums.busyByBucket, (ms, at) => `${at * 250}:${((ms ?? 0) / profiled).toFixed(0)}`).join(" ")}`,
+    );
+    for (const [half, own] of [...sums.ownByBucket].sort((a, b) => a[0] - b[0]))
+      top(
+        `${label} profile, ${half * 500}-${half * 500 + 500} ms from navigation, the pane's own (inclusive):`,
+        own,
+        12,
+      );
+    const metricNames = [
+      "RecalcStyleCount",
+      "RecalcStyleDuration",
+      "LayoutCount",
+      "LayoutDuration",
+      "ScriptDuration",
+      "TaskDuration",
+      "Nodes",
+    ];
+    for (const name of metricNames) {
+      const values = sums.metrics.map((m) => m[name] ?? 0).sort((a, b) => a - b);
+      const mid = values[Math.floor(values.length / 2)] ?? 0;
+      console.log(
+        `${label} page metric ${name}: p50 ${name.endsWith("Duration") ? `${(mid * 1000).toFixed(0)} ms` : mid}`,
+      );
+    }
+  }
+  for (const [mode, rounds] of longTasksByMode)
+    rounds.forEach((tasks, round) =>
+      console.log(
+        `${mode} round ${round} long tasks (start+duration ms from navigation): ${tasks.map((task) => `${task.start.toFixed(0)}+${task.duration.toFixed(0)}`).join(" ") || "none"}`,
+      ),
+    );
 }
 
 type Round = {
@@ -664,6 +893,8 @@ type Round = {
   lastAskMs: number | null;
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
+  /// SIM with RUNNING=1: the transcript's records the daemon streamed this round (absent without SIM).
+  simStreamed?: number;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -697,6 +928,9 @@ try {
       open() {
         load.socketOpenedAt ||= Date.now();
       },
+      close(ws) {
+        simStream.attached.delete(ws);
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
@@ -712,12 +946,15 @@ try {
         const reply = () => {
           if (message.method === "initialize") load.initializeAnsweredAt ||= Date.now();
           if (message.method === "_acpmux/attach") load.attachAnsweredAt ||= Date.now();
+          if (message.method === "_acpmux/attach" && simulated) simStream.attached.add(ws);
           // A socket the page gave up on meanwhile takes nothing.
           try {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           } catch {
             // Closed: the page asks again on its next socket.
           }
+          // SIM with RUNNING=1: the agent writes on from the relaunched page's attach (after its page, in order).
+          if (message.method === "_acpmux/attach") streamSim();
         };
         // A slow daemon: the socket is up but its handshake answers only once acpmux is ready.
         const delay = message.method === "initialize" && downMode === "slow-init" ? downUntil - Date.now() : 0;
@@ -735,6 +972,7 @@ try {
   releases.push([
     "stand-in acpmux",
     () => {
+      stopSim();
       for (const timer of delayedReplies) clearTimeout(timer);
       delayedReplies.clear();
       return daemon.stop(true);
@@ -742,6 +980,7 @@ try {
   ]);
 
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-"));
+  if (PROFILE) profileSourceDir = out;
   releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-work-"));
   releases.push(["bundles", () => fs.rmSync(work, { recursive: true, force: true })]);
@@ -1006,6 +1245,7 @@ try {
   /// The load before the restart: acpmux up, the chat opened and settled, then its copy written as the
   /// page writes it (chatSnapshot/live.ts `watchChatSnapshot`).
   const warm = async (): Promise<ChatSnapshot> => {
+    resetSim();
     servedCopy = null;
     downMode = undefined;
     downUntil = 0;
@@ -1101,6 +1341,7 @@ try {
         await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
         await cdp.send("Profiler.start");
       }
+      simStream.armed = true;
       const start = await page.evaluate(
         ({ session, tail, recordMs }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
@@ -1173,8 +1414,10 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
+        ...(simulated ? { simStreamed: simStream.sent } : {}),
       };
     } finally {
+      stopSim();
       servingSpare = false;
       await page.close();
     }
@@ -1202,16 +1445,59 @@ try {
         );
       }
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      simStream.armed = true;
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      // PROFILE=1 (reopen, reopen-no-copy): the renderer's CPU profile from before navigation (DevTools carries a
+      // started profile over the page's move into the warm renderer), and the recorded page's long tasks.
+      const cdp = PROFILE && mode !== "reopen-spare" && isReopen(mode) ? await context.newCDPSession(page) : null;
+      if (cdp) {
+        await page.addInitScript(() => {
+          const tasks: { start: number; duration: number }[] = [];
+          (window as unknown as { __benchLongTasks: typeof tasks }).__benchLongTasks = tasks;
+          try {
+            new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) tasks.push({ start: entry.startTime, duration: entry.duration });
+            }).observe({ type: "longtask", buffered: true });
+          } catch {
+            // No long task timing in this engine.
+          }
+        });
+        await cdp.send("Performance.enable");
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+        await cdp.send("Profiler.start");
+      }
       wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
+      if (cdp) {
+        const seen = await page.evaluate(() => ({
+          now: performance.now(),
+          live: (window as unknown as BenchWindow).__firstLoad.liveLatestAt,
+          tasks:
+            (window as unknown as { __benchLongTasks?: { start: number; duration: number }[] }).__benchLongTasks ?? [],
+        }));
+        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile & { endTime: number } };
+        const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+          metrics: { name: string; value: number }[];
+        };
+        sumsFor(mode).metrics.push(Object.fromEntries(metrics.map((m) => [m.name, m.value])));
+        await cdp.detach();
+        addReopenProfile(mode, profile, seen.now, seen.live || windowMs);
+        const rounds = longTasksByMode.get(mode) ?? [];
+        rounds.push(seen.tasks.filter((task) => task.duration > 50));
+        longTasksByMode.set(mode, rounds);
+        const span = profile.timeDeltas.reduce((a, b) => a + b, 0) / 1000;
+        console.log(
+          `${mode} profile: ${profile.samples.length} samples over ${span.toFixed(0)} ms, ends ${seen.now.toFixed(0)} ms from navigation, live ${seen.live.toFixed(0)}`,
+        );
+      }
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
         // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
@@ -1264,6 +1550,7 @@ try {
         attachAnsweredMs: since(load.attachAnsweredAt),
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        ...(simulated ? { simStreamed: simStream.sent } : {}),
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
           const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
@@ -1271,6 +1558,7 @@ try {
         })(),
       };
     } finally {
+      stopSim();
       downMode = undefined;
       downUntil = 0;
       servedCopy = null;
@@ -1301,11 +1589,19 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  const json: Record<string, unknown> = {
+    turns: simulated?.turns ?? TURNS,
+    downMs: DOWN_MS,
+    recordMs: RECORD_MS,
+    rounds: ROUNDS,
+    ...(simulated ? { sim: simJson() } : {}),
+  };
   let failed = false;
+  const streamed = simulated?.rest.length ? `, then up to ${simulated.rest.length} at ${SIM_RATE}/s` : "";
+  const chatLabel = simulated ? `SIM=${SIM} (${SERVED_RECORDS} records${streamed})` : `${TURNS} turns`;
   for (const [mode, rounds] of byMode) {
     console.log(
-      `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
+      `first-load-after-restart [${mode}]: ${chatLabel}, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
       "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
@@ -1421,7 +1717,7 @@ try {
       link: LINK_NAME,
       mode,
       downMs: DOWN_MS,
-      turns: TURNS,
+      turns: simulated?.turns ?? TURNS,
       engine: ENGINE,
       rounds: rounds.length,
       firstContentMs: median(settled.map((one) => one.firstContentMs).filter((v): v is number => v !== null)),
@@ -1433,6 +1729,7 @@ try {
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
       settledEach: settled.map((one) => one.settledMs),
+      ...(simulated ? { sim: { ...simJson(), streamedEach: rounds.map((r) => r.simStreamed) } } : {}),
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
     json[`${mode}.settled`] = settledRow;

@@ -59,8 +59,11 @@ if [[ "$only" != terminal ]]; then
   export PATH="$HOME/.bun/bin:$PATH"
   cd "$root/webviews"
   [[ -d node_modules ]] || bun install --frozen-lockfile >/dev/null
-  [[ -n "${CMUX_CHROME_HEADLESS_SHELL:-}" ]] || [[ ! -x "$root/scripts/ci/ensure-system-chrome.sh" ]] ||
-    eval "$("$root/scripts/ci/ensure-system-chrome.sh" --print-env 2>/dev/null || true)"
+  if [[ -z "${CMUX_CHROME_HEADLESS_SHELL:-}" && -x "$root/scripts/ci/ensure-system-chrome.sh" ]]; then
+    # The script prints what it found, then one `CMUX_CHROME_HEADLESS_SHELL=PATH` line: read only that line.
+    shell_line="$("$root/scripts/ci/ensure-system-chrome.sh" 2>/dev/null | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
+    [[ -z "$shell_line" ]] || export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
+  fi
   IFS=, read -r -a each <<<"$links"
   for link in "${each[@]}"; do
     LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" \
