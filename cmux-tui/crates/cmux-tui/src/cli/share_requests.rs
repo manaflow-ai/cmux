@@ -93,8 +93,8 @@ fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
                 "share_id": share,
                 "account": account,
             });
-            if let Some(role) = role {
-                request["role"] = json!(role);
+            if let (Some(role), Some(fields)) = (role, request.as_object_mut()) {
+                fields.insert("role".into(), json!(role));
             }
             request
         }
@@ -151,12 +151,13 @@ fn pending_requests(list: &Value, only: Option<&str>) -> Vec<Value> {
             continue;
         }
         for request in share.get("requests").and_then(Value::as_array).into_iter().flatten() {
-            let mut row = request.clone();
-            row["share_id"] = json!(id);
+            // A request that is not an object has no account to answer: skip it.
+            let Some(mut row) = request.as_object().cloned() else { continue };
+            row.insert("share_id".into(), json!(id));
             if let Some(session) = share.get("session") {
-                row["session"] = session.clone();
+                row.insert("session".into(), session.clone());
             }
-            rows.push(row);
+            rows.push(Value::Object(row));
         }
     }
     rows
