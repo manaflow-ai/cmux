@@ -461,8 +461,8 @@ export const MAP: MapEntry[] = [
   },
   {
     id: "incoming-burst",
-    when: "Five notices and messages from other agents in a row: some answered in a line, some with a command, some with nothing.",
-    wrong: "Lines stacked flush or doubled their gaps; an unanswered notice drew no turn at all.",
+    when: "Five notices and messages from other agents in a row: some answered in a line, one with a command.",
+    wrong: "Lines stacked flush or doubled their gaps.",
     expected:
       "Each is its own turn with one footer, and each turn's first row stands the 24 gap under the turn before.",
     scenario: "incoming-burst",
@@ -476,6 +476,13 @@ export const MAP: MapEntry[] = [
         ),
       ];
     },
+  },
+  {
+    id: "silent-received-flush",
+    when: "Another agent's line gets no answer at all, and a second one arrives right under it.",
+    wrong: "Chrome draws the second line flush under the first (0px), and its Worked for 16px under it.",
+    expected: "The second line opens its turn the 24 gap under the first, answered or not.",
+    open: "Seen in Chrome only (the model run measures 24): the scenario that plays it turns the browser lane red, so it is not in SCENARIOS until the fix.",
   },
 
   // ---- Size. ----

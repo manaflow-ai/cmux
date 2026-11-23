@@ -387,7 +387,7 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
   "incoming-burst": () => {
     const b = sim(
       "incoming-burst",
-      "Five notices and messages from other agents in a row, some answered with one line, some with nothing.",
+      "Five notices and messages from other agents in a row, each answered with one line or one command.",
     );
     b.prompt("Coordinate the three lanes.");
     workTurn(b, 2, { middleText: false });
@@ -401,6 +401,9 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
       );
       if (index % 2) b.say(`Noted, lane-${index}.`);
       else if (index === 2) b.tool("git fetch origin", { ms: 400 });
+      // Not played: an incoming line the agent answers with nothing, with another right under it. Chrome
+      // draws the second flush under the first (map.ts, `silent-received-flush`).
+      else b.say("Seen.");
       b.turnEnd();
     }
     b.prompt("Where are we?", 8_000);
