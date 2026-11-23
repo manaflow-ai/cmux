@@ -168,6 +168,7 @@ mod start_stages;
 mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
+mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]

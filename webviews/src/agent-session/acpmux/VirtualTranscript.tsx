@@ -23,6 +23,7 @@ import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,

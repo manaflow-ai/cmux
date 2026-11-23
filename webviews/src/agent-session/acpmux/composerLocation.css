@@ -1062,8 +1062,8 @@
 /* Reduce Transparency turns bare text over art solid: the plain strip's queue takes the queue's
    solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
    the wallpaper with a solid fold under it (queued-glass.test.ts). */
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   background: var(--acpmux-queue-fill);
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -1117,7 +1117,7 @@
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
    (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-strip {
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
   }
 }

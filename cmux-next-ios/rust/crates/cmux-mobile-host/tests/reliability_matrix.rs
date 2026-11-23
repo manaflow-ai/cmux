@@ -363,6 +363,7 @@ impl Rig {
                         video: None,
                         session_exposure: None,
                         route: None,
+                        path: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,

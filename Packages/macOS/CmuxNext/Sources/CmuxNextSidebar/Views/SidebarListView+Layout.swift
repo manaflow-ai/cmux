@@ -579,7 +579,9 @@ extension SidebarListViewComponents {
         let width = Self.rowsWidth(in: scroll)
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
-        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
+        let rowHeight = poolRowHeight ?? metrics.rowHeight
+        poolRowHeight = rowHeight
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: rowHeight)
         updateDocumentHeight()
         revealFirstViewport()
         realizeVisibleRows()
