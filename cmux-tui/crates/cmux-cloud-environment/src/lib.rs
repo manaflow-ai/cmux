@@ -448,6 +448,7 @@ impl Resolver {
 
     /// Fetch and validate the backend's client configuration, falling back
     /// to a validated per-backend cache on transport/server errors.
+    #[cfg(feature = "fetch")]
     pub async fn client_config(&self, selection: Selection) -> Result<Selection, String> {
         client_config::resolve(self, selection).await
     }
@@ -457,6 +458,7 @@ impl Resolver {
     /// (ADVANCED_CREATE_FIELDS): a plain create (a chat's machine) needs none, so it answers with no
     /// network round trip, where the fetch cost a person's create one more round trip (up to its 5 s
     /// timeout on a slow link) before the create was sent.
+    #[cfg(feature = "fetch")]
     pub async fn check_create(
         &self,
         selection: Selection,
@@ -474,6 +476,7 @@ impl Resolver {
     /// deployment's built-in configuration (what an unreachable or config-less backend gives
     /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
     /// its window is up, so a changed backend config applies at the next launch.
+    #[cfg(feature = "fetch")]
     pub async fn client_config_cache_first(
         &self,
         selection: Selection,
@@ -482,6 +485,17 @@ impl Resolver {
             Some(selection) => Ok(selection),
             None => client_config::resolve(self, selection).await,
         }
+    }
+
+    /// The macOS app's launch read in its own process (cmux-daemon-launch-core's
+    /// `cloud_environment_launch_read` op): the selection `cloud env get --cache-first` gives
+    /// for this seed ([`launch_seed`]), with no network I/O and no child process. `Ok(None)`:
+    /// only a fetch answers (a custom origin with no cache), which the app leaves to the CLI.
+    ///
+    /// CMUX-571 (goal next-launch-instant): the app spawned the bundled CLI for this and
+    /// waited for it before its launch work; a fresh copy's first CLI run took 662 ms (17 ms warm).
+    pub fn launch_read(&self, seed: Option<&str>) -> Result<Option<Selection>, String> {
+        Ok(client_config::without_fetch(self, self.resolve(seed)?))
     }
 
     /// Applies a previously fetched, validated client-config cache without
@@ -717,6 +731,49 @@ fn next_revision() -> u64 {
         .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
         .unwrap_or(0);
     clock.wrapping_add(REVISION.fetch_add(1, Ordering::Relaxed))
+}
+
+/// The backend a launch's arguments name (`--cloud-backend VALUE` or `--cloud-backend=VALUE`),
+/// checked by [`Environment::parse`]: none when they name none, an error for a duplicate, an
+/// empty or a missing value.
+pub fn launch_backend(args: &[String]) -> Result<Option<String>, String> {
+    let mut found = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let value = if let Some(value) = arg.strip_prefix("--cloud-backend=") {
+            if value.is_empty() {
+                return Err("duplicate or empty --cloud-backend".into());
+            }
+            value
+        } else if arg == "--cloud-backend" {
+            let value = args.next().ok_or("--cloud-backend requires a value")?;
+            if value.is_empty() || value.starts_with('-') {
+                return Err("duplicate or empty --cloud-backend".into());
+            }
+            value.as_str()
+        } else {
+            continue;
+        };
+        if found.is_some() {
+            return Err("duplicate or empty --cloud-backend".into());
+        }
+        found = Some(value.to_owned());
+    }
+    if let Some(value) = &found {
+        Environment::parse(value)?;
+    }
+    Ok(found)
+}
+
+/// The seed of a launch's read (`cloud env get --launch-args`): the launch arguments' backend,
+/// else `CMUX_NEXT_CLOUD_BACKEND`, else `CMUX_NEXT_CLOUD_ENV` (`env` reads the variable).
+pub fn launch_seed(
+    args: &[String],
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<Option<String>, String> {
+    Ok(launch_backend(args)?
+        .or_else(|| env("CMUX_NEXT_CLOUD_BACKEND"))
+        .or_else(|| env("CMUX_NEXT_CLOUD_ENV")))
 }
 
 /// NEXT's own folder for one bundle, `~/Library/Application Support/cmux-next/<bundle id>`

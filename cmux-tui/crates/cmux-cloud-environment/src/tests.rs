@@ -391,3 +391,76 @@ fn persistence_permissions_do_not_depend_on_umask() {
     resolver.set(Environment::Staging).unwrap();
     assert_eq!(fs::metadata(resolver.state_path()).unwrap().permissions().mode() & 0o777, 0o600);
 }
+
+fn words(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+/// CMUX-571: the app's launch read runs in its own process ([`Resolver::launch_read`]).
+/// A known deployment answers with no fetch, persisted like `cloud env get`.
+#[test]
+fn the_launch_read_answers_a_known_deployment_with_no_fetch() {
+    let home = Home::new();
+    let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+    let read = resolver.launch_read(None).unwrap().expect("a known deployment needs no fetch");
+    assert_eq!(read.name, "dev");
+    assert_eq!(read.config_source, ConfigSource::KnownOriginFallback);
+    assert_eq!(read.bundle_id, DEV_BUNDLE);
+    assert!(resolver.state_path().is_file(), "the first launch's default is persisted");
+    let seeded = resolver.launch_read(Some("staging")).unwrap().unwrap();
+    assert_eq!(seeded.name, "staging");
+    assert!(!seeded.legacy_storage, "an override never adopts the default's credentials");
+}
+
+/// A custom origin with no cache is left to the CLI's fetch; a refused seed is an error.
+#[test]
+fn the_launch_read_leaves_a_custom_origin_with_no_cache_to_the_fetch() {
+    let home = Home::new();
+    let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+    assert_eq!(resolver.launch_read(Some("http://127.0.0.1:9")).unwrap(), None);
+    assert!(resolver.launch_read(Some("https://example.com")).is_err());
+    let release = Resolver::new("com.cmuxterm.app", &home.0).unwrap();
+    assert!(release.launch_read(Some("http://127.0.0.1:9")).is_err());
+}
+
+/// The launch read is the CLI's `get --cache-first` minus the fetch.
+#[cfg(feature = "fetch")]
+#[test]
+fn the_launch_read_is_the_cache_first_read() {
+    let home = Home::new();
+    let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    for seed in [None, Some("staging"), Some("prod")] {
+        let cli = runtime
+            .block_on(resolver.client_config_cache_first(resolver.resolve(seed).unwrap()))
+            .unwrap();
+        assert_eq!(resolver.launch_read(seed).unwrap(), Some(cli), "seed {seed:?}");
+    }
+}
+
+#[test]
+fn the_launch_seed_is_the_arguments_then_the_environment() {
+    let env = |key: &str| match key {
+        "CMUX_NEXT_CLOUD_BACKEND" => Some("staging-from-env".to_owned()),
+        "CMUX_NEXT_CLOUD_ENV" => Some("prod".to_owned()),
+        _ => None,
+    };
+    let backend = |args: &[&str]| launch_seed(&words(args), env);
+    assert_eq!(
+        backend(&["cmux", "--cloud-backend", STAGING_API]).unwrap().as_deref(),
+        Some(STAGING_API)
+    );
+    assert_eq!(backend(&["cmux", "--cloud-backend=dev"]).unwrap().as_deref(), Some("dev"));
+    assert_eq!(backend(&["cmux"]).unwrap().as_deref(), Some("staging-from-env"));
+    assert_eq!(
+        launch_seed(&words(&["cmux"]), |key| (key == "CMUX_NEXT_CLOUD_ENV")
+            .then(|| "prod".to_owned()))
+        .unwrap()
+        .as_deref(),
+        Some("prod")
+    );
+    assert_eq!(launch_seed(&words(&["cmux"]), |_| None).unwrap(), None);
+    assert!(backend(&["cmux", "--cloud-backend"]).is_err());
+    assert!(backend(&["cmux", "--cloud-backend=dev", "--cloud-backend", "prod"]).is_err());
+    assert!(backend(&["cmux", "--cloud-backend", "https://example.com"]).is_err());
+}
