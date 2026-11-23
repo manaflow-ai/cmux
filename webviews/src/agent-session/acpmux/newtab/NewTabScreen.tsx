@@ -33,9 +33,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
+  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -159,6 +159,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -354,6 +355,9 @@ type Props = NewTabScreenActions & {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
+  /// What draws over the composer: an extension's slot (NewTabAppSlot.tsx, `tabs.newTabApp`). It sits
+  /// in its own room (screen.css `.nt-above-room`) and can never replace or cover the composer.
+  above?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -2679,6 +2683,7 @@ export function NewTabScreen(props: Props) {
             {stageCards}
             {playerAndLists}
           </div>
+          {props.above !== undefined && <div className="nt-above-room">{props.above}</div>}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2686,8 +2691,13 @@ export function NewTabScreen(props: Props) {
       ) : (
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
-                where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
+                where it always sat (screen.css .nt-composer-room). Something over the composer (an
+                extension's slot) takes that room instead, and keeps it after the slot gives up. */}
+          {props.above !== undefined ? (
+            <div className="nt-above-room">{props.above}</div>
+          ) : (
+            minimal && <div className="nt-composer-room" />
+          )}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2755,16 +2765,21 @@ export function NewTabScreen(props: Props) {
                   {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                   {row.type === "action" && !!row.keycaps?.length && (
                     <span className="nt-row-shortcut" data-popup-skip>
-                      {row.keycaps.map((cap, index) => (
-                        <kbd key={index}>{cap}</kbd>
+                      {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
+                        <React.Fragment key={strokeIndex}>
+                          {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
+                          {stroke.map((cap, index) => (
+                            <kbd key={index}>{cap}</kbd>
+                          ))}
+                        </React.Fragment>
                       ))}
                     </span>
                   )}
-                  {/* Return's row says so: ↩ at its end. The prompt for the chip's agent is no row, so a
+                  {/* Return's row says so: a "return" cap at its end. The prompt for the chip's agent is no row, so a
                     highlighted row is never the prompt: no highlight, Return sends to the agent. */}
                   {index === current && (
                     <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                      ↩
+                      {keycapLegend("↩")}
                     </kbd>
                   )}
                 </div>
