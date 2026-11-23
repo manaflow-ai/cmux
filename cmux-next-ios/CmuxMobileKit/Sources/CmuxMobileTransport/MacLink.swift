@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`

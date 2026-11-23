@@ -21,7 +21,30 @@
             "key": "settings.agentPane.display.width.help",
             "text": "The widest the chat's column gets. On a wider pane the chat stays centered."
           },
-          "kind": "number",
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "narrow",
+              "title": {
+                "key": "settings.choice.width.narrow",
+                "text": "Narrow"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.editor.medium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "wide",
+              "title": {
+                "key": "settings.choice.width.wide",
+                "text": "Wide"
+              }
+            }
+          ],
           "range": {
             "min": 480,
             "max": 4000,
@@ -1084,6 +1107,94 @@
             "chat",
             "tools"
           ]
+        },
+        {
+          "key": "agentPane.display.transcriptLook",
+          "note": "A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.",
+          "title": {
+            "key": "settings.agentPane.display.transcriptLook",
+            "text": "Transcript Look"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptLook.help",
+            "text": "How messages, cards and spacing look."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": null,
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": null,
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": null,
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "style",
+            "preset",
+            "claude",
+            "codex",
+            "studio",
+            "bubble",
+            "density",
+            "spacing"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptTokens",
+          "note": "Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).",
+          "title": {
+            "key": "settings.agentPane.display.transcriptTokens",
+            "text": "Transcript Look Tokens"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptTokens.help",
+            "text": "Token values that override the transcript look."
+          },
+          "kind": "text",
+          "default": {},
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "token",
+            "theme",
+            "bubble",
+            "radius",
+            "spacing"
+          ],
+          "page_hidden": "an object of look tokens, edited in cmux-next.json or a theme file"
         },
         {
           "key": "agentPane.display.promptCoach",

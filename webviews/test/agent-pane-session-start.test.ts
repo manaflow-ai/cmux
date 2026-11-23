@@ -9,6 +9,7 @@ import { expect, test } from "bun:test";
 import { insertRunChange, type RunChange } from "../src/agent-session/acpmux/conversation/sessionStart";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSessionStart } from "../src/agent-session/acpmux/model";
+import { until } from "./support/until";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000d8";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -432,4 +433,37 @@ test("the session detail's usage limits reach the summary, and malformed ones re
   // A harness that reports its limits as text keeps them.
   const plain = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits: "Weekly: 62% remaining" }));
   expect(plain.summary()?.usageLimits).toBe("Weekly: 62% remaining");
+});
+
+test("usage limits acpmux reports after the chat opened reach the summary without a reattach", async () => {
+  const detail = { windows: [{ id: "weekly", usedPercent: 12 }] };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      // Already in the detail: replayed with the page, it never takes the detail's back.
+      ["mux", "usage_limits", { usageLimits: { windows: [{ id: "weekly", usedPercent: 3 }] } }],
+    ]),
+    "claude-sr2",
+    2,
+    { usageLimits: detail },
+  );
+  const { summary } = await connect(daemon);
+  expect(summary()?.usageLimits).toEqual(detail);
+
+  // acpmux merged the report (hub/permissions.rs); the pane applies it whole.
+  const merged = {
+    windows: [
+      { id: "weekly", usedPercent: 12 },
+      { id: "session", usedPercent: 41, resetsAt: 1_793_570_400 },
+    ],
+    plan: "max",
+  };
+  daemon.push(record([["mux", "usage_limits", { usageLimits: merged }]], 3));
+  await until(() => summary()?.usageLimits?.plan === "max");
+  expect(summary()?.usageLimits).toEqual(merged);
+
+  // A Codex report with no plan window left clears them: unreported, not a stale ring.
+  daemon.push(record([["mux", "usage_limits", { usageLimits: null }]], 4));
+  await until(() => summary()?.usageLimits === undefined);
+  expect(summary()?.usageLimits).toBeUndefined();
 });

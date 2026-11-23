@@ -5,12 +5,14 @@
 # REPEATS times. Leo, 2026-11-16: "how about speeding up the scrolling up of chats?"
 #   bench/transcript-scroll-up-ab.sh BASE [repeats=8] [SHA...]
 #   cmux-ci test --setup playwright -- bash webviews/bench/transcript-scroll-up-ab.sh <base sha> 8 <base sha> <sha>
+# (on the fleet, name each SHA in full: its snapshot has no origin and fetches them from the public repository)
 # Name BASE twice for the base-vs-base floor: `transcript-scroll-up-ab.sh B 8 B S` measures this checkout, B, B
 # again and S. BASE `-` measures this checkout only. Every run's environment passes on to the bench (MODE, ROUNDS,
 # ROWS, PAGES, LATENCY ...). The order of the sides turns every repeat, so a runner warming or tiring over the run
 # lands on every side alike. Per side it prints the median over repeats of each run's older-page ask-to-drawn p50,
-# p95 and max, frame p95 and loading frames, with the median's 95% interval (a seeded bootstrap) and min..max; and the
-# p50/p95 of every older page of every repeat, pooled. Each run's log goes to OUT (default $FAST_CHECKS_OUT).
+# p95 and max, frame p95, blank frames and loading frames, with the median's 95% interval (a seeded bootstrap) and
+# min..max; and the p50/p95 of every older page of every repeat, pooled. Each run's log goes to OUT (default
+# $FAST_CHECKS_OUT).
 set -euo pipefail
 base="${1:?usage: transcript-scroll-up-ab.sh BASE [repeats] [SHA...]}"
 repeats="${2:-8}"
@@ -28,9 +30,12 @@ trees=()
 trap 'for t in "${trees[@]}"; do git -C "$here" worktree remove --force "$t" 2>/dev/null || true; done' EXIT
 # `side NAME SHA`: a detached worktree of SHA with this checkout's bench and node_modules, measured as side NAME.
 side() {
-  local name="$1" sha="$2" depth=() tree
+  local name="$1" sha="$2" depth=() tree remote=origin
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" origin "$sha" && git rev-parse "$sha^{commit}"; })"
+  # A checkout with no origin (a fleet run's snapshot) fetches from the public repository; a SHA not
+  # here is fetched by its full id.
+  git remote get-url origin >/dev/null 2>&1 || remote=https://github.com/manaflow-ai/cmux.git
+  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" "$remote" "$sha" && git rev-parse FETCH_HEAD; })"
   tree="$(mktemp -d)/$name"
   trees+=("$tree")
   git worktree add -q --detach "$tree" "$sha"
@@ -65,7 +70,7 @@ run() {
     tail -n 30 "$log" >&2
     exit 1
   fi
-  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' '
+  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|blankFrames|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' '
   echo
 }
 n=${#sides[@]}
@@ -97,7 +102,7 @@ def pct(values, p):
     return s[min(len(s) - 1, max(0, round(p / 100 * (len(s) - 1))))] if s else float("nan")
 runs = {s: [summary(f"{out}/{s}-{r}.log") for r in range(1, repeats + 1)] for s in sides}
 print(f"transcript-scroll-up-ab: {repeats} repeats; per side the median over repeats, its 95% interval, min..max")
-for key in ("askToDrawnP50", "askToDrawnP95", "askToDrawnMax", "frameP95", "loadingFrames", "undrawnAsks"):
+for key in ("askToDrawnP50", "askToDrawnP95", "askToDrawnMax", "frameP95", "blankFrames", "loadingFrames", "undrawnAsks"):
     print(f"{key}:")
     for s in sides:
         values = [run[key] for run in runs[s] if isinstance(run.get(key), (int, float))]

@@ -1497,6 +1497,18 @@ impl ContextOverrides {
     }
 }
 
+/// `personHold` (`hub/person_hold.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonHoldConfig {
+    /// The chats, by name, whose person's prompts wait.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1595,6 +1607,10 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `personHold`: the chats whose person's prompts wait a while to go in together, unless the
+    /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold: Option<PersonHoldConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
