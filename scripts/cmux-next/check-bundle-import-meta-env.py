@@ -20,7 +20,9 @@ import re
 import sys
 from pathlib import Path
 
-PATTERN = re.compile(r"\bimport\s*\.\s*meta\s*(?:\?\.|\.)\s*env\b")
+# `<define:import.meta.env>` is the name esbuild gives the module a define injects, as a source
+# map or chunks/frame-sites.js lists it: a string, not a read.
+PATTERN = re.compile(r"(?<!<define:)\bimport\s*\.\s*meta\s*(?:\?\.|\.)\s*env\b")
 SUFFIXES = {".js", ".mjs", ".cjs", ".html"}
 
 

@@ -53,6 +53,8 @@ class CheckBundleImportMetaEnv(unittest.TestCase):
         # A source map holds the original source; only code that runs is checked.
         self.write("pane.js.map", '{"sourcesContent":["if (import.meta.env.DEV) {}"]}')
         self.write("styles.css", "/* import.meta.env */")
+        # The name esbuild gives the define's own module, as chunks/frame-sites.js lists it.
+        self.write("chunks/frame-sites.js", 'export default{"sources":["<define:import.meta.env>"]};\n')
         result = run(str(self.dir))
         self.assertEqual(result.returncode, 0, result.stderr)
 
