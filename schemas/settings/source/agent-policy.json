@@ -508,6 +508,7 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
+        "experiments.hoverLook",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -712,6 +713,9 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",
