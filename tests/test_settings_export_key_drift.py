@@ -133,10 +133,23 @@ class GitRange(unittest.TestCase):
                       "no source declares", result.stdout.splitlines())
         self.assertEqual(len(result.stdout.splitlines()), 5, result.stdout)
 
-    def test_a_new_setting_not_yet_exported_passes(self):
-        # The PR autofix exports it later: the source is ahead of the export, which is not drift.
+    def test_a_new_setting_not_yet_exported_is_refused(self):
+        # #44894 and the MCP Servers commit (2026-11-18) merged a source row with no export, on the promise that an
+        # autofix would export it later; every base autofix run was cancelled and the base export stayed stale.
         self.write("schemas/settings/source/tabs.json", source("tabs.newTabApp", "tabs.position", "tabs.fresh"))
-        self.assertEqual(self.run_check(self.commit("add a setting")).returncode, 0)
+        result = self.run_check(self.commit("add a setting"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            "drift: schemas/settings/settings-schema.json: lacks tabs.fresh, which this change adds to the sources "
+            "(export it in this change)"])
+
+    def test_a_new_setting_in_the_schema_export_alone_passes(self):
+        # The docs reference and the MDM files list only the rows they document; only settings-schema.json lists all.
+        self.write("schemas/settings/source/tabs.json", source("tabs.newTabApp", "tabs.position", "tabs.fresh"))
+        self.write("schemas/settings/settings-schema.json",
+                   exports("tabs.newTabApp", "tabs.position", "tabs.fresh")["schemas/settings/settings-schema.json"])
+        result = self.run_check(self.commit("add a setting, export the schema"))
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
     def test_a_new_setting_exported_passes(self):
         self.write("schemas/settings/source/tabs.json", source("tabs.newTabApp", "tabs.position", "tabs.fresh"))
@@ -160,9 +173,19 @@ class GitRange(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("cannot read the exports or sources", result.stderr)
 
-    def test_a_removed_setting_not_yet_exported_passes(self):
+    def test_a_removed_setting_not_yet_exported_is_refused(self):
         self.write("schemas/settings/source/tabs.json", source("tabs.position"))
-        self.assertEqual(self.run_check(self.commit("remove a setting")).returncode, 0)
+        result = self.run_check(self.commit("remove a setting"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            "drift: schemas/settings/settings-schema.json: still lists tabs.newTabApp, which this change removes from "
+            "the sources (export it in this change)"])
+
+    def test_a_removed_setting_exported_passes(self):
+        self.write("schemas/settings/source/tabs.json", source("tabs.position"))
+        self.write_exports("tabs.position")
+        result = self.run_check(self.commit("remove and export a setting"))
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
     def test_the_base_itself_is_never_red(self):
         result = self.run_check(self.base)

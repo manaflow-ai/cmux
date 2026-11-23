@@ -110,9 +110,11 @@ feat-cmux-next (base-autofix.sh --locks).
 Also on every local run, the same way: "Settings exports keep their keys" (settings-export-key-drift.py): when the
 push changes a settings source (schemas/settings/) or a keyed settings export (settings-schema.json, the docs settings
 reference, docs/mdm/), no export may drop a key the base's export had and the head's sources still declare, or gain a
-key no head source declares. Git objects only, keys only, so it is never red on the base. #43022 and #43027
-(2026-11-15) carried exports regenerated at an older tree that dropped tabs.newTabApp; the Mac export comparison was
-red on the base all day, so its signal was ignored.
+key no head source declares, and settings-schema.json must list every key the push adds to the sources and none it
+removes. Git objects only, keys only, so it is never red on the base. #43022 and #43027 (2026-11-15) carried exports
+regenerated at an older tree that dropped tabs.newTabApp; the Mac export comparison was red on the base all day, so
+its signal was ignored. #44894 (2026-11-18) added appearance.themeFileExceptions with no export, left to an autofix
+that never ran, and the base export lacked it for two days.
 
 Also on every local run, the same way: "Cargo.lock adds no new crate versions" (cargo-lock-new-versions.py): when the
 push changes a Cargo.lock, every downloaded (crate, version) in each changed lock must be in some Cargo.lock at the
@@ -449,8 +451,9 @@ GENERATED_HELPER = "scripts/ci/ci_process_tree.py"  # the guard imports it from 
 SETTINGS_KEYS_CHECK = "Settings exports keep their keys (scripts/cmux-next/settings-export-key-drift.py)"
 SETTINGS_KEYS_SCRIPT = SCRIPTS + "/settings-export-key-drift.py"
 SETTINGS_KEYS_PATHS = ("schemas/settings/", "web/data/next-docs/settings-reference.generated.json", "docs/mdm/")
-SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has one no source declares: it was "
-                      "regenerated at another tree. Regenerate the exports at this head on the fleet "
+SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has one no source declares (it was "
+                      "regenerated at another tree), or this change adds or removes a setting it did not export "
+                      "(no later run exports it for you: #44894). Regenerate the exports at this head on the fleet "
                       "(scripts/cmux-next/regenerate-settings-exports.sh; its header has the command) and apply the "
                       "patch; never hand-edit them. On a merge conflict in an export, take the base's side first.")
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
