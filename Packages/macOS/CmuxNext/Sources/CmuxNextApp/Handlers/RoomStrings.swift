@@ -14,7 +14,7 @@ nonisolated enum RoomStrings {
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     /// The count line of the Delete Space question (none for no workspace).
     static func deleteClosesBody(_ count: Int) -> String {
-        String(localized: "rooms.deleteClosesBody", defaultValue: "Its \(count) workspaces close.", table: "Rooms", bundle: .module)
+        String(localized: "rooms.deleteClosesBody", defaultValue: "Its \(count) workspaces close.", table: "Rooms", bundle: .module.inAppLanguage)
     }
     /// The toast after Delete Space (RECOVERABLE-BY-DEFAULT).
     static func deletedToast(_ name: String) -> String { String(format: text("rooms.deletedToast", "Space “%@” deleted"), name) }
@@ -45,7 +45,7 @@ nonisolated enum RoomStrings {
     static var clearDefaults: String { text("rooms.clearDefaults", "Clear") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Rooms", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Rooms", bundle: .module.inAppLanguage)
     }
 }
 

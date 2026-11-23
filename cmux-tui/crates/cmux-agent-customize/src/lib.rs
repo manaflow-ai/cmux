@@ -7,12 +7,14 @@
 //!
 //! One module per part of an agent's setup ([`mcp`] first, then [`hooks`]: every hook in Claude
 //! Code's settings files and Codex's hooks.json, by event, turned off and on, and [`skills`] for
-//! skills and slash commands); [`paths`] names every file each agent
+//! skills and slash commands, and [`settings`] for each agent's effective settings and the curated
+//! keys cmux edits: model, permission or approval mode, sandbox, env masked); [`paths`] names every file each agent
 //! reads, so the modules agree on where things live. Every edit round-trips: unknown keys,
 //! comments and key order stay as they were ([`ojson`] for JSON, `toml_edit` for TOML), the write
 //! is atomic and keeps the file before it beside it ([`fsio`]), and nothing a server holds as a
 //! secret (an env value, a header) leaves this crate unmasked.
 
+pub mod commands;
 pub mod frontmatter;
 pub mod fsio;
 pub mod hooks;
@@ -23,6 +25,7 @@ pub mod mcp;
 pub mod ojson;
 mod ordered_json;
 pub mod paths;
+pub mod settings;
 pub mod skills;
 pub mod write;
 

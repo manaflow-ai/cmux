@@ -232,6 +232,21 @@ mod tests {
         }
     }
 
+    /// A base URL the person did not opt in for never gets their real key (cmux#13742); the
+    /// official API does.
+    #[test]
+    fn a_custom_url_gets_no_real_key_without_the_opt_in() {
+        let env = |k: &str| (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string());
+        assert_eq!(
+            api_key("http://typo.example:8080", env),
+            crate::config::SUBROUTER_KEY
+        );
+        assert_eq!(api_key(crate::config::DEFAULT_BASE_URL, env), "sk-real");
+        assert_eq!(api_key("https://api.anthropic.com/", env), "sk-real");
+        let explicit = |k: &str| (k == crate::config::API_KEY_ENV).then(|| "sk-for-gw".to_string());
+        assert_eq!(api_key("http://gw.example", explicit), "sk-for-gw");
+    }
+
     /// Audit round 2: the key was the constant "subrouter", so any other
     /// base URL answered every compactor call with a 401, forever.
     #[test]
@@ -275,8 +290,12 @@ mod tests {
             (key, agent)
         });
         let config = Config {
-            api_key: api_key(&base_url, |k| {
-                (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string())
+            // A custom URL gets the person's key only with the opt-in (cmux#13742); without it,
+            // the placeholder.
+            api_key: api_key(&base_url, |k| match k {
+                "ANTHROPIC_API_KEY" => Some("sk-real".to_string()),
+                crate::config::SEND_KEY_ENV => Some("1".to_string()),
+                _ => None,
             }),
             base_url,
             ..Config::default()

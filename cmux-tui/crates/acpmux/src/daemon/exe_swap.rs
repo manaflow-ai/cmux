@@ -155,16 +155,15 @@ impl Swap for ExeSwap {
         if let Some(restart) = service_restart()
             && let Some((program, args)) = restart.split_first()
         {
+            let command = restart.join(" ");
             let status = cmux_process::Command::new(program)
                 .args(args)
                 .stdin(cmux_process::Stdio::null())
                 .status()
-                .map_err(|e| format!("{}: {e}", restart.join(" ")))?;
-            return if status.success() {
-                Ok(())
-            } else {
-                Err(format!("{} exited {status}", restart.join(" ")))
-            };
+                .map_err(|e| format!("{command}: {e}"))?;
+            restart_outcome(&command, status)?;
+            tracing::info!("update: handed over to the new build through {command}");
+            return Ok(());
         }
         let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
@@ -233,6 +232,27 @@ pub(super) fn handover_args(args: &[String]) -> Vec<String> {
     out
 }
 
+/// What the end of the service manager's restart command says about the handover. Exit 0: the
+/// restart was queued. Killed by SIGTERM: the stop was issued already. The command runs as this
+/// daemon's child, so it is in the job it restarts (systemd's unit cgroup, launchd's job), and the
+/// manager's stop of that job (`restart --no-block`, `kickstart -k`) sends SIGTERM to it too, in
+/// the moment between queueing the restart and exiting. Before this, every hourly update logged
+/// "the new build did not take over ... exited signal: 15 (SIGTERM)" while the new build served
+/// 0.9 s later (cmuxterm-hq #19255, findings 2026-11-22 section 2).
+///
+/// Signal 15 alone decides it, not this daemon's own stop flag (`supervision::stopping`): the
+/// daemon's SIGTERM is read on the async runtime after its sender is looked up, so the flag can
+/// trail the reap of this child, and waiting for it would only add a race. Any other signal or
+/// exit code is a failed handover, and this daemon serves on.
+fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<(), String> {
+    use std::os::unix::process::ExitStatusExt as _;
+    if status.success() || status.signal() == Some(libc::SIGTERM) {
+        Ok(())
+    } else {
+        Err(format!("{command} exited {status}"))
+    }
+}
+
 /// The service manager's own restart command for the job that runs this daemon, if one does.
 fn service_restart() -> Option<Vec<String>> {
     if super::managed_by_acpmux_unit() {
@@ -267,6 +287,45 @@ fn service_restart() -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The status of a real child that ends as `script` makes it.
+    fn ended(script: &str) -> std::process::ExitStatus {
+        cmux_process::Command::new("sh")
+            .args(["-c", script])
+            .stdin(cmux_process::Stdio::null())
+            .status()
+            .unwrap()
+    }
+
+    /// The restart child killed by the stop it issued (signal 15) handed over; one that exited
+    /// non-zero or died of another signal did not.
+    #[test]
+    fn a_restart_child_killed_by_sigterm_handed_over() {
+        let restart = "systemctl --user restart --no-block acpmux.service";
+        assert_eq!(restart_outcome(restart, ended("kill -TERM $$")), Ok(()));
+        assert_eq!(restart_outcome(restart, ended("exit 0")), Ok(()));
+        let failed = restart_outcome(restart, ended("exit 5")).unwrap_err();
+        assert!(failed.starts_with(restart) && failed.contains('5'), "{failed}");
+        let killed = restart_outcome(restart, ended("kill -KILL $$")).unwrap_err();
+        assert!(killed.contains("signal: 9"), "{killed}");
+        let hup = restart_outcome(restart, ended("kill -HUP $$"));
+        assert!(hup.is_err(), "only the stop's own SIGTERM counts");
+    }
+
+    /// Before/after over one harness (cmuxterm-hq #19255 section 2: 33 of 33 handovers logged
+    /// "did not take over"): N restart children that die of SIGTERM, read as the old check did
+    /// (`status.success()`) and as `restart_outcome` does.
+    #[test]
+    fn handover_sigterm_before_and_after() {
+        const N: usize = 8;
+        let statuses: Vec<_> = (0..N).map(|_| ended("kill -TERM $$")).collect();
+        let before = statuses.iter().filter(|s| !s.success()).count();
+        let after = statuses.iter().filter(|s| restart_outcome("systemctl", **s).is_err()).count();
+        eprintln!(
+            "handover-bench: {N} handovers, 'did not take over' before={before} after={after}"
+        );
+        assert_eq!((before, after), (N, 0));
+    }
 
     #[test]
     fn the_take_over_daemon_writes_to_the_daemon_log() {
