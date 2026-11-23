@@ -52,6 +52,8 @@ class Expressions(unittest.TestCase):
         # The expression grammar allows whitespace between tokens, so spaced spellings are reads too.
         self.assertEqual(self.bad("vars ['CI_IOS_INTERNAL_RUNNER'] || 'macos-26'"), ["CI_IOS_INTERNAL_RUNNER"])
         self.assertEqual(self.bad("vars[ \"CI_IOS_INTERNAL_RUNNER\" ] || 'macos-26'"), ["CI_IOS_INTERNAL_RUNNER"])
+        # A bracket key is read whole: names allow no hyphen, so 'X-FALLBACK' reads no variable, not X.
+        self.assertEqual(self.bad("vars['CI_IOS_INTERNAL_RUNNER-FALLBACK'] || 'macos-26'"), [])
 
     def test_a_pool_value_passes(self) -> None:
         self.assertEqual(self.bad("vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'",
