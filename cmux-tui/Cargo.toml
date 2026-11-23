@@ -35,6 +35,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -189,6 +190,7 @@ default-members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -419,6 +421,7 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
+cmux-share-approval = { path = "crates/cmux-share-approval" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
