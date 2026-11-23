@@ -293,11 +293,12 @@ impl Hub {
         cmux_json::JsonSet::set(&mut decision, "secretId", json!(secret_id));
         cmux_json::JsonSet::set(&mut decision, "outcome", json!(outcome));
         self.append(session, "mux", kind.decision, decision);
-        let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-        self.settle_after_ask(session, &state, || {
-            super::permissions::status_after_ask(session, prev)
-        });
-        drop(state);
+        {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            self.settle_after_ask(session, &state, || {
+                super::permissions::status_after_ask(session, prev)
+            });
+        }
         (outcome, answer.flatten())
     }
 

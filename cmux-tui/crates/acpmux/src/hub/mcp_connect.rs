@@ -166,11 +166,12 @@ impl Hub {
             "mcp_connect_decision",
             json!({"requestId": request_id, "name": name, "outcome": status, "scope": scope}),
         );
-        let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-        self.settle_after_ask(session, &state, || {
-            super::permissions::status_after_ask(session, prev)
-        });
-        drop(state);
+        {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            self.settle_after_ask(session, &state, || {
+                super::permissions::status_after_ask(session, prev)
+            });
+        }
         let Some(scope) = scope else {
             return Ok(json!({"status": status, "name": name}));
         };
