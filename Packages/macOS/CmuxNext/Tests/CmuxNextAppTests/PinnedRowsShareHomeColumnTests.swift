@@ -63,6 +63,10 @@ import Testing
     /// A pinned group with no icon, in the list under the Pinned block (``list(scale:width:pinnedGroup:)``).
     static let pinnedGroupID = GroupID("g-share-home-line")
 
+    /// DIAG (scratch only): every list and window a case made, weakly held.
+    static let lists = NSHashTable<SidebarListView>.weakObjects()
+    static let windows = NSHashTable<NSWindow>.weakObjects()
+
     static func list(scale: CGFloat, width: CGFloat = 240, pinnedGroup: Bool = false) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
@@ -92,6 +96,8 @@ import Testing
         list.layoutSubtreeIfNeeded()
         list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         for region in list.blockRegions { region.itemViews.values.forEach { $0.needsLayout = true; $0.layoutSubtreeIfNeeded(); $0.layout() } }
+        Self.lists.add(list)
+        Self.windows.add(window)
         return (list, window)
     }
 
@@ -105,9 +111,20 @@ import Testing
             TunableStore.shared.register(SidebarTunables.all)
             TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
             try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
+            let t0 = Date()
+            func diag(_ step: String) {
+                let (all, shown) = MainActor.assumeIsolated { (NSApplication.shared.windows, NSApplication.shared.windows.filter { $0.isVisible }.count) }
+                let live = MainActor.assumeIsolated { "indicators=\(StatusIndicatorAppearance.shared.debugClientCount) lists=\(Self.lists.allObjects.count) windowsAlive=\(Self.windows.allObjects.count)" }
+                print("HANGDIAG \(c.testDescription) \(preset) \(step) live=\(live) t=\(String(format: "%.3f", Date().timeIntervalSince(t0))) windows=\(all.count) visible=\(shown)")
+            }
+            diag("begin")
             try DensityTokens.$scoped.withValue(preset.tokens) {
                 try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
             }
+            diag("body-done")
+            let spin = Date()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            print("HANGDIAG spin \(String(format: "%.3f", Date().timeIntervalSince(spin)))")
         }
     }
 

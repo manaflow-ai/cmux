@@ -117,6 +117,8 @@ public final class StatusIndicatorAppearance {
     /// an app activation should touch the indicators on screen only, never every row and tab.
     public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
+    /// DIAG (scratch only): the live clients.
+    public var debugClientCount: Int { clients.allObjects.count }
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
