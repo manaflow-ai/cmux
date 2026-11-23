@@ -1,0 +1,11 @@
+# check-ios-control-colors.py baseline: path<TAB>count (lower it; never raise it by hand)
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/ChiefQuestionViews.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/CloudMachinesScreen.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/ChiefCallsPage.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/Joystick.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/AgentVoiceBar.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/ChiefCallScreen.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/LiveCallScreen.swift	7
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/CommandPaletteSheet.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TabMoveAndGroupSheets.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	2

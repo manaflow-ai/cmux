@@ -299,6 +299,8 @@ jobs:
         run: |
           python3 -I scripts/cmux-next/tests/test_check_ios_surface_colors.py
           python3 -I scripts/cmux-next/check-ios-surface-colors.py --root "$GITHUB_WORKSPACE"
+          python3 -I scripts/cmux-next/tests/test_check_ios_control_colors.py
+          python3 -I scripts/cmux-next/check-ios-control-colors.py --root "$GITHUB_WORKSPACE"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
