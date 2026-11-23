@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
@@ -268,6 +269,7 @@ pub(super) fn advertised_capabilities(
         creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
+        send_once::SEND_KEY_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -307,6 +309,7 @@ pub(super) fn advertised_capabilities(
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        TERMINAL_RESUME_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
@@ -330,6 +333,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
+        DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         TERMINAL_TAIL_PIN_CAPABILITY,
@@ -355,6 +359,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         WORKSPACE_CREATED_BY_CAPABILITY,
+        CREATED_BY_DETAIL_CAPABILITY,
         TERMINAL_READ_UNWRAP_CAPABILITY,
         TERMINAL_WAIT_NEW_CAPABILITY,
         TERMINAL_EXIT_STATUS_CAPABILITY,
@@ -401,6 +406,9 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
+        conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
+        conversations::HOME_INBOX_SINCE_CAPABILITY,
+        conversations::HOME_INBOX_WINDOW_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY,
         conversation_live::CHIEF_LIVE_CAPABILITY,
@@ -494,6 +502,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
+        crate::git_ops::WORKTREE_SETUP_RUN_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
@@ -525,65 +534,11 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{SurfaceOptions, start_terminal_reaper};
-
-    /// A client decides from `identify` whether closing a tab may only
-    /// detach its terminal: that is safe only while the reaper runs.
-    #[test]
-    fn identify_advertises_the_reaper_only_while_it_runs() {
-        let mux = Mux::new_for_test("reaper-capability", SurfaceOptions::default());
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
-        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        let reaper = start_terminal_reaper(&mux).unwrap();
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        reaper.stop();
-        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
-    }
-
-    /// The server answers `identify` from its attach, and the owner started
-    /// its reaper only later: a client that identified in between saw an
-    /// owner without a reaper (main #39586 on macOS). An owner that announced
-    /// its reaper lists the capability from the start; a stopped reaper ends
-    /// the announcement.
-    #[test]
-    fn identify_lists_an_announced_reaper_before_it_starts() {
-        let mux = Mux::new_for_test("reaper-announced", SurfaceOptions::default());
-        mux.announce_terminal_reaper();
-        assert!(
-            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
-            "an owner that starts its reaper after its attach answered identify without \
-             terminal-reaper-active-v1 before the reaper thread ran"
-        );
-        let reaper = start_terminal_reaper(&mux).unwrap();
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        reaper.stop();
-        assert!(
-            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
-            "a stopped reaper is still advertised"
-        );
-    }
-
-    /// `cmux-tui capabilities` names only what `identify` always serves: a
-    /// daemon with nothing installed at startup advertises every one of them.
-    #[test]
-    fn identify_serves_every_static_capability() {
-        let mux = Mux::new_for_test("static-capabilities", SurfaceOptions::default());
-        let identified = identify_capabilities(&mux);
-        let listed = static_capabilities();
-        assert!(listed.contains(&conversations::WS_CONVERSATIONS_CAPABILITY));
-        assert!(listed.contains(&page_credential::PAGE_CREDENTIAL_CAPABILITY));
-        for capability in &listed {
-            assert!(identified.contains(capability), "identify lacks {capability}");
-        }
-        assert!(listed.windows(2).all(|pair| pair[0] < pair[1]), "sorted and unique: {listed:?}");
-        assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
-        assert!(listed.contains(&TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY), "static");
-    }
-}
+#[path = "capabilities_tests.rs"]
+mod tests;

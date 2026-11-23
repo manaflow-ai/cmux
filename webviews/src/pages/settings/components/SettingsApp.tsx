@@ -1,5 +1,5 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
@@ -13,7 +13,6 @@ import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
-import { FOCUS_PREFIX, personalizationPart, personalizationPartOf, type PartID } from "../personalizationParts";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
 
@@ -44,9 +43,7 @@ export function SettingsApp() {
     (next: { query: string }) => {
       const current = parseLocation(router.state.location.href);
       written.current = next.query;
-      router.history.replace(
-        sectionHref(current.section, current.focus, current.workspace, { ...next, part: current.part }),
-      );
+      router.history.replace(sectionHref(current.section, current.focus, current.workspace, next));
     },
     [router],
   );
@@ -74,11 +71,7 @@ export function SettingsApp() {
   const reveal = useCallback(
     (key: string) => {
       const row = rowsByKey.get(key);
-      // A key Personalization draws opens its part there: no other page draws it.
-      const part = personalizationPartOf(key);
-      // Personalization opens the part that draws the key, and the key's row takes focus there.
-      if (part) go("personalization", key);
-      else if (row) go(homes.get(key)?.category ?? row.section, key);
+      if (row) go(homes.get(key)?.category ?? row.section, key);
     },
     [go],
   );
@@ -106,7 +99,6 @@ export function SettingsApp() {
   );
   // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
   const section = shownSection(location.section, state.host?.dev_build === true);
-  const currentPart = section === "personalization" ? personalizationPart(location.focus, location.part) : null;
   // The category the page opens on draws still: no entrance on the open, whose first shown frame is
   // the settled page (Leo, 2026-10-20: "the settings flicker is bad when you load it";
   // settings-open-frames). The open is every category shown before the page is (a pooled page's
@@ -121,18 +113,8 @@ export function SettingsApp() {
   // A click on the category already shown takes its page back to the top (Lucas 2026-11-11), as a
   // second click on a native sidebar's current item or a browser's tab does.
   const content = useRef<HTMLElement>(null);
-  const opensAtTop =
-    !searching &&
-    currentPart !== null &&
-    (!location.focus || (currentPart !== "background" && location.focus.startsWith(FOCUS_PREFIX)));
-  const panelTopRoute = opensAtTop ? href : null;
-  useLayoutEffect(() => {
-    if (panelTopRoute) content.current?.scrollTo?.({ top: 0 });
-  }, [panelTopRoute]);
-  const select = (category: string, part: PartID = "theme") => {
-    if (category === section && !searching && (currentPart === null || currentPart === part)) {
-      content.current?.scrollTo?.({ top: 0 });
-    }
+  const select = (category: string) => {
+    if (category === section && !searching) content.current?.scrollTo?.({ top: 0 });
     clearField();
   };
   const submit = () => {
@@ -161,12 +143,7 @@ export function SettingsApp() {
         {/* The categories scroll under the title and search in the app's own thin scrollbar, the one
             the New Tab page's folder menu draws (Lucas 2026-11-11), never WebKit's. */}
         <ScrollArea fade className="sidebar-scroll" viewportClassName="sidebar-scroll-viewport">
-          <SectionList
-            current={searching ? null : section}
-            currentPart={currentPart}
-            workspace={location.workspace}
-            onSelect={select}
-          />
+          <SectionList current={searching ? null : section} onSelect={select} />
         </ScrollArea>
       </aside>
       <main className="content" ref={content}>

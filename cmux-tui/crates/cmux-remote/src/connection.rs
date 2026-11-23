@@ -1573,17 +1573,31 @@ async fn authenticate_one(
     context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical =
-        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
-    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
-    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
-    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
-    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
+    // WebSocket's TCP, TLS and upgrade, a relay circuit), the Noise exchange, the daemon's welcome
+    // and its link-ready. The clock starts before the open, so a carrier that accepts and then
+    // never finishes opening fails this attempt (and the first connect, which has no outer
+    // deadline of its own) instead of hanging it. A link that stalls after the Noise exchange
+    // fails the attempt too (so it is retried), and cannot hand back a session the daemon dropped
+    // meanwhile as an incomplete link group. An invitation is the exception: its welcome waits on
+    // a person's approval, so only its open and its link-ready, once the welcome is in, have the
+    // deadline.
     let timeout = config.reconnect.attempt_timeout;
     let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
     let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
     let started = tokio::time::Instant::now();
+    let physical = tokio::time::timeout_at(
+        started + timeout,
+        group.open(LinkRequest { lane: primary, generation: context.generation }),
+    )
+    .await
+    .map_err(|_| {
+        ConnectionError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "opening lane {primary} on {} did not finish within {}",
+            group.description(),
+            crate::provider::DisplaySeconds(timeout)
+        ))))
+    })??;
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -1615,8 +1629,15 @@ async fn authenticate_one(
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
+            ..
         }) => {
             return Err(ConnectionError::SessionUnavailable);
+        }
+        LinkHandshakeResponse::Rejected(LinkRejected {
+            rejected: LinkRejection::TooManyClients,
+            limit,
+        }) => {
+            return Err(ConnectionError::DaemonAtCapacity { limit });
         }
     };
     if ready.session != config.session || ready.generation != context.generation {
@@ -1642,14 +1663,30 @@ enum LinkHandshakeResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LinkRejected {
+pub(crate) struct LinkRejected {
     rejected: LinkRejection,
+    /// The daemon's client limit, with [`LinkRejection::TooManyClients`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+}
+
+impl LinkRejected {
+    pub(crate) fn session_unavailable() -> Self {
+        Self { rejected: LinkRejection::SessionUnavailable, limit: None }
+    }
+
+    pub(crate) fn too_many_clients(limit: usize) -> Self {
+        Self { rejected: LinkRejection::TooManyClients, limit: Some(limit) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum LinkRejection {
+enum LinkRejection {
     SessionUnavailable,
+    /// The daemon already serves its limit of logical client sessions. A
+    /// slot frees when one of them ends, so the client retries with backoff.
+    TooManyClients,
 }
 
 pub(crate) async fn send_link_ready(
@@ -1666,9 +1703,9 @@ pub(crate) async fn send_link_ready(
 
 pub(crate) async fn send_link_rejection(
     link: &dyn FrameLink,
-    rejection: LinkRejection,
+    rejection: LinkRejected,
 ) -> Result<(), ConnectionError> {
-    let payload = serde_json::to_vec(&LinkRejected { rejected: rejection })
+    let payload = serde_json::to_vec(&rejection)
         .map_err(|error| ConnectionError::Protocol(error.to_string()))?;
     link.send(Bytes::from(payload)).await?;
     Ok(())
@@ -1710,6 +1747,12 @@ pub enum ConnectionError {
     /// it. Not retryable: nothing can resume it, so the caller should stop
     /// redialing and offer a new session.
     SessionUnavailable,
+    /// The daemon refused a new session because it already serves its limit
+    /// of logical client sessions (`limit`, when the daemon named it).
+    /// Retryable: a slot frees when another client disconnects.
+    DaemonAtCapacity {
+        limit: Option<usize>,
+    },
 }
 
 impl ConnectionError {
@@ -1729,7 +1772,8 @@ impl ConnectionError {
             ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
-            | Self::ReconnectAttemptTimedOut { .. } => true,
+            | Self::ReconnectAttemptTimedOut { .. }
+            | Self::DaemonAtCapacity { .. } => true,
             _ => false,
         }
     }
@@ -1773,6 +1817,15 @@ impl fmt::Display for ConnectionError {
             Self::SessionUnavailable => formatter.write_str(
                 "daemon no longer has the requested logical session (it expired or was closed)",
             ),
+            Self::DaemonAtCapacity { limit: Some(limit) } => write!(
+                formatter,
+                "too many connected clients: the daemon serves its limit of {limit}; \
+                 close other clients or raise the daemon's open-file limit"
+            ),
+            Self::DaemonAtCapacity { limit: None } => formatter.write_str(
+                "too many connected clients: the daemon serves its limit; \
+                 close other clients or raise the daemon's open-file limit",
+            ),
         }
     }
 }
@@ -1813,5 +1866,43 @@ impl From<LinkError> for ConnectionError {
 impl From<SessionError> for ConnectionError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
+    }
+}
+
+#[cfg(test)]
+mod link_rejection_tests {
+    use super::*;
+
+    #[test]
+    fn session_unavailable_keeps_its_wire_form() {
+        // Clients from before the capacity rejection parse this exact form.
+        assert_eq!(
+            serde_json::to_string(&LinkRejected::session_unavailable()).unwrap(),
+            r#"{"rejected":"session-unavailable"}"#
+        );
+    }
+
+    #[test]
+    fn too_many_clients_carries_the_limit_and_parses_as_a_rejection() {
+        let encoded = serde_json::to_vec(&LinkRejected::too_many_clients(64)).unwrap();
+        assert_eq!(encoded, br#"{"rejected":"too-many-clients","limit":64}"#);
+        let decoded: LinkHandshakeResponse = serde_json::from_slice(&encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            LinkHandshakeResponse::Rejected(LinkRejected {
+                rejected: LinkRejection::TooManyClients,
+                limit: Some(64),
+            })
+        ));
+    }
+
+    #[test]
+    fn daemon_at_capacity_is_retryable_and_says_why() {
+        let error = ConnectionError::DaemonAtCapacity { limit: Some(64) };
+        assert!(error.is_retryable_carrier_failure());
+        let message = error.to_string();
+        assert!(message.contains("too many connected clients"), "{message}");
+        assert!(message.contains("64"), "{message}");
+        assert!(!message.contains("expired"), "{message}");
     }
 }

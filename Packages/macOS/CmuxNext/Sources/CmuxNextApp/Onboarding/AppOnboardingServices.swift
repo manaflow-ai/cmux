@@ -79,7 +79,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         owner.browserImportOffer.importFinished(summary.counts)
         await owner.historySync.reconcile()
-        ImportedTabsOpener.open(summary, services: services)
+        ImportedTabsOpener.open(await ImportedExtensionsInstaller(reader: reader, folders: cef.importedExtensionFolders, load: cef.loadImportedUnpacked).workspaces(summary), services: services)
         if let engine = summary.searchEngine, let settings = services.settings,
            let choice = try? await reader.setting(engine, builtIn: BrowserSearchEngine.templates) {
             await BrowserOmnibarSetting.applyImported((choice.engine, choice.search, choice.suggest), in: settings)

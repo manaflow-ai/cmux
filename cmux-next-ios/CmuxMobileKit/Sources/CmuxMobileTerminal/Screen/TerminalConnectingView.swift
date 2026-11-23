@@ -7,8 +7,8 @@ import UIKit
 /// attached: the page as last seen on this phone, as it was (never dimmed,
 /// never covered), or, for a terminal never opened on this phone, a skeleton
 /// of terminal lines with the shimmer (SPEC 7.1). Never made-up output, and
-/// never a status pill over the content: the connection's state is one quiet
-/// line by the composer, and only after ``QuietStatusGate/threshold``
+/// never a status pill over the content: the connection's state is the title
+/// pill's subtitle, and only after ``QuietStatusGate/threshold``
 /// (``TerminalModel/connectionLine``).
 ///
 /// Leo, 2026-11-12, on LTE: "wack reconnection state / just show the cache".

@@ -8,6 +8,35 @@
     "layout.paneCornerRadius": 8,
     "sidebar.controlsOnHover": true,
     "sidebar.groupHeader.background": "glass",
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.groupGradient": "sunset",
+    "sidebar.workspaceRow.pullRequest": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "dot"
   }
 }

@@ -1,6 +1,9 @@
+import CmuxChiefList
+
 /// Which Chief Home opens by default (#64, 2026-10-21): this Mac's Chief while this Mac's
 /// optchat-chief runs, else the Hosted (cloud) Chief. Settings > Chief's Engine row
-/// (`home.chiefEngine`, Leo's list 89(3)) can force either one.
+/// (`home.chiefEngine`, Leo's list 89(3)) can force either one. The rule is the shared
+/// ``ChiefDefault`` (CmuxChiefList), the one the iPhone's Home uses.
 public nonisolated enum HomeChiefDefault: String, Sendable, CaseIterable {
     /// This Mac's Chief while its optchat-chief runs, else the Hosted Chief.
     case auto
@@ -16,10 +19,6 @@ public nonisolated enum HomeChiefDefault: String, Sendable, CaseIterable {
 
     /// This Mac's Chief is the default: forced, or Auto while this Mac's optchat-chief runs.
     public func prefersLocal(localRunning: Bool) -> Bool {
-        switch self {
-        case .auto: localRunning
-        case .local: true
-        case .hosted: false
-        }
+        ChiefDefault(setting: rawValue).prefersLocal(localRunning: localRunning)
     }
 }

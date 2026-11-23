@@ -1,4 +1,4 @@
-// Personalization > Customization Library (cmux-customize `library.rs`): what the card draws from
+// Appearance > Customization Library (cmux-customize `library.rs`): what the card draws from
 // `cmux customize library`'s listing. The engine owns the stack and its rule (where two entries that
 // are on set the same key or file, the higher one wins); this only says it in words per entry.
 import type { LibraryEntry, LibraryListing } from "./ops";

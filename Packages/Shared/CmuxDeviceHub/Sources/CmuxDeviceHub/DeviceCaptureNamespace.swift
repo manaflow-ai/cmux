@@ -19,7 +19,7 @@ public struct DeviceCaptureNamespace: Sendable {
         delete = { protected, account in
             var query = Self.query(service: service, dataProtection: protected)
             query[kSecAttrAccount as String] = account
-            let status = SecItemDelete(query as CFDictionary)
+            let status = KeychainUserInteraction.withoutUI { SecItemDelete(query as CFDictionary) }
             guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
             return status == errSecSuccess
         }
@@ -66,7 +66,8 @@ public struct DeviceCaptureNamespace: Sendable {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // The query's UI-fail flag covers the data-protection Keychain; the switch covers the file one.
+        let status = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return [] }
         guard status == errSecSuccess, let items = result as? [[String: Any]] else { throw DeviceIdentity.Failure.keychain(status) }
         let names = items.compactMap { $0[kSecAttrAccount as String] as? String }

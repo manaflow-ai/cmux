@@ -421,8 +421,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1).
-        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
+        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1), and GitHub-hosted
+        # starts nothing in manaflow-ai (Leo, 2026-11-21: "the ci must flow"): a one-job owned JIT VM.
+        self.assertIn("runs-on: cmux-gcp-repair-jit-x64 #", self.text)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:

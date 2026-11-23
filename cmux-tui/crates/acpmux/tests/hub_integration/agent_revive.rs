@@ -73,6 +73,38 @@ async fn an_agent_that_dies_mid_turn_is_restarted_on_its_conversation_and_its_qu
 /// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
 /// a steer until its next tool step, so a crash before that step took it with the process, and
 /// the resumed conversation never had it. Three crashes in a row, eight steers into each.
+/// Leo, 2026-11-21: "i dont think 429 should just cause a process to just exit on its own, this
+/// is pretty weird". An agent that prints its account's 429 and quits between turns, with no
+/// Stop, close or idle exit asking, is logged `exited` with why (`rate_limit` and the line), never
+/// `stopped`; the chat stays open under its name, and the next prompt resumes the same
+/// conversation.
+#[tokio::test]
+async fn an_agent_that_quits_on_a_429_between_turns_is_exited_with_why_and_resumes() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "quit-429").await;
+    let sid = agent_sid(&hub, &id);
+    assert!(sid.is_some());
+    let line =
+        "API Error: Request rejected (429) · This request would exceed your account's rate limit";
+    c.request(method::SESSION_PROMPT, prompt(&id, &format!("quit-after: {line}"), Some("p-1")))
+        .await
+        .unwrap();
+    until("the agent quit", || !records(&hub, &id, "exited").is_empty()).await;
+    let exited = records(&hub, &id, "exited");
+    assert_eq!(exited.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(exited[0]["code"], 0, "{exited:?}");
+    assert_eq!(exited[0]["reason"], "rate_limit", "{exited:?}");
+    assert_eq!(exited[0]["error"], line, "{exited:?}");
+    assert!(records(&hub, &id, "stopped").is_empty(), "{:?}", kinds(&hub, &id));
+    assert_ne!(status(&hub, &id), "closed");
+    assert_eq!(hub.resolve("quit-429").unwrap().id, id, "it keeps its name");
+    // The next prompt starts the harness again on the same conversation.
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello again", Some("p-2"))).await.unwrap();
+    assert!(kinds(&hub, &id).iter().any(|k| k == "resumed"), "{:?}", kinds(&hub, &id));
+    assert_eq!(agent_sid(&hub, &id), sid);
+    assert_eq!(status(&hub, &id), "ready");
+}
+
 #[tokio::test]
 async fn steers_an_agent_died_before_reading_reach_it_after_the_crash() {
     const ROUNDS: usize = 3;

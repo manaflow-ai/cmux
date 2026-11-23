@@ -16,6 +16,8 @@ pub mod draft;
 pub mod panes;
 #[path = "tabs_place.rs"]
 pub mod place;
+#[path = "tabs_plus_menu.rs"]
+pub mod plus_menu;
 
 // MARK: New tab kind
 
@@ -64,6 +66,9 @@ pub struct NewTabFacts {
     pub follows_setting: bool,
     /// A shown pane whose daemon holds agent tabs (so also the New Tab page).
     pub can_host_agent: bool,
+    /// The person works terminal-first (`tabs.newTabTemplate` `terminal`, picked at the first run,
+    /// cmux#48416): their Cmd-T opens a terminal, not the New Tab page.
+    pub terminal_first: bool,
 }
 
 /// The kind of the selected tab, as the person sees it: an agent tab gets an
@@ -84,12 +89,16 @@ pub fn same_kind(facts: &NewTabFacts) -> NewTabKind {
     NewTabKind::Terminal
 }
 
-/// What a new tab opens: a person's Cmd-T always the New Tab page (Leo
-/// 2026-10-12), else [`same_kind`]. An agent tab or the page needs a pane
+/// What a new tab opens: a person's Cmd-T the New Tab page (Leo
+/// 2026-10-12), or a terminal for a person who chose to work terminal-first
+/// (cmux#48416), else [`same_kind`]. An agent tab or the page needs a pane
 /// that hosts agent tabs; elsewhere a terminal.
 pub fn new_tab_kind(facts: &NewTabFacts) -> NewTabKind {
-    let kind =
-        if facts.user && facts.follows_setting { NewTabKind::Page } else { same_kind(facts) };
+    let kind = match (facts.user && facts.follows_setting, facts.terminal_first) {
+        (true, true) => NewTabKind::Terminal,
+        (true, false) => NewTabKind::Page,
+        (false, _) => same_kind(facts),
+    };
     match kind {
         NewTabKind::Agent | NewTabKind::Page if !facts.can_host_agent => NewTabKind::Terminal,
         kind => kind,
