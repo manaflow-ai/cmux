@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// `workspace.open_url` (`workspace-open-url-v1`, cmux-tui spec resource-api-v2.md): a web link
 /// opens on the right side of a workspace, the home workspace when none is named. The daemon owns

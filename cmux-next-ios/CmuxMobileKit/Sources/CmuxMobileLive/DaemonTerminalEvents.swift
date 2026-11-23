@@ -44,6 +44,9 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// frame: the session attaches again for a full resync, or in bytes mode
     /// (``DaemonTerminalSession``), so the phone never shows a wrong screen it cannot see is wrong.
     case hybridFallback(reason: String)
+    /// The Mac stamped this line's redraw (`pseq`, hostd): after its bytes, with the time the
+    /// phone read the line (epoch ms), so the screen can say when it painted it.
+    case stamped(seq: Int, receivedMs: Double)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -153,6 +156,11 @@ struct DaemonTerminalEventParser: Sendable {
             }
         default:
             break
+        }
+        // A redraw hostd stamped: after what it drew, so the mark follows its bytes.
+        if let seq = (object["pseq"] as? NSNumber)?.intValue, seq > 0,
+           out.contains(where: { if case .output = $0 { true } else { false } }) {
+            out.append(.stamped(seq: seq, receivedMs: Date().timeIntervalSince1970 * 1000))
         }
         return out
     }
