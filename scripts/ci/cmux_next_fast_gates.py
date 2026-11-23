@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: seven checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -30,6 +30,8 @@ The gates, each the same invocation as its push-time job:
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
+  web abi         scripts/ci/web_abi_gate.py --base BASE --head MERGE: host ops the web calls changed with
+                  webviews/src/web-abi.json at the same abi (RFD 0038; plans/cmux-next/web-ota.md "Native interface")
   webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
                   checks; only findings the PR adds), on a dispatch, or for a pull request that changes a string catalog or
                   the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
@@ -329,6 +331,7 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
+        ("web abi", [py, "scripts/ci/web_abi_gate.py", "--base", base, "--head", merge]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]
 
