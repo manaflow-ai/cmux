@@ -3,7 +3,11 @@
 use super::*;
 use std::future::Future;
 use std::task::Poll;
+use std::time::Duration;
 use tokio::net::UnixListener;
+use tokio::time::timeout;
+
+const WAIT: Duration = Duration::from_secs(30);
 
 #[tokio::test]
 async fn cancelled_requests_leave_no_waiters_and_late_replies_do_not_close_the_client() {
@@ -28,8 +32,8 @@ async fn cancelled_requests_leave_no_waiters_and_late_replies_do_not_close_the_c
                         seen.send(request).await.unwrap();
                     }
                 }
-                reply = answers.recv() => {
-                    let Some(reply) = reply else { break };
+                reply = timeout(WAIT, answers.recv()) => {
+                    let Ok(Some(reply)) = reply else { break };
                     wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
                 }
             }
@@ -40,7 +44,8 @@ async fn cancelled_requests_leave_no_waiters_and_late_replies_do_not_close_the_c
     for _ in 0..256 {
         let client = client.clone();
         let task = tokio::spawn(async move { client.request(method::MUX_INFO, json!({})).await });
-        cancelled_id = requests.recv().await.unwrap()["id"].clone();
+        let request = timeout(WAIT, requests.recv()).await;
+        cancelled_id = request.expect("the daemon never saw the request").unwrap()["id"].clone();
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
     }
@@ -63,7 +68,8 @@ async fn cancelled_requests_leave_no_waiters_and_late_replies_do_not_close_the_c
     assert_eq!(client.pending.lock_or_recover().len(), 1);
     drop(blocked);
     assert_eq!(client.pending.lock_or_recover().len(), 0, "cancelled before transmission");
-    assert_eq!(backlog.recv().await.as_deref(), Some("occupied"));
+    let queued = timeout(WAIT, backlog.recv()).await.expect("the queue never gave its frame");
+    assert_eq!(queued.as_deref(), Some("occupied"));
     assert!(backlog.try_recv().is_err(), "the cancelled frame never entered the queue");
     Arc::get_mut(&mut client).unwrap().out = out;
 
@@ -71,7 +77,10 @@ async fn cancelled_requests_leave_no_waiters_and_late_replies_do_not_close_the_c
     answer.send(json!({"jsonrpc": "2.0", "id": cancelled_id, "result": "late"})).await.unwrap();
     let next_client = client.clone();
     let next = tokio::spawn(async move { next_client.request(method::MUX_INFO, json!({})).await });
-    let request = requests.recv().await.unwrap();
+    let request = timeout(WAIT, requests.recv())
+        .await
+        .expect("the daemon never saw the next request")
+        .unwrap();
     answer.send(json!({"jsonrpc": "2.0", "id": request["id"], "result": "current"})).await.unwrap();
     assert_eq!(next.await.unwrap().unwrap(), json!("current"));
     assert_eq!(client.pending.lock_or_recover().len(), 0);
