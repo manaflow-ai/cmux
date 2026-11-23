@@ -284,6 +284,16 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # Typing in an agent chat's composer under load (typing-frame-bench.py --modes, the load modes every under-load
+    # harness shares in webviews/bench/load-modes.json; Leo, 2026-11-16: "but typing under load is not good enough"):
+    # 200 keys per mode, L0 idle to L5 everything at once, against the real agent. Rows typing.agentpane.<mode>.*: the
+    # native key dispatch to the page's after-frame callback p95 (16 ms) and p99 (33 ms), and keys lost or reordered
+    # (0). A mode whose run is not complete, or that the native bench cannot fully load (its mode_missing), has no
+    # row: its number would read as the whole mode. The rows behind cmuxterm-hq NOW's typing-under-load rows.
+    # run_seconds: step 3b72dd7b ran all six modes in about 3200 s with its queue and build (cmux20-bench, 2026-11-20).
+    {"name": "typing-load", "args": [*MEASURE, "--suite=typing-frame", "--modes=all", "--surfaces=agentpane",
+                                     "--chat-agent=real", "--rounds=1", "--samples=200"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing_frame", "needs": "typing-load", "run_seconds": 3600},
     # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
     # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
     # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
@@ -383,6 +393,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
@@ -742,6 +753,38 @@ def refresh_ms_of(report):
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
+# The typing-load part's budgets (Leo's target for typing under load): key dispatch to after-frame p95 and p99.
+TYPING_P95_MS = 16.0
+TYPING_P99_MS = 33.0
+
+
+def typing_frame_rows(report):
+    """typing.<surface>.<mode>.{after_frame, after_frame_p99, lost_keys} from typing-frame-bench.py's --modes runs: one
+    set per complete run whose mode the native bench loads in full (mode_missing empty). A mode with several rounds
+    keeps its worst round. An incomplete run, or a mode the bench loads only in part, gives no row."""
+    out = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or not run.get("mode") or run.get("complete") is not True or run.get("mode_missing"):
+            continue
+        p50, p95 = run.get("dispatch_to_after_frame_p50_ms"), run.get("dispatch_to_after_frame_p95_ms")
+        p99 = run.get("dispatch_to_after_frame_p99_ms")
+        if not all(isinstance(v, (int, float)) for v in (p50, p95, p99)):
+            continue
+        expected, observed = run.get("expected_keys"), run.get("observed_keys")
+        lost = expected - observed if isinstance(expected, int) and isinstance(observed, int) else None
+        if run.get("text_exact") is not True or run.get("key_order_ok") is not True:
+            lost = max(lost or 0, 1)
+        prefix = f"typing.{run.get('surface') or 'agentpane'}.{run['mode']}"
+        rows = {f"{prefix}.after_frame": {"p50": p50, "p95": p95, "unit": "ms", "budget": TYPING_P95_MS, "floor": 2.0},
+                f"{prefix}.after_frame_p99": {"p50": p99, "p95": p99, "unit": "ms", "budget": TYPING_P99_MS, "floor": 4.0}}
+        if lost is not None:
+            rows[f"{prefix}.lost_keys"] = {"p50": lost, "p95": lost, "unit": "keys", "budget": 0, "floor": COUNT_FLOOR}
+        for name, row in rows.items():
+            if name not in out or row["p95"] > out[name]["p95"]:
+                out[name] = row
+    return out
+
+
 def rows_of_part(part, report, budgets_mod, budgets):
     """{row name: {p50, p95, unit, budget, floor}} from one part's report."""
     out = {}
@@ -790,6 +833,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
+    elif part["kind"] == "typing_frame":
+        out.update(typing_frame_rows(report))
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
 
@@ -2421,6 +2466,11 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
+        elif need == "typing-load":
+            # The load modes (--modes) and the agent chat surface arrived together with load_modes.py (cmux#44479).
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--modes" in text and "agentpane" in text and has_path(sha, "scripts/cmux-next/load_modes.py")
         elif need == "tabs":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
