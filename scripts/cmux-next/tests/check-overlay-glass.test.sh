@@ -83,6 +83,15 @@ expect_pass light-veil 'final class DemoCard: NSView {
     let surface = Glass.makeOverlayPanel(content: body)
     func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.13).cgColor }
 }'
+# SwiftUI on a menu panel is hosted in ThemedHostingView (Chief 2026-11-23); a plain host elsewhere is not this rule's.
+expect_fail menu-hosting menu-hosting '        let content = NSHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_fail menu-hosting-subclass menu-hosting 'final class Host<Content: View>: NSHostingView<Content> {}
+let card = Glass.makeMenuPanel(content: nil)'
+expect_pass menu-themed-hosting '        let content = ThemedHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_pass hosting-off-menu '        let content = NSHostingView(rootView: Form())
+        window.contentView = content'
 # A pane that builds no glass is not a floating surface: its dense fill is not this rule's.
 expect_pass dense-no-glass '        pane.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.94).cgColor'
 expect_fail card-material card-material '        let card = CardMaterial(tokens, lift: 0.1)'
