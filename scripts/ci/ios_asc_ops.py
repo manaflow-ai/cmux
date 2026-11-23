@@ -24,7 +24,7 @@ Operations (reads first; every write prints the object it wrote, read back after
   subscriptions       the app's subscription groups and products: state, level, US price, territories priced,
                       localizations, review screenshot (the price book's read-back)
   price-book-sync     make the app's "cmux Plans" products match PRICE_BOOK (RFD 0037a, web/services/billing/apple/
-                      config.ts): create missing groups and products, set levels, en-US and ja names and descriptions,
+                      config.ts): create missing groups and products, set levels (skipping, not failing, one in review), en-US and ja names and descriptions,
                       availability in every territory, the US base price and Apple's equalized price in every other
                       territory; idempotent (only what differs is written), then the `subscriptions` read-back
   review-screenshot-sync  upload ios/AppStoreReview/subscriptions/paywall.png as the App Review screenshot of each
@@ -400,8 +400,15 @@ def ensure_subscription(client: Client, app: str, group_id: str, product: dict, 
     return sub
 
 
-def ensure_levels(client: Client, app: str, subs: list[dict], log: list, errors: list) -> None:
-    """Price-book products take levels 1..n in order; any legacy products follow in their listed order."""
+# App Store Connect refuses edits to a subscription while Apple reviews it (HTTP 409
+# ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE); its level is left as is and set on a later sync.
+LOCKED_SUBSCRIPTION_STATES = frozenset({"WAITING_FOR_REVIEW", "IN_REVIEW"})
+UNMODIFIABLE = "ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE"
+
+
+def ensure_levels(client: Client, app: str, subs: list[dict], log: list, errors: list, skipped: list) -> None:
+    """Price-book products take levels 1..n in order; any legacy products follow in their listed order.
+    A subscription in review is skipped (logged in `skipped`, not an error): ASC does not let its level change."""
     order = [product_id(app, p["plan"]) for p in PRICE_BOOK[app]]
     order += [product_id(app, plan) for plan in LEGACY_LEVELS.get(app, ())]
     by_pid = {(s.get("attributes") or {}).get("productId"): s for s in subs}
@@ -409,12 +416,21 @@ def ensure_levels(client: Client, app: str, subs: list[dict], log: list, errors:
         sub = by_pid.get(pid)
         if sub is None or (sub.get("attributes") or {}).get("groupLevel") == level:
             continue
+        state = (sub.get("attributes") or {}).get("state")
+        if state in LOCKED_SUBSCRIPTION_STATES:
+            skipped.append(f"{pid} level {level}: skipped, {state} (ASC locks it)")
+            log.append(f"{pid} level {level} skipped: {state}")
+            continue
         try:
             client.call("PATCH", f"/v1/subscriptions/{sub['id']}", {"data": {
                 "type": "subscriptions", "id": sub["id"], "attributes": {"groupLevel": level}}})
             log.append(f"{pid} level {level}")
         except SystemExit as err:
-            errors.append(f"{pid} level {level}: {str(err)[:300]}")
+            if "HTTP 409" in str(err) and UNMODIFIABLE in str(err):
+                skipped.append(f"{pid} level {level}: skipped, ASC says unmodifiable in state {state}")
+                log.append(f"{pid} level {level} skipped: unmodifiable ({state})")
+            else:
+                errors.append(f"{pid} level {level}: {str(err)[:300]}")
 
 
 def ensure_localizations(client: Client, sub: dict, product: dict, log: list) -> None:
@@ -494,17 +510,18 @@ def price_book_sync(client: Client, app: str) -> dict:
         raise SystemExit(f"app {app} has no price book")
     log: list[str] = []
     errors: list[str] = []
+    skipped: list[str] = []
     before = read_subscriptions(client, app)
     group = ensure_group(client, app, log)
     subs = group_subscriptions(client, group["id"])
     territories = [t["id"] for t in get_all(client, "/v1/territories?limit=200")[0]]
     products = [(p, ensure_subscription(client, app, group["id"], p, subs, log)) for p in PRICE_BOOK[app]]
-    ensure_levels(client, app, group_subscriptions(client, group["id"]), log, errors)
+    ensure_levels(client, app, group_subscriptions(client, group["id"]), log, errors, skipped)
     for product, sub in products:
         ensure_localizations(client, sub, product, log)
         ensure_availability(client, sub, territories, log)
         ensure_prices(client, sub, product["usd"], log, errors)
-    return {"group": group["id"], "log": log, "errors": errors,
+    return {"group": group["id"], "log": log, "errors": errors, "skipped": skipped,
             "before": before["priceBook"], "after": read_subscriptions(client, app)}
 
 

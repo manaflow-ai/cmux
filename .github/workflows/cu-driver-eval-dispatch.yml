@@ -59,6 +59,16 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'cu-driver-eval.yml';
+            // feat-cmux-next dropped its cu-driver-eval.yml in cmux#37003 (the Rust Computer Use
+            // engine). Without that copy GitHub answers a dispatch with 422 "does not have
+            // 'workflow_dispatch' trigger", which turned every daily tick red. Say so instead.
+            try {
+              await github.rest.repos.getContent({ owner, repo, path: `.github/workflows/${workflow}`, ref: `refs/heads/${source}` });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.notice(`${source} has no ${workflow} (removed in cmux#37003); no cu driver eval to start`);
+              return;
+            }
             for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
