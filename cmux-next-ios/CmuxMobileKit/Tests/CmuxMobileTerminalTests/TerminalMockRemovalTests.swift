@@ -25,7 +25,7 @@ private final class LiveStub: TerminalSession {
             // the phone's projection of it: never the mock.
             #expect(chosen.underlyingSession === live)
             #if os(iOS)
-            if TerminalProjectingSession.isEnabled {
+            if TerminalProjectingSession.isEnabled(for: live.programName) {
                 #expect(chosen is TerminalProjectingSession)
             } else {
                 #expect(chosen === live)

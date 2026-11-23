@@ -9,25 +9,29 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import {
-  backgroundCommands,
-  backgroundSection,
-  processesOf,
-  type SessionInfoProcess,
-} from "../src/agent-session/acpmux/session-info/processes";
+import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { resetSessionInfoState, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { backgroundCommands, backgroundSection, processesOf } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/processes"),
+);
+const { openPicker } = await importWithDom(() => import("../src/agent-session/acpmux/pickerOpeners"));
+const { activity, assistant, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

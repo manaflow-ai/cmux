@@ -4579,7 +4579,7 @@ public func FfiConverterTypeCmuxMobileError_lower(_ value: CmuxMobileError) -> R
 /**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
- * `Rtt` and `Media`, then one `Disconnected`.
+ * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -4598,6 +4598,17 @@ public enum LinkEvent: Equatable, Hashable {
     case media(state: MediaState
     )
     case disconnected(reason: String
+    )
+    /**
+     * The link heard nothing for `silent_millis` after a ping
+     * (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+     * blackout. The link stays open and probes every second; the next
+     * `Rtt` says it answered again, and it closes (`Disconnected`) only
+     * after its keepalive timeout (45 s), so a blackout it survives keeps
+     * the session. Last in the enum so the other variants keep their
+     * numbers in the bindings.
+     */
+    case suspect(silentMillis: UInt32
     )
 
 
@@ -4638,6 +4649,9 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
+        case 7: return .suspect(silentMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -4675,6 +4689,11 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case let .disconnected(reason):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .suspect(silentMillis):
+            writeInt(&buf, Int32(7))
+            FfiConverterUInt32.write(silentMillis, into: &buf)
             
         }
     }
@@ -5951,6 +5970,21 @@ public func resetWarmState()async   {
         )
 }
 /**
+ * A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
+ * set once at launch by the app's composition root before any `connect`
+ * or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
+ * `x-cmux-build-space`. `None`, or a value that is not `dev:<slug>`, sends
+ * no header (nightly, TestFlight and App Store builds never call it with a
+ * value). A change takes effect for the next socket opened; a socket opened
+ * in another space is not reused.
+ */
+public func setBuildSpace(value: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_build_space(
+        FfiConverterOptionString.lower(value),$0
+    )
+}
+}
+/**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
  * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
@@ -6219,6 +6253,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {

@@ -11,4 +11,10 @@ description = "A phone's own view of a terminal it does not size: a VT model at 
 workspace = true
 
 [dependencies]
+unicode-segmentation.workspace = true
 unicode-width.workspace = true
+
+[dev-dependencies]
+# The parity harness's oracle: Ghostty's VT core, the emulator the Mac pane
+# and the phone's surface both run.
+ghostty-vt = { path = "../ghostty-vt" }

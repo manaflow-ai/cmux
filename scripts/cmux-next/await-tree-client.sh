@@ -23,9 +23,14 @@
 # (default 300) it reads each candidate's cmux-tui artifacts runs (pin-cmux-tui.sh runs-state)
 # and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
-# (an unreadable runs list keeps waiting). Otherwise it waits up to
+# (an unreadable runs list keeps waiting). An active run counts only while it makes
+# progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
+# past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
-# CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20).
+# CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
+# looks once (the tree, then each candidate's manifest) and exits 1 on a miss
+# without reading any runs list: app-bundle-cmux-tui-client.sh then bundles the
+# newest published tree instead of waiting (RFD 0021, row 1).
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -45,9 +50,11 @@ base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
-for value in "$wait_seconds" "$poll_seconds" "$check_seconds"; do
+[[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+for value in "$poll_seconds" "$check_seconds"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: the CMUX_TUI_TREE_CLIENT_*_SECONDS values must be positive whole seconds" >&2; exit 2; }
 done
+wait_seconds=$((10#$wait_seconds))
 
 # 0 when <commit>'s manifest answers 200 (a complete transfer), 1 otherwise.
 manifest_exists() {
@@ -77,28 +84,72 @@ while :; do
       exit 0
     fi
   done
+  if (( wait_seconds == 0 )); then
+    echo "tree $key is not published and no candidate manifest is uploaded (looked once)" >&2
+    exit 1
+  fi
   elapsed=$(( $(date +%s) - started ))
   if (( elapsed >= next_check )); then
     next_check=$(( elapsed + check_seconds ))
     # The candidates' own runs first (a filtered read each), then the newest runs of any
     # commit with this tree: 50 newer runs elsewhere must not hide a candidate's publisher.
-    publisher=""
+    # An active run counts only while its jobs make progress (pin-cmux-tui.sh run-progress):
+    # one whose build failed on its last retry attempt, or whose job has sat queued with no runner past
+    # CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is passed over for another same-key
+    # run, and when none is left the wait ends at the second check instead of the 45 min
+    # limit (2026-11-18: owner 44240874997's Linux build failed and the takeover run's Linux
+    # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
+    publisher="" stuck="" skip=""
     for candidate in "$@"; do
-      case "$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)" in
-        active) publisher="$candidate"; break ;;
+      state="$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)"
+      case "$state" in
+        active|ended\ *)
+          progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$candidate" 2>/dev/null || echo unknown)"
+          case "$progress" in
+            # none: the run list said active a moment ago; trust it until the next check.
+            building|unknown) publisher="$candidate"; break ;;
+            none) [[ "$state" != active ]] || { publisher="$candidate"; break; } ;;
+            *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
+          esac ;;
         unknown) publisher=unknown ;;
       esac
     done
     if [[ -z "$publisher" ]]; then
-      publisher="$(bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
+      # Bound alternate discovery; an unfinished scan is unknown, never proof
+      # that no publisher can finish. Pass over each stalled same-tree source.
+      for ((scan = 0; scan < 20; scan++)); do
+        found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
+        case "$found" in
+          unknown) publisher=unknown; break ;;
+          "") break ;;
+          *)
+            progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$found" 2>/dev/null || echo unknown)"
+            case "$progress" in
+              # none: the commit-filtered list lags the full one; the full list said active.
+              building|unknown|none) publisher="$found"; break ;;
+              *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
+            esac ;;
+        esac
+      done
+      (( scan < 20 )) || publisher=unknown
     fi
     case "$publisher" in
       unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
-      "") idle_checks=$(( idle_checks + 1 )); echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2 ;;
+      "")
+        idle_checks=$(( idle_checks + 1 ))
+        if [[ -n "$stuck" ]]; then
+          echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of 2)" >&2
+        else
+          echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2
+        fi ;;
       *) idle_checks=0; echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2 ;;
     esac
     if (( idle_checks >= 2 )); then
-      echo "error: tree $key is not published, no candidate manifest is uploaded, and no active cmux-tui artifacts run builds it; nothing will publish it" >&2
+      if [[ -n "$stuck" ]]; then
+        echo "error: tree $key is not published, no candidate manifest is uploaded, and no cmux-tui artifacts run that builds it is making progress ($stuck); nothing will publish it in time" >&2
+      else
+        echo "error: tree $key is not published, no candidate manifest is uploaded, and no active cmux-tui artifacts run builds it; nothing will publish it" >&2
+      fi
       exit 1
     fi
   fi

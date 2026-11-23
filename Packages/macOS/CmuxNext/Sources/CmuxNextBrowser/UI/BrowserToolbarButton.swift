@@ -101,6 +101,8 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
 
     /// The More menu's Show in Toolbar submenu title.
     public static var showInToolbarTitle: String { Strings.toolbarShowInToolbar }
+    /// The More menu's zoom row title (before its −, percent, + and reset).
+    static var zoomRowTitle: String { Strings.toolbarMenuZoom }
 }
 
 /// What one toolbar button shows.

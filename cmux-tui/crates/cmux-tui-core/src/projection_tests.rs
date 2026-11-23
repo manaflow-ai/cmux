@@ -176,3 +176,128 @@ fn only_a_dial_that_says_lines_gets_lines() {
     assert!(wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
     assert!(!wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x"}"#));
 }
+
+#[test]
+fn a_mount_makes_git_check_only_size_and_mtime_there_and_keeps_it_once() {
+    let dir = cmux_unix_socket::short_test_dir("pgit");
+    let (state, home) = (dir.path().join("projections"), dir.path().join("home"));
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".gitconfig"), "[user]\n\tname = t").unwrap();
+    for at in ["/w/a", "/w/b", "/w/a"] {
+        git_stat::keep(&state, &home, Path::new(at)).unwrap();
+    }
+    let global = std::fs::read_to_string(home.join(".gitconfig")).unwrap();
+    assert!(global.starts_with("[user]\n\tname = t\n[include]"), "{global}");
+    assert_eq!(global.matches("[include]").count(), 1);
+    let mounts = std::fs::read_to_string(state.join(git_stat::MOUNTS)).unwrap();
+    assert_eq!(mounts.matches("gitdir:/w/a/").count(), 1);
+    assert_eq!(mounts.matches("gitdir:/w/b/").count(), 1);
+    let stat = std::fs::read_to_string(state.join(git_stat::STAT)).unwrap();
+    assert!(stat.contains("checkStat = minimal") && stat.contains("trustctime = false"));
+}
+
+#[test]
+fn git_takes_the_settings_in_a_mount_and_below_it_only() {
+    if std::process::Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let dir = cmux_unix_socket::short_test_dir("pgit");
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let (state, home, at, other) = (base.join("p"), base.join("h"), base.join("m"), base.join("o"));
+    for folder in [&state, &home, &at.join("repo"), &other] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    git_stat::keep(&state, &home, &at).unwrap();
+    let check = |repo: &Path| {
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .env("HOME", &home)
+                // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
+                .env_remove("GIT_CONFIG_GLOBAL")
+                .env_remove("XDG_CONFIG_HOME")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .arg("-C")
+                .arg(repo)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        assert!(git(&["init", "-q"]).status.success());
+        String::from_utf8_lossy(&git(&["config", "core.checkStat"]).stdout).trim().to_owned()
+    };
+    assert_eq!(check(&at.join("repo")), "minimal");
+    assert_eq!(check(&other), "");
+}
+
+#[test]
+fn brought_back_and_release_are_projection_frames() {
+    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP] {
+        let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
+        assert_eq!(frame_command(&line), Some(op));
+    }
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"projection.unknown_op","name":"a"}"#), None);
+}
+
+/// A projection's state folder as a mount leaves it: an upper layer with an edit, whiteouts, a
+/// cache, and its record naming `at`.
+fn projected_state(home: &Path, name: &str) -> (PathBuf, PathBuf) {
+    let state = home.join("projections").join(name);
+    let at = home.join("work").join(name);
+    std::fs::create_dir_all(state.join("upper/src")).unwrap();
+    std::fs::create_dir_all(state.join("cache")).unwrap();
+    std::fs::create_dir_all(&at).unwrap();
+    std::fs::write(state.join("upper/src/a.rs"), b"fn a() { /* edited */ }").unwrap();
+    std::fs::write(state.join("whiteouts"), b"src/b.rs\0").unwrap();
+    std::fs::write(state.join("cache/7"), vec![0; 4096]).unwrap();
+    cmux_projection::state::update(&state, &at, |record| record.created_ms = 1).unwrap();
+    (state, at)
+}
+
+fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLine {
+    WayBackLine {
+        name: name.into(),
+        paths_bytes: 0,
+        mark: mark.map(str::to_owned),
+        why: why.map(str::to_owned),
+    }
+}
+
+/// RFD 0007: Bring Back's upper layer is "brought back at the mark it read
+/// (`projection.brought_back`), and it is freed"; one written since stays whole.
+#[test]
+fn brought_back_at_its_mark_frees_the_state_and_an_edit_since_keeps_it() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-back");
+    let read = cmux_projection::state::mark(&state).unwrap();
+    std::fs::write(state.join("upper/late.txt"), b"written after Bring Back read it").unwrap();
+    let line = control_line("p-back", Some(&read), None);
+    let refused = free(BROUGHT_BACK, &line, &state).unwrap_err();
+    assert_eq!(refused.0, "projection.edited_since");
+    assert!(state.join("upper/late.txt").exists(), "an edit made after Bring Back read went");
+    assert!(cmux_projection::state::read(&state).unwrap().brought_back.is_none());
+
+    let read = cmux_projection::state::mark(&state).unwrap();
+    let line = control_line("p-back", Some(&read), None);
+    let answer = free(BROUGHT_BACK, &line, &state).unwrap();
+    assert!(!state.exists(), "a brought-back projection's state stayed: {answer}");
+    assert!(answer["freed_bytes"].as_u64().unwrap() >= 4096, "{answer}");
+    assert!(at.exists(), "Bring Back removed the chat's folder; the chat may go on there");
+    let line = control_line("p-back", None, None);
+    assert_eq!(free(BROUGHT_BACK, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+/// An archived or deleted chat's projection goes whole, its empty mount point with it.
+#[test]
+fn release_frees_the_state_and_its_empty_mount_point() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-gone");
+    let line = control_line("p-gone", None, Some("deleted"));
+    let answer = free(RELEASE, &line, &state).unwrap();
+    assert!(!state.exists() && !at.exists(), "a deleted chat's projection outlived it");
+    assert!(answer["freed_bytes"].as_u64().unwrap() > 0);
+    // Again, with nothing left: nothing to free, no error.
+    assert_eq!(free(RELEASE, &line, &state).unwrap()["freed_bytes"], 0);
+    let line = control_line("p-gone", None, Some("lost"));
+    assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
+}

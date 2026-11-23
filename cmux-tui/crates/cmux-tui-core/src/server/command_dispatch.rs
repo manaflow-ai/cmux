@@ -124,24 +124,40 @@ fn dispatch_command(
             remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::ComputerUseEndpoint => computer_use_command::endpoint(mux, client),
+        Command::ComputerUseConfig { config } => computer_use_command::config(mux, client, config),
+        Command::ComputerUseApprovals { action, app_id, id, answer } => {
+            computer_use_command::approvals(
+                mux,
+                client,
+                json!({"action": action, "app_id": app_id, "id": id, "answer": answer}),
+            )
+        }
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-                restart,
-            )
-        }
+        Command::ShutdownDaemon {
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        } => cmd_server::shutdown_daemon(
+            mux,
+            client,
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        ),
         Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
@@ -1003,6 +1019,8 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            resume_offset,
+            resume_generation,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1024,6 +1042,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation),
                 snapshot,
             )
         }

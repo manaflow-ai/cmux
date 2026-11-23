@@ -1,0 +1,66 @@
+# StoreKit Testing for the CmuxMobileBilling package: SKTestSession against
+# BillingStoreKitTests/CmuxBilling.storekit, driving the real
+# LiveStoreKitClient and BillingModel.
+#
+# Not a SwiftPM test target: storekitd accepts a StoreKit configuration only
+# from an app installed for development, and refuses SwiftPM's xctest runner
+# ("xctest is not installed for development", so every product load comes
+# back empty). The tests therefore run hosted in BillingStoreKitHost, an
+# empty app. Generate with `xcodegen generate` here, then:
+#   xcodebuild test -project BillingStoreKitTests.xcodeproj -scheme BillingStoreKitTests \
+#     -destination 'platform=iOS Simulator,name=<iPhone>'
+# The billing lane runs it on an iOS 26 simulator (scripts/ci/billing_lane.py).
+name: BillingStoreKitTests
+options:
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CmuxMobileBilling:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+targets:
+  BillingStoreKitHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    # storekitd serves the StoreKit configuration only to an app "installed
+    # for development", which it reads from get-task-allow; an unsigned or
+    # ad-hoc build lacks it unless declared here.
+    entitlements:
+      path: Host/BillingStoreKitHost.entitlements
+      properties:
+        get-task-allow: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.billing.storekit-host
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+  BillingStoreKitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [BillingStoreKitTests]
+    dependencies:
+      - target: BillingStoreKitHost
+      - package: CmuxMobileBilling
+        product: CmuxMobileBilling
+      - package: CmuxMobileBilling
+        product: CmuxMobileBillingUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.billing.storekit-tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  BillingStoreKitTests:
+    build:
+      targets:
+        BillingStoreKitTests: [test]
+    test:
+      targets: [BillingStoreKitTests]

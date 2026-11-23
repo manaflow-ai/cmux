@@ -67,7 +67,7 @@ public final class MockExtensionBackend: BrowserExtensionBackend {
 
     public func loadUnpacked(at path: String) -> Bool {
         guard !refuses else { return false }
-        let name = URL(fileURLWithPath: path).lastPathComponent
+        let name = (path as NSString).lastPathComponent
         extensions.append(BrowserExtensionInfo(id: name, name: name, location: .unpacked, hasAction: true, path: path))
         onChange?()
         return true

@@ -4,15 +4,30 @@
 import { shellCommands, type ShellCommand } from "../conversation/acpmuxSends";
 
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+const LEADING_KEYWORDS = new Set(["!", "until", "while", "if", "elif", "then", "else", "do", "{", "time"]);
+const CLOSING_KEYWORDS = new Set(["done", "fi", "esac", "}"]);
+const QUIET = new Set(["[", "[[", "test", "sleep", "echo", "printf", "true", "false", ":"]);
+/// The most operations named; a longer line ends in an ellipsis, its whole text in the tooltip.
+const MAX_LABELS = 3;
 
 /// The program and its leading plain operands, without options, paths or shell expansions. This
 /// names the operation (`cmux-ci run`), rather than exposing its long flags and interpolation.
 function operation(command: ShellCommand): string | undefined {
   const words = command.words;
-  let at = words[0]?.text === "env" && !words[1]?.text.startsWith("-") ? 1 : 0;
+  let at = 0;
+  // Shell grammar is not work: `until`, `do`, `then` lead the command that runs, and `done` or
+  // `fi` close one.
+  while (at < words.length && words[at]!.literal && LEADING_KEYWORDS.has(words[at]!.text)) at += 1;
+  if (words[at]?.text === "env" && !words[at + 1]?.text.startsWith("-")) at += 1;
   while (at < words.length && ASSIGNMENT.test(words[at]!.text)) at += 1;
   const program = words[at];
   if (!program) return undefined;
+  // A test (`[ -z "$(pgrep x)" ]`), a pause or a note to the log does nothing worth naming; the
+  // work in its substitutions is still named. One that writes a file is named, as all writes are.
+  // The lexer reads `[` as a glob, so a test's `[` or `[[` is never literal; it is still a test.
+  const test = program.text === "[" || program.text === "[[";
+  if ((program.literal || test) && !command.writes && (CLOSING_KEYWORDS.has(program.text) || QUIET.has(program.text)))
+    return undefined;
   if (!program.literal) return "…"; // an expanded program is not known from the command line
   const names = [program.text.split("/").pop()!];
   for (const word of words.slice(at + 1)) {
@@ -53,5 +68,10 @@ export function commandWorkLabel(text: string): string | undefined {
     for (const run of [...(command.runs ?? [])].reverse())
       for (const nested of [...shellCommands(run)].reverse()) pending.push(nested);
   }
-  return labels.join(" · ") || undefined;
+  // Each operation once, the first few: a loop that runs `pgrep` and `head` every 15 seconds is not
+  // a list of every word it typed (Leo, 2026-11-21, on a tray row reading "pgrep · head · ps · until ·
+  // do sleep 15 · done · sleep 70 · echo me…").
+  const named = [...new Set(labels)];
+  if (!named.length) return undefined;
+  return named.length > MAX_LABELS ? `${named.slice(0, MAX_LABELS).join(" · ")} …` : named.join(" · ");
 }

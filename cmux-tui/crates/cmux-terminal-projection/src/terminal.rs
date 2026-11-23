@@ -5,9 +5,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use unicode_width::UnicodeWidthChar;
-
 use crate::style::{Interner, Style, StyleTable};
+use crate::unicode::{self, WidthEffect};
 
 /// A cell holding one narrow glyph (or nothing).
 pub const NARROW: u8 = 0;
@@ -49,6 +48,18 @@ impl Cell {
 pub struct Row {
     pub cells: Vec<Cell>,
     pub wrapped: bool,
+    /// A shell prompt (or its continuation) is on this row, by OSC 133
+    /// marks: `ED 2` here moves the screen into the scrollback, as Ghostty does.
+    pub prompt: bool,
+}
+
+/// What the cursor writes, by OSC 133 (shell integration) marks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Semantic {
+    #[default]
+    Output,
+    Prompt,
+    Input,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -137,6 +148,14 @@ pub struct Terminal {
     /// The scrollback or every row changed in a way a diff cannot follow
     /// (RIS, ED 3, a host resize): the view starts over.
     pub reset_needed: bool,
+    /// Counts the primary screen's clears and switches between screens:
+    /// after one, the host's screen lays out the rows again.
+    pub screen_cleared: u64,
+    /// An OSC 133 prompt or input mark was seen (Ghostty's `semantic_prompt.seen`).
+    prompt_seen: bool,
+    semantic: Semantic,
+    /// Input ends at the end of its line (OSC 133;I).
+    semantic_clear_eol: bool,
     // Parser.
     state: State,
     seq: Vec<u8>,
@@ -183,6 +202,10 @@ impl Terminal {
             replies: Vec::new(),
             alt_mode: 1049,
             reset_needed: true,
+            screen_cleared: 0,
+            prompt_seen: false,
+            semantic: Semantic::Output,
+            semantic_clear_eol: false,
             state: State::Ground,
             seq: Vec::new(),
             utf8: [0; 4],
@@ -513,6 +536,7 @@ impl Terminal {
                     self.carriage_return();
                 }
                 self.linefeed();
+                self.semantic_next_row(false);
             }
             0x0d => self.carriage_return(),
             0x0e => self.shift_out = true,
@@ -530,6 +554,9 @@ impl Terminal {
         let mut parts = body.splitn(2, |&b| b == b';');
         let number = parts.next().unwrap_or_default();
         let rest = parts.next().unwrap_or_default();
+        if number == b"133" {
+            self.semantic_prompt(rest);
+        }
         match number {
             b"8" => {
                 // `8;params;uri`: the link the next cells are in.
@@ -770,6 +797,7 @@ impl Terminal {
         if on == self.alt_active {
             return;
         }
+        self.screen_cleared += 1;
         if on {
             if save_cursor {
                 self.save_cursor();
@@ -899,9 +927,19 @@ impl Terminal {
     fn print(&mut self, ch: char) {
         let special = self.charsets.get(usize::from(self.shift_out)).copied().unwrap_or(false);
         let ch = if special { dec_special(ch) } else { ch };
-        let width = ch.width().unwrap_or(0);
+        // Grapheme clustering (mode 2027, on by default as in Ghostty): a
+        // code point that does not start a cluster joins the glyph before
+        // the cursor, whatever its width, as Ghostty's `print` does. Only
+        // code points past U+00FF are checked, as there.
+        let clustering = self.modes.get(&2027).copied().unwrap_or(true);
+        if clustering && u32::from(ch) > 0xFF && self.cursor.x > 0 && self.cluster(ch) {
+            return;
+        }
+        let width = unicode::width(ch);
         if width == 0 {
-            self.combine(ch);
+            if !clustering {
+                self.combine(ch);
+            }
             return;
         }
         let cols = self.cols;
@@ -911,6 +949,7 @@ impl Terminal {
                 row.wrapped = true;
             }
             self.linefeed();
+            self.semantic_next_row(true);
             self.cursor.x = 0;
         }
         self.cursor.pending_wrap = false;
@@ -968,7 +1007,111 @@ impl Terminal {
         }
     }
 
-    /// A zero-width code point joins the glyph before the cursor.
+    /// Joins `ch` to the glyph before the cursor when it continues that
+    /// glyph's grapheme cluster (Ghostty's `print` with mode 2027): a
+    /// variation selector or a code point that widens the cluster makes
+    /// the glyph wide (wrapping it when it sits in the last column) or
+    /// narrow. False: `ch` starts a glyph of its own.
+    fn cluster(&mut self, ch: char) -> bool {
+        let (y, cursor_x, pending, cols, autowrap) =
+            (self.cursor.y, self.cursor.x, self.cursor.pending_wrap, self.cols, self.autowrap);
+        let Some(row) = self.screen().get(y) else { return false };
+        let left = if autowrap {
+            usize::from(!pending)
+        } else if cursor_x != cols - 1 {
+            1
+        } else {
+            usize::from(row.cells.get(cursor_x).is_none_or(|c| c.ch == 0))
+        };
+        let Some(mut x) = cursor_x.checked_sub(left) else { return false };
+        if row.cells.get(x).is_some_and(|c| c.kind == WIDE_TAIL) {
+            let Some(before) = x.checked_sub(1) else { return false };
+            x = before;
+        }
+        let Some(&cell) = row.cells.get(x) else { return false };
+        if cell.ch == 0 {
+            return false;
+        }
+        let mut text = self.cell_text(cell);
+        if !unicode::is_break(&text, ch) {
+            let prev = text.chars().next_back().unwrap_or(' ');
+            let mut at = (y, x);
+            match unicode::width_effect(prev, ch) {
+                WidthEffect::Ignore => return true,
+                WidthEffect::NoChange => {}
+                WidthEffect::Wide if cell.kind == WIDE => {}
+                WidthEffect::Wide => {
+                    let style = self.styles.id(self.cursor.style);
+                    self.cursor.x = x;
+                    if x == cols - 1 {
+                        if !autowrap {
+                            return true;
+                        }
+                        // No room for a wide glyph: a spacer head, and the
+                        // glyph again at the next row's start.
+                        if let Some(row) = self.screen().get_mut(y) {
+                            row.wrapped = true;
+                            if let Some(c) = row.cells.get_mut(x) {
+                                *c = Cell { ch: 0, style, kind: SPACER_HEAD };
+                            }
+                        }
+                        self.linefeed();
+                        self.cursor.x = 0;
+                        let y = self.cursor.y;
+                        self.clear_wide(y, 0);
+                        if let Some(c) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(0)) {
+                            *c = Cell { ch: cell.ch, style, kind: WIDE };
+                        }
+                        at = (y, 0);
+                    } else if let Some(c) =
+                        self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x))
+                    {
+                        c.kind = WIDE;
+                    }
+                    let (y, x) = at;
+                    if x + 1 < cols {
+                        self.clear_wide(y, x + 1);
+                        if let Some(c) =
+                            self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x + 1))
+                        {
+                            *c = Cell { ch: 0, style, kind: WIDE_TAIL };
+                        }
+                    }
+                    if x + 1 >= cols - 1 {
+                        self.cursor.x = cols - 1;
+                        self.cursor.pending_wrap = true;
+                    } else {
+                        self.cursor.x = x + 2;
+                        self.cursor.pending_wrap = false;
+                    }
+                }
+                WidthEffect::Narrow if cell.kind != WIDE => {}
+                WidthEffect::Narrow => {
+                    if let Some(row) = self.screen().get_mut(y) {
+                        if let Some(c) = row.cells.get_mut(x) {
+                            c.kind = NARROW;
+                        }
+                        if let Some(c) = row.cells.get_mut(x + 1) {
+                            c.kind = NARROW;
+                        }
+                    }
+                    self.cursor.pending_wrap = false;
+                    self.cursor.x = (x + 1).min(cols - 1);
+                }
+            }
+            text.push(ch);
+            let id = self.graphemes.id(&text);
+            let (y, x) = at;
+            if let Some(c) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x)) {
+                c.ch = GRAPHEME | id;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// With grapheme clustering off (mode 2027 reset): a zero-width code
+    /// point joins the glyph before the cursor.
     fn combine(&mut self, ch: char) {
         let (y, cursor_x, pending) = (self.cursor.y, self.cursor.x, self.cursor.pending_wrap);
         let mut x = if pending {
@@ -1105,10 +1248,16 @@ impl Terminal {
                     }
                 }
             }
-            2 => {
-                // The primary screen scrolls its rows into the scrollback
-                // first (as Ghostty does), so a clear keeps what was shown.
+            2 | 22 => {
+                // As Ghostty: `ED 2` clears the screen in place, unless the
+                // last row with something on it is a shell prompt (OSC 133
+                // marks; Ctrl+L at a prompt), and `ED 22` (Kitty's
+                // scroll-clear) always: then the screen's rows up to its
+                // last non-blank one go to the scrollback first.
                 if !self.alt_active {
+                    self.screen_cleared += 1;
+                }
+                if !self.alt_active && (mode == 22 || self.at_prompt()) {
                     let last = self.primary.iter().rposition(|row| {
                         row.cells.iter().any(|c| !c.is_empty_or_space() || c.style != 0)
                     });
@@ -1133,6 +1282,81 @@ impl Terminal {
             _ => {}
         }
         self.cursor.pending_wrap = false;
+    }
+
+    /// Ghostty's "clearing at a prompt": with OSC 133 marks seen, the last
+    /// row of the primary screen with text (blank rows below it skipped) is
+    /// a prompt row.
+    fn at_prompt(&self) -> bool {
+        if !self.prompt_seen {
+            return false;
+        }
+        for row in self.primary.iter().rev() {
+            if row.prompt {
+                return true;
+            }
+            if row.cells.iter().any(|c| !c.is_empty_or_space()) {
+                return false;
+            }
+        }
+        false
+    }
+
+    /// OSC 133 (`A`, `N`, `P`: a prompt starts; `B`, `I`: input; `C`, `D`:
+    /// output), as Ghostty marks rows. Only the marks a clear reads.
+    fn semantic_prompt(&mut self, body: &[u8]) {
+        if self.alt_active {
+            return;
+        }
+        match body.first() {
+            Some(b'A' | b'N' | b'P') => {
+                self.prompt_seen = true;
+                self.semantic = Semantic::Prompt;
+                self.semantic_clear_eol = false;
+                let y = self.cursor.y;
+                if let Some(row) = self.primary.get_mut(y) {
+                    row.prompt = true;
+                }
+            }
+            Some(b'B' | b'I') => {
+                self.prompt_seen = true;
+                self.semantic = Semantic::Input;
+                self.semantic_clear_eol = body.first() == Some(&b'I');
+            }
+            Some(b'C') => {
+                self.semantic = Semantic::Output;
+                self.semantic_clear_eol = false;
+                let (x, y) = (self.cursor.x, self.cursor.y);
+                if x == 0
+                    && let Some(row) = self.primary.get_mut(y)
+                {
+                    row.prompt = false;
+                }
+            }
+            Some(b'D') => {
+                self.semantic = Semantic::Output;
+                self.semantic_clear_eol = false;
+            }
+            _ => {}
+        }
+    }
+
+    /// The cursor went to the next row inside a prompt or its input: that
+    /// row continues the prompt (input marked to end at its line's end
+    /// ends at a line feed instead).
+    fn semantic_next_row(&mut self, wrap: bool) {
+        if self.alt_active || self.semantic == Semantic::Output {
+            return;
+        }
+        if !wrap && self.semantic_clear_eol {
+            self.semantic = Semantic::Output;
+            self.semantic_clear_eol = false;
+            return;
+        }
+        let y = self.cursor.y;
+        if let Some(row) = self.primary.get_mut(y) {
+            row.prompt = true;
+        }
     }
 
     fn erase_line(&mut self, mode: u16) {
@@ -1238,7 +1462,7 @@ impl Terminal {
 }
 
 fn blank_row(cols: usize, style: u16) -> Row {
-    Row { cells: vec![Cell::blank(style); cols], wrapped: false }
+    Row { cells: vec![Cell::blank(style); cols], wrapped: false, prompt: false }
 }
 
 fn blank_rows(cols: usize, rows: usize) -> Vec<Row> {
@@ -1364,14 +1588,32 @@ mod tests {
     }
 
     #[test]
-    fn erase_display_scrolls_the_screen_into_history() {
+    fn erase_display_clears_in_place_as_ghostty_does() {
+        // No OSC 133 marks: `ED 2` is a plain clear (the rows do not go to
+        // the scrollback), as Ghostty's.
         let mut term = Terminal::new(10, 3, 100);
         feed(&mut term, "a\r\nb\x1b[H\x1b[2J$ ");
-        assert_eq!(term.history.len(), 2);
+        assert!(term.history.is_empty());
         assert_eq!(text(&term, &term.primary[0]), "$");
+        // Kitty's scroll-clear moves them first.
+        feed(&mut term, "\r\nc\x1b[H\x1b[22J");
+        assert_eq!(term.history.len(), 2);
         feed(&mut term, "\x1b[3J");
         assert!(term.history.is_empty());
         assert!(term.reset_needed);
+    }
+
+    #[test]
+    fn erase_display_at_a_marked_prompt_scrolls_into_history() {
+        // Ctrl+L at a prompt the shell marked (OSC 133): the screen goes to
+        // the scrollback first, as Ghostty's "clearing at a prompt".
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, "out\r\n\x1b]133;A\x07$ \x1b]133;B\x07\x1b[H\x1b[2J");
+        assert_eq!(term.history.len(), 2);
+        // Output after the prompt (the command ran): a plain clear again.
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, "\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07file\x1b[H\x1b[2J");
+        assert!(term.history.is_empty());
     }
 
     #[test]
@@ -1394,5 +1636,80 @@ mod tests {
         feed(&mut term, "e\u{301}x");
         assert_eq!(text(&term, &term.primary[0]), "e\u{301}x");
         assert_eq!(term.primary_cursor(), (2, 0));
+    }
+
+    /// The glyphs of row `y` as (text, wide), blanks skipped.
+    fn glyphs(term: &Terminal, y: usize) -> Vec<(String, bool)> {
+        term.primary[y]
+            .cells
+            .iter()
+            .filter(|c| c.ch != 0 && c.kind != WIDE_TAIL)
+            .map(|c| (term.cell_text(*c), c.kind == WIDE))
+            .collect()
+    }
+
+    #[test]
+    fn grapheme_clusters_are_one_glyph_as_in_ghostty() {
+        let mut term = Terminal::new(20, 3, 100);
+        feed(
+            &mut term,
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}x\u{1F1EF}\u{1F1F5}\u{1F1FA}\u{1F1F8}",
+        );
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![
+                ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".to_string(), true),
+                ("x".to_string(), false),
+                ("\u{1F1EF}\u{1F1F5}".to_string(), true),
+                ("\u{1F1FA}\u{1F1F8}".to_string(), true),
+            ]
+        );
+        assert_eq!(term.primary_cursor(), (7, 0));
+    }
+
+    #[test]
+    fn variation_selectors_set_the_glyph_width() {
+        let mut term = Terminal::new(20, 3, 100);
+        // VS16 widens an emoji base (a keycap too), VS15 narrows one, and
+        // on a base it does not vary it is dropped.
+        feed(&mut term, "\u{2764}\u{FE0F}|1\u{FE0F}\u{20E3}|\u{231A}\u{FE0E}|a\u{FE0F}|");
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![
+                ("\u{2764}\u{FE0F}".to_string(), true),
+                ("|".to_string(), false),
+                ("1\u{FE0F}\u{20E3}".to_string(), true),
+                ("|".to_string(), false),
+                ("\u{231A}\u{FE0E}".to_string(), false),
+                ("|".to_string(), false),
+                ("a".to_string(), false),
+                ("|".to_string(), false),
+            ]
+        );
+        assert_eq!(term.primary_cursor(), (10, 0));
+    }
+
+    #[test]
+    fn a_glyph_widened_in_the_last_column_wraps() {
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, &format!("{}\u{2764}\u{FE0F}z", "x".repeat(9)));
+        assert!(term.primary[0].wrapped);
+        assert_eq!(term.primary[0].cells[9].kind, SPACER_HEAD);
+        assert_eq!(
+            glyphs(&term, 1),
+            vec![("\u{2764}\u{FE0F}".to_string(), true), ("z".to_string(), false)]
+        );
+        assert_eq!(term.primary_cursor(), (3, 1));
+    }
+
+    #[test]
+    fn indic_spacing_marks_and_conjuncts_cluster() {
+        let mut term = Terminal::new(20, 3, 100);
+        // A spacing mark makes its cluster wide, as Ghostty sizes it.
+        feed(&mut term, "\u{915}\u{93F}.");
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![("\u{915}\u{93F}".to_string(), true), (".".to_string(), false)]
+        );
     }
 }

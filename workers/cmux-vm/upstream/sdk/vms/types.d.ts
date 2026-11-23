@@ -74,6 +74,18 @@ export interface VmNetwork {
 }
 /** A VM as its owning account sees it. */
 export interface VmData {
+    /** @internal Experimental file-root VMs only. */
+    idleBehavior?: "pause" | "stop" | "revert";
+    /** @internal */
+    idlePauseAfterSeconds?: number;
+    /** @internal */
+    idleStopAfterSeconds?: number;
+    /** @internal */
+    idleRevertAfterSeconds?: number;
+    /** @internal */
+    resumePolicy?: "preserveMemory" | "preferFast";
+    /** @internal */
+    memoryResumeTimeoutMs?: number;
     /** The account-scoped customer associated with this VM. */
     customerId?: string;
     id: string;
@@ -214,6 +226,18 @@ export interface AttachNetwork {
     routes?: NetworkRoute[];
 }
 export interface CreateVmOptions {
+    /** @internal Experimental file-root VMs only. */
+    idleBehavior?: "pause" | "stop" | "revert";
+    /** @internal */
+    idlePauseAfterSeconds?: number;
+    /** @internal */
+    idleStopAfterSeconds?: number;
+    /** @internal */
+    idleRevertAfterSeconds?: number;
+    /** @internal */
+    resumePolicy?: "preserveMemory" | "preferFast";
+    /** @internal */
+    memoryResumeTimeoutMs?: number;
     /** Inline partial customer upsert; mutually exclusive with customerId. */
     customer?: Customer;
     /** Reference an existing customer in your Freestyle account. */
@@ -333,6 +357,18 @@ export interface CreateVmOptions {
     tls?: TlsSpec;
 }
 export interface UpdateVmOptions {
+    /** @internal Experimental file-root VMs only. */
+    idleBehavior?: "pause" | "stop" | "revert";
+    /** @internal */
+    idlePauseAfterSeconds?: number;
+    /** @internal */
+    idleStopAfterSeconds?: number;
+    /** @internal */
+    idleRevertAfterSeconds?: number;
+    /** @internal */
+    resumePolicy?: "preserveMemory" | "preferFast";
+    /** @internal */
+    memoryResumeTimeoutMs?: number;
     /** Upsert and assign a customer; mutually exclusive with customerId. */
     customer?: Customer;
     /** Reassign an existing customer; null detaches. Omit to leave unchanged. */

@@ -149,3 +149,144 @@ fn scrolling_up_after_a_rotation() {
     // 2,000 rows and copies the rest, under a frame even at the oldest.
     assert!(worst < 16_700.0, "a scroll-up step at 100k rows is under one frame ({worst:.0} us)");
 }
+
+/// Leo's keyboard toggle and rotation, before and after, in one harness
+/// (`--ignored layout_change`): the same session, the same phone sizes.
+///
+/// - Before (Fit to Phone, a real resize): the Mac's terminal resizes and
+///   the shell redraws its prompt; the daemon builds its replay; the phone's
+///   mirror takes `ESC c` and the replay at the new size. This counts the
+///   CPU on both ends and the bytes sent; a round trip between the phone
+///   and the Mac comes on top of it, at least twice (the resize up, the
+///   replay down).
+/// - After (projection): the projection re-wraps at the new size and the
+///   phone's terminal takes what it writes. Nothing is sent.
+#[test]
+#[ignore = "bench"]
+fn layout_change_before_and_after() {
+    use ghostty_vt::{Callbacks, Terminal as Vt};
+    let vt =
+        |c: usize, r: usize| Vt::new(c as u16, r as u16, 256 << 20, Callbacks::default()).unwrap();
+    let history_bytes = |rows: usize| {
+        let mut bytes = Vec::new();
+        for i in 0..rows {
+            bytes.extend_from_slice(format!("\x1b[32m{i:06}\x1b[0m build step compiling a crate with a long enough line to wrap on the phone {i}\r\n").as_bytes());
+        }
+        bytes.extend_from_slice(b"$ ");
+        bytes
+    };
+    let changes: [(&str, (usize, usize), (usize, usize)); 2] =
+        [("keyboard toggle", (52, 38), (52, 20)), ("rotation", (52, 38), (112, 17))];
+    let mut table = String::from(
+        "| change | load | history rows | before: CPU per change | before: bytes sent | after: CPU per change | after: bytes sent |\n|---|---|---:|---:|---:|---:|---:|\n",
+    );
+    // Duress: a burst of Claude Code like output (colors, wide chars, a
+    // spinner rewrite, ~16 KB) lands between every layout change, so the
+    // change is measured on a terminal that is streaming and growing.
+    let burst = {
+        let mut b = Vec::new();
+        for i in 0..160 {
+            b.extend_from_slice(format!("\x1b[38;5;174m⏺\x1b[0m Update(src/lib.rs) 中文 ✅ \x1b[2mline {i} of a long tool result that wraps on the phone\x1b[0m\r\n").as_bytes());
+            b.extend_from_slice(
+                "\r\x1b[K\x1b[38;5;174m✻\x1b[0m Thinking… (esc to interrupt)".as_bytes(),
+            );
+        }
+        b.extend_from_slice(b"\r\x1b[K$ ");
+        b
+    };
+    let mut worst_after: f64 = 0.0;
+    for (label, a, b) in changes {
+        for (load, history, streaming) in [
+            ("idle fixture", 0usize, false),
+            ("idle fixture", 2_000, false),
+            ("long session", 10_000, false),
+            ("long session + streaming", 10_000, true),
+        ] {
+            let bytes = history_bytes(history);
+            // Before: the Mac's terminal at the phone's size, the phone's
+            // mirror beside it.
+            let mut mac = vt(a.0, a.1);
+            mac.vt_write(&bytes);
+            let mut sent = 0usize;
+            let n = 20;
+            let mut before_d = std::time::Duration::ZERO;
+            for i in 0..n {
+                let (c, r) = if i % 2 == 0 { b } else { a };
+                if streaming {
+                    mac.vt_write(&burst);
+                }
+                let start = Instant::now();
+                let _ = mac.resize(c as u16, r as u16, 0, 0);
+                mac.vt_write(b"\r\x1b[J$ ");
+                let replay = mac.vt_replay_bytes().unwrap();
+                sent += replay.len() + 2;
+                let mut mirror = vt(c, r);
+                mirror.vt_write(b"\x1bc");
+                mirror.vt_write(&replay);
+                before_d += start.elapsed();
+            }
+            let before_us = before_d.as_secs_f64() * 1e6 / n as f64;
+            let before_bytes = sent / n;
+            // After: the projection and the phone's terminal.
+            let mut projection = Projection::new(120, 40, history + 100);
+            let mut phone = vt(a.0, a.1);
+            for seg in
+                projection.set_viewport(a.0, a.1).into_iter().chain(projection.feed(&bytes, true))
+            {
+                if let Segment::Paint(x) | Segment::Reset(x) | Segment::Raw(x) = seg {
+                    phone.vt_write(&x);
+                }
+            }
+            let mut after_d = std::time::Duration::ZERO;
+            let mut cur = a;
+            for i in 0..n {
+                let (c, r) = if i % 2 == 0 { b } else { a };
+                if streaming {
+                    for seg in projection.feed(&burst, true) {
+                        match seg {
+                            Segment::Reset(x) => {
+                                phone = vt(cur.0, cur.1);
+                                phone.vt_write(&x);
+                            }
+                            Segment::Paint(x) | Segment::Raw(x) => phone.vt_write(&x),
+                            Segment::Alternate(_) => {}
+                        }
+                    }
+                }
+                let start = Instant::now();
+                cur = (c, r);
+                let _ = phone.resize(c as u16, r as u16, 0, 0);
+                for seg in projection.set_viewport(c, r) {
+                    match seg {
+                        Segment::Reset(x) => {
+                            phone = vt(c, r);
+                            phone.vt_write(&x);
+                        }
+                        Segment::Paint(x) | Segment::Raw(x) => phone.vt_write(&x),
+                        Segment::Alternate(_) => {}
+                    }
+                }
+                after_d += start.elapsed();
+            }
+            let after_us = after_d.as_secs_f64() * 1e6 / n as f64;
+            worst_after = worst_after.max(after_us);
+            let _ = std::fmt::Write::write_fmt(
+                &mut table,
+                format_args!(
+                    "| {label} | {load} | {history} | {:.2} ms + 2 round trips | {before_bytes} | {:.2} ms | 0 |\n",
+                    before_us / 1000.0,
+                    after_us / 1000.0
+                ),
+            );
+        }
+    }
+    println!("Layout change, before (real resize) and after (projection):\n{table}");
+    if let Ok(dir) = std::env::var("PARITY_OUT") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(std::path::Path::new(&dir).join("layout.md"), &table).unwrap();
+    }
+    assert!(
+        worst_after < 16_700.0,
+        "a layout change under projection fits one frame ({worst_after:.0} us)"
+    );
+}

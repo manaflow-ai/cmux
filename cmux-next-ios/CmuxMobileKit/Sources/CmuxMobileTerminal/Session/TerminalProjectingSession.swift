@@ -28,12 +28,17 @@ import os
 ///   scaled and then fitted. The program exiting or the page leaving
 ///   releases it; the title menu's Fit to Phone toggles it.
 ///
-/// Settings → Terminal → Fit to Phone turns this off (``isEnabled``): the
-/// session is then used as it is and the Mac resizes to the phone.
+/// Settings → Terminal → Fit to Phone turns this off (``isEnabled``), and the
+/// page menu's Fit to Phone per program (``isEnabled(for:)``): the session is
+/// then used as it is and the Mac resizes to the phone.
 @MainActor
 public final class TerminalProjectingSession: TerminalSession {
     /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
     public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
+
+    /// Whether a new page of `program` projects: its own Fit to Phone choice
+    /// (the page menu), else the global setting (`TerminalFitToPhoneMemory`).
+    public static func isEnabled(for program: String) -> Bool { !TerminalFitToPhoneMemory().fitToPhone(for: program) }
 
     /// The Mac's session.
     public let inner: any TerminalSession
@@ -172,6 +177,8 @@ public final class TerminalProjectingSession: TerminalSession {
     /// The Mac holds the scrollback the projection re-wraps: it asks for the
     /// reader's rows. Phone rows are never fewer than the host rows they wrap.
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
+    /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
+    public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))

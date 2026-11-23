@@ -102,6 +102,64 @@ fn cmux_next_agent_hook_notifications_have_the_agent_source() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn agent_delivery_posts_a_badge_and_a_banner_and_skips_disabled_completion() {
+    let mux = test_mux();
+    let dir = cmux_unix_socket::short_test_dir("notify-levels");
+    let config = dir.path().join("cmux-next.json");
+    std::fs::write(
+        &config,
+        r#"{"notifications":{"delivery":{
+        "permissionRequest":"banner","question":"badge","taskComplete":"off"
+    }}}"#,
+    )
+    .unwrap();
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
+        config,
+        seed: None,
+        state_dir: None,
+        watch: false,
+        reader: Box::new(cmux_config::managed::FixedManagedReader::default()),
+    }));
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let events = mux.subscribe();
+    for (seq, (event, payload)) in [
+        ("PermissionRequest", serde_json::json!({"tool_name":"Bash"})),
+        ("PermissionRequest", serde_json::json!({"tool_name":"AskUserQuestion"})),
+        ("Stop", serde_json::json!({})),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal),
+            payload,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, seq as u64 + 1).unwrap();
+    }
+    let posted: Vec<_> = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(note) => Some((note.title, note.desktop)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        posted,
+        vec![
+            ("Claude needs approval".to_owned(), true),
+            ("Claude asked a question".to_owned(), false)
+        ]
+    );
+    assert_eq!(mux.resource_notifications(16).len(), 2);
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+}
+
 #[test]
 fn agent_hook_transitions_post_durable_notifications_once() {
     let mux = test_mux();

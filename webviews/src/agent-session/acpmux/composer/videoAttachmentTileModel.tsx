@@ -9,7 +9,11 @@ import { loadPlayableMedia } from "../chips/replyMediaModel";
 /// will not grant plays in Quick Look; when that is refused too, `unplayable` is set and the chip
 /// says so (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :("),
 /// never a click that does nothing.
-export function useAttachedVideoPlayer(path: string | undefined, name: string) {
+export function useAttachedVideoPlayer(
+  path: string | undefined,
+  name: string,
+  size?: { width: number; height: number },
+) {
   const [src, setSrc] = useState<string>();
   const [unplayable, setUnplayable] = useState(false);
   const asked = useRef(0);
@@ -49,6 +53,7 @@ export function useAttachedVideoPlayer(path: string | undefined, name: string) {
         src={src}
         name={name}
         autoPlay
+        size={size}
         onError={() => {
           // The pane's player could not play what the host granted: Quick Look plays it, on the
           // same click, instead of the player closing with nothing shown (Leo, 2026-11-03).
