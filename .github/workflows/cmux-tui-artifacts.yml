@@ -5185,7 +5185,7 @@ jobs:
   # feat-cmux-next moves cmux-tui/channels/mac-live.json (--commit-only below).
   point-mac-live-channel:
     name: publish the Mac live update
-    needs: [publish, verify-publish, adopt-commit-manifest]
+    needs: [tree-preflight, publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && !startsWith(github.ref, 'refs/heads/lane/'))) && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     environment:
       name: artifacts
@@ -5227,6 +5227,8 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # The commit's tree key: the payload names it, so a Team-signed app takes the tree's Team-signed set.
+          TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
         run: |
           set -euo pipefail
           ml="$RUNNER_TEMP/mac-live"
@@ -5243,6 +5245,7 @@ jobs:
           else
             echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
           fi
+          if [[ "$TREE_KEY" =~ ^[0-9a-f]{40}$ ]]; then helper+=(--tree-key "$TREE_KEY"); fi
           export ml GITHUB_SHA GITHUB_RUN_ID only
           timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
