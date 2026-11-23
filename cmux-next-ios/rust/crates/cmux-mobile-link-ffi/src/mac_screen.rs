@@ -233,7 +233,7 @@ impl MacScreenRd {
         self.input(InputEvent::Scroll { dx, dy, precise });
     }
 
-    /// A key by HID usage (page 7).
+    /// A key by full HID usage, `page << 16 | id` (page 7 for keys: `0x0007_0028` is Return).
     pub fn key(&self, usage: u32, down: bool) {
         self.input(InputEvent::Key { usage, down });
     }
@@ -689,7 +689,7 @@ fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
         Some("key") => {
             let down = event.get("down").and_then(Value::as_bool).unwrap_or(false);
             match hid_usage(&text(&event, "code")) {
-                Some(usage) => vec![InputEvent::Key { usage, down }],
+                Some(id) => vec![InputEvent::Key { usage: KEYBOARD_PAGE | id, down }],
                 None => {
                     let typed = text(&event, "text");
                     if down && !typed.is_empty() { vec![InputEvent::Text(typed)] } else { Vec::new() }
@@ -700,7 +700,11 @@ fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
     }
 }
 
-/// The HID usage (page 7) of a DOM `KeyboardEvent.code`, for the keys the
+/// The Keyboard/Keypad usage page, high half of the `page << 16 | id` usage the
+/// rd wire carries (`cmux-rd-ffi` input_ffi.rs; the host refuses other pages).
+const KEYBOARD_PAGE: u32 = 0x0007_0000;
+
+/// The HID usage id (page 7, without the page) of a DOM `KeyboardEvent.code`, for the keys the
 /// phone's keyboard sends as keys (the rest arrive as text).
 fn hid_usage(code: &str) -> Option<u32> {
     if let Some(letter) = code.strip_prefix("Key").filter(|l| l.len() == 1) {
@@ -886,19 +890,19 @@ mod tests {
         };
         assert_eq!(
             rb_input_events(&key("Enter", true), None),
-            vec![InputEvent::Key { usage: 0x28, down: true }]
+            vec![InputEvent::Key { usage: 0x0007_0028, down: true }]
         );
         assert_eq!(
             rb_input_events(&key("Backspace", false), None),
-            vec![InputEvent::Key { usage: 0x2A, down: false }]
+            vec![InputEvent::Key { usage: 0x0007_002A, down: false }]
         );
         assert_eq!(
             rb_input_events(&key("KeyZ", true), None),
-            vec![InputEvent::Key { usage: 0x1D, down: true }]
+            vec![InputEvent::Key { usage: 0x0007_001D, down: true }]
         );
         assert_eq!(
             rb_input_events(&key("Digit0", true), None),
-            vec![InputEvent::Key { usage: 0x27, down: true }]
+            vec![InputEvent::Key { usage: 0x0007_0027, down: true }]
         );
         assert_eq!(
             rb_input_events(r#"{"e":"ime_commit","text":"héllo","replacement":null}"#, None),
