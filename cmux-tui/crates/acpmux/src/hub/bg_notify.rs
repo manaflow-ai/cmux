@@ -5,9 +5,12 @@
 //! calls/parsing of them seem kinda good? we should bea bel to do that AND have condensed tools
 //! that are callable in acpmux/cmux-next..."
 //!
-//! - The end is learned from the runner's own lock (`bg_run.rs`): a thread per watched task
-//!   blocks on it (`flock`), which the runner holds until it wrote its exit, or the kernel frees
-//!   when the runner dies. Nothing polls.
+//! - The end is learned from the runner's own lock (`bg_run.rs`), which the runner holds until
+//!   it wrote its exit, or the kernel frees when the runner dies. One thread of the process
+//!   (`acpmux-bg-watch`, [`watcher`]) holds every watched task's lock file open and tries each
+//!   lock without blocking once a [`TICK`]: the threads stay constant at any task count (a host
+//!   at load 170 had 42 threads parked in `flock`, one per task, 2026-11-23). A purged chat's
+//!   tasks leave it ([`Hub::bg_unwatch_session`]).
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
 //!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
@@ -49,17 +52,20 @@ impl Hub {
         let session = record.session_id.clone();
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new().name("acpmux-bg-watch".into()).spawn(move || {
-            wait_unlocked(&lock);
+        let owner = Arc::as_ptr(self) as usize;
+        watcher().watch(lock, owner, record.session_id.clone(), move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });
         });
-        if let Err(e) = spawned {
-            tracing::warn!(task = %record.id, "a background task's end cannot be watched: {e}");
-        }
+    }
+
+    /// Stops watching the tasks of chat `session_id` (it is purged): their ends go nowhere, and
+    /// a runner that outlives the purge holds no watch.
+    pub(super) fn bg_unwatch_session(&self, session_id: &str) {
+        watcher().unwatch(std::ptr::from_ref(self) as usize, session_id);
     }
 
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
@@ -336,27 +342,107 @@ fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     (body, !tail.is_empty())
 }
 
-/// Blocks until nothing holds the lock at `path` (a missing file holds nothing), then lets go.
-#[cfg(unix)]
-fn wait_unlocked(path: &Path) {
-    use std::os::fd::AsRawFd;
-    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
-        return;
-    };
-    loop {
-        // SAFETY: flock on a descriptor this function owns; it blocks until the runner let go.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            // SAFETY: same descriptor; released at once, so a liveness probe sees it free.
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            return;
+/// How often the watcher tries the watched locks.
+const TICK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The process's one watcher of background tasks' locks (module docs).
+fn watcher() -> &'static Watcher {
+    static WATCHER: std::sync::OnceLock<Watcher> = std::sync::OnceLock::new();
+    WATCHER.get_or_init(Watcher::default)
+}
+
+/// Lock files watched until nothing holds them; each fires its end once, from one thread.
+#[derive(Default)]
+struct Watcher {
+    state: StdMutex<WatchState>,
+    /// Wakes the thread from an idle wait when a watch is added.
+    added: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct WatchState {
+    /// By lock path: a task watched twice (a start and a restart's pass) ends once.
+    watches: HashMap<std::path::PathBuf, Watch>,
+    /// The watcher thread runs.
+    running: bool,
+}
+
+struct Watch {
+    /// Held open for the probe; never locked but for a probe.
+    file: std::fs::File,
+    /// The hub (its address) and the chat the task is of.
+    owner: usize,
+    session: String,
+    end: Box<dyn FnOnce() + Send>,
+}
+
+impl Watcher {
+    /// Calls `end` once nothing holds the lock at `path` (a missing file holds nothing: at once).
+    fn watch(
+        &self,
+        path: std::path::PathBuf,
+        owner: usize,
+        session: String,
+        end: impl FnOnce() + Send + 'static,
+    ) {
+        let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            return end();
+        };
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.watches.entry(path).or_insert(Watch { file, owner, session, end: Box::new(end) });
+        if !state.running {
+            let spawned = std::thread::Builder::new()
+                .name("acpmux-bg-watch".into())
+                .spawn(|| watcher().run());
+            match spawned {
+                Ok(_) => state.running = true,
+                Err(e) => tracing::warn!("background tasks' ends cannot be watched: {e}"),
+            }
         }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
+        self.added.notify_one();
+    }
+
+    /// Drops the watches of chat `session` of hub `owner`, firing none.
+    fn unwatch(&self, owner: usize, session: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.watches.retain(|_, w| w.owner != owner || w.session != session);
+    }
+
+    /// The watcher thread: idle while nothing is watched, else a probe of every lock a tick.
+    fn run(&self) {
+        loop {
+            let ended: Vec<Watch> = {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                while state.watches.is_empty() {
+                    state = self.added.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                let free: Vec<_> = state
+                    .watches
+                    .iter()
+                    .filter(|(_, w)| unlocked(&w.file))
+                    .map(|(p, _)| p.clone())
+                    .collect();
+                free.iter().filter_map(|p| state.watches.remove(p)).collect()
+            };
+            // Outside the lock: an end may watch again.
+            for watch in ended {
+                (watch.end)();
+            }
+            std::thread::sleep(TICK);
         }
     }
 }
-#[cfg(not(unix))]
-fn wait_unlocked(_path: &Path) {}
+
+/// Whether nothing holds the lock of `file`, without blocking; a probe that takes it lets go
+/// at once, so a liveness probe elsewhere sees it free. An interrupted probe counts as held (the
+/// next tick tries again); another error as free, as the runner's lock is then no news.
+fn unlocked(file: &std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    match FileLock::held_elsewhere(file, Kind::Exclusive) {
+        Ok(held) => !held,
+        Err(e) => e.kind() != std::io::ErrorKind::Interrupted,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -391,5 +477,77 @@ mod tests {
         assert_eq!(orphan_display(true, true, &ok), Some("line"));
         assert_eq!(orphan_display(true, false, &failed), Some("line"));
         assert_eq!(orphan_display(false, false, &ok), None);
+    }
+
+    /// Number of this process's threads named `acpmux-bg-watch`.
+    #[cfg(target_os = "linux")]
+    fn watch_threads() -> usize {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .filter(|t| {
+                std::fs::read_to_string(t.path().join("comm"))
+                    .is_ok_and(|c| c.trim() == "acpmux-bg-watch")
+            })
+            .count()
+    }
+
+    /// A lock file held as a runner holds it, by its own open file.
+    fn held_lock(dir: &Path, name: &str) -> (std::path::PathBuf, cmux_file_lock::FileLock) {
+        let path = dir.join(format!("{name}.lock"));
+        let file = crate::home_fs::create_file(&path).unwrap();
+        let held =
+            cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).unwrap();
+        (path, held)
+    }
+
+    /// 200 watched tasks take one thread, not 200; a lock let go fires its end once, within a
+    /// tick or two; a purged chat's watches go without firing while their locks are still held.
+    #[test]
+    fn bg_watch_one_thread_fires_once_and_unwatches() {
+        let dir = cmux_unix_socket::short_test_dir("bg-watch");
+        let owner = 0xb9_0001;
+        let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut held = Vec::new();
+        for i in 0..200 {
+            let (path, file) = held_lock(dir.path(), &format!("t{i}"));
+            let session = if i == 0 { "live" } else { "purged" };
+            let (fired, tx) = (fired.clone(), tx.clone());
+            watcher().watch(path, owner, session.into(), move || {
+                fired.fetch_add(1, Ordering::SeqCst);
+                let _ = tx.send(i);
+            });
+            held.push(file);
+        }
+        #[cfg(target_os = "linux")]
+        assert_eq!(watch_threads(), 1, "200 watched tasks take one thread");
+        // The purged chat's 199 watches go; their locks stay held.
+        watcher().unwatch(owner, "purged");
+        let left =
+            watcher().state.lock().unwrap().watches.values().filter(|w| w.owner == owner).count();
+        assert_eq!(left, 1);
+        assert_eq!(fired.load(Ordering::SeqCst), 0, "nothing fired while every lock is held");
+        // Every lock let go: only the one still watched fires, once, within the tick.
+        let started = std::time::Instant::now();
+        drop(held);
+        assert_eq!(rx.recv_timeout(TICK * 3).unwrap(), 0);
+        assert!(started.elapsed() < TICK * 3);
+        std::thread::sleep(TICK * 2);
+        assert_eq!(fired.load(Ordering::SeqCst), 1, "one end, once");
+        #[cfg(target_os = "linux")]
+        assert_eq!(watch_threads(), 1);
+    }
+
+    /// A task whose lock file is gone ends at once, on the caller's thread.
+    #[test]
+    fn bg_watch_of_a_missing_lock_ends_at_once() {
+        let dir = cmux_unix_socket::short_test_dir("bg-watch-missing");
+        let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let f = fired.clone();
+        watcher().watch(dir.path().join("gone.lock"), 0xb9_0002, "s".into(), move || {
+            f.store(true, Ordering::SeqCst);
+        });
+        assert!(fired.load(Ordering::SeqCst));
     }
 }
