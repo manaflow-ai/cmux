@@ -116,20 +116,20 @@ pub(crate) fn add_claude_args(args: &mut Vec<String>, meta: &SessionMeta) {
     let inline = args
         .iter()
         .rposition(|a| a == "--settings")
-        .filter(|at| !args[..*at].iter().any(|a| a == "--"))
+        .filter(|at| !args.iter().take(*at).any(|a| a == "--"))
         .and_then(|at| {
-            let value = args.get(at + 1)?;
+            let value = args.get(at.checked_add(1)?)?;
             match serde_json::from_str::<Value>(value) {
-                Ok(Value::Object(own)) => Some((at + 1, own)),
+                Ok(Value::Object(own)) => Some((at.checked_add(1)?, own)),
                 _ => None,
             }
         });
-    match inline {
-        Some((at, mut own)) => {
+    match inline.and_then(|(at, own)| Some((args.get_mut(at)?, own))) {
+        Some((slot, mut own)) => {
             if let Value::Object(hooks) = settings(condition) {
                 own.extend(hooks);
             }
-            args[at] = Value::Object(own).to_string();
+            *slot = Value::Object(own).to_string();
         }
         None => args.extend(claude_args(meta)),
     }
