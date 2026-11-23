@@ -59,7 +59,7 @@ struct FeedStacks: Equatable {
 
     /// Whether an event may be part of a stack.
     static func stacks(_ item: FeedItem) -> Bool {
-        false
+        !item.needsYou && item.pending == nil && item.error == nil
     }
 
     /// `expanded`: the stacks shown open, by their newest event's id. A stack that gets a newer
