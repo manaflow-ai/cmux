@@ -202,6 +202,9 @@ describe("chat simulator library", () => {
     const last = readSessionRecords(root, { last: 4 });
     expect(last.records.map((r) => r.seq)).toEqual([6, 7, 8, 9]);
     expect(last.filesRead).toBe(2);
+    // A file whose first line is not a record is read, and never hides the file before it.
+    writeFileSync(join(root, "events", "000002.ndjson"), "{broken\n" + JSON.stringify(record(5)) + "\n");
+    expect(readSessionRecords(root, { from: 3, to: 5 }).records.map((r) => r.seq)).toEqual([3, 5]);
   });
 
   test("rule counts are rows per rule, and changes name each rule that moved", () => {

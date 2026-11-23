@@ -46,12 +46,13 @@ function firstLine(path: string): string {
   }
 }
 
-function firstSeq(path: string): number {
+/** A file's first seq; undefined when its first line is not a record (the file is then always read). */
+function firstSeq(path: string): number | undefined {
   try {
     const seq = JSON.parse(firstLine(path)).seq;
-    return typeof seq === "number" ? seq : 0;
+    return typeof seq === "number" ? seq : undefined;
   } catch {
-    return 0;
+    return undefined;
   }
 }
 
@@ -99,8 +100,9 @@ export function readSessionRecords(
   }
   const records: EventRecord[] = [];
   for (let index = 0; index < files.length; index += 1) {
-    const end = index + 1 < files.length ? starts[index + 1]! : Number.POSITIVE_INFINITY;
-    if (end <= from || starts[index]! > to) continue;
+    const end = starts[index + 1] ?? Number.POSITIVE_INFINITY;
+    const start = starts[index] ?? Number.NEGATIVE_INFINITY;
+    if (end <= from || start > to) continue;
     for (const record of parse(index)) if (inRange(record, from, to)) records.push(record);
   }
   return { records, filesRead: parsed.size, files: files.length };
