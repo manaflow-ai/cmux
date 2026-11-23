@@ -111,6 +111,7 @@ import Testing
         #expect(frosted.artBlurRadius == 20)
         backdrop.apply(frosted, tint: .black)
         await backdrop.artLoad?.value
+        await backdrop.artBlurJob?.value
         let art = try #require(backdrop.artView.layer)
         #expect(art.contents != nil, "the picture never loaded")
         art.contentsScale = Self.scale
