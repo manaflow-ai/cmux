@@ -509,7 +509,7 @@ impl Hub {
                 return Ok((0, after_seq));
             }
             if super::transfer_history::is_packed(&manifest) {
-                super::transfer_history::unpack_staged(&bundle, chat)?;
+                self.unpack_staged(&bundle, chat)?;
             }
             self.write_staged(&bundle.join("events"), &segment, chat, base)
         });
