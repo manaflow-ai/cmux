@@ -151,11 +151,14 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     steps.push(step);
     return step;
   };
-  for (const { name, value } of picks)
-    await click(
+  for (const { name, value } of picks) {
+    const step = await click(
       `${name}=${value || "none"}`,
       page.locator(`.onb-make input[name="${name}"][value="${value}"]`).locator(".."),
     );
+    // The pick must show: a click the page sent but never drew would make every other check here vacuous.
+    step.shown = (await page.evaluate(checkedValues))[name] === value;
+  }
   await click("skip", page.locator('[data-variant="subtle"]').first());
   const afterSkip = await page.evaluate(checkedValues);
   await context.close();
@@ -210,6 +213,7 @@ async function main() {
         step.moved.length === 0 && step.cls === 0,
         `${walk.arm}/${walk.width} ${step.step}: layout shift ${px} px, CLS ${step.cls}`,
       );
+      if (step.step !== "skip") judge(step.shown, `${walk.arm}/${walk.width} ${step.step}: the pick did not show`);
       judge(
         step.ops.length === 1,
         `${walk.arm}/${walk.width} ${step.step}: ${step.ops.length} ops (${step.ops.join(", ")})`,
