@@ -120,6 +120,9 @@ const button: CSSProperties = {
   placeItems: "center",
   width: 28,
   height: 28,
+  // No UA padding (1px 6px): it left a 16px content box, so the 20px toggle overflowed from its left
+  // edge and drew 2px right of the button's centre (icon-button-centers.test.ts).
+  padding: 0,
   border: 0,
   borderRadius: 8,
   background: "transparent",
@@ -131,7 +134,14 @@ export function ToolbarIconsGallery({ toggle, before = false }: ToolbarIconsGall
   const glyph = (name: "browser" | "terminal", size: number) =>
     before ? <BeforeGlyph name={name} size={size} /> : <Icon name={name} size={size} />;
   return (
-    <div style={{ display: "grid", gap: 24, padding: 24, color: "var(--cmux-text-primary, #e4e4e7)" }}>
+    <div
+      style={{
+        display: "grid",
+        gap: 24,
+        padding: 24,
+        color: "var(--cmux-text-primary, #e4e4e7)",
+      }}
+    >
       <div
         style={{
           display: "flex",
