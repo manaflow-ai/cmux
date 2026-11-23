@@ -108,6 +108,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # web-validation.yml's build and tests and gallery-health.yml's health read the live Linux pool
     # (fromJSON(vars.RUNNER_POOLS).linux, tests/test_ci_runner_set.py) instead of one fixed size.
     ("ci-web.yml", "web-typecheck", "runs-on", SMALL),
+    ("ci-web.yml", "webviews-typecheck", "runs-on", SMALL),
     ("ci-web.yml", "web-tests", "runs-on", SMALL),
     ("ci-web.yml", "web-instant-navigation", "runs-on", SMALL),
     ("cmux-next-web-bundles.yml", "webviews-checks", "runs-on", SMALL),
@@ -186,6 +187,7 @@ FORK_PULL_REQUEST = (
 )
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
+    ("ci-web.yml", "webviews-typecheck", "runs-on"): SMALL,
     ("ci-web.yml", "web-production-build", "runs-on"): BIG,
     ("ci-web.yml", "web-tests", "runs-on"): SMALL,
     ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
