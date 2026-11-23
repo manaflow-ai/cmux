@@ -1,58 +1,54 @@
-/* The chat's held surge as one row of the bottom stack (SurgeHoldRow.tsx), drawn as the running tray's
-   header is (subagents.css .acpmux-running-tray__head): the stack's glass (.ui-glass
-   .acpmux-stack-material, composerStates.css), one --ui-row-height line on the composer's inset, the
-   mark in the lines' 16px icon column, the title in the line's ink, the held count as quiet meta in
-   tabular figures, the need-you count in the waiting tone, and the chevron ending the row in the
-   composer's control column. Open, the held threads read over the line in the transcript's
-   received-messages look, bounded in height so the transcript keeps its room; the line itself never
-   moves. Every edge is --acpmux-composer-edge (test/composer-one-edge.test.ts).
-
-   Its surface (data-surface, the gallery's variants):
-   - stack (shipped): joined to the part under it (the composer, the tray, the Goal banner) with no gap
-     and one hairline where they meet, as the tray joins the composer (bottomStack.css);
-   - card: the same glass as a card of its own, one 4px step over the part under it;
-   - line: no card, a quiet line over the stack. */
+/* The chat's held surge as one card of the composer's bottom stack (SurgeHoldRow.tsx), a sibling of the
+   goal row (TaskGoalStrip.css), the questions band (question/hatQuestions.css) and the running tray:
+   the stack's own material and its one edge (.acpmux-stack-material, composerStates.css), never a
+   tint strip of its own (Leo, 2026-11-23: "the ui for this is still f***ing not style d properly").
+   Shut, one 28 px line on the hat's columns: the messages mark, the words, the held count in tabular
+   figures, the need-you count as a quiet button (a status dot in the attention hue, ink words, no fill
+   at rest) and the chevron in the trailing column every hat line's chevron ends in. Open, the held
+   threads read over the line in the transcript's received-messages look, bounded in height so the
+   transcript keeps its room; the line itself never moves.
+   Instrument (cmuxterm-hq docs/design/design-system-decisions.md): grid 4, control 28, text 13; fills
+   on the ink ladder (hover 8, open = selected 12, pressed 16) through the colour roles, none at rest;
+   hue only for status. The seam and the shut corner are the stack's (--acpmux-stack-gap and
+   --acpmux-stack-radius, bottomStack.css), as for the tray and the goal row: joined to the composer
+   where the stack joins, its own card one step over it where the stack is gapped; open, the corner is
+   min(control corner + inset, floor4(h / 3)), the composer's. */
 .acpmux-surge {
   --acpmux-surge-row: var(--ui-row-height, 28px);
-  --acpmux-surge-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
-  --acpmux-surge-control: var(--acpmux-composer-control, 28px);
+  --acpmux-surge-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
+  /* The trailing column: a control wide, its glyph centred, the card's inset less the column's own
+     side room, so the chevron's edge sits the mark's distance from the card's edge. */
+  --acpmux-surge-chevron-col: var(--acpmux-composer-control, 28px);
+  --acpmux-surge-inset-end: max(0px, calc(var(--acpmux-surge-inset) - var(--ds-space-2)));
+  --acpmux-surge-mark-dot: 6px;
+  --acpmux-surge-radius: var(--acpmux-stack-radius, var(--ds-radius-control, 8px));
   position: relative;
   box-sizing: border-box;
   display: flex;
   flex: none;
   flex-direction: column;
   min-width: 0;
-  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
-    calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
+  /* On the composer card's two edges, the stack's gap over the part under it. */
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px))
+    var(--acpmux-stack-gap, var(--ds-space-1)) calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
   overflow: clip;
-  border-radius: var(--acpmux-composer-radius, 11px);
-  box-shadow: var(--acpmux-stack-shadow, inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge));
+  border-radius: var(--acpmux-surge-radius);
+  background: var(--acpmux-stack-tint);
+  box-shadow: var(--acpmux-stack-shadow);
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
-  line-height: 18px;
+  line-height: var(--text-control--line-height, 20px);
   letter-spacing: var(--text-control--letter-spacing);
 }
-
-/* card: its own card, one step over the next part. */
-.acpmux-surge[data-surface="card"] {
-  margin-bottom: var(--ds-space-1);
+/* Open, the card is taller: its corner is the inner field's corner plus the inset. */
+.acpmux-surge[data-open] {
+  --acpmux-surge-radius: calc(var(--ds-radius-control, 8px) + var(--ds-space-2));
 }
 
-/* line: no card; the words sit on the composer's column over the transcript's mask. */
-.acpmux-surge[data-surface="line"] {
-  background: none;
-  box-shadow: none;
-}
-
-/* stack: joined to the stack part under it. Neither rounds where they meet and only the lower one
-   draws the hairline there, as the tray meets the composer (bottomStack.css); the gallery's `cards`
-   look keeps separate cards. */
-:root:not([data-bottom-stack="cards"])
-  .acpmux-dock
-  > .acpmux-surge[data-surface="stack"]:has(
-    + :is(.acpmux-composer, .acpmux-running-tray[data-card], .acpmux-goal)
-  ) {
+/* Joined (the stack's default, bottomStack.css): square where it meets the composer, the sides and
+   the top only, the composer drawing the hairline where they meet and squaring its own top. */
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-surge:has(+ .acpmux-composer) {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   box-shadow:
@@ -62,82 +58,72 @@
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > .acpmux-surge[data-surface="stack"]
-  + :is(.acpmux-running-tray[data-card], .acpmux-goal),
-:root:not([data-bottom-stack="cards"])
-  .acpmux-dock
-  > .acpmux-surge[data-surface="stack"]
+  > .acpmux-surge
   + .acpmux-composer
   > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
-:root[data-bottom-stack="cards"] .acpmux-dock > .acpmux-surge[data-surface="stack"] {
-  margin-bottom: var(--acpmux-stack-gap, var(--ds-space-1));
-}
-/* One glass is lit once, from above (bottomStack.css): the composer joined under the row gives up its
-   own top light, keeping the hairline where they meet, as it does under the tray. */
-@media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
-      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
-    )
-    .acpmux-dock
-    > .acpmux-surge[data-surface="stack"]
-    + .acpmux-composer
-    > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
-    --acpmux-composer-rim: inset -1px -1px 1px -1px var(--glass-material-return);
-  }
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-surge
+  + .acpmux-composer
+  > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
+  border-radius: inherit;
 }
 
+/* The line: one button under its words (the goal row's pattern, TaskGoalStrip.css), the mark, the
+   words, the need-you button and the chevron on the line's columns over it. Only the need-you button
+   takes the pointer; everything else lets the click through to the line's button. */
 .acpmux-surge-line {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto var(--acpmux-surge-chevron-col);
   align-items: center;
+  column-gap: var(--ds-space-2);
   min-height: var(--acpmux-surge-row);
+  padding: 0 var(--acpmux-surge-inset-end) 0 var(--acpmux-surge-inset);
 }
+.acpmux-surge-line > :not(.acpmux-surge-toggle) {
+  position: relative;
+  z-index: var(--layer-raised, 1);
+  pointer-events: none;
+}
+.acpmux-surge-line > button.acpmux-surge-need { pointer-events: auto; }
 
-/* The toggle is the row: the mark, the words and the chevron, as the tray's header button. */
 .acpmux-surge-toggle {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  height: var(--acpmux-surge-row);
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-base, 0);
   margin: 0;
-  padding: 0 0 0 var(--acpmux-surge-inset);
+  padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: inherit;
   background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
   cursor: default;
-  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-.acpmux-surge-toggle:hover {
-  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
-}
+.acpmux-surge-toggle:hover { background: var(--ds-color-hover); }
+.acpmux-surge-toggle:active { background: var(--ds-color-pressed); }
+.acpmux-surge[data-open] .acpmux-surge-toggle { border-radius: 0; }
 .acpmux-surge-toggle:focus-visible,
 .acpmux-surge-need:focus-visible,
-.acpmux-surge-filters button:focus-visible {
-  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text));
-  outline-offset: calc(-1 * var(--cmux-focus-ring-width, 1.5px));
+.acpmux-surge-filters button:focus-visible,
+.acpmux-surge-retry:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
 }
 
 .acpmux-surge-mark {
   display: inline-grid;
-  flex: none;
+  grid-column: 1;
   width: 16px;
   place-items: center;
   color: var(--agent-muted);
 }
-.acpmux-surge[data-need] .acpmux-surge-mark {
-  color: var(--acpmux-needs-you-mark, var(--agent-warning, var(--agent-accent)));
-}
 
 .acpmux-surge-copy {
   display: flex;
-  flex: 0 1 auto;
+  grid-column: 2;
   align-items: baseline;
   gap: var(--ds-space-2);
   min-width: 0;
@@ -145,125 +131,109 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-surge-title {
-  min-width: 0;
+.acpmux-surge-title { font-weight: var(--font-weight-emphasis); }
+.acpmux-surge-count {
   overflow: hidden;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
 }
-.acpmux-surge-count {
-  flex: none;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  font-variant-numeric: tabular-nums;
-}
 
-/* The chevron ends the row in the composer's control column, as the tray header's does: up while
-   folded, turning down as the panel opens. */
 .acpmux-surge-chevron {
-  flex: none;
-  box-sizing: content-box;
-  width: 12px;
-  margin-inline-start: auto;
-  padding-inline: calc((var(--acpmux-surge-control) - 12px) / 2);
+  grid-column: 4;
+  justify-self: center;
   color: var(--agent-muted);
-  rotate: 180deg;
-  transition: rotate var(--agent-motion-move, var(--cmux-motion-standard, 180ms)) var(--agent-ease-out, ease-out);
+  transform: rotate(180deg);
+  transition: transform var(--agent-motion-move, var(--cmux-motion-standard)) var(--cmux-ease-out);
 }
-.acpmux-surge[data-open] .acpmux-surge-chevron { rotate: 0deg; }
+.acpmux-surge[data-open] .acpmux-surge-chevron { transform: none; }
 
-/* The need-you count: the waiting tone's words, with a quiet wash only as a button. */
+/* The ones that need the person: a quiet button, no fill at rest, the attention hue only on its dot
+   (the pull tab's and the questions band's needs-you mark, --acpmux-needs-you-mark), the words in ink. */
 .acpmux-surge-need {
-  flex: none;
   display: inline-flex;
+  grid-column: 3;
   align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 24px;
   margin: 0;
   padding: 0 var(--ds-space-2);
-  height: calc(var(--acpmux-surge-row) - 8px);
   border: 0;
-  border-radius: var(--ds-radius-control);
-  background: none;
-  color: var(--acpmux-needs-you-mark, var(--agent-warning, var(--agent-accent)));
+  border-radius: var(--ds-radius-control, 8px);
+  background: transparent;
+  color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
 }
-button.acpmux-surge-need {
-  margin-inline-end: var(--ds-space-1);
+.acpmux-surge-need::before {
+  content: "";
+  flex: none;
+  width: var(--acpmux-surge-mark-dot);
+  height: var(--acpmux-surge-mark-dot);
+  border-radius: 50%;
+  background: var(--acpmux-needs-you-mark);
 }
-button.acpmux-surge-need:hover {
-  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+button.acpmux-surge-need:hover { background: var(--ds-color-hover); }
+button.acpmux-surge-need:active { background: var(--ds-color-pressed); }
+/* The need-first look: the count leads the words, inside the toggle. */
+.acpmux-surge-copy .acpmux-surge-need {
+  min-height: 0;
+  padding: 0;
 }
-.acpmux-surge-copy .acpmux-surge-need { height: auto; padding: 0; }
 
-/* Open: the threads over the line, at most about half the pane, scrolling inside; one hairline in the
-   stack's edge color between them and the line. */
+/* Open: the threads over the line, at most about half the pane, scrolling inside, a hairline between
+   them and the line. */
 .acpmux-surge-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1);
+  gap: var(--ds-space-2);
   max-height: min(56vh, 520px);
-  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1);
-  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--acpmux-composer-edge, transparent);
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--ds-color-separator);
 }
 
-/* The search field is a menu's search field (ui.css .ui-menu-search): one row high, the hover wash. */
+/* The search field: a closed outline on the stack's one edge, no fill. */
 .acpmux-surge-search {
   display: flex;
-  flex: none;
   align-items: center;
   gap: var(--ds-space-2);
-  height: var(--acpmux-surge-row);
-  padding: 0 calc(var(--acpmux-surge-inset) - var(--ds-space-1));
-  border-radius: var(--ui-row-radius, var(--ds-radius-control));
-  background: var(--acpmux-pill-hover, var(--ui-hover));
+  min-height: var(--acpmux-surge-row);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control, 8px);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-muted);
 }
+.acpmux-surge-search:focus-within { background: var(--ds-color-hover); }
 .acpmux-surge-search input {
-  appearance: none;
   flex: 1;
   min-width: 0;
-  height: 100%;
-  margin: 0;
-  padding: 0;
   border: 0;
   background: transparent;
   color: var(--agent-text);
   font: inherit;
   outline: none;
 }
-.acpmux-surge-search input::placeholder { color: var(--acpmux-composer-placeholder, var(--agent-muted)); }
-.acpmux-surge-search input::-webkit-search-cancel-button { appearance: none; }
 
-.acpmux-surge-filters {
-  display: flex;
-  flex: none;
-  gap: var(--ds-space-1);
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
+/* Held / need you: two quiet buttons, the chosen one at the selected rung. */
+.acpmux-surge-filters { display: flex; gap: var(--ds-space-1); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .acpmux-surge-filters button {
   margin: 0;
   padding: 0 var(--ds-space-2);
-  height: 22px;
+  min-height: 24px;
   border: 0;
-  border-radius: var(--ds-radius-control);
+  border-radius: var(--ds-radius-control, 8px);
   background: transparent;
   color: var(--agent-muted);
   font: inherit;
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
   font-variant-numeric: tabular-nums;
   cursor: default;
 }
-.acpmux-surge-filters button:hover { background: var(--acpmux-pill-hover); }
+.acpmux-surge-filters button:hover { background: var(--ds-color-hover); }
+.acpmux-surge-filters button:active { background: var(--ds-color-pressed); }
 .acpmux-surge-filters button[aria-pressed="true"] {
-  background: var(--acpmux-pill-open, var(--acpmux-pill-hover));
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 
@@ -274,22 +244,58 @@ button.acpmux-surge-need:hover {
 }
 .acpmux-surge-threads .cv-incoming { width: 100%; min-width: 0; }
 
-/* A note (loading, empty, failed) reads as the tray's quiet meta, on the line's inset. */
 .acpmux-surge-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--ds-space-2);
   margin: 0;
-  padding: var(--ds-space-1) calc(var(--acpmux-surge-inset) - var(--ds-space-1));
+  padding: var(--ds-space-2);
   color: var(--agent-muted);
-  font-size: var(--text-detail);
-  line-height: 18px;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
-.acpmux-surge-note[role="alert"] { color: var(--agent-soft, var(--agent-text)); }
+
+/* The listing failed: what failed in ink, acpmux's own words under it as text the person can read and
+   select (a bare "Try again" told Leo nothing, 2026-11-22), and Try again as a quiet button. */
+.acpmux-surge-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+}
+.acpmux-surge-failed-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+.acpmux-surge-failed-title {
+  color: var(--agent-text);
+  font-weight: var(--font-weight-emphasis);
+}
+.acpmux-surge-failed-reason {
+  color: var(--agent-muted);
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height, 16px);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.acpmux-surge-retry {
+  min-height: 24px;
+  margin: 0 0 0 calc(-1 * var(--ds-space-2));
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-surge-retry:hover { background: var(--ds-color-hover); }
+.acpmux-surge-retry:active { background: var(--ds-color-pressed); }
 
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-surge-chevron,
-  .acpmux-surge-toggle { transition: none; }
+  .acpmux-surge-chevron { transition: none; }
 }

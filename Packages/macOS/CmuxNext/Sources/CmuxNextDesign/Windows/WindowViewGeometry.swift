@@ -1,7 +1,7 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 
-/// DEBUG ONLY. One frame's view geometry for a `--record-launch` recording (CmuxNextApp's `DebugWindowRecord`): every view of
+/// One frame's view geometry for a `--record-launch` recording (CmuxNextApp's `DebugWindowRecord`, Debug and bench builds)
+/// and a launch harness's settle watch (`LaunchLayoutSettle`, any build, only while a harness reads the launch marks): every view of
 /// the window from its frame view down (at most ``maxDepth`` levels and ``maxViews`` views), by identity, with its
 /// frame in window coordinates and whether it is drawn (it and its superviews are not hidden and not clear).
 /// ``changes(since:)`` names what moved between two frames, so a relaunch bench (scripts/cmux-next/launch_shift.py)
@@ -94,8 +94,26 @@ public struct WindowViewGeometry {
         return (total, lines.sorted())
     }
 
+    /// The view drawn in both frames whose edges moved farthest since `previous`, and how far in points (the largest
+    /// of its four edges' moves): a row pushed down 32 pt, or a sidebar widened by 40 pt, is a move of 32 or 40. nil
+    /// when no drawn view moved. A view that appeared, showed, hid or went away is a change ``changes(since:limit:)``
+    /// counts, not a move.
+    public func largestMove(since previous: WindowViewGeometry) -> (name: String, points: Double)? {
+        var best: (name: String, points: Double)?
+        for (id, now) in entries where now.isVisible {
+            guard let was = previous.entries[id], was.isVisible, was.rect != now.rect else { continue }
+            let points = Self.edgeMove(from: was.rect, to: now.rect)
+            if points > (best?.points ?? 0) { best = (now.name, points) }
+        }
+        return best
+    }
+
+    /// How far the farthest edge of `from` moved to reach `to`, in points.
+    public static func edgeMove(from: CGRect, to: CGRect) -> Double {
+        Double(max(abs(to.minX - from.minX), abs(to.minY - from.minY), abs(to.maxX - from.maxX), abs(to.maxY - from.maxY)))
+    }
+
     public static func text(_ rect: CGRect) -> String {
         "\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))"
     }
 }
-#endif

@@ -114,6 +114,7 @@ fn dispatch_command(
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {
@@ -704,6 +705,10 @@ fn dispatch_command(
             conversations::link_resolve(mux, client, params)
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
+        Command::ConversationScheduledList(params) => {
+            conversation_scheduled::list(mux, client, params)
+        }
+        Command::ConversationScheduledOp(params) => conversation_scheduled::op(mux, client, params),
         Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
@@ -1019,6 +1024,8 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            resume_offset,
+            resume_generation,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1040,6 +1047,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation),
                 snapshot,
             )
         }

@@ -6,7 +6,7 @@ import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextSidebar
 
-/// `debug.sidebar_nested_fixture {scenario, window?}` (nested-groups prototype): the window's sidebar shows
+/// `debug.sidebar_nested_fixture {scenario, window?, pull_requests?}` (nested-groups prototype): the window's sidebar shows
 /// a fixture tree of groups inside groups (`SidebarNestedFixture`) at the scenario's width, with its
 /// rails and drag; `scenario: "off"` brings the live rows back. Answers the scenario and the rows drawn.
 @MainActor
@@ -41,6 +41,15 @@ struct DebugSidebarNestedFixture {
         if !fixture.parents.isEmpty, var tree = SidebarSessionTree.shared.state {
             tree.parents.merge(fixture.parents) { _, fixture in fixture }
             SidebarSessionTree.shared.state = tree
+        }
+        // `pull_requests: true`: a failing pull request badge on every fixture row, for hover captures of the ✕ beside
+        // it (https://github.com/manaflow-ai/cmux/issues/48363); the feed's next pass replaces them.
+        if params["pull_requests"]?.boolValue == true {
+            let badge = SidebarPullRequestBadge(count: 1, status: .failing, items: [
+                SidebarPullRequestItem(url: "https://github.com/o/r/pull/1", repository: "o/r", number: 1, title: "Fixture PR", state: .failing),
+            ])
+            let ids = fixture.sections.flatMap(\.workspaces).map(\.id)
+            SidebarSessionTree.shared.pullRequests = Dictionary(ids.map { ($0, badge) }) { first, _ in first }
         }
         sidebar.container.layoutSubtreeIfNeeded()
         sidebar.container.showNestedFixture(fixture)

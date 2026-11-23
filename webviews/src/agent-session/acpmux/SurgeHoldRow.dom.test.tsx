@@ -197,7 +197,7 @@ test("a transient failure reads again by itself, with no button", async () => {
   await settle();
   expect(calls.list).toBe(1);
   expect(container.querySelector("button.acpmux-surge-retry")).toBeNull();
-  expect(container.querySelector('.acpmux-surge-note[role="alert"]')).toBeNull();
+  expect(container.querySelector('.acpmux-surge-failed[role="alert"]')).toBeNull();
   fail = false;
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 1300));
@@ -213,7 +213,7 @@ test("a listing the app refuses says to update cmux, with no Try again", async (
   });
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
-  const note = container.querySelector('.acpmux-surge-note[role="alert"]');
+  const note = container.querySelector('.acpmux-surge-failed[role="alert"]');
   expect(note?.getAttribute("data-failure")).toBe("host");
   expect(note?.textContent).toContain("Update cmux");
   expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
@@ -226,7 +226,7 @@ test("acpmux's own error shows its message, with no button", async () => {
   });
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
-  expect(container.querySelector('.acpmux-surge-note[role="alert"]')?.textContent).toContain("inbox store locked");
+  expect(container.querySelector('.acpmux-surge-failed[role="alert"]')?.textContent).toContain("inbox store locked");
   expect(container.querySelector("button")?.textContent).not.toContain("Try again");
   expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
 });
@@ -235,7 +235,7 @@ test("not connected, it says so and reads nothing until the chat is back", async
   const { container, calls } = await render({ held: 4, needYou: 0, seq: 1 }, async () => LISTING, false);
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
-  expect(container.querySelector('.acpmux-surge-note[role="alert"]')?.getAttribute("data-failure")).toBe("offline");
+  expect(container.querySelector('.acpmux-surge-failed[role="alert"]')?.getAttribute("data-failure")).toBe("offline");
   expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
   expect(calls.list).toBe(0);
 });

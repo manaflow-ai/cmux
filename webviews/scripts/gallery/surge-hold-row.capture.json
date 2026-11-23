@@ -18,9 +18,9 @@
       }
     },
     {
-      "name": "surge-surface-card",
+      "name": "surge-counts-cards",
       "entry": "agent-pane.surge-hold-row",
-      "variant": "surface-card",
+      "variant": "counts-cards",
       "width": 760,
       "height": 200,
       "deviceScaleFactor": 2,
@@ -29,9 +29,9 @@
       }
     },
     {
-      "name": "surge-surface-line",
+      "name": "surge-line",
       "entry": "agent-pane.surge-hold-row",
-      "variant": "surface-line",
+      "variant": "line",
       "width": 760,
       "height": 200,
       "deviceScaleFactor": 2,
