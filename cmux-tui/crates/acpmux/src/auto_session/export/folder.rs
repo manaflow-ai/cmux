@@ -14,6 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 // Each child ends with its handle (`cmux_process::Child`): none outlives the copy it is for.
 use cmux_process::{Command, Stdio};
 
+use crate::auto_session::import::BASE_REF;
 use crate::cli::hosts::RemoteOut;
 use crate::cli::session_move_carry::{self, Carry};
 
@@ -107,14 +108,17 @@ pub(crate) fn remote_and_branch(top: &Path) -> Option<(String, String)> {
 }
 
 /// The newest commit of HEAD's history that a remote branch has: the merge base with HEAD's
-/// upstream, else with every remote branch this checkout knows. None when the remote has none
-/// of it (or nothing was ever fetched or pushed).
+/// upstream, else with every remote branch this checkout knows and the base the folder's last
+/// imported snapshot named (a folder an import made fetched that commit by its id, so it has
+/// no branch of the remote). None when the remote has none of it (or nothing was ever fetched
+/// or pushed).
 fn base_of(top: &Path) -> Option<String> {
     let upstream = git(top, &["merge-base", "HEAD", "@{upstream}"]).map(line);
     if let Some(base) = upstream.filter(|base| !base.is_empty()) {
         return Some(base);
     }
-    let refs = line(git(top, &["for-each-ref", "--format=%(objectname)", "refs/remotes"])?);
+    let known = ["for-each-ref", "--format=%(objectname)", "refs/remotes", BASE_REF];
+    let refs = line(git(top, &known)?);
     let mut args = vec!["merge-base", "HEAD"];
     args.extend(refs.lines().filter(|name| !name.is_empty()));
     if args.len() == 2 {

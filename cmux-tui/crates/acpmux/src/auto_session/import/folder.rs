@@ -21,6 +21,9 @@ use cmux_auto_session::wire::Cwd;
 
 use crate::home_fs;
 
+/// Where a folder keeps the last snapshot's base: a commit the chat's remote has.
+pub(crate) const BASE_REF: &str = "refs/cmux/auto/base";
+
 pub(super) fn place(
     dir: &Path,
     fresh: bool,
@@ -150,10 +153,12 @@ impl Git<'_> {
             checkout.push("-f");
         }
         match self.branch {
-            "" => checkout.extend(["--detach", head.as_str()]),
+            // A detached checkout: the copy's side names it `HEAD` (`export/folder.rs`).
+            "" | "HEAD" => checkout.extend(["--detach", head.as_str()]),
             branch => checkout.extend(["-B", branch, head.as_str()]),
         }
         git(dir, &checkout)?;
+        self.keep_base(dir);
         if self.patch.is_empty() {
             return Ok(());
         }
@@ -165,6 +170,15 @@ impl Git<'_> {
             before.as_it_was(dir);
         }
         applied.map(|_| ()).map_err(|e| format!("the snapshot's patch does not apply: {e}"))
+    }
+
+    /// Keeps the base under [`BASE_REF`]: a commit the remote has. A new folder fetched it by
+    /// its id, which leaves no branch of the remote behind, and the chat's next copy from this
+    /// folder looks for a commit the remote has (`export/folder.rs` `base_of`). With none the
+    /// folder would go back as a tar, and the commits made here would not come home as
+    /// commits. Best effort.
+    fn keep_base(&self, dir: &Path) {
+        let _ = git(dir, &["update-ref", BASE_REF, self.base]);
     }
 
     /// Brings the snapshot's commits into the repository at `dir`; answers the chat's `HEAD`.

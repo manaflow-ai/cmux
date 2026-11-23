@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::wire::{Manifest, SessionView};
+pub(crate) use folder::BASE_REF;
 use futures::future::BoxFuture;
 
 use super::{ImportError, ImportReason, Imported, SessionImporter};
