@@ -37,6 +37,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
     /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
     public let motionChanges = MotionChanges()
+    /// The composite tokens a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    let tokenMemos = TokenMemos()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -60,6 +62,8 @@ public final class DesignSettings {
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `app.language`: the code cmux's own text is in, nil for System; pages get it on every document.
+    public var appLanguage: String?
     /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
     /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1
@@ -158,6 +162,10 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
+    /// entry is centered and fills (today's look). Every window and pane backdrop observes it
+    /// (`WindowMaterialView.observePlacement`).
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -183,6 +191,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `tabs.shellIconTheme`: shell tabs draw the `>_` glyph (default) or their machine's icon.
+    public var tabShellIconTheme: TabShellIconTheme = .default
     /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
@@ -199,6 +209,9 @@ public final class DesignSettings {
             if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
         }
     }
+    /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
+    /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
+    public var agentBadges: AgentBadgesExperiment = .off
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -310,6 +323,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
+    /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
+    public var liquidGlass = false
     /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).

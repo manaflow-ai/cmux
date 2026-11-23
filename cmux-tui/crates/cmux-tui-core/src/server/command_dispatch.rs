@@ -139,18 +139,25 @@ fn dispatch_command(
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-                restart,
-            )
-        }
+        Command::ShutdownDaemon {
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        } => cmd_server::shutdown_daemon(
+            mux,
+            client,
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        ),
         Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
@@ -1012,6 +1019,8 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            resume_offset,
+            resume_generation,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1033,6 +1042,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation),
                 snapshot,
             )
         }

@@ -498,10 +498,16 @@ public struct ScreenSessionView: View {
         case .connecting:
             // A reconnect keeps the last frame and says nothing until it has run
             // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently.
-            if !session.isReconnecting || session.reconnectNoticeDue {
+            // Past it, a reconnect is a small chip at the top over the kept frame, never a
+            // sentence card across it (Leo, 2026-11-21: "a symbol or short thing, not a
+            // sentence"). A first connect has no frame to keep, so it keeps the card, after
+            // `ScreenSession.connectNoticeDelay`: a quick one never flashes.
+            if session.isReconnecting {
+                if session.reconnectNoticeDue { reconnectChip }
+            } else if session.connectNoticeDue {
                 card {
                     CmuxSpinner()
-                    Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
+                    Text("Connecting to \(session.title)…").font(.headline)
                 }
             }
         case let .failed(message, needsSignIn):
@@ -664,6 +670,24 @@ public struct ScreenSessionView: View {
     private func signIn() {
         session.credentials = VNCCredentials(username: signInUser, password: signInPassword)
         session.connect()
+    }
+
+    /// The reconnect chip: a spinner and one word in a capsule, top center over the kept
+    /// frame; VoiceOver reads the whole sentence.
+    private var reconnectChip: some View {
+        HStack(spacing: 6) {
+            CmuxSpinner().frame(width: 14, height: 14)
+            Text("Reconnecting").font(.footnote.weight(.medium))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(.regularMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reconnecting to \(session.title)…")
+        .accessibilityIdentifier("screen.reconnecting")
+        .padding(.top, chromeVisible ? chromeHeight + 8 : 8) // under the toolbar, never over it
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

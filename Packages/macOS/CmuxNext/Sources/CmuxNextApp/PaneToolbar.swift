@@ -277,5 +277,5 @@ final class PaneToolbar: PaneControlsRefreshing {
 }
 
 enum PaneToolbarStrings {
-    static var showInTabBar: String { String(localized: "paneToolbar.showInTabBar", defaultValue: "Show in Tab Bar", bundle: .module) }
+    static var showInTabBar: String { String(localized: "paneToolbar.showInTabBar", defaultValue: "Show in Tab Bar", bundle: .module.inAppLanguage) }
 }

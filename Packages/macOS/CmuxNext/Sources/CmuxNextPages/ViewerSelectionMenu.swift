@@ -53,27 +53,27 @@ public struct ViewerSelectionMenu {
         public init() {}
         /// "Comment…": opens the comment popover.
         public static var comment: String {
-            String(localized: "pages.viewerSelection.comment", defaultValue: "Comment…", bundle: .module)
+            String(localized: "pages.viewerSelection.comment", defaultValue: "Comment…", bundle: .localizedModule)
         }
 
         /// "Quote in Chat": sends the selection with no comment.
         public static var quoteInChat: String {
-            String(localized: "pages.viewerSelection.quoteInChat", defaultValue: "Quote in Chat", bundle: .module)
+            String(localized: "pages.viewerSelection.quoteInChat", defaultValue: "Quote in Chat", bundle: .localizedModule)
         }
 
         /// The comment dialog's title, `Comment on README.md · L3–4`.
         public static func commentOn(_ title: String) -> String {
-            String(localized: "pages.viewerSelection.commentOn", defaultValue: "Comment on \(title)", bundle: .module)
+            String(localized: "pages.viewerSelection.commentOn", defaultValue: "Comment on \(title)", bundle: .localizedModule)
         }
 
         /// The comment field's placeholder.
         public static var commentPlaceholder: String {
-            String(localized: "pages.viewerSelection.commentPlaceholder", defaultValue: "Your comment", bundle: .module)
+            String(localized: "pages.viewerSelection.commentPlaceholder", defaultValue: "Your comment", bundle: .localizedModule)
         }
 
         /// The comment dialog's default button.
         public static var addToChat: String {
-            String(localized: "pages.viewerSelection.addToChat", defaultValue: "Add to Chat", bundle: .module)
+            String(localized: "pages.viewerSelection.addToChat", defaultValue: "Add to Chat", bundle: .localizedModule)
         }
     }
 }

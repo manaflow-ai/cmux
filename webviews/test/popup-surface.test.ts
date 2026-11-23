@@ -280,7 +280,10 @@ ${tooltips}`,
         const ids = pane.surfaces;
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
-        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        // One elevation, not one corner: the New Tab suggestions take the field's corner (#47587, --nt-box-radius,
+        // 20 px at Default, newtab/screen.css) so their rows stay concentric with the box they serve.
+        const corner = (id: string) => (id === "new-tab-suggestions" ? "20px" : want.radius);
+        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, { ...want, radius: corner(id) }])));
         await page.close();
       });
 

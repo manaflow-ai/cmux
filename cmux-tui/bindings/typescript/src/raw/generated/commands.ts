@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2. */
+/* cmux-tui mux protocol 12, IR 3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9. */
 
 
 import type * as T from "./types.js";
@@ -70,6 +70,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
+  "resume_generation"?: (string) | null;
+  "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -1398,12 +1400,24 @@ export type HistorySearchResult = {
 /** Protocol v12; authority: local-admin. */
 export interface HomeInboxRequest extends CmuxRequestBase {
   cmd: "home-inbox";
+  "ids"?: (Array<string>) | null;
+  "limit"?: (bigint) | null;
+  "offset"?: (bigint) | null;
   "owners"?: (Array<string>) | null;
+  "scope"?: (string) | null;
+  "since"?: (bigint) | null;
 }
 export type HomeInboxResult = {
   "cloud": string;
+  "full"?: boolean;
   "me": string;
+  "offset"?: bigint;
+  "order"?: string;
+  "removed"?: Array<string>;
+  "revision"?: bigint;
   "rows": Array<T.HomeInboxRow>;
+  "total"?: bigint;
+  "window"?: boolean;
 };
 
 /** Protocol v5; authority: control. */
@@ -2749,6 +2763,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;

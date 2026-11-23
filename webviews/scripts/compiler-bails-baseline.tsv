@@ -143,7 +143,6 @@ src/agent-session/acpmux/subagents/trayMotionModel.ts	1
 src/agent-session/acpmux/summary/heldWhileScrolling.ts	1
 src/agent-session/acpmux/summary/useWorkflowTranscript.ts	1
 src/agent-session/acpmux/TaskGoalStrip.tsx	1
-src/agent-session/acpmux/teamAudit/TeamAuditScreen.tsx	1
 src/agent-session/acpmux/threadMinimap/PreviewCard.tsx	1
 src/agent-session/acpmux/threadMinimap/ScrollMap.tsx	1
 src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx	2
@@ -152,5 +151,5 @@ src/agent-session/acpmux/trustHeld.ts	1
 src/agent-session/acpmux/uiPointer/UiPointerStage.tsx	1
 src/agent-session/acpmux/useCloudChatRecovery.ts	1
 src/agent-session/acpmux/useFolderTrustAsk.ts	1
-src/agent-session/acpmux/VirtualTranscript.tsx	4
+src/agent-session/acpmux/VirtualTranscript.tsx	3
 src/agent-session/acpmux/worktreeSetup.tsx	1

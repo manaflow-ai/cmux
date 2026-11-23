@@ -63,6 +63,12 @@
 //!   the same mark ([`first_send`]).
 //! - A turn that failed because the chat outgrew its model's context window (`context`) is
 //!   compacted first, at once and once, where its harness can compact ([`compact_first`]).
+//! - An agent started on an earlier daemon's vault egress proxy (its `HTTPS_PROXY` port closed,
+//!   its CA gone: `vault/egress.rs`) is restarted before the attempt, between turns, so the
+//!   attempt runs in a process that can reach the model (2026-11-21: 20 chats on one machine
+//!   spent every attempt on `ECONNREFUSED` in the same stale process; 2026-11-22: ~30 Freestyle
+//!   chats failed on `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, the new proxy's CA, and were not
+//!   continued until TLS-verification errors counted as `transport`).
 
 use cmux_json::JsonSet as _;
 
@@ -115,6 +121,9 @@ mod compact_first;
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
 
+/// A turn the agent failed on its model goes again once, under the model's catalog id.
+mod model_reroute;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -123,7 +132,9 @@ pub(in crate::hub) use settings::effective_delays;
 /// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
 /// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
 fn retry_decided_on(error: &str) -> bool {
-    super::turn_errors::resume_cause(error, error).is_some() || first_send::retried_error(error)
+    super::turn_errors::resume_cause(error, error).is_some()
+        || first_send::retried_error(error)
+        || crate::model_catalog::is_model_error(error)
 }
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
@@ -594,6 +605,19 @@ impl Hub {
             self.retry_first_send(session, cut, wake);
             return;
         }
+        // A turn the agent failed on its model: sent again once under the model's catalog id,
+        // its wait this mark's; with no such id the mark goes as an unretried failure.
+        if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && model_reroute::may_reroute(cut)
+        {
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.replace(mark);
+            drop(pending);
+            self.reroute_model_turn(session, cut, wake);
+            return;
+        }
         // The account's limit holds the whole chat from now on, a continuation or none: what comes
         // in meanwhile queues for the reset (`rate_hold.rs`).
         // Its strikes grow its backoff; enough of them park it (no timer, one line to the
@@ -754,6 +778,47 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// Whether the chat's continuation is only a rate-limit retry waiting for the reset of a chat
+    /// the limit has, with no turn running: a stop parks or closes such a chat and starts
+    /// nothing (`stop_auto_resume`), so a conditional stop counts it idle (`stop_if_idle.rs`). A
+    /// lane out of usage is not busy (Leo: "lanes dont count if they are idle and out of usage").
+    pub(super) fn only_rate_limit_waits(&self, session: &Session) -> bool {
+        session.rate_hold.limited()
+            && session.turn().is_none()
+            && !session.closing.load(std::sync::atomic::Ordering::SeqCst)
+            && matches!(
+                session.auto_resume.lock().as_ref(),
+                Some(Mark::Waiting { retry: Some(r), .. }) if r.reason == RetryReason::RateLimit
+            )
+    }
+
+    /// Puts a continuation for the cut turn `turn` waiting until `until`, for `reason`. A
+    /// `RateLimit` one also holds the chat, as a Codex chat at its usage cap is held.
+    #[cfg(test)]
+    pub(super) fn wait_to_continue_for_test(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn: &str,
+        until: u64,
+        reason: RetryReason,
+    ) {
+        if reason == RetryReason::RateLimit {
+            self.hold_for_rate_limit(session, turn, until, true);
+        }
+        session.auto_resume.lock().replace(Mark::Waiting {
+            turn: turn.into(),
+            retry: Some(RetrySummary {
+                attempt: 1,
+                of: 4,
+                reason,
+                next_at: until,
+                prompt_id: "p".into(),
+                turn_id: turn.into(),
+            }),
+            _wake: Wake(Arc::new(Notify::new())),
+        });
     }
 
     /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
@@ -1343,6 +1408,11 @@ impl Hub {
             text = unread_steers::with_unread(text, &self.unread_steers(&session.id, cut_turn));
         }
         let blocks = vec![json!({"type": "text", "text": text})];
+        // An agent sent through an earlier daemon's vault egress proxy cannot reach it
+        // (`ECONNREFUSED`, or a CA it does not trust): retrying in that process fails the same
+        // way every attempt. It ends first, and this prompt starts a fresh one on the same
+        // conversation (`stale_host_respawn.rs`).
+        self.end_stale_proxy_before_retry(session).await;
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,

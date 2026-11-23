@@ -59,6 +59,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
+    /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
+    var drafts: ComposerDraftStore? = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
     /// never loaded or saved when auth has not resolved to a stable ID.
     var accountUserIDProvider: (@MainActor () -> String?)?
@@ -255,13 +257,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
-            (session as? DaemonTerminalSession)?.reconnect()
+            (session?.underlyingSession as? DaemonTerminalSession)?.reconnect()
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
+        // The draft survives the rebuild (a reconnect replaces the host) and the app's restart.
+        let draftKey = ComposerDraftStore.key(macID: workspace.macID, tabID: tab.id)
+        if let previous { model.adoptComposer(from: previous.model) }
+        model.restoreDraft(drafts?.text(for: draftKey))
+        model.onDraftChange = { [weak self, weak model] in
+            guard let model else { return }
+            self?.drafts?.save(model.draftToKeep, for: draftKey)
+        }
         // The placeholder's page carries over only through the frame gate: a
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
@@ -428,7 +438,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 guard let indicator else { return }
                 if case .offline = state { indicator.update(offline: true); continue }
                 indicator.update(offline: false)
-                if case .reattaching = state { indicator.update(reattaching: true) } else { indicator.update(reattaching: false) }
+                // Any outage (a reattach, a first connect, a failure) says so in
+                // the pill past the quiet bound: the page has no status row.
+                indicator.update(reattaching: !state.isAttached)
             }
         }
     }
@@ -440,12 +452,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" while
-    /// its reattach has lasted `QuietStatusGate.threshold` or more.
+    /// A read (no host is created): the tab's pill says "Reattaching…" (or
+    /// "Connecting…", "Can't connect") while its outage has lasted
+    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
+    /// place a terminal tab shows its connection: no row by the composer
+    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }
-        return indicator.isShown ? "Reattaching…" : nil
+        guard indicator.isShown else { return nil }
+        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -651,9 +667,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
+        // Retry, past the quiet bound of an outage only (the pill says
+        // "Reattaching…" then): first in the menu, no layout space on the page.
+        if model.offersReconnect, let reconnect = model.reconnect {
+            actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
+        }
         // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
-        if let live = model.session as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
+        if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
+        }
+        // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
+        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        if liveTabs.contains(tab.id) {
+            let fits = !(model.session is TerminalProjectingSession)
+            let program = model.session.programName
+            actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
+                self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
+            })
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
@@ -676,6 +706,32 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
+    }
+
+    /// Per-program Fit to Phone (the page menu's toggle).
+    var fitToPhoneMemory = TerminalFitToPhoneMemory()
+
+    /// Remembers `program`'s Fit to Phone and applies it now: this tab's host is built
+    /// again on a new session (projected or not, `TerminalSessionChoice`) and swapped
+    /// into the page in place, as a placeholder is for the live session (its frame, draft
+    /// and the reader's place carry over). Other warm tabs of the program cool, so each
+    /// builds in the new mode when it is shown next.
+    private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
+        fitToPhoneMemory.set(fit, for: program)
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
+            && (other.model.session is TerminalProjectingSession) == fit {
+            cool(id)
+        }
+        guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }
+        if let place = old.scrollPlace() { scrollPlaces[tab.id] = place }
+        // Not live for `host(for:in:)`, which then asks for a new session instead of
+        // returning this host.
+        liveTabs.remove(tab.id)
+        if host(for: tab, in: workspace) === old {
+            // No live session now: the tab keeps its host (the next build follows the choice).
+            liveTabs.insert(tab.id)
+            scrollPlaces[tab.id] = nil
+        }
     }
 
     /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos

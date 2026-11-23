@@ -1060,8 +1060,8 @@
 /* Reduce Transparency turns bare text over art solid: the plain strip's queue takes the queue's
    solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
    the wallpaper with a solid fold under it (queued-glass.test.ts). */
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   background: var(--acpmux-queue-fill);
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -1115,7 +1115,7 @@
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
    (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-strip {
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
   }
 }
@@ -1453,7 +1453,11 @@
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
   --grid-composer-box: calc(48px * var(--acpmux-density));
-  --grid-composer-radius: calc(12px * var(--acpmux-density));
+  /* Concentric with the round controls in it (the mic, Send): half a control plus the inset, 22 at
+     Default (layout-grid.json composer-radius; ask-2351b8cf41, Leo 2026-11-22: "we should consider
+     rounding off our composer and its hat a bit more maybe see chatgpt too"). The hat over it (the
+     running tray), the queue and the trust bar take this corner too. */
+  --grid-composer-radius: calc(var(--grid-composer-control) / 2 + var(--grid-composer-inset));
   --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
   --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));
   --grid-composer-quiet-row-text: calc(14px * var(--acpmux-density));
@@ -1560,7 +1564,16 @@
 }
 /* The strip and the queue over the box take its corners. */
 .acpmux-composer[data-composer-grid] {
-  --acpmux-strip-radius: 11px;
+  --acpmux-strip-radius: var(--grid-composer-radius);
+}
+/* The gallery's other two roundings (composerRound.gallery.ts, data-composer-round), each still
+   concentric: `moderate` is the + plate's corner plus the inset (16), `pill` half the one-line box
+   (24), so a one-line composer is a full pill. */
+:where(:root[data-composer-round="moderate"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
+  --grid-composer-radius: calc(8px * var(--acpmux-density) + var(--grid-composer-inset));
+}
+:where(:root[data-composer-round="pill"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
+  --grid-composer-radius: calc(var(--grid-composer-box) / 2);
 }
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box[data-composer-grid],
@@ -1598,6 +1611,17 @@
   align-items: center;
   height: var(--acpmux-composer-control);
 }
+.acpmux-composer-extension-tools,
+.acpmux-composer-extension-buttons {
+  display: inline-flex;
+  align-items: center;
+}
+.acpmux-composer-extension-buttons {
+  max-inline-size: 25vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.acpmux-composer-extension-buttons > * { flex-shrink: 0; }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
@@ -1759,7 +1783,7 @@
    its composer. The default is the icon and the short name. */
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: var(--ds-radius-control);
   padding-inline: 8px;
 }
@@ -1806,7 +1830,7 @@
   position: absolute;
   inset-inline: 0;
   top: -5px;
-  border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  border-top: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
 /* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */
