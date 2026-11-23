@@ -139,9 +139,13 @@ await requireBrowserLane("hover-glass-browser.test.ts", async () => {
     }
   }
 
-  const windows: { name: string; attributes: Record<string, string> }[] = [
-    { name: "an opaque window", attributes: {} },
-    { name: "a see-through window", attributes: { "data-cmux-see-through": "" } },
+  // A see-through page lays the tint (a gradient) over an underlay (the fill). That underlay is never
+  // under the text floor, desktop.css --surface-text-min (92%), the floor menus and popovers keep, so
+  // a hover card's words read where nothing blurs under it (glass.css TEXT ON GLASS). The tint alone,
+  // on an opaque window, stays under the glass rule's 90% cap.
+  const windows: { name: string; attributes: Record<string, string>; densest: number }[] = [
+    { name: "an opaque window", attributes: {}, densest: 0.9 },
+    { name: "a see-through window", attributes: { "data-cmux-see-through": "" }, densest: 0.92 },
   ];
   for (const colorScheme of ["light", "dark"] as const)
     for (const window of windows)
@@ -150,8 +154,8 @@ await requireBrowserLane("hover-glass-browser.test.ts", async () => {
         expect(surfaces.map((surface) => surface.name)).toEqual(HOVER_SURFACES.map((surface) => surface.name));
         const solid = surfaces
           .filter((surface) => {
-            // A see-through page lays the tint over an underlay (a gradient over the fill).
-            const translucent = alpha(surface.fill) < 0.9;
+            const fill = alpha(surface.fill);
+            const translucent = window.densest < 0.9 ? fill < window.densest : fill <= window.densest && fill < 1;
             return !surface.backdrop.includes("blur(") || !translucent;
           })
           .map((surface) => `${surface.name}: ${surface.fill} / ${surface.backdrop}`);
