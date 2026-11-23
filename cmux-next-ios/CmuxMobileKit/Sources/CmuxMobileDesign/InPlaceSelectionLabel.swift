@@ -69,8 +69,8 @@ public struct InPlaceSelectionLabel: UIViewRepresentable {
             addSubview(label)
         }
 
-        public override var viewForFirstBaselineLayout: UIView { label }
-        public override var viewForLastBaselineLayout: UIView { label }
+        public override var forFirstBaselineLayout: UIView { label }
+        public override var forLastBaselineLayout: UIView { label }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

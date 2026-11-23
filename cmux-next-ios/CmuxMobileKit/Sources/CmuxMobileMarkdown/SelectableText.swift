@@ -133,8 +133,8 @@ private final class SelectableLabelHost: UIView {
         label.frame = bounds
     }
 
-    override var viewForFirstBaselineLayout: UIView { label }
-    override var viewForLastBaselineLayout: UIView { label }
+    override var forFirstBaselineLayout: UIView { label }
+    override var forLastBaselineLayout: UIView { label }
 
     func update(_ text: NSAttributedString, lineLimit: Int?, lineBreak: NSLineBreakMode, alignment: NSTextAlignment) {
         if displayed?.isEqual(to: text) != true {

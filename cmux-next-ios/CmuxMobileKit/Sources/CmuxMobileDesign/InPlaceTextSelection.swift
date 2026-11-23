@@ -187,7 +187,7 @@ extension InPlaceTextSelection: UITextViewDelegate {
     }
 }
 
-extension InPlaceTextSelection: UIEditMenuInteractionDelegate {
+extension InPlaceTextSelection: @preconcurrency UIEditMenuInteractionDelegate {
     public func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
                                     suggestedActions: [UIMenuElement]) -> UIMenu? {
         UIMenu(children: suggestedActions + extras())
