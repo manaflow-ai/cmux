@@ -48,7 +48,8 @@ fn paths_from(
 /// The settings file as it is now.
 pub fn read() -> Settings {
     let read_one = |path: &std::path::Path| match std::fs::read_to_string(path) {
-        Ok(text) => Some(match document(&text) {
+        // This build's cmux tools answer and Computer Use permissions over the shared file.
+        Ok(text) => Some(match document(&cmux_config::build_scope::overlay_text(text)) {
             Some(doc) => Settings::Parsed(doc),
             None => Settings::Unreadable(format!("{}: not valid JSONC", path.display())),
         }),

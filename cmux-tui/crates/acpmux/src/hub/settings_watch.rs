@@ -68,7 +68,9 @@ impl Hub {
             tracing::warn!("settings watch: no async runtime");
             return;
         };
-        let files = crate::user_settings::paths();
+        let mut files = crate::user_settings::paths();
+        // This build's own cmux tools answer and Computer Use permissions (cmux_config::build_scope).
+        files.extend(cmux_config::build_scope::build_file());
         let (tx, rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "macos")]
         let watch = {

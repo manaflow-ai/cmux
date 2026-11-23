@@ -35,3 +35,4 @@ core-foundation-sys = "0.8"
 
 [dev-dependencies]
 jsonschema.workspace = true
+tempfile = "3"

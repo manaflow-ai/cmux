@@ -79,10 +79,21 @@ const COMPUTER_USE_CALL_TIMEOUT_SECS: u64 = 900;
 
 /// The pane's routing env the server needs to reach this cmux: Claude Code
 /// passes its own env to a stdio server, Codex only an allowlist plus `env`.
-/// The settings file (`CMUX_NEXT_CONFIG_FILE`) comes with the shared server
-/// definition ([`server`]).
-const PASSED_ENV: [&str; 4] =
-    ["CMUX_TUI_TERMINAL_ID", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG"];
+/// The settings file (`CMUX_NEXT_CONFIG_FILE`) and this build's own
+/// permission file (`CMUX_NEXT_BUILD_SETTINGS_FILE`) come with the shared
+/// server definition ([`server`]). The pane's acpmux home and socket go too,
+/// so the Computer Use bridge's machine calls reach this build's acpmux, not
+/// the default `~/.acpmux` (NIGHTLY's), and its MCP tool lists stay in this
+/// build's cache.
+const PASSED_ENV: [&str; 7] = [
+    "CMUX_TUI_TERMINAL_ID",
+    "CMUX_SOCKET_PATH",
+    "CMUX_BUNDLE_ID",
+    "CMUX_TAG",
+    "ACPMUX_HOME",
+    "ACPMUX_SOCKET",
+    "CMUX_NEXT_MCP_UPSTREAMS_DIR",
+];
 
 /// The Computer Use bridge's session env (acpmux `computer_use::mcp::SESSION_ENV`).
 const SESSION_ENV: &str = "ACPMUX_COMPUTER_USE_SESSION";

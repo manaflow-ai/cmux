@@ -61,8 +61,13 @@ const SERVER: &str = crate::agent_computer_use::SERVER;
 /// back: cmux's own routing and settings-file keys, none of them a secret.
 /// Any other key (a token, a proxy, `CMUX_SOCKET_PASSWORD`) is never printed,
 /// and an entry with one is never removed (cmux could not put it back).
-const RESTORABLE_ENV: [&str; 4] =
-    ["CMUX_NEXT_CONFIG_FILE", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_TUI_SOCKET"];
+const RESTORABLE_ENV: [&str; 5] = [
+    "CMUX_NEXT_CONFIG_FILE",
+    cmux_config::build_scope::BUILD_SETTINGS_ENV,
+    "CMUX_TAG",
+    "CMUX_BUNDLE_ID",
+    "CMUX_TUI_SOCKET",
+];
 
 /// The longest `claude mcp remove` or `codex mcp remove` may take.
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);

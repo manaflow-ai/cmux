@@ -54,15 +54,22 @@ pub(crate) fn helpers_in(app: &Path) -> Vec<PathBuf> {
 }
 
 /// The helper bundle to run: `env` (the development override) when set, else the first helper
-/// of the app bundle holding `exe`, else of the installed apps (`installed`, in order), as the
-/// acpmux share host searches (`cmux_signed_bundle::search_apps`). A daemon outside any app
-/// (acpmux, a standalone cmux-tui) so runs in the one stably signed helper, never as its own
-/// bare binary, a separate macOS permission entry that loses its grant on every update.
+/// of the app bundle holding `exe`. Only a daemon outside any app (acpmux, a standalone
+/// cmux-tui) searches the installed apps (`installed`, in order), as the acpmux share host does
+/// (`cmux_signed_bundle::search_apps`), so it runs in the one stably signed helper, never as its
+/// own bare binary, a separate macOS permission entry that loses its grant on every update.
+/// A daemon inside an app never runs another app's helper: Computer Use would then act under
+/// that other build's macOS grants (a DEV build with no helper borrowing NIGHTLY's), and each
+/// build's Computer Use permissions are its own.
 pub(crate) fn find_helper(env: Option<PathBuf>, exe: &Path, installed: &[&str]) -> Option<PathBuf> {
     if let Some(app) = env.filter(|path| !path.as_os_str().is_empty()) {
         return app.join("Contents/MacOS").join(EXECUTABLE).is_file().then_some(app);
     }
-    cmux_signed_bundle::first_helper(&cmux_signed_bundle::search_apps(exe, installed), EXECUTABLE)
+    let apps = match cmux_signed_bundle::app_of(exe) {
+        Some(own) => vec![own],
+        None => cmux_signed_bundle::search_apps(exe, installed),
+    };
+    cmux_signed_bundle::first_helper(&apps, EXECUTABLE)
 }
 
 /// Whether `id` is a cmux Screen Sharing helper's bundle id (`com.cmuxterm.app[.<tag>].screen-sharing`).
@@ -225,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn a_daemon_outside_any_app_runs_the_installed_apps_helper() {
+    fn only_a_daemon_outside_any_app_runs_the_installed_apps_helper() {
         let root = scratch("installed");
         let nightly = root.join("Applications/cmux NIGHTLY.app");
         let stable = root.join("Applications/cmux.app");
@@ -239,11 +246,15 @@ mod tests {
         let in_nightly = nightly.join("Contents/Library/cmux NIGHTLY Helper.app");
         helper(&in_nightly, "x", true);
         assert_eq!(find_helper(None, &bare, &installed), Some(in_nightly));
-        // The app holding the daemon comes first, and the override beats all.
+        // A daemon inside an app with no helper of its own never borrows an installed app's
+        // (it would act under that other build's macOS grants).
         let own = root.join("own.app");
+        let exe = own.join("Contents/Resources/bin/cmux-tui");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        assert_eq!(find_helper(None, &exe, &installed), None);
+        // The app holding the daemon runs its own, and the override beats all.
         let in_own = own.join("Contents/Library/cmux Screen Sharing.app");
         helper(&in_own, "x", true);
-        let exe = own.join("Contents/Resources/bin/cmux-tui");
         assert_eq!(find_helper(None, &exe, &installed), Some(in_own));
         let dev = root.join("Dev Screen Sharing.app");
         helper(&dev, "x", true);

@@ -25,7 +25,8 @@ pub(super) fn path() -> PathBuf {
 /// unreadable file or a non-boolean value is an error the caller reports,
 /// so a typo never turns the server on.
 pub(super) fn setting(path: &Path) -> Result<Option<bool>, String> {
-    let text = match std::fs::read_to_string(path) {
+    // With this build's own `agents.cmuxMcp` over the shared file (cmux_config::build_scope).
+    let text = match cmux_tui_core::user_settings::read_scoped(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("{}: {error}", path.display())),

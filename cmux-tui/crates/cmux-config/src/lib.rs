@@ -24,6 +24,7 @@
 
 pub mod app_ops;
 pub mod backdrop_placement;
+pub mod build_scope;
 pub mod cache;
 pub mod diagnostics;
 pub mod domains;

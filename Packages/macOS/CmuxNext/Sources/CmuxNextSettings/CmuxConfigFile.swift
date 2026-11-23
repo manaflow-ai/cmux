@@ -183,7 +183,9 @@ public actor CmuxConfigFile {
 
     /// The parsed document. A missing file is an empty object.
     public func document() throws -> JSONValue {
-        try validated(try source())
+        let root = try validated(try source())
+        // This build's own cmux tools answer and Computer Use permissions, as the daemon reads them.
+        return url.standardizedFileURL == Self.defaultURL().standardizedFileURL ? BuildScopedSettings.overlay(root) : root
     }
 
     /// The value at `path`, or nil when absent. An empty path is the root.

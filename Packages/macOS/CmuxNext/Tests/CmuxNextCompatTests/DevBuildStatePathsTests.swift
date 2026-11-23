@@ -51,13 +51,21 @@ import Testing
     }
 
     /// NIGHTLY, cmux NEXT, RC, release, untagged staging and a process outside any bundle keep the shared paths,
-    /// byte for byte, and set nothing in their children's environment.
+    /// byte for byte, and set only their own file of build-scoped settings (their cmux tools answer and Computer Use
+    /// permissions, cmux-config `build_scope`) in their children's environment: one per build, never shared.
     @Test func sharedBuildsKeepTheirPaths() {
-        for build in [Self.nightly, Self.paths("com.cmuxterm.app.nightly.cmux-next"), Self.paths("com.cmuxterm.app.rc"),
-                      Self.paths("com.cmuxterm.app"), Self.paths("com.cmuxterm.app.staging"), Self.paths(nil)] {
+        let builds = [Self.nightly, Self.paths("com.cmuxterm.app.nightly.cmux-next"), Self.paths("com.cmuxterm.app.rc"),
+                      Self.paths("com.cmuxterm.app"), Self.paths("com.cmuxterm.app.staging"), Self.paths(nil)]
+        #expect(Set(builds.compactMap(\.buildSettingsFile)).count == builds.count, "two builds share their permissions")
+        #expect(Self.paths("com.cmuxterm.app").buildSettingsFile?.path
+            == "/Users/me/Library/Application Support/cmux-next/builds/com.cmuxterm.app/build-settings.json")
+        #expect(Self.nightly.buildSettingsFile?.path
+            == "/Users/me/Library/Application Support/cmux-next/builds/com.cmuxterm.app.nightly/build-settings.json")
+        for build in builds {
             #expect(!build.isolatesSharedState, "\(build.build.key)")
             #expect(build.ownRoot == nil)
-            #expect(build.environment.isEmpty, "\(build.build.key) points its children elsewhere")
+            #expect(build.environment == [BuildStatePaths.buildSettingsFileKey: build.buildSettingsFile?.path ?? ""],
+                    "\(build.build.key) points its children elsewhere")
             #expect(build.importsOtherBuildsPreferences)
             #expect(build.cloudSecretsService == "cmux-cloud-secret")
             let paths = Dictionary(uniqueKeysWithValues: build.all.map { ($0.name, $0.url.path) })
@@ -86,7 +94,9 @@ import Testing
     /// naming the DEV path.
     @Test func aDevBuildsChildrenReadItsFiles() {
         let environment = Self.dev.environment
-        #expect(Set(environment.keys) == Set(BuildStatePaths.environmentKeys))
+        // Its settings file is its own, so it needs no build-scoped file beside a shared one.
+        #expect(Self.dev.buildSettingsFile == nil)
+        #expect(Set(environment.keys) == Set(BuildStatePaths.environmentKeys).subtracting([BuildStatePaths.buildSettingsFileKey]))
         #expect(environment["CMUX_NEXT_CONFIG_FILE"] == Self.dev.settingsFile.path)
         #expect(environment["CMUX_NEXT_CLOUD_SECRETS_FILE"] == Self.dev.cloudSecretsIndex.path)
         #expect(environment["CMUX_NEXT_KEYS_AUDIT_FILE"] == Self.dev.keysAuditFile.path)
@@ -106,7 +116,7 @@ import Testing
         let set = Self.dev.launchEnvironment(over: ["CMUX_NEXT_CONFIG_FILE": "/tmp/test.json", "PATH": "/usr/bin"])
         #expect(set["CMUX_NEXT_CONFIG_FILE"] == nil)
         #expect(set["CMUX_NEXT_CLOUD_SECRETS_FILE"] == Self.dev.cloudSecretsIndex.path)
-        #expect(Self.nightly.launchEnvironment(over: [:]).isEmpty)
+        #expect(Self.nightly.launchEnvironment(over: [:]) == [BuildStatePaths.buildSettingsFileKey: Self.nightly.buildSettingsFile?.path ?? ""])
     }
 
     /// A child whose environment is an allow list gets exactly these variables from the app's.
