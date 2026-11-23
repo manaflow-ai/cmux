@@ -134,7 +134,7 @@ class Wiring(unittest.TestCase):
 
     WIRED = [
         ("risk-tier.yml", "evidence", "Grade the pull request"),
-        ("cmux-next-hot-verify.yml", "hand-off", "Dispatch the look"),
+        ("cmux-next-hot-verify.yml", "plan", "Dispatch the look"),
         ("cmux-tui-artifacts.yml", "darwin-fallback-plan", "Find the macOS targets the build left without artifacts"),
         ("cmux-tui-artifacts.yml", "rerun-deferred-commits", "Re-run the runs that deferred to this tree"),
         ("cmux-tui-artifacts.yml", "sweep-pending-tree-notify", "Start the cmux-next tree jobs a refused tree notify left"),

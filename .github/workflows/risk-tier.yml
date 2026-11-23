@@ -105,6 +105,8 @@ jobs:
       # It stays on github.token: a label an App adds starts every `labeled` workflow again (this one included), and
       # one github.token makes does not.
       - name: Set the risk label
+        # An ungraded run (a GitHub rate limit, risk_tier.py's RateLimited) sets no label and leaves the old one.
+        if: steps.grade.outputs.label != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

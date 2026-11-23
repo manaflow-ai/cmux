@@ -192,9 +192,10 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call api x", "call api x", "call api x", "rate_limit", "call api x"])
         self.assertEqual(h.waited(), 1)
 
-    def test_the_hot_verify_hand_off_dispatches_with_a_spare_pool(self) -> None:
+    def test_the_hot_verify_dispatch_goes_out_with_a_spare_pool(self) -> None:
+        # The dispatch is the plan job's last step since #51558 (no hand-off job).
         text = (ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml").read_text()
-        hand_off = text[text.index("  hand-off:\n"):text.index("\n  target:\n")]
+        hand_off = text[text.index("  plan:\n"):text.index("\n  target:\n")]
         self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", hand_off)
         self.assertIn("continue-on-error: true", hand_off)

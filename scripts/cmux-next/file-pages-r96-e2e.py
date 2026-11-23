@@ -42,6 +42,7 @@ BINARY = os.path.join(opts.app, "Contents/MacOS/cmux DEV")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 TEARDOWN = TagTeardown(opts.app)
 TEARDOWN.install()
 PTYS_BEFORE = pty_count()
@@ -96,9 +97,8 @@ def expect(label, condition, detail=""):
 
 
 def key(name, modifiers=None):
-    reply = rpc("debug.key", {"key": name, "modifiers": modifiers or []}) or {}
-    time.sleep(0.15)  # test harness: let the key land
-    return reply
+    # Each caller waits on the key's outcome (the palette, the popover, the page's text, the gesture).
+    return rpc("debug.key", {"key": name, "modifiers": modifiers or []}) or {}
 
 
 def text_of(page):
@@ -125,7 +125,13 @@ def tab_of(kind, path):
 
 def palette_key(name):
     rpc("debug.key", {"key": name, "modifiers": [], "target": "palette"})
-    time.sleep(0.12)  # test harness: let the key land
+    settle_palette()
+
+
+def settle_palette(timeout=5):
+    """The palette's report once it stops changing, read with a no-op key (forward delete at the end of the query)."""
+    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
+                       "the palette's listing", timeout=timeout, interval=0.05, raise_on_timeout=False)
 
 
 def palette_open():
@@ -151,7 +157,7 @@ def open_file(path, kind):
         for char in "Open File":
             palette_key(char)
         palette_key("return")
-        time.sleep(0.6)  # test harness: the picker's first listing
+        settle_palette(timeout=10)  # the picker's first listing: its report settles
         for char in path:
             palette_key(char)
         palette_key("return")
@@ -185,11 +191,14 @@ def launch():
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90):
         sys.exit("FAIL the tagged app did not come up")
-    time.sleep(2)  # test harness: the window settles
+    # The first workspace settles: its surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the first workspace's surfaces", timeout=15, interval=0.2)
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": FIXTURE, "focus": True}, "origin": "script"})
     print(f"workspace new in the fixture: {json.dumps(made)[:160]}", flush=True)
     wait(lambda: "terminal" in json.dumps(rpc("debug.focus") or {}), 20)
-    time.sleep(2)  # test harness: the shell starts
+    # The shell starts in the new workspace: its surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the fixture workspace's surfaces", timeout=15, interval=0.2,
+                raise_on_timeout=False)
     return app
 
 
@@ -212,9 +221,15 @@ def quit_app(app, unsaved_button):
 
 
 def edit_code(letter):
+    def code_drafts():
+        return [d for d in filepages().get("drafts", []) if d.get("id", "").endswith(CODE)]
+    drafts_before = code_drafts()
     rpc("debug.page", {"page": "cmux.editor", "action": "click", "selector": ".monaco-editor .view-lines"})
     reply = rpc("debug.page", {"page": "cmux.editor", "action": "type", "text": letter, "selector": ".monaco-editor textarea"}) or {}
-    time.sleep(1)  # test harness: the page reports the edit (500 ms trailing)
+    # The page reports the edit (500 ms trailing): the host writes or updates its recovery draft.
+    if not wait_until(lambda: code_drafts() != drafts_before, "the editor's reported edit (its recovery draft)",
+                      timeout=8, interval=0.1, raise_on_timeout=False):
+        safe_print(f"edit {letter!r}: no new or changed draft within 8 s: {json.dumps(code_drafts())[:300]}", flush=True)
     return reply.get("inserted") is True
 
 
@@ -235,6 +250,9 @@ try:
     snapshot("markdown-cmd-k", page="cmux.markdown")
     key("escape")
     key("escape")
+    # The popover closes: the URL field is no longer the active element.
+    wait_until(lambda: ((rpc("debug.page", {"page": "cmux.markdown", "action": "state"}) or {}).get("active") or {}).get("tag") != "input",
+               "the link popover to close", timeout=5, raise_on_timeout=False)
     # A link follows on Cmd-click while editing (the page's link router).
     clicked = rpc("debug.page", {"page": "cmux.markdown", "action": "click", "selector": "a[href='other.md']", "meta": True})
     moved = wait(lambda: "Other page" in text_of("cmux.markdown"), 5)
@@ -263,15 +281,24 @@ try:
 
     tab = tab_of("cmux.markdown", README)
     link = {"key": tab["key"], "href": "../outside/secret.txt", "target": SECRET} if tab else None
-    time.sleep(1.5)  # test harness: the last real key event is older than the 1 s gesture window
+    # sleep-ok: the step needs the last real key event to be older than the app's 1 s gesture window.
+    time.sleep(1.5)
     reply = filepages({"open_link": link}) if link else {}
     expect("without a gesture there is no gesture", reply.get("gesture") is False, json.dumps(reply)[:300])
-    time.sleep(1)  # test harness: the refusal lands
+    # The refusal lands: the host records the link as cancelled.
+    wait_until(lambda: (filepages().get("last_open_link") or "").endswith("cancelled"), "the no-gesture refusal",
+               timeout=5, raise_on_timeout=False)
     expect("without a gesture no sheet shows", not dialogs(), json.dumps(dialogs())[:300])
     expect("without a gesture the link is refused", (filepages().get("last_open_link") or "").endswith("cancelled"),
            str(filepages().get("last_open_link")))
     key("right")  # a real key event to the page: the gesture
-    reply = filepages({"open_link": link}) if link else {}
+    # The posted key event reaches the page: ask until the host sees the gesture (inside its 1 s window; a
+    # request without one is refused with no sheet and no side effect).
+    def open_with_gesture():
+        attempt = filepages({"open_link": link}) if link else {}
+        return attempt if attempt.get("gesture") is True else None
+    reply = wait_until(open_with_gesture, "the key's gesture to reach the page", timeout=0.8, interval=0.1,
+                       raise_on_timeout=False) or {}
     gesture = reply.get("gesture") is True
     safe_print(f"gesture after debug.key: {gesture}", flush=True)
     if gesture:
@@ -280,7 +307,8 @@ try:
                json.dumps(sheet)[:400])
         snapshot("open-outside-sheet")
         again = filepages({"open_link": link})
-        time.sleep(0.5)  # test harness: the second request's refusal
+        # sleep-ok: an observation window: a second sheet must not appear for the second request.
+        time.sleep(0.5)
         expect("a second request while the sheet shows is refused", len(dialogs()) == 1, json.dumps(dialogs())[:300])
         if sheet:
             cancel = next((b["id"] for b in sheet.get("buttons", []) if b.get("role") == "cancel"), "cancel")
@@ -297,7 +325,10 @@ try:
     tab = tab_of("cmux.editor", CODE)
     crashed = filepages({"crash_page": tab["key"]}) if tab else {}
     expect("the editor page's WebContent process ends", crashed.get("crashed") is True, json.dumps(crashed)[:300])
-    time.sleep(1)  # test harness: the page is gone
+    # The page is gone: the tab has no page or the page no longer answers (best-effort; the quit checks the outcome).
+    wait_until(lambda: not (tab_of("cmux.editor", CODE) or {}).get("has_page")
+               or (rpc("debug.page", {"page": "cmux.editor", "action": "state"}) or {}).get("error"),
+               "the crashed editor page to go", timeout=5, raise_on_timeout=False)
     quit_app(app, "save")
     expect("after a page crash the quit writes the reported text", open(CODE, "rb").read() == b"Zconst a = 1;\n",
            repr(open(CODE, "rb").read()))
