@@ -1,21 +1,14 @@
-// l10n-allow-file: gallery support, not shipped UI.
-// The app-health galleries' string table, read from this folder's own catalog. They used to borrow the
-// server page's table, which holds no `appHealth.*` key, so every state drew its raw key
-// ("appHealth.line.repairing") instead of its words.
-import catalog from "./Localizable.xcstrings?raw";
+// The English strings of an app-health catalog (Localizable.xcstrings) as the string table the page
+// i18n reads, for galleries: the generated server-cards table does not carry appHealth.* keys, so the
+// gallery drew raw keys such as "appHealth.line.repairing".
+type Catalog = { strings: Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }> };
 
-type Catalog = {
-  strings: Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>;
-};
-
-/** `{<locale>: {<key>: <value>}}` (the shape `createStrings` takes), one entry per translated key. */
-export function appHealthGalleryTable(): Record<string, Record<string, string>> {
-  const table: Record<string, Record<string, string>> = {};
-  for (const [key, entry] of Object.entries((JSON.parse(catalog) as Catalog).strings)) {
-    for (const [locale, localized] of Object.entries(entry.localizations ?? {})) {
-      const value = localized.stringUnit?.value;
-      if (value !== undefined) (table[locale] ??= {})[key] = value;
-    }
+export function englishTable(raw: string): Record<string, Record<string, string>> {
+  const catalog = JSON.parse(raw) as Catalog;
+  const en: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(catalog.strings)) {
+    const value = entry.localizations?.en?.stringUnit?.value;
+    if (value !== undefined) en[key] = value;
   }
-  return table;
+  return { en };
 }
