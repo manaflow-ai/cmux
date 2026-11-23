@@ -364,12 +364,26 @@ jobs:
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
       # of it pull request refs). A dispatch runs on feat-cmux-next's ref after pull request code (bun install
       # scripts) ran, so it never saved.
+      # Bounded at 2 minutes; past it the gates install cold. On 2026-11-23 04:15-06:15Z a pool VM restored this
+      # 710 MB cache in 22 s (median of 104; p90 30-39 s). A Freestyle VM (fsr-*) pulled it at about 1 MB/s,
+      # and at 600 s the download link expired ("Server failed to authenticate the request"), so the restore
+      # failed and the gates installed cold anyway: 605 s median over 84 jobs. Those 600 s are most of fast
+      # gates' p90 of 1,501 s and of the cancels at the job's 25-minute timeout (24 of 33 were in this step).
       - name: Restore the Bun package cache
+        id: bun-cache
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        timeout-minutes: 2
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      # A restore stopped at its bound can leave a half-extracted cache. Bun would trust it, so the install
+      # starts from an empty one instead.
+      - name: Drop a partly restored Bun package cache
+        if: ${{ steps.bun-cache.outcome == 'failure' || steps.bun-cache.outcome == 'cancelled' }}
+        run: rm -rf ~/.bun/install/cache
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Setup Node
