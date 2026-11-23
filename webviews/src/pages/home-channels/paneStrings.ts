@@ -5,12 +5,18 @@
 // the pane language again now that the table has languages.
 // As shipped (build-pages-web.sh SPLIT_PANE_STRINGS), the head's pane-locales/<locale>.js scripts
 // have already installed English and the app's language, so the 21-locale subset (about 430 KB) is
-// not in the startup JS. The dev server, the gallery and a shipped page whose locale script failed
-// load the whole subset, as a chunk of its own.
+// neither in the startup JS nor in the app at all: a shipped page whose locale script failed loads
+// the same scripts again (reloadLocaleScripts). The dev server, the gallery and tests load the
+// whole subset.
 import { paneLanguage, setPaneLanguage } from "../../agent-session/acpmux/i18n";
+import { reloadLocaleScripts } from "../shared/localeScripts";
 
 if (!globalThis.__cmuxPaneStrings?.en) {
-  const subset = (await import("./generated/pane-strings.json")).default;
-  globalThis.__cmuxPaneStrings = { ...subset, ...globalThis.__cmuxPaneStrings };
+  if (globalThis.__cmuxShippedPages) {
+    await reloadLocaleScripts("pane-locales");
+  } else {
+    const subset = (await import("./generated/pane-strings.json")).default;
+    globalThis.__cmuxPaneStrings = { ...subset, ...globalThis.__cmuxPaneStrings };
+  }
 }
 setPaneLanguage(paneLanguage());
