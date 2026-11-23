@@ -12,6 +12,8 @@
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
 //! - [`migrations`]: settings written for another cmux, rewritten through
 //!   the retired-keys table (renamed and removed keys).
+//! - [`project_actions`]: a repository's `.cmux/actions.json`, found from a
+//!   working directory and merged with the global `actions`.
 //! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
 //!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
@@ -27,6 +29,7 @@ pub mod font_faces;
 pub mod fsio;
 pub mod guard;
 pub mod hosts;
+pub mod hosts_edit;
 pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
@@ -36,6 +39,7 @@ pub mod managed;
 pub mod migrations;
 pub mod owner;
 pub mod project;
+pub mod project_actions;
 pub mod refusal;
 pub mod render;
 pub mod schema;
