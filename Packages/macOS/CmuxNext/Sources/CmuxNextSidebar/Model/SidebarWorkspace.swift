@@ -207,6 +207,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// The split layout of its shown screen, for the hover card's miniature; nil for one pane or an unmapped row.
+    public var paneShape: SidebarPaneShape?
 
     public init(
         id: WorkspaceID,
