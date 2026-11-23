@@ -97,7 +97,7 @@ pub(in crate::cli::mcp) fn only_descriptor(tools: &[Value]) -> Value {
              a refused call (computer_use_off, app_denied, look_only, person_in_control) is \
              final for that step: call cu.status and tell the person which setting in \
              Settings > Computer Use would allow it. Only Computer Use runs here: the other \
-             cmux tools need the person to choose Turn On in Settings > Agents > cmux Tools for \
+             cmux tools need the person to choose On in Settings > Agents > cmux Tools for \
              Agents in cmux (cmux settings set agents.cmuxMcp on --confirm)."
         ),
         "inputSchema": {
@@ -189,7 +189,7 @@ pub(in crate::cli::mcp) fn out_of_scope(name: &str) -> Option<Value> {
         "code": "tool.not_allowed",
         "message": format!(
             "{name} is a cmux tool beyond Computer Use; this agent has only cmux Computer Use \
-             until the person chooses Turn On in Settings > Agents > cmux Tools for Agents in \
+             until the person chooses On in Settings > Agents > cmux Tools for Agents in \
              cmux (cmux settings set agents.cmuxMcp on --confirm)"
         ),
         "details": {},

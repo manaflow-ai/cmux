@@ -108,6 +108,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402  (launch, App, owned, end_bundle)
+from state_wait import wait_until  # noqa: E402
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libproc.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
@@ -209,16 +210,16 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
     if during:
         during(seconds)
     elif not sample_idle:
-        time.sleep(seconds)  # test script: the measured window
+        time.sleep(seconds)  # sleep-ok: the measured idle window
     else:
         # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
         # inside the window. The app's energy rises for a while, then drops, so a sample after the
         # window shows it idle. Kept only when the window ends above the guard.
-        time.sleep(seconds / 2)  # test script: first half of the measured window
+        time.sleep(seconds / 2)  # sleep-ok: first half of the measured window, the sample starts mid-window
         sample_path = os.path.abspath(f"app-{label}.sample")
         sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(seconds / 2)  # test script: second half of the measured window
+        time.sleep(seconds / 2)  # sleep-ok: second half of the measured window
     pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
     kinds: dict[str, dict] = {}
@@ -686,7 +687,7 @@ def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
                                ("Profiler.setSamplingInterval", {"interval": 500}), ("Profiler.start", None)):
             devtools(sock, page["browser"], method, params)
     before = {page["browser"]: metrics(page["browser"]) for page in shown}
-    time.sleep(seconds)  # test script: the profiled idle window
+    time.sleep(seconds)  # sleep-ok: the profiled idle window
     after = {page["browser"]: metrics(page["browser"]) for page in shown}
     out = []
     for page in shown:
@@ -735,7 +736,8 @@ def run_loaded(args):
                                  counts, stream_s)
         reached.update(seeded)
         print(f"PERF-IDLE-COST-LOAD {json.dumps(reached)}", flush=True)
-        time.sleep(args.settle)  # test script: let the app settle
+        # sleep-ok: benchmark protocol, the fixed --settle s of idle (hidden pages freeze, startup work decays) so runs compare
+        time.sleep(args.settle)
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
         time.sleep(5)  # test script: the debug read's own work ends before the window
@@ -907,7 +909,8 @@ def main():
         tabs += 0 if reason else 1
 
     def settle_measure(label: str, during=None, settle: float | None = None):
-        time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
+        # sleep-ok: benchmark protocol, the fixed --settle s of idle (hidden pages freeze, startup work decays) so runs compare
+        time.sleep(args.settle if settle is None else settle)
         result = measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle)
         # Which pages the app froze (debug.surfaces, bench and DEV builds): a page an MV3 extension can
         # script stays awake.
@@ -959,7 +962,16 @@ def main():
                     time.sleep(0.5)  # test script: two tab switches a second
             settle_measure("switch", during=switch, settle=10)
         if "neighbors" in scenarios and len(opened) >= 4:
-            time.sleep(args.settle)  # test script: hidden pages freeze before the first switch
+            # Every hidden tab froze (or the app keeps it awake as a neighbor or an exemption) before the first switch.
+            shown = opened[-1]
+
+            def hidden_frozen():
+                h = (rpc(sock, "debug.surfaces") or {}).get("hibernation") or {}
+                still = set(h.get("frozen") or []) | set(h.get("awake_neighbors") or []) | set(h.get("exemptions") or {})
+                return all(tab in still for tab in opened if tab != shown)
+            if not wait_until(hidden_frozen, "the hidden tabs to freeze", timeout=max(30.0, args.settle),
+                              interval=0.5, raise_on_timeout=False):
+                print("   neighbors: not every hidden tab froze before the first switch", file=sys.stderr)
             results.append({"label": "neighbors", **neighbor_switches(app, sock, opened, len(opened) - 1,
                                                                     args.neighbor_gap, args.neighbor_rounds)})
         if "title" in scenarios:
