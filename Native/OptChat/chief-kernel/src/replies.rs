@@ -9,8 +9,8 @@
 //! a picture and a code span are no prose, and a list is read line by line,
 //! so its total is not judged, only each line.
 
-/// The most prose words a reply may have before its first send is refused.
-/// A link counts as its text, not its URL. 0 turns the gate off.
+/// The target maximum prose words for each split reply part.
+/// A link counts as its text, not its URL. 0 disables splitting.
 pub const REPLY_MAX_WORDS: usize = 45;
 
 /// Split a reply into short messages without cutting Markdown structures.

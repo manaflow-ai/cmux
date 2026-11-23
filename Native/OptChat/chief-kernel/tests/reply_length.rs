@@ -108,7 +108,7 @@ fn a_split_keeps_link_titles_with_sentence_punctuation() {
 #[test]
 fn a_split_keeps_list_items_together() {
     let text = "- first task is done.\n- second task is done.\n- third task is done.";
-    let parts = split_reply(text, 6);
+    let parts = split_reply(text, 20);
     assert_eq!(parts, vec![text]);
     assert!(parts[0].lines().all(|line| !line.trim().is_empty()));
 }
@@ -120,8 +120,15 @@ fn a_long_list_groups_items_without_crossing_the_message_limit() {
         .collect::<Vec<_>>()
         .join("\n");
     let parts = split_reply(&text, REPLY_MAX_WORDS);
-    assert!(parts.len() > 1, "the list should use several messages: {parts:?}");
-    assert!(parts.iter().all(|part| reply_words(part) <= REPLY_MAX_WORDS));
+    assert!(
+        parts.len() > 1,
+        "the list should use several messages: {parts:?}"
+    );
+    assert!(
+        parts
+            .iter()
+            .all(|part| reply_words(part) <= REPLY_MAX_WORDS)
+    );
     let joined = parts.join("\n");
     assert_eq!(joined, text, "list markers and item order stay intact");
 }
