@@ -859,7 +859,11 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     drop(overlay);
 
     // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
-    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let away = Arc::new(Fake {
+        away: AtomicBool::new(true),
+        bytes: fake.bytes.clone(),
+        ..Fake::default()
+    });
     let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
     assert_eq!(overlay.pins(), vec!["src".to_owned()]);
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
