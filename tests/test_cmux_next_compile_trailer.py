@@ -733,6 +733,35 @@ class CompileTrailerTests(unittest.TestCase):
         self.assertTrue(refused, lines)
         self.assertIn("cancel", lines[0])
 
+    # 2026-11-18: a push that trimmed `ServerPageProvider` (its `closed()`, `opened(again:)` and `card` went with
+    # the web card it no longer is) was refused on four rebases in a row: each removed member met a file by its bare
+    # name, `restoreClosed.closed(front)` in WindowManager, then a test's `card`, then CloudStartChat's `opened`, none
+    # of which name ServerPageProvider. A removed member, like a changed one, meets a file that names a type it sits in.
+    def test_removed_member_passes_upstream_code_that_calls_the_name_on_another_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nstruct Tracker {\n    func close() {}\n}\nfunc hub(_ t: Tracker) { t.close() }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_removed_member_is_refused_where_upstream_names_its_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub(_ i: Invite) { i.close() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    def test_removed_top_level_function_still_meets_its_name_alone(self):
+        self.server_hub()
+        self.write(self.SERVER, self.read(self.SERVER) + "public func shutDown() {}\n")
+        self.base = self.commit("top-level")
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("public func shutDown() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub() { shutDown() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("shutDown", lines[0])
+
     # 2026-11-08: four of five landq trains refused after a re-pick were refused over a name a file could not reach:
     # upstream removed `PairInviteModel.close()` (CmuxNextServer) and the train's test in CmuxNextAgentPaneTests, which
     # does not depend on CmuxNextServer, called `window.close()`. The reach was the whole train's modules, not the
@@ -843,7 +872,7 @@ class CompileTrailerTests(unittest.TestCase):
 
         class Slow(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                time.sleep(2.5)  # slower than the old 2 s bound, inside the lead's 5 s
+                time.sleep(2.5)  # sleep-ok: a slow controller, slower than the old 2 s bound, inside the lead's 5 s
                 body = json.dumps({"id": "c" * 24}).encode()
                 self.send_response(200)
                 self.end_headers()

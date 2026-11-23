@@ -54,6 +54,9 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+pub use wanted::{WAKE_ENV, WakeHook};
+#[path = "peer_controls.rs"]
+mod controls;
 #[path = "peer_list_read.rs"]
 mod list_read;
 #[path = "peer_runtime.rs"]
@@ -175,6 +178,20 @@ pub enum PeerNotice {
 }
 
 impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
     /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
     pub(crate) fn list_bytes(&self) -> Option<u64> {
         let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
@@ -345,6 +362,9 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
+    /// (`Peer::wake` runs it once per wake window).
+    wake_hook: std::sync::OnceLock<WakeHook>,
     /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
@@ -353,6 +373,10 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    /// Whether this link asks for the legacy `_acpmux/watch`. Controls remain state-only while
+    /// this is true; cut E will clear it for a watchless link and publish those controls.
+    watch_active: AtomicBool,
+    controls: StdMutex<Option<controls::Open>>,
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,
@@ -535,6 +559,23 @@ impl ReceivedBytes {
 }
 
 impl Peer {
+    /// Drops the list position the hub's copy of the peer's list is current to, so the next
+    /// link reads the whole list rather than what changed after it (`hub/peer_closed_bound.rs`:
+    /// a follow cannot bring back a closed row the hub left out).
+    pub(crate) fn forget_list_cursor(&self) {
+        *self.list_cursor.lock_or_recover() = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_list_cursor_for_test(&self, cursor: Option<(String, u64)>) {
+        *self.list_cursor.lock_or_recover() = cursor;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn list_cursor_for_test(&self) -> Option<(String, u64)> {
+        self.list_cursor.lock_or_recover().clone()
+    }
+
     /// Reads the watch list on link `link` in pages of a count of rows, without tools:
     /// `_acpmux/watch {limit}`, then `_acpmux/sessions {limit, cursor}` (the keyset pages every
     /// peer serves, those from before #28182 too). The reader gathers their rows (`watch_key`).

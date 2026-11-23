@@ -74,6 +74,8 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `ALLOC=1` (with PROFILE=1) samples the heap allocations of every burst: bytes per record by allocating function.
+const ALLOC = process.env.ALLOC === "1";
 /// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
 /// DevTools trace on: its time is not a clean measurement, its counts are.
 const PROBE = process.env.PROBE === "1";
@@ -469,6 +471,8 @@ type BurstResult = {
   /// Each React effect's time per record, its callees' included (PROFILE=1, `effectTimes`): which effect a commit's
   /// effect time belongs to.
   effectMs?: Map<string, number>;
+  /// KB allocated per record by each function (ALLOC=1, `allocKb`): the garbage a record makes, which the GC rows pay for.
+  allocKb?: Map<string, number>;
   /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
   dom?: { elements: number; mounted: number; animations: number };
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
@@ -581,6 +585,28 @@ export function effectTimes(profile: CpuProfile, records: number): Map<string, n
   });
   return effects;
 }
+/// A heap sampling profile (`HeapProfiler.stopSampling`): a call tree whose nodes carry the bytes allocated by that frame.
+type HeapProfile = {
+  head: HeapNode;
+};
+type HeapNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  selfSize: number;
+  children: HeapNode[];
+};
+/// KB allocated per record by each function, by the frame that allocated (pure), keyed as `selfTimes` keys it.
+export function allocKb(profile: HeapProfile, records: number): Map<string, number> {
+  const out = new Map<string, number>();
+  const visit = (node: HeapNode) => {
+    const frame = node.callFrame;
+    const file = frame.url.split("/").pop() ?? "";
+    const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+    if (node.selfSize > 0) out.set(key, (out.get(key) ?? 0) + node.selfSize / 1024 / records);
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(profile.head);
+  return out;
+}
 /// The functions whose self time per record grew most from `first` to `last` (pure).
 export function grew(first: Map<string, number>, last: Map<string, number>, top = 12): [string, number, number][] {
   return [...last.entries()]
@@ -654,6 +680,12 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
     async measure(burst) {
       await paint(page, 2);
       if (PROFILE) await cdp.send("Profiler.start");
+      if (PROFILE && ALLOC)
+        await cdp.send("HeapProfiler.startSampling", {
+          samplingInterval: 4096,
+          includeObjectsCollectedByMajorGC: true,
+          includeObjectsCollectedByMinorGC: true,
+        });
       const taskBefore = await metric(clock, "TaskDuration");
       const windowStart = await page.evaluate(() => performance.now());
       const playBurst = async () => {
@@ -694,6 +726,10 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+      const allocated =
+        PROFILE && ALLOC
+          ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
+          : undefined;
       burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
       const dom = await domSize(page);
       bursts.push({
@@ -707,6 +743,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
               selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1"),
               totalMs: totalTimes(profiled, records),
               effectMs: effectTimes(profiled, records),
+              ...(allocated ? { allocKb: allocKb(allocated, records) } : {}),
             }
           : {}),
       });
@@ -797,18 +834,19 @@ async function pairedLiveRound(ctx: Ctx, god: ReplayLog, small: ReplayLog): Prom
   }
 }
 
-/// PAIRED=1 with PROFILE=1: per burst kind, the functions that cost god more per record than small, from the same
+/// PAIRED=1 with PROFILE=1 (PROFILE_TOP=N lists N functions a kind, 20 by default): per burst kind, the functions that cost god more per record than small, from the same
 /// checkpoints played seconds apart (pure). Self and total time per record are summed over the kind's checkpoints, so
 /// a function whose cost grows with the rows a chat holds leads the list; the self line also gives each page's sum, and
 /// the effect lines name the React effect (`effectTimes`) a commit's extra time went to.
-export function pairedProfile(god: Live, small: Live, top = 20): string[] {
+export function pairedProfile(god: Live, small: Live, top = Number(process.env.PROFILE_TOP) || 20): string[] {
   const lines: string[] = [];
   const r3 = (ms: number) => Math.round(ms * 1000) / 1000;
   for (const kind of ["token", "thought", "tool_output", "tool_call"] as const) {
     const pick = (live: Live) => live.bursts.filter((burst) => burst.kind === kind && burst.selfMs);
     const [g, s] = [pick(god), pick(small)];
     if (!g.length || g.length !== s.length) continue;
-    for (const field of ["selfMs", "totalMs", "effectMs"] as const) {
+    for (const field of ["selfMs", "totalMs", "effectMs", "allocKb"] as const) {
+      if (field === "allocKb" && !g.some((burst) => burst.allocKb)) continue;
       const summed = (bursts: BurstResult[]) => {
         const into = new Map<string, number>();
         for (const burst of bursts)
@@ -818,7 +856,7 @@ export function pairedProfile(god: Live, small: Live, top = 20): string[] {
       const [gm, sm] = [summed(g), summed(s)];
       const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
       lines.push(
-        `paired profile ${kind} ${{ selfMs: "self", totalMs: "total", effectMs: "effect" }[field]} ms per record over ${g.length} checkpoints` +
+        `paired profile ${kind} ${{ selfMs: "self", totalMs: "total", effectMs: "effect", allocKb: "alloc" }[field]} ${field === "allocKb" ? "KB" : "ms"} per record over ${g.length} checkpoints` +
           (field === "selfMs" ? `: god ${r3(sum(gm))} small ${r3(sum(sm))}` : "") +
           "; god minus small:",
       );
@@ -1154,6 +1192,10 @@ if (import.meta.main) {
             for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
               console.log(`    ${ms.toFixed(3)}  ${fn}`);
           }
+          // A cost that does not grow still counts against the frame: which callers hold it at the largest checkpoint.
+          console.log(`  ${kind}: most total ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.totalMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
           console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);

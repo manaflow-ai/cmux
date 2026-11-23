@@ -56,10 +56,13 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         }
     }
 
+    /// Re-reads the bar's ink (a look change: glass, transparency; `AddressBarView.repaintInk`).
+    func repaintInk() { applyTint() }
+
     private func applyTint() {
         performWithTheme {
             let tint = indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary
-            icon.contentTintColor = indicator.tone == .danger ? tint : OmnibarStyle.resultsIcon
+            icon.contentTintColor = indicator.tone == .danger ? tint : OmnibarStyle.iconInk
             text.textColor = tint
         }
     }

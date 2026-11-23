@@ -89,6 +89,9 @@ impl Peer {
                 *self.pipelined_key.lock_or_recover() = Some(key.clone());
             }
         }
+        if m == crate::server::controls::METHOD && params.get("live") == Some(&Value::Bool(true)) {
+            self.controls_request(epoch.unwrap_or_else(|| self.link_epoch()), &key);
+        }
         // Only this link stamps a `dualId` (`peer_dual.rs`).
         let mut params = params;
         dual::drop_foreign_id(&mut params);
@@ -749,6 +752,9 @@ impl Peer {
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
                 );
             me.list_follow.store(follows, Ordering::SeqCst);
+            // Every link in this cut asks for the legacy watch at handshake time. Cut E clears
+            // this for a watchless link after feature negotiation.
+            me.set_watch_active(true);
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
             // The reader publishes the list (`watch_key`) once it is whole, then `Listed`. A
@@ -824,6 +830,8 @@ impl Peer {
             let steps = async {
                 // The peer's list stream feeds the index from here, when it lists one.
                 me.start_mirror(link);
+                // The watch is asked before either starts; controls stay state-only until cut E.
+                me.start_controls(link);
                 // The path it is ready on is the one to dial first next time, also after a
                 // restart.
                 me.note_ready_path();
@@ -893,7 +901,7 @@ impl Peer {
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
         let mut handshake_ended = false;
-        let mut ticks: u64 = 0;
+        let mut health_asked: Option<tokio::time::Instant> = None;
         // Holds until the link is ready and its list is in (`listed`), also a list read after
         // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
         // peer that paces its lists still links, one that stops answering does not hold it.
@@ -951,6 +959,7 @@ impl Peer {
                     Result<Value, RpcError>,
                     oneshot::Sender<Result<Value, RpcError>>,
                 ) = ($key, $reply, $tx);
+                self.controls_reply(link, &key, &reply);
                 let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
                 // The handshake's last step answered on this link, as a peer serving
                 // this daemon: GitHub actions are taken from here on, and the
@@ -1169,8 +1178,9 @@ impl Peer {
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
-                    ticks += 1;
-                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                    let now = tokio::time::Instant::now();
+                    if self.link().is_ready() && health::health_due(health_asked, now) {
+                        health_asked = Some(now);
                         self.refresh_health();
                     }
                 }
@@ -1247,7 +1257,15 @@ impl Peer {
                             watch_reply!(key, reply, tx);
                         }
                         Message::Notification { method: m, params } => {
-                            let p = params.unwrap_or(Value::Null);
+                            let mut p = params.unwrap_or(Value::Null);
+                            if m == crate::server::controls::NOTICE {
+                                if let Err(error) = self.controls_notice(link, p).await {
+                                    tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
+                                    self.stop_controls(link);
+                                    self.start_controls(link);
+                                }
+                                continue;
+                            }
                             if matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE) {
                                 let mut highwater = self.replay_highwater.lock_or_recover();
                                 let id = p.get("sessionId").and_then(Value::as_str);
@@ -1309,7 +1327,8 @@ impl Peer {
                                 *self.list_cursor.lock_or_recover() = None;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
-                                let session = p.get("session").cloned().unwrap_or(Value::Null);
+                                // Taken, not copied: nothing below reads it from `p`.
+                                let session = p.get_mut("session").map(Value::take).unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
                                 // peer name at the top level; older summaries
                                 // also carry it inside `session`.
@@ -1434,6 +1453,7 @@ impl Peer {
             }
         };
         handshake.abort();
+        self.stop_controls(link);
         result
     }
 }

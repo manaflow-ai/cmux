@@ -3,12 +3,16 @@ import Foundation
 
 /// Metadata supplied by the window capture owner only after publishing the image.
 public struct LaunchRecordImage: Sendable {
-    public let path: String
+    /// `<build>/<window_id>/<generation>`, relative to the launch image directory (launch record v2).
+    public let key: String
+    /// The v1 name of ``key`` (launch record v1 stored a path); kept so no caller breaks.
+    @available(*, deprecated, renamed: "key")
+    public var path: String { key }
     public let pixelWidth: UInt32
     public let pixelHeight: UInt32
 
-    public init(path: String, pixelWidth: UInt32, pixelHeight: UInt32) {
-        self.path = path
+    public init(key: String, pixelWidth: UInt32, pixelHeight: UInt32) {
+        self.key = key
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
     }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { staleJourneyMachines } from "./cloud-journey";
-import { answeredPath, MachineFailed, pickVmApiTenant, quantile, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts, traceStepSummary } from "./cloud-start-bench";
+import { answeredPath, answerTimings, MachineFailed, pickVmApiTenant, quantile, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts, traceStepSummary } from "./cloud-start-bench";
 
 /** A clock the target's calls move: each call costs what the script says, sleeps cost their ms. */
 function fakeClock() {
@@ -185,5 +185,17 @@ describe("the platform's create trace", () => {
     const failed = await timeStart({ ...base, trace: async () => { throw new Error("403"); } }, 1, clock);
     expect(failed.ok).toBe(true);
     expect(failed.facts.trace).toBeUndefined();
+    expect(failed.facts.trace_missing).toBe("read failed: Error");
+    const refused = await timeStart({ ...base, trace: async () => "HTTP 404" }, 2, clock);
+    expect(refused.facts.trace).toBeUndefined();
+    expect(startBenchMarkdown([refused])).toContain("Samples with no create trace: HTTP 404 (1)");
+  });
+  test("the create answer's value.timings is kept as a trace and gets its own p50 table", () => {
+    const t = answerTimings({ machine: "vm_1", timings: { path: "create", steps: { plan_read: 40, ensure: 2_100, bad: "x" }, total_ms: 2_300 } });
+    expect(t).toEqual({ outcome: "create", attempt: null, totalMs: 2_300, steps: { plan_read: 40, ensure: 2_100 } });
+    expect(answerTimings({ machine: "vm_1" })).toBeNull();
+    const s: StartSample = { ...sample("cold", undefined), facts: { timings: t } };
+    expect(traceStepSummary([s], "timings")).toEqual([{ path: "cold", traced: 1, steps: [{ step: "plan_read", p50: 40 }, { step: "ensure", p50: 2_100 }, { step: "totalMs", p50: 2_300 }] }]);
+    expect(startBenchMarkdown([s])).toContain("| cold | 1 | ensure | 2100 ms |");
   });
 });

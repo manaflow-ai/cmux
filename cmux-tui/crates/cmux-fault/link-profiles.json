@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "about": "Link profiles for the mobile network-conditions harness (cmux-fault shaper.rs, scripts/measure/ios-network-conditions.sh). Each row is named and versioned: change a number, bump that row's version, and the report carries name@version so a before/after never compares two different links. Rates in kbit/s (0: unlimited), rtt_ms is the round trip (half each way), jitter_ms a seeded extra in 0..=jitter_ms per segment, loss_percent per 1460-byte segment each way.",
+  "profiles": [
+    {
+      "name": "good-wifi",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 33000,
+      "rtt_ms": 2,
+      "source": "Apple Network Link Conditioner preset 'WiFi' (Additional Tools for Xcode): 40 Mbps down, 33 Mbps up, 1 ms delay each way, 0% loss. The control row."
+    },
+    {
+      "name": "lte",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "source": "WebPageTest connectivity profile 'LTE' (www/settings/connectivity.ini.sample, github.com/catchpoint/WebPageTest): 12 Mbps down, 12 Mbps up, 70 ms RTT. 0.5% loss per the lane brief (WebPageTest's row has 0 plr)."
+    },
+    {
+      "name": "5g-lte-handoff",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "address_change", "stall_ms": [1000, 3000] },
+      "source": "The 'lte' row's link (low-band 5G NSA anchors on LTE; its higher peak rate does not move time to first content at these sizes), plus an address change mid-stream and a 1-3 s stall drawn from the seed, per the lane brief. Live connections go silent for good (the peer's packets go to the old address); new ones flow after the stall."
+    },
+    {
+      "name": "lossy-3",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "jitter_ms": 300,
+      "loss_percent": 3,
+      "source": "The 'lte' row's rate and RTT with 3% loss and 0-300 ms jitter per the lane brief."
+    },
+    {
+      "name": "lossy-10",
+      "version": 1,
+      "down_kbit": 1000,
+      "up_kbit": 1000,
+      "rtt_ms": 1000,
+      "jitter_ms": 300,
+      "loss_percent": 10,
+      "source": "Apple Network Link Conditioner preset 'Very Bad Network': 1 Mbps each way, 500 ms delay each way, 10% loss; plus 0-300 ms jitter per the lane brief."
+    },
+    {
+      "name": "elevator-30s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 30000 },
+      "source": "The 'lte' row's link, then 30 s with nothing through and the same link back, per the lane brief (the elevator). Bytes sent into the dark retransmit on TCP's doubling backoff (200 ms min RTO, RFC 6298), so recovery lands after the window, not at its end."
+    },
+    {
+      "name": "2g-trickle",
+      "version": 1,
+      "down_kbit": 50,
+      "up_kbit": 30,
+      "rtt_ms": 800,
+      "source": "Rate: WebPageTest connectivity profile '56K Dial-Up' (49 kbps down, 30 kbps up), which is GPRS-grade (four CS-2 timeslots, 3GPP TS 45.003, are 53.6 kbit/s raw). RTT: WebPageTest profile '2G' (800 ms)."
+    },
+    {
+      "name": "lan",
+      "version": 1,
+      "down_kbit": 300000,
+      "up_kbit": 300000,
+      "rtt_ms": 4,
+      "source": "Phone and Mac on one Wi-Fi 6 WLAN, direct path through the access point, no relay: two wireless hops (phone to AP, AP to Mac) on one channel. Rate: the 802.11ax PHY rate for 2 spatial streams, 80 MHz, MCS 11, 0.8 us GI (1201 Mbit/s, IEEE 802.11ax-2021), halved because the AP sends every packet again on the same channel (wiisfi.com, 'Understanding Wi-Fi 4/5/6/6E/7', relay through the AP), halved again for MAC and TCP overhead (a rule of thumb, not a measurement): 300 Mbit/s each way. RTT: 1 ms per AP-to-client hop each way (VDMA 'WLAN IEEE 802.11ax, Wi-Fi 6/6E' guide: typical 1 ms, RTT 2-20 ms), two hops each way: 4 ms. No jitter or loss: an idle home WLAN, the best case."
+    },
+    {
+      "name": "internet-down-lan-up",
+      "version": 1,
+      "down_kbit": 300000,
+      "up_kbit": 300000,
+      "rtt_ms": 4,
+      "disruption": { "kind": "internet_down" },
+      "source": "The 'lan' row's link with the internet path dead (the home router's uplink is out): on Shaper::open_internet_path (TCP: signaling, token and ICE-config endpoints) live connections fall silent and new ones are refused, and on UdpShaper::open_internet_path (STUN, TURN) every datagram is dropped, while the LAN link keeps the 'lan' numbers and never drops."
+    },
+    {
+      "name": "relay-30",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 30,
+      "source": "The relay hop between a signed-in Mac and its Cloud machine, for a Mac near the machine's region; used as the second hop (NETCOND_RELAY), behind a phone link. Rate: 5 MB/s, the low end of the relay throughput measured through the production relay (5 to 21 MB/s, RFD 0049 'What is our network', Measurements). RTT: assumed, about twice the 14.2 ms measured with the Mac side in the machine's own colo; no jitter or loss, the relay rides TCP inside a datacenter path."
+    },
+    {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 80,
+      "source": "The 'relay-30' hop for a Mac a continent away from its Cloud machine (a machine lives in one region). RTT: assumed, a transcontinental round trip; rate as 'relay-30'."
+    }
+  ]
+}

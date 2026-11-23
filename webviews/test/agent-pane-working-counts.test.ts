@@ -278,8 +278,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         }, token);
       const page = await open(BUSY, width);
       try {
-        // This line follows subagent steps. Counts must not change that 22px context.
-        const withCounts = await measure(page, "--cv-tool-row-height");
+        // This line follows subagent steps: the live line's drawn box (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX).
+        // Counts must not change it.
+        const withCounts = await measure(page, "--cv-live-line-box");
         expect(withCounts.height).toBe(withCounts.oneLine);
         expect(withCounts.labelHeight).toBe(20);
         expect(withCounts.labelLeft).toBe(0);
@@ -288,14 +289,14 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         await counts.evaluateAll((nodes) => {
           for (const node of nodes) (node as HTMLElement).style.display = "none";
         });
-        expect(await measure(page, "--cv-tool-row-height")).toEqual(withCounts);
+        expect(await measure(page, "--cv-live-line-box")).toEqual(withCounts);
       } finally {
         await page.close();
       }
       const quiet = await open(QUIET, width);
       try {
-        // With no preceding step, the live line occupies the 32px footer slot.
-        const box = await measure(quiet, "--cv-footer-row");
+        // With no preceding step, its row is the 32px footer slot and its words the same drawn box at its top.
+        const box = await measure(quiet, "--cv-live-line-box");
         expect(box.height).toBe(box.oneLine);
         expect(box.labelHeight).toBe(20);
         expect(box.labelLeft).toBe(0);

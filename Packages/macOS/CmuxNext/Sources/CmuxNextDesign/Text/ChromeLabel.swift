@@ -320,7 +320,7 @@ open class ChromeLabel: NSView {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(ProcessFontSmoothing.current.smoothsStems)
+        ctx.setShouldSmoothFonts(ProcessFontSmoothing.chrome.smoothsStems)
         LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size, context: ctx)
     }
 
