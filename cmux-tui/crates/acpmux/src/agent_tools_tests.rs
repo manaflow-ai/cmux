@@ -1333,6 +1333,43 @@ fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The per-agent switch (cmux#49395): a Claude Code or Codex chat the person switched off gets the
+/// answer `off` (so `scoped` leaves `cmux` out under a yes); the other agent, another harness and
+/// an answer the chat already carries (another Mac's) are left alone.
+#[test]
+fn an_agent_switched_off_gets_the_answer_off() {
+    use std::collections::BTreeMap;
+    let settings = Some(r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#);
+    assert!(super::agent_switched_off(settings, "codex"));
+    assert!(!super::agent_switched_off(settings, "claude"));
+    assert!(!super::agent_switched_off(settings, "gemini"));
+    assert!(!super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": "no"}"#), "claude"));
+    assert!(super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": false}"#), "claude"));
+    assert!(!super::agent_switched_off(None, "claude"));
+    let answer = |agent: Option<&str>, mut env: BTreeMap<String, String>| {
+        super::agent_switch_answer(&mut env, settings, agent);
+        env.get(super::TOOLS_ANSWER_ENV).cloned()
+    };
+    assert_eq!(answer(Some("codex"), BTreeMap::new()).as_deref(), Some("off"));
+    assert_eq!(answer(Some("claude"), BTreeMap::new()), None);
+    assert_eq!(answer(None, BTreeMap::new()), None);
+    let from_another_mac = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned())]);
+    assert_eq!(answer(Some("codex"), from_another_mac).as_deref(), Some("on"));
+    // The answer `off` leaves cmux's server out of the chat's tools, as a no does.
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: super::CMUX_SERVER.into(),
+            command: "/bin/cmux".into(),
+            args: vec![],
+            env: vec![],
+        }],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let off = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned())]);
+    assert!(tools.scoped(&off).servers.is_empty());
+}
+
 /// acpmux's own servers' instructions go in Claude Code's appended system prompt, the prefix
 /// every chat shares in the prompt cache, and the servers leave them out of `initialize`, so a
 /// chat reads them once. The text never names the session: two chats in two folders get the same

@@ -629,6 +629,14 @@ pub trait Desktop: Send + Sync {
         delivery: Delivery,
     ) -> DResult<ActionOutcome>;
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome>;
+    /// Moves the pointer onto `target` and presses nothing (a hover). In the
+    /// background the move goes to the target's process or window only, so
+    /// the person's pointer stays put and hover effects that follow the
+    /// app's own mouse-moved events show; with `Delivery::Foreground` the
+    /// window comes to the front and the real pointer moves there (and stays).
+    fn move_pointer(&self, _target: &PointerTarget, _delivery: Delivery) -> DResult<ActionOutcome> {
+        Err(DesktopError::Unsupported("this desktop cannot move the pointer yet".into()))
+    }
     fn drag(
         &self,
         window_id: &str,
