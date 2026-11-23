@@ -2154,6 +2154,8 @@ those two hours, 11 were at the limit (2,775 runner-min/day). Both hosts build a
 crate. acpmux tests made the same fix in #49482. `cmux-next-car-guards.yml` reads this cache with the
 same key.
 
+The same toggle is now on every `Swatinem/rust-cache` step (42 more in 27 workflows; `cloud-journey-prod.yml` runs main's copy on its schedule, so it is left for a main PR). The macOS-on-Linux build (`cmux-tui-build-package.yml`) showed it: after #49976 saved its first entry (key hash `2a69944b`, 2026-11-22 19:26Z), the next 4 sampled legs on pool runners computed `6ec71d0a`, `1ca27fd1`, `6ec71d0a` and `2a69944b`. The difference was `rustup toolchain list`: 1.95.0 alone, or with 1.98.1 and 1.100.0 left over. All 4 found no cache, and cargo took 20 min each. In the 11.5 h after the save, green `build aarch64-apple-darwin` legs averaged 33.3 min on pull requests and lanes (25.7 before) and 29.5 min on feat-cmux-next (29.7 before). The entry was evicted from the full store by 07:00Z on 11-23.
+
 ## note-210b
 
 Above `fast-tier-cargo: environment`, `fast-tier-cargo: Key the cargo build in R2` and `Strip the workspace's own output before the R2 save` in `.github/workflows/cmux-next.yml`.
