@@ -48,6 +48,7 @@ on:
       - "schemas/build-identity/vectors.json"
       - "schemas/defaults/cmux-next.json"
       - "schemas/deeplinks/agent-link.json"
+      - "schemas/device-hub/request-signing-vectors.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"

@@ -105,6 +105,7 @@ blob schemas/automation-lease/vectors.json
 blob schemas/deeplinks/agent-link.json
 blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
+blob schemas/device-hub/request-signing-vectors.json
 blob schemas/build-identity/vectors.json
 blob scripts/measure/screen-stream-eval/wifi-away-holds.json
 blob schemas/link-token/keyset-vectors.json
