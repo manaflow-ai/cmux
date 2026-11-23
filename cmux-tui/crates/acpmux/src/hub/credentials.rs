@@ -33,6 +33,27 @@ impl Hub {
         true
     }
 
+    /// After a daemon restart, the launch credential the adopted agent's host says it started the
+    /// agent with (`agent_credentials::launched_with`), held again for its next start. A credential
+    /// already held stays. Names only are logged. Whether one was taken.
+    pub(crate) fn hold_launch_credential(
+        &self,
+        session: &Session,
+        env: &[(String, String)],
+    ) -> bool {
+        let Some(credential) = crate::agent_credentials::recovered_from_launch(env) else {
+            return false;
+        };
+        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return false;
+        }
+        let names: Vec<&str> = credential.names().collect();
+        tracing::info!(session = %session.id, ?names, "the adopted agent's host said its launch credential; held again");
+        *held = Some(credential);
+        true
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
