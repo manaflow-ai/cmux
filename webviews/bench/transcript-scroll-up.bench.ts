@@ -118,17 +118,39 @@ async function run(name: string, engine: BrowserType) {
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
     // and each ask the transcript makes and its settling (`__cmuxOlderTrace`), on the page's clock.
+    // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
+    // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
+    // One init script, so the split's phases and the asks go through one `__cmuxOlderTrace` whatever order
+    // init scripts run in.
     const page = await pane.open({ width: 1100, height: 800 }, async (page) => {
-      await page.addInitScript(() => {
+      await page.addInitScript((splitting: boolean) => {
         const wire = {
           sent: new Map<number, { before: number; limit: number; sentAt: number }>(),
           pages: [] as { before: number; limit: number; sentAt: number; recvAt: number; bytes: number }[],
           asks: new Map<number, { askAt: number; settledAt?: number }>(),
         };
-        (window as unknown as { __olderWire: typeof wire }).__olderWire = wire;
-        (
-          window as unknown as { __cmuxOlderTrace: (phase: "ask" | "settled", at: number, ask: number) => void }
-        ).__cmuxOlderTrace = (phase, at, ask) => {
+        const split = splitting
+          ? { reply: [] as number[], fold: [] as number[], published: [] as number[], commits: [] as number[] }
+          : undefined;
+        const holder = window as unknown as {
+          __olderWire: typeof wire;
+          __olderSplit?: NonNullable<typeof split>;
+          __cmuxOlderTrace: (
+            phase: "ask" | "settled" | "reply" | "fold" | "published",
+            at: number,
+            ask: number,
+          ) => void;
+          __REACT_DEVTOOLS_GLOBAL_HOOK__?: unknown;
+        };
+        holder.__olderWire = wire;
+        holder.__cmuxOlderTrace = (phase, at, ask) => {
+          if (split) {
+            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
+            if (phase === "reply" || phase === "fold" || phase === "published") {
+              split[phase].push(at);
+              return;
+            }
+          }
           if (phase === "ask") wire.asks.set(ask, { askAt: at });
           else {
             const entry = wire.asks.get(ask);
@@ -165,40 +187,19 @@ async function run(name: string, engine: BrowserType) {
             super.send(data);
           }
         };
-      });
-      // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
-      // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
-      if (SPLIT)
-        await page.addInitScript(() => {
-          const holder = window as unknown as {
-            __cmuxOlderTrace: (phase: string, at: number, ask: number) => void;
-            __olderSplit: Record<"reply" | "fold" | "published" | "commits", number[]>;
-            __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown;
-          };
-          const split = {
-            reply: [] as number[],
-            fold: [] as number[],
-            published: [] as number[],
-            commits: [] as number[],
-          };
-          holder.__olderSplit = split;
-          const inner = holder.__cmuxOlderTrace;
-          holder.__cmuxOlderTrace = (phase, at, ask) => {
-            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
-            if (phase === "reply" || phase === "fold" || phase === "published") split[phase].push(at);
-            else inner(phase, at, ask);
-          };
-          let renderers = 0;
-          holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-            supportsFiber: true,
-            renderers: new Map(),
-            inject: () => ++renderers,
-            checkDCE: () => {},
-            onCommitFiberRoot: () => void split.commits.push(performance.now()),
-            onCommitFiberUnmount: () => {},
-            onPostCommitFiberRoot: () => {},
-          };
-        });
+        if (!split) return;
+        holder.__olderSplit = split;
+        let renderers = 0;
+        holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+          supportsFiber: true,
+          renderers: new Map(),
+          inject: () => ++renderers,
+          checkDCE: () => {},
+          onCommitFiberRoot: () => void split.commits.push(performance.now()),
+          onCommitFiberUnmount: () => {},
+          onPostCommitFiberRoot: () => {},
+        };
+      }, SPLIT);
     });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     // PLAIN=1: no shadows, filters or blends, to tell an engine's raster cost from the page's work.

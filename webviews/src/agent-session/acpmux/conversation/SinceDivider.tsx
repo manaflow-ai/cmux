@@ -277,7 +277,8 @@ export function UnreadBanner({
         data-collapsed={collapsed ? "" : undefined}
         inert={!shown}
       >
-        <button type="button" className="acpmux-since-jump__body" aria-description={t("since.jump")} onClick={jump}>
+        {/* tooltip-allow: the jump shows an arrow and a count, never what it does; its tooltip names it */}
+        <button type="button" className="acpmux-since-jump__body" title={t("since.jump")} onClick={jump}>
           <span className="acpmux-since-jump__arrow" aria-hidden="true">
             <ArrowDown size={12} />
           </span>
