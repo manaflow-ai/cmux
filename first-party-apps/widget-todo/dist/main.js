@@ -36,6 +36,10 @@
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
       },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
+      },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
         reads: "tab.list"
@@ -495,6 +499,10 @@
         scope: "cloud:write",
         class: "mutation"
       },
+      "cloud.machine.pause_all": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
       "cloud.machine.rename": {
         scope: "cloud:write",
         class: "mutation"
@@ -544,6 +552,10 @@
         class: "mutation"
       },
       "cloud.snapshot.list": {
+        scope: "cloud:read",
+        class: "read"
+      },
+      "cloud.surge.preview": {
         scope: "cloud:read",
         class: "read"
       },
@@ -902,6 +914,18 @@
       "group.list": {
         scope: "group:read",
         class: "read"
+      },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
       },
       "group.rename": {
         scope: "group:write",
@@ -1679,6 +1703,18 @@
         scope: "sidebar:write",
         class: "mutation"
       },
+      "signal.publish": {
+        scope: "none",
+        class: "mutation"
+      },
+      "signal.read": {
+        scope: "none",
+        class: "read"
+      },
+      "signal.sources.list": {
+        scope: "none",
+        class: "read"
+      },
       "skills_app.cycle_variant": {
         scope: "skills_app:write",
         class: "mutation"
@@ -1713,6 +1749,14 @@
       },
       "stash.restore": {
         scope: "stash:write",
+        class: "mutation"
+      },
+      "system_calendar.events": {
+        scope: "system_calendar:read",
+        class: "read"
+      },
+      "system_calendar.request_access": {
+        scope: "system_calendar:read",
         class: "mutation"
       },
       "tab_group.add_tabs": {
@@ -1830,6 +1874,38 @@
       "team.ai_limit.get": {
         scope: "team:read",
         class: "read"
+      },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
       },
       "team.device.compliance": {
         scope: "team:read",
@@ -2135,6 +2211,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2160,6 +2239,7 @@
       "cloud.fs.remove",
       "cloud.machine.archive_delete",
       "cloud.machine.chat_access",
+      "cloud.machine.chief_start",
       "cloud.machine.create",
       "cloud.machine.delete",
       "cloud.machine.io",
@@ -2170,6 +2250,8 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_connect",
+      "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
@@ -2190,6 +2272,7 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.restore",
+      "cloud.surge.create",
       "cloud.vm.domains",
       "cloud.vm.firewall_create",
       "cloud.vm.firewall_delete",
@@ -2259,6 +2342,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
@@ -2294,6 +2378,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2302,6 +2389,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2331,15 +2420,36 @@
       "workspace.open_url"
     ]
   };
-  var WIDGET_TYPE = { bigNumber: 34, title: 15, label: 13, body: 13, caption: 12, footnote: 11 };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
+  };
+  var SPACE = { none: 0, hairline: 2, xxs: 4, xs: 6, s: 8, m: 12, l: 16, xl: 20, xxl: 24, xxxl: 32, huge: 48 };
+  function TextIn(role, text, options = {}) {
+    const { size, weight } = TYPE_ROLES[role];
+    return Text(text).font(size).weight(weight).lineLimit(options.lines ?? 1);
+  }
   var WIDGET_INSET = { newtab: 16, sidebar: 12 };
   function WidgetFrame(children, options = {}) {
     const inset = options.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab;
     const frame = VStack({ spacing: options.spacing ?? 4, alignment: "leading" }, children).padding(inset).frame({ maxWidth: "infinity", maxHeight: "infinity" });
     return options.background ? frame.background(options.background) : frame;
   }
-  function Caption(text) {
-    return Text(text).font(WIDGET_TYPE.caption).color("secondary").lineLimit(1);
+  function Caption(text, options = {}) {
+    return TextIn("caption", text, options).color("secondary");
   }
   function checkbox(item) {
     const side = WIDGET_TYPE.body + 6;
@@ -2352,12 +2462,12 @@
         const leading = item().check ? checkbox(item) : item().symbol ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent") : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5);
         const row = HStack({ spacing: 8 }, [
           leading,
-          VStack({ spacing: 1, alignment: "leading" }, [
-            Text(() => item().title).font(WIDGET_TYPE.body).weight(item().check ? "regular" : "semibold").lineLimit(1).strikethrough(() => item().done === true).color(() => item().done ? "secondary" : "primary").animation("smooth"),
+          VStack({ spacing: SPACE.hairline, alignment: "leading" }, [
+            TextIn(item().check ? "body" : "label", () => item().title).strikethrough(() => item().done === true).color(() => item().done ? "secondary" : "primary").animation("smooth"),
             () => item().detail ? Caption(() => item().detail ?? "") : null
           ]),
           Spacer(),
-          () => item().trailing ? Text(() => item().trailing ?? "").font(WIDGET_TYPE.caption).color("secondary") : null
+          () => item().trailing ? Caption(() => item().trailing ?? "") : null
         ]);
         row.transition("slide");
         const { onTap, menu, help } = item();
@@ -2400,8 +2510,11 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line
   } = g;
+  var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
+  var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
   var EVENT_STREAMS = Object.keys(events_default.events);
   var en_default = {
     clear: "Clear",

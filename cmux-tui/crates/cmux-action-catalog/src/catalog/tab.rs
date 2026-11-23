@@ -205,9 +205,11 @@ pub static ACTIONS: &[Action] = &[
         id: "macScreen.stopSharing",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.stopSharing", "Stop Sharing This Mac"),
-        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "end", "disconnect", "viewer", "control"],
+        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "end", "disconnect", "viewer", "control", "session", "end session", "cmux remote"],
+        default_shortcut: Some(Shortcut { key: "s", modifiers: OPT | SHIFT | CMD }),
         category: "remote",
         symbol: "display",
+        surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action mac-screen-stop-sharing",
         ..Action::DEFAULT

@@ -104,7 +104,7 @@ import Testing
         #expect(attach.params["maxBytes"] == nil)
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
     /// faster/percievably load faster". A relaunch (a fresh cache, only the disk holds the chat)
     /// restores the kept turns in the source's init, in the same turn, so the reopened chat's
     /// first frame draws them. Before, they came from a disk read off the main thread and the

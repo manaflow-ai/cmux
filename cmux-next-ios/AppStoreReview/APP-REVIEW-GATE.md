@@ -1,8 +1,12 @@
 # App Review gate (before Apple sees it)
 
 The app App Review judges is the NEXT iOS app, `cmux-next-ios` (CmuxMobileApp).
-Its public build is project.yml's `AppStore` configuration, bundle `com.cmux.app`,
-which replaces the classic app as an update.
+The App Store submission is cmux INTERNAL (bundle `dev.cmux.app.internal`, ASC
+app 6791408425), built by project.yml's TestFlight configuration (version base
+1.2.0). `com.cmux.app` (ASC 6783338052, project.yml's `AppStore` configuration)
+is not the submission record. The gate below still checks the `AppStore`
+configuration; the INTERNAL submission lane is being built on
+`lane/ios-internal-app-store-lane`.
 
 `.github/workflows/ios-review-gate.yml` answers "would Apple accept this build
 right now?" with one ranked list, in the run summary and in the
@@ -78,7 +82,7 @@ lint's subscription rules apply once the judged sources use StoreKit:
 | `iap.disclosure` | 3.1.2 | the plans screen lacks the auto-renewal terms, the Terms of Use link or the Privacy Policy link |
 | `iap.manage` (warning) | 3.1.2 | no in-app Manage Subscription |
 | `metadata.subscription-terms` | 3.1.2 | no store description links the Terms of Use (EULA) |
-| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases") |
+| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases"). Lane internal-submission reads `review-notes-asc-internal.txt`; when the sources list its bundle (`dev.cmux.app.internal`) in `appsWithoutSubscriptions`, the rule inverts (the notes must name "Plan" and promise no "Subscribe", "Restore Purchases", "Manage Subscription" or Sandbox) and `iap.restore`, `iap.disclosure`, `iap.manage` and `metadata.subscription-terms` do not apply |
 
 App Review buys in the Sandbox against production. Production grants a
 Sandbox purchase only to the emails in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`

@@ -257,7 +257,8 @@ pub fn serve(
                                 doc.candidates.push(candidate.to_owned());
                             }
                         }
-                        // The answer goes once every candidate this side will find is known.
+                        // The answer goes once this side's host candidates are known (serve
+                        // says candidates_done then); reflexive and relayed ones trickle after it.
                         if line["candidates_done"].as_bool() == Some(true) && !answered {
                             if let Some(doc) = answer.as_ref().filter(|d| !d.key.is_empty()) {
                                 answered = true;

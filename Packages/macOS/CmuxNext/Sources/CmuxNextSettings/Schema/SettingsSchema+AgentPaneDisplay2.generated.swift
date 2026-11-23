@@ -312,6 +312,31 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptLookPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptLook", "Transcript Look"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptLook.help", "How messages, cards and spacing look."),
+                kind: .choice([
+                    SettingChoice("cmux", "cmux"),
+                    SettingChoice("claude", "Claude"),
+                    SettingChoice("codex", "Codex"),
+                    SettingChoice("studio", "Studio"),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptTokensPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptTokens", "Transcript Look Tokens"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptTokens.help", "Token values that override the transcript look."),
+                kind: .text,
+                default: AgentPaneDisplaySettingsSchema.transcriptTokensDefault,
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "token", "theme", "bubble", "radius", "spacing"]
+            ).hiddenFromSettingsPage("an object of look tokens, edited in cmux-next.json or a theme file"),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.promptCoachPath,
                 section: .appearance,
                 group: group,
@@ -357,26 +382,6 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.thinkingShimmerDefault),
                 keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "status", "animation", "sweep", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod", "Shimmer Speed"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod.help", "How long one continuous pass of the shimmer takes."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
-                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
-                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
             ),
         ]
     }

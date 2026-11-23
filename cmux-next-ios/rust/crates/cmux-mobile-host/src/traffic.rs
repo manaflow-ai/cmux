@@ -112,7 +112,7 @@ impl Kind {
             "file" | "file-preview" | "upload" => Kind::File,
             "localhost" => Kind::Localhost,
             "appearance" | "appearance-wallpaper" => Kind::Appearance,
-            "auth" | "echo" | "version" | "machine" | "needs-you" => Kind::Control,
+            "auth" | "echo" | "version" | "machine" | "needs-you" | "phone-frames" => Kind::Control,
             _ => Kind::Other,
         }
     }

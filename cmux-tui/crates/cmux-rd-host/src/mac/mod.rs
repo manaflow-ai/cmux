@@ -8,6 +8,8 @@ pub(crate) mod capture;
 pub(crate) mod cpu;
 #[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_record;
 pub(crate) mod cursor;
 mod display_pick;
 mod input;
@@ -28,6 +30,7 @@ use cmux_encode::videotoolbox::{
 };
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::resolution::Picture;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -63,6 +66,9 @@ pub struct MacFrames {
     picked_times: Option<(u64, u64)>,
     encoder: VideoToolbox,
     name: String,
+    /// The resolution ladder's picture is smaller than the stream (the encode scales).
+    #[cfg_attr(not(feature = "bench"), allow(dead_code))] // read by the bench's quality check
+    scaled: bool,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
 }
@@ -101,6 +107,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         picked_times: None,
         encoder,
         name,
+        scaled: false,
         #[cfg(feature = "bench")]
         quality: crate::eval::Quality::from_env(),
     };
@@ -164,8 +171,10 @@ impl FrameSource for MacFrames {
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };
         let idr = self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)?;
+        // The bench's quality check compares the decoded frame with the full-size source, so
+        // it skips frames the resolution ladder scaled down.
         #[cfg(feature = "bench")]
-        if let Some(quality) = self.quality.as_mut() {
+        if let (Some(quality), false) = (self.quality.as_mut(), self.scaled) {
             if quality.wants_source(pts_us as u64, out) {
                 if let Some(pixels) = frame.eval_roi() {
                     quality.source(pts_us as u64, out, &pixels);
@@ -184,6 +193,10 @@ impl FrameSource for MacFrames {
         self.encoder.set_refine(refine);
     }
 
+    fn applies_profile(&self) -> bool {
+        true
+    }
+
     fn set_changed_pixels(&mut self, pixels: u64) {
         self.encoder.set_changed_pixels(pixels);
     }
@@ -194,6 +207,16 @@ impl FrameSource for MacFrames {
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    /// The resolution ladder's picture: a size smaller than the stream is scaled down on the
+    /// GPU before the encode (cmux-encode's surface path), and its QP ceiling goes to the
+    /// encoder. `None`: the full stream, no ceiling.
+    fn set_picture(&mut self, picture: Option<Picture>) {
+        let size = picture.map(|p| (p.width, p.height));
+        self.scaled = size.is_some_and(|s| s != self.size);
+        self.encoder.set_picture_size(size);
+        self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
     }
 
     fn idr_cause(&self) -> Option<&'static str> {
