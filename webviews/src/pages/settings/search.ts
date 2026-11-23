@@ -4,7 +4,7 @@
 import { shownCategories, type Category, type CategoryGroup } from "./categories";
 import { valueText } from "./format";
 import type { SchemaRow } from "./schema";
-import { locale, text } from "./strings";
+import { english, locale, t, text } from "./strings";
 
 export function queryTerms(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -119,4 +119,27 @@ export function filterRows({
 
 export function searchRows(query: string, valueOf: (key: string) => unknown): SearchGroup[] {
   return filterRows({ query, valueOf });
+}
+
+/**
+ * Words that find a page by more than its title: its cards draw host data, not schema rows, so no
+ * row would lead there. A catalog key whose value lists them, comma-separated (Leo 2026-11-22: "i
+ * also couldnt find settings devices control"; the join prompt sends people to Settings > Devices
+ * for its Screen sharing and Control switches).
+ */
+const PAGE_WORDS: Readonly<Record<string, string>> = {
+  devices: "settingsPage.search.devicesWords",
+};
+
+/** Categories whose title or page words hold every term, in navigation order; an empty query matches none. */
+export function filterPages({ query, devBuild = false }: Pick<ListFilter, "query" | "devBuild">): Category[] {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return shownCategories(devBuild).filter((category) => {
+    const words = PAGE_WORDS[category.id];
+    const haystack = [text(category.title), category.title.text, words ? t(words) : "", words ? english(words) : ""]
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
 }
