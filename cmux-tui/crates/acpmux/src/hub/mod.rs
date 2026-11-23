@@ -14,6 +14,9 @@ mod usage_share;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
+pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 mod adopted_fences;
@@ -1043,6 +1046,9 @@ pub struct Hub {
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
+    /// Auto mode's holder loop, once this daemon started one (`auto_session::spawn_holder`):
+    /// what the Auto methods and a prompt to a chat another holder runs reach it through.
+    pub(crate) auto_holder: std::sync::OnceLock<crate::auto_session::HolderHandle>,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -1567,6 +1573,7 @@ impl Hub {
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
             github_app: Default::default(),
+            auto_holder: std::sync::OnceLock::new(),
             peer_snapshots,
             peer_notices,
             peer_wake,

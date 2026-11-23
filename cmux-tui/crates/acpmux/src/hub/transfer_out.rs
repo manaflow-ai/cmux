@@ -248,7 +248,7 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
 #[cfg(test)]

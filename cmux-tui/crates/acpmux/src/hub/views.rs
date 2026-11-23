@@ -958,6 +958,12 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Auto mode (`auto_session/record.rs`): where the chat runs and what the person can do.
+        // On every row, so the pane tells Auto off from a daemon without Auto.
+        summary.set(
+            "autoSession",
+            crate::auto_session::record::AutoRecord::row_of(m.auto_session.as_ref()),
+        );
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }

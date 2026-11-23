@@ -892,6 +892,24 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/leftover",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
