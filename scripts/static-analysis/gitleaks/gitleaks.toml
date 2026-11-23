@@ -9,6 +9,8 @@ paths = [
   '''(^|/)(bun\.lock|package-lock\.json|Cargo\.lock|Package\.resolved|go\.sum|yarn\.lock|pnpm-lock\.yaml)$''',
   '''(^|/)static-analysis-out/''',
   '''(^|/)testdata/''',
+  # cmux-tui's Rust integration tests: fixture workspace keys are UUIDs, generic-api-key's shape.
+  '''^cmux-tui/crates/[^/]+/tests/''',
 ]
 # Matched against the secret itself. Stack Auth publishable client keys (pck_...) ship inside apps by design.
 # A keyboard chord ("key": "cmd+shift+down" in a keybindings file) is generic-api-key's shape, never a key; a

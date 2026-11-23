@@ -1058,6 +1058,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full{align-self:stretch;margin:0;max-height:220px;overflow:auto;padding:var(--ds-space-2);border-radius:var(--ds-radius-control);background:var(--ds-surface-card);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full code{font:inherit}
+.acpmux-permission-plan-editor{display:block;box-sizing:border-box;width:100%;resize:vertical;border:1px solid var(--ds-border-control,var(--agent-border));font-family:var(--font-mono,ui-monospace,monospace);white-space:pre-wrap}
+.acpmux-permission-plan-editor:focus-visible{outline:2px solid var(--ds-focus-ring,var(--agent-accent));outline-offset:1px}
+.acpmux-permission-plan-edited{margin:var(--ds-space-1) 0 0;color:var(--agent-text-secondary);font-size:var(--text-detail)}
 .acpmux-permission-plan{max-height:min(320px,45vh);overflow:auto;padding:var(--ds-space-2) var(--ds-space-3);border-radius:var(--ds-radius-control);background:var(--ds-surface-card);color:var(--agent-text);font-size:var(--text-detail);line-height:1.5;overscroll-behavior:contain}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
