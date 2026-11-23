@@ -274,6 +274,11 @@ pub(super) fn misuse(short: &Short) -> Option<&'static str> {
     }
 }
 
+/// `vm pause --all` (or `shutdown --all`): a mass pause, which only the app runs.
+pub(super) fn pause_all_requested(short: &Short) -> bool {
+    short.cloud_verb == "pause-machine" && short.tail.iter().any(|word| word == "--all")
+}
+
 /// `vm pause --all` with any other word (`--all --minutes 15`): refused, so a mass pause never
 /// runs with a flag it quietly drops.
 pub(super) fn pause_all_misuse(short: &Short) -> Option<String> {
@@ -436,10 +441,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,
+        // The VM API has no `--all`: with no app, `pause --all` is refused, never handed on.
+        Err(None) if pause_all_requested(&short) => {
+            return Some(usage(
+                &global,
+                "`--all` pauses every VM through the cmux app; run `cmux login` and open cmux",
+            ));
+        }
         Err(None) => return None,
         Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
-    if short.cloud_verb == "pause-machine" && short.tail.iter().any(|word| word == "--all") {
+    if pause_all_requested(&short) {
         if short.named.is_some() || short.targeted {
             return Some(usage(&global, "`--all` pauses every VM; it takes no name or --target"));
         }
