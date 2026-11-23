@@ -602,6 +602,7 @@ impl Mux {
             eprintln!("cmux-tui: output cleanup: not started: {error:#}");
         }
         crate::state::project_watch::start(&mux);
+        crate::state::tab_attention_expiry::start(&mux);
         timings.lap("journal.maintenance_start");
         *mux.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         Ok(mux)

@@ -88,8 +88,11 @@ fn fields(rows: TabRows) -> anyhow::Result<Map<String, Value>> {
             fields.insert("marked_unread".into(), json!(true));
         }
         // `tab-attention-v1`: `{reason, at_ms, request_id}`, present only while an agent
-        // needs the person in this tab.
-        if let Some(attention) = state.attention {
+        // needs the person in this tab and the mark is younger than
+        // `ATTENTION_MAX_AGE_MS` (the sweep clears an older one soon).
+        if let Some(attention) = state.attention.filter(|stored| {
+            !crate::state::tab_state_store::attention_expired(stored, crate::mux::now_ms())
+        }) {
             fields.insert(
                 "attention".into(),
                 crate::state::tab_state_store::shown_attention(&attention)?,

@@ -11,8 +11,6 @@ import os
 /// that say so, since a silent copy of a 12.8 GB folder ran a 16 GB machine's disk out ("Broken pipe").
 public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public static let code = "seed_refused"
-    /// The seed plan's code for a private repository the machine can't read without the cmux GitHub App.
-    public static let needsGitHub = "seed.needs_github"
     /// The start plan's code for a machine whose disk is smaller than the size the folder needs (cmux-tui
     /// `preflight::too_small`): the workspace already had that machine, so nothing is cloned or copied there.
     public static let machineTooSmall = "machine.too_small"
@@ -55,26 +53,20 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// by the start's preflight). A copy whose size cmux-tui could not read is made.
     public func fits(diskMb: Int?) -> Bool { (copyBytes ?? 0) <= Self.room(diskMb: diskMb) }
 
-    /// Whether connecting GitHub lets the machine clone the folder instead: only a repository it can't read without
-    /// the cmux GitHub App (``needsGitHub``). Not a folder that is not git, a submodule's local work, commits that are
-    /// not on GitHub, or a remote elsewhere: connecting GitHub changes none of those.
-    public var gitHubHelps: Bool { fallbackCode == Self.needsGitHub }
+    /// The code the page's start card reads for a copy that does not fit (``tooLarge``): none, so the card shows its own
+    /// failure with Retry. Every refusal here is a new Cloud chat's local folder (``copying(machine:diskMb:grow:declined:_:)``'s
+    /// one caller), and a local folder never asks for GitHub (cmux#51731): it goes by projection or copy, and only a GitHub
+    /// repository the person picked is cloned (`AgentPaneCloudStart+Repository.swift`), so no Connect GitHub here.
+    public var pageCode: String? { nil }
 
-    /// The code the page's start card reads for a copy that does not fit (``tooLarge``): ``needsGitHub`` when
-    /// connecting GitHub helps (its Connect GitHub, then Retry), else nil (the card's own failure, with Retry).
-    public var pageCode: String? { gitHubHelps ? Self.needsGitHub : nil }
-
-    /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name, and connecting
-    /// GitHub only when that helps (``gitHubHelps``).
+    /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name.
     public var tooLarge: String {
         if let pastPlan {
             let words = String(localized: "cloud.seedRefused.pastPlan", defaultValue: "This folder is %1$@, more than the largest machine your plan gives (%2$@) has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
             let disk = ByteCountFormatter.string(fromByteCount: CloudChatSize.largestDiskBytes(planMax: pastPlan), countStyle: .file)
             return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), disk)
         }
-        let words = gitHubHelps
-            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .localizedModule)
-            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
+        let words = String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
         return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 

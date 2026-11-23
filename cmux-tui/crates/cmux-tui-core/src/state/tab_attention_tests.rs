@@ -14,11 +14,15 @@ use crate::workspace_registry::FrontendBrowserRecord;
 const REASON: &str = "Confirm GitHub access";
 
 fn browser_tab(mux: &Arc<Mux>) -> SurfaceId {
+    browser_tab_at(mux, "https://github.com/settings/apps")
+}
+
+fn browser_tab_at(mux: &Arc<Mux>, url: &str) -> SurfaceId {
     let terminal = terminal_tabs(mux, 1)[0];
     let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
     let record = FrontendBrowserRecord {
         engine: "webkit".into(),
-        url: "https://github.com/settings/apps".into(),
+        url: url.into(),
         title: None,
         favicon_url: None,
         profile_id: None,
@@ -35,6 +39,22 @@ fn listed_attention(mux: &Mux, tab: &str) -> Value {
         .find(|listed| listed["id"] == tab)
         .map(|listed| listed["extra"]["attention"].clone())
         .unwrap_or(Value::Null)
+}
+
+/// The raw tree's record of the tab on `surface`.
+fn tree_tab(mux: &Mux, surface: SurfaceId) -> Value {
+    let decorations = mux.tree_decorations();
+    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().unwrap().iter())
+        .flat_map(|screen| screen["panes"].as_array().unwrap().iter())
+        .flat_map(|pane| pane["tabs"].as_array().unwrap().iter())
+        .find(|listed| listed["surface"] == json!(surface))
+        .cloned()
+        .unwrap()
 }
 
 fn focused(mux: &Mux) -> Option<SurfaceId> {
@@ -218,20 +238,7 @@ fn the_raw_tree_carries_a_tab_attention_mark_until_it_clears() {
     let mux = Mux::new_for_test("state-tab-attention-tree", SurfaceOptions::default());
     let tabs = terminal_tabs(&mux, 2);
     let tab = tab_id(&mux, tabs[1]);
-    let tree_tab = |mux: &Mux| {
-        let decorations = mux.tree_decorations();
-        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
-        tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|workspace| workspace["screens"].as_array().unwrap().iter())
-            .flat_map(|screen| screen["panes"].as_array().unwrap().iter())
-            .flat_map(|pane| pane["tabs"].as_array().unwrap().iter())
-            .find(|listed| listed["surface"] == json!(tabs[1]))
-            .cloned()
-            .unwrap()
-    };
+    let tree_tab = |mux: &Mux| tree_tab(mux, tabs[1]);
     assert!(tree_tab(&mux)["attention"].is_null());
     mutate(&mux, "tab.update", json!({"tab": tab, "attention": REASON}), "attention-tree-1");
     let marked = tree_tab(&mux);
@@ -240,4 +247,51 @@ fn the_raw_tree_carries_a_tab_attention_mark_until_it_clears() {
     assert!(marked["attention"].get("request_id").is_none(), "the tree shows only what is drawn");
     mutate(&mux, "tab.update", json!({"tab": tab, "attention": null}), "attention-tree-2");
     assert!(tree_tab(&mux)["attention"].is_null());
+}
+
+/// A mark older than `ATTENTION_MAX_AGE_MS` is swept through a state commit:
+/// the tab list and the raw tree drop it. A younger mark stays, and the
+/// sweep says when it expires.
+#[test]
+fn the_sweep_clears_an_expired_mark_from_the_list_and_the_tree() {
+    use crate::state::tab_state_store::ATTENTION_MAX_AGE_MS;
+    let mux = Mux::new_for_test("state-tab-attention-expiry", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let tab = tab_id(&mux, tabs[1]);
+    let marked =
+        mutate(&mux, "tab.update", json!({"tab": tab, "attention": REASON}), "attention-expiry-1");
+    let at = marked["extra"]["attention"]["at_ms"].as_u64().unwrap();
+    let expires = at + ATTENTION_MAX_AGE_MS;
+    assert_eq!(mux.expire_attention_marks(&crate::Actor::Daemon, expires - 1), Some(expires));
+    assert_eq!(listed_attention(&mux, &tab)["reason"], REASON, "a younger mark stays");
+    assert_eq!(tree_tab(&mux, tabs[1])["attention"]["reason"], REASON);
+    assert_eq!(mux.expire_attention_marks(&crate::Actor::Daemon, expires), None);
+    assert!(listed_attention(&mux, &tab).is_null(), "the expired mark is cleared");
+    assert!(tree_tab(&mux, tabs[1])["attention"].is_null(), "the tree drops it too");
+}
+
+/// A placeholder browser tab on `about:blank` records no page with its
+/// mark: an `about:blank` event keeps it and the first real page clears it.
+#[test]
+fn a_mark_on_about_blank_records_no_page_and_the_first_real_page_clears_it() {
+    let mux = Mux::new_for_test("state-tab-attention-blank", SurfaceOptions::default());
+    let browser = browser_tab_at(&mux, "about:blank");
+    let tab = tab_id(&mux, browser);
+    mutate(&mux, "tab.update", json!({"tab": tab, "attention": REASON}), "attention-blank-1");
+    let stored = mux
+        .personal_state_read(|connection| {
+            Ok(connection.query_row(
+                "SELECT attention_json FROM tab_state WHERE tab_id = ?1",
+                [tab.as_str()],
+                |row| row.get::<_, String>(0),
+            )?)
+        })
+        .unwrap();
+    let stored: Value = serde_json::from_str(&stored).unwrap();
+    assert!(stored.get("page").is_none(), "about:blank is no page: {stored}");
+    mux.clear_attention_after_navigation(&crate::Actor::Daemon, browser, "about:blank");
+    assert_eq!(listed_attention(&mux, &tab)["reason"], REASON, "about:blank keeps the mark");
+    mux.update_frontend_browser_tab(browser, Some("https://github.com/login".into()), None, None)
+        .unwrap();
+    assert!(listed_attention(&mux, &tab).is_null(), "the first real page clears it");
 }

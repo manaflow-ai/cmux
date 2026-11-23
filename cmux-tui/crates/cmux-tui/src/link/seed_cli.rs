@@ -584,12 +584,64 @@ pub(super) fn push_seed_only(
     push_full(socket, local, remote, head_first, false)
 }
 
+/// Whether a refused seed may ask for GitHub: the cmux GitHub App's `install_url` on a
+/// `seed.needs_github` fallback. A new Cloud chat's local folder never does (cmux#51731): the
+/// person picked a folder, not a GitHub repository, so the seed's clone is only a shortcut and
+/// the copy (or projection) is the way; only a picked repository needs GitHub
+/// (`AgentPaneCloudStart+Repository.swift`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum GitHubAsk {
+    Offer,
+    Never,
+}
+
+/// [`push`] for a new Cloud chat's local folder: never asks for GitHub ([`GitHubAsk::Never`]).
+pub(super) fn push_folder(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+) -> anyhow::Result<Pushed> {
+    push_with(socket, local, remote, head_first, true, GitHubAsk::Never)
+}
+
+/// [`push_seed_only`] for a new Cloud chat's local folder: never asks for GitHub.
+pub(super) fn push_folder_seed_only(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+) -> anyhow::Result<Pushed> {
+    push_with(socket, local, remote, head_first, false, GitHubAsk::Never)
+}
+
 fn push_full(
     socket: &Path,
     local: &Path,
     remote: &str,
     head_first: Option<&str>,
     copy_ok: bool,
+) -> anyhow::Result<Pushed> {
+    push_with(socket, local, remote, head_first, copy_ok, GitHubAsk::Offer)
+}
+
+/// A seed's fallback as this push says it: with [`GitHubAsk::Never`], without the GitHub App's
+/// `install_url`, so no card offers to install it. The code stays, for the log and the copy
+/// row's reason ("the Cloud machine can't read the repository").
+fn fallback_for(mut fallback: SeedError, github: GitHubAsk) -> SeedError {
+    if github == GitHubAsk::Never {
+        fallback.install_url = None;
+    }
+    fallback
+}
+
+fn push_with(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+    copy_ok: bool,
+    github: GitHubAsk,
 ) -> anyhow::Result<Pushed> {
     let machine = Machine::read(socket)?;
     let local = std::fs::canonicalize(local).map_err(|error| {
@@ -598,7 +650,7 @@ fn push_full(
     let fallback = match seed_full(&machine, &local, remote, head_first) {
         Ok(pushed) => return Ok(pushed),
         Err(Attempt::Failed(error)) => return Err(error.into()),
-        Err(Attempt::Fallback(why)) => why,
+        Err(Attempt::Fallback(why)) => fallback_for(why, github),
     };
     if !copy_ok {
         return Err(refusal(&local, fallback).into());
@@ -1319,9 +1371,27 @@ mod tests {
 
     use super::plan::{Planned, SeedParams};
     use super::{
-        Command, Ended, LocalBundle, Record, SeedError, asks_head_first, barrier_marker,
-        barrier_ready, parse, pull, seed_job, seed_record, seeded, settle_fill,
+        Command, Ended, GitHubAsk, LocalBundle, Record, SeedError, asks_head_first,
+        barrier_marker, barrier_ready, fallback_for, parse, pull, seed_job, seed_record, seeded,
+        settle_fill,
     };
+
+    /// A new Cloud chat's local folder never asks for GitHub (cmux#51731): a seed the machine
+    /// can't clone without the cmux GitHub App falls back with its code, but no `install_url`,
+    /// so neither the copy row nor the refusal offers the install. Move to Cloud still offers it.
+    #[test]
+    fn a_chat_folders_seed_fallback_never_asks_for_github() {
+        let needs = || SeedError {
+            install_url: Some("https://github.com/apps/cmux/installations/new".into()),
+            ..SeedError::new("seed.needs_github", "the machine can't read the repository")
+        };
+        let never = fallback_for(needs(), GitHubAsk::Never);
+        assert_eq!(never.code, "seed.needs_github");
+        assert_eq!(never.install_url, None);
+        assert!(never.line().get("install_url").is_none(), "{}", never.line());
+        let offer = fallback_for(needs(), GitHubAsk::Offer);
+        assert_eq!(offer.install_url.as_deref(), Some("https://github.com/apps/cmux/installations/new"));
+    }
 
     /// The ops a scripted machine was asked, in order.
     type Asked = std::rc::Rc<std::cell::RefCell<Vec<String>>>;

@@ -121,3 +121,94 @@ fn a_navigation_clears_only_a_mark_set_on_another_page() {
         connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
     assert_eq!(rows, 0, "a row left with no field is deleted");
 }
+
+/// A mark older than `ATTENTION_MAX_AGE_MS` reads as gone and the sweep
+/// clears it (deleting a row left empty); a younger mark stays with its
+/// request id, which still guards a clear.
+#[test]
+fn an_expired_mark_is_not_read_and_the_sweep_clears_only_it() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+                   marked_unread INTEGER, attention_json TEXT);",
+        )
+        .unwrap();
+    let now = 10 * ATTENTION_MAX_AGE_MS;
+    let mark = TabStateUpdate { attention: Some(Some("Log in".into())), ..Default::default() };
+    let transaction = connection.transaction().unwrap();
+    update_tab_state_at_time(&transaction, "tab_old", &mark, now - ATTENTION_MAX_AGE_MS).unwrap();
+    let zoomed_mark = TabStateUpdate { zoom: Some(Some(1.5)), ..mark.clone() };
+    update_tab_state_at_time(&transaction, "tab_zoom", &zoomed_mark, 0).unwrap();
+    update_tab_state_at_time(&transaction, "tab_fresh", &mark, now - ATTENTION_MAX_AGE_MS + 1)
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO tab_state(tab_id, attention_json) VALUES('tab_no_time', ?1)",
+            [json!({"reason": "Log in"}).to_string()],
+        )
+        .unwrap();
+    transaction.commit().unwrap();
+    let stored = |tab: &str| -> String {
+        connection
+            .query_row("SELECT attention_json FROM tab_state WHERE tab_id = ?1", [tab], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    let fresh = stored("tab_fresh");
+    let fresh_id = serde_json::from_str::<Value>(&fresh).unwrap()["request_id"].clone();
+    assert!(attention_record(&stored("tab_old"), now).is_none(), "an expired mark reads as gone");
+    assert!(attention_record(&stored("tab_no_time"), now).is_none(), "no at_ms expires at once");
+    assert_eq!(attention_record(&fresh, now).unwrap().reason, "Log in");
+    assert!(attention_expired(&stored("tab_old"), now));
+    assert!(!attention_expired(&fresh, now));
+
+    let expiry = attention_expiry(&connection, now).unwrap();
+    assert_eq!(expiry.expired, ["tab_no_time", "tab_old", "tab_zoom"]);
+    assert_eq!(expiry.next_ms, Some(now + 1), "the fresh mark expires next");
+
+    let transaction = connection.transaction().unwrap();
+    let cleared = clear_expired_attention(&transaction, now).unwrap();
+    transaction.commit().unwrap();
+    assert_eq!(cleared, ["tab_no_time", "tab_old", "tab_zoom"]);
+    assert!(!tab_has_attention(&connection, "tab_old").unwrap());
+    assert!(!tab_has_attention(&connection, "tab_zoom").unwrap());
+    assert!(tab_has_attention(&connection, "tab_fresh").unwrap());
+    assert_eq!(stored("tab_fresh"), fresh, "the sweep leaves a fresh mark as it was");
+    let rows: Vec<String> = connection
+        .prepare("SELECT tab_id FROM tab_state ORDER BY tab_id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows, ["tab_fresh", "tab_zoom"], "an emptied row is deleted, a zoomed one kept");
+    assert_eq!(attention_expiry(&connection, now).unwrap().expired, Vec::<String>::new());
+
+    // The fresh mark's identity still guards a clear.
+    let transaction = connection.transaction().unwrap();
+    let stale = TabStateUpdate {
+        attention: Some(None),
+        attention_request_id: Some("0".repeat(32)),
+        ..Default::default()
+    };
+    update_tab_state(&transaction, "tab_fresh", &stale).unwrap();
+    assert!(tab_has_attention(&transaction, "tab_fresh").unwrap(), "a stale id keeps the mark");
+    let clear = TabStateUpdate {
+        attention: Some(None),
+        attention_request_id: fresh_id.as_str().map(str::to_string),
+        ..Default::default()
+    };
+    update_tab_state(&transaction, "tab_fresh", &clear).unwrap();
+    transaction.commit().unwrap();
+    assert!(!tab_has_attention(&connection, "tab_fresh").unwrap());
+}
+
+#[test]
+fn a_mark_records_no_page_for_an_empty_url_or_about_blank() {
+    assert_eq!(attention_page(""), None);
+    assert_eq!(attention_page("about:blank"), None);
+    assert_eq!(attention_page("https://github.com/login"), Some("https://github.com/login"));
+}

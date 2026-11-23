@@ -187,10 +187,32 @@ pub struct TabAttentionRecord {
     pub at_ms: u64,
 }
 
+/// How long an attention mark asks for the person: 24 hours, the default
+/// lifetime of a Feed request (`backend/apps/api/src/domains/feed-state.ts`).
+/// An older mark reads as gone and is swept
+/// ([`crate::state::tab_attention_expiry`]): the agent that set it, or the
+/// build it ran in, may be long gone, and a tab nobody navigates or closes
+/// would otherwise ask forever.
+pub(crate) const ATTENTION_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// When a stored mark stops asking (Unix ms), or `None` for JSON that holds
+/// no `at_ms`, which expires at once.
+fn attention_expires_at(stored: &str) -> Option<u64> {
+    let value: Value = serde_json::from_str(stored).ok()?;
+    Some(value.get("at_ms")?.as_u64()?.saturating_add(ATTENTION_MAX_AGE_MS))
+}
+
+/// Whether a stored mark is older than [`ATTENTION_MAX_AGE_MS`] at `now_ms`.
+pub(crate) fn attention_expired(stored: &str, now_ms: u64) -> bool {
+    attention_expires_at(stored).is_none_or(|expires| expires <= now_ms)
+}
+
 /// The attention mark of every live tab, by public tab id. A row whose JSON
-/// does not hold a reason is skipped, as `extra.attention` would show none.
+/// does not hold a reason is skipped, as `extra.attention` would show none,
+/// and so is a mark expired at `now_ms`.
 pub(crate) fn read_tab_attention(
     connection: &Connection,
+    now_ms: u64,
 ) -> anyhow::Result<std::collections::HashMap<String, TabAttentionRecord>> {
     let mut statement = connection.prepare(
         "SELECT s.tab_id, s.attention_json FROM tab_state AS s
@@ -202,13 +224,16 @@ pub(crate) fn read_tab_attention(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows
         .into_iter()
-        .filter_map(|(tab, stored)| Some((tab, attention_record(&stored)?)))
+        .filter_map(|(tab, stored)| Some((tab, attention_record(&stored, now_ms)?)))
         .collect())
 }
 
 /// A stored attention mark as frontends draw it, or `None` when its JSON
-/// holds no reason.
-fn attention_record(stored: &str) -> Option<TabAttentionRecord> {
+/// holds no reason or the mark expired at `now_ms`.
+fn attention_record(stored: &str, now_ms: u64) -> Option<TabAttentionRecord> {
+    if attention_expired(stored, now_ms) {
+        return None;
+    }
     let value: Value = serde_json::from_str(stored).ok()?;
     let reason = value.get("reason")?.as_str()?.to_string();
     let at_ms = value.get("at_ms").and_then(Value::as_u64).unwrap_or(0);
@@ -221,6 +246,7 @@ fn attention_record(stored: &str) -> Option<TabAttentionRecord> {
 pub(crate) fn tab_attention_record(
     connection: &Connection,
     tab_id: &str,
+    now_ms: u64,
 ) -> anyhow::Result<Option<TabAttentionRecord>> {
     let stored = connection
         .query_row(
@@ -232,7 +258,63 @@ pub(crate) fn tab_attention_record(
             |row| row.get::<_, String>(0),
         )
         .optional()?;
-    Ok(stored.as_deref().and_then(attention_record))
+    Ok(stored.as_deref().and_then(|stored| attention_record(stored, now_ms)))
+}
+
+/// The stored marks at `now_ms`: the tabs (live or closed) whose mark
+/// expired, and when the first of the others expires.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct AttentionExpiry {
+    pub(crate) expired: Vec<String>,
+    pub(crate) next_ms: Option<u64>,
+}
+
+/// Every stored mark sorted into [`AttentionExpiry`]: a cheap read before
+/// the sweep's commit, which decides again ([`clear_expired_attention`]).
+pub(crate) fn attention_expiry(
+    connection: &Connection,
+    now_ms: u64,
+) -> anyhow::Result<AttentionExpiry> {
+    let mut statement = connection.prepare(
+        "SELECT tab_id, attention_json FROM tab_state
+         WHERE attention_json IS NOT NULL ORDER BY tab_id",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut expiry = AttentionExpiry::default();
+    for (tab, stored) in rows {
+        match attention_expires_at(&stored) {
+            Some(expires) if expires > now_ms => {
+                expiry.next_ms = Some(expiry.next_ms.map_or(expires, |next| next.min(expires)));
+            }
+            _ => expiry.expired.push(tab),
+        }
+    }
+    Ok(expiry)
+}
+
+/// The sweep: drop every mark expired at `now_ms`, deciding in the clearing
+/// transaction (a mark set since the read is fresh and stays), and delete a
+/// row left with no field. Returns the tabs it cleared.
+pub(crate) fn clear_expired_attention(
+    transaction: &Transaction<'_>,
+    now_ms: u64,
+) -> anyhow::Result<Vec<String>> {
+    let expired = attention_expiry(transaction, now_ms)?.expired;
+    for tab in &expired {
+        transaction
+            .execute("UPDATE tab_state SET attention_json = NULL WHERE tab_id = ?1", [tab])?;
+        drop_empty_tab_state_row(transaction, tab)?;
+    }
+    Ok(expired)
+}
+
+/// The page a new mark records for a browser tab on `url`: none for an
+/// empty URL or `about:blank` (a placeholder tab before its first load), so
+/// the first real page clears the mark.
+pub(crate) fn attention_page(url: &str) -> Option<&str> {
+    (!url.is_empty() && url != "about:blank").then_some(url)
 }
 
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears

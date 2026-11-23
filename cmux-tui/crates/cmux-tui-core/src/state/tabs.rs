@@ -13,8 +13,8 @@ use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::state::tab_state_store::{
-    TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_attention_record, tab_group_ids,
-    tab_group_snapshot, update_tab_state,
+    TabStateUpdate, attention_page, delete_saved_tab_group, saved_tab_group, tab_attention_record,
+    tab_group_ids, tab_group_snapshot, update_tab_state,
 };
 use crate::state::values::{fresh_upserts, upserted_value};
 
@@ -150,7 +150,7 @@ impl Mux {
                 let value = upserted_value(&changes, "tab", &tab).ok_or(TabRowNotStored)?;
                 // The mark as stored: a stale request id leaves the old one.
                 let attention = match update.attention {
-                    Some(_) => Some(tab_attention_record(transaction, &tab)?),
+                    Some(_) => Some(tab_attention_record(transaction, &tab, crate::mux::now_ms())?),
                     None => None,
                 };
                 let owner = browser.zip(update.owner);
@@ -225,14 +225,14 @@ impl Mux {
             "bad request: owner applies only to frontend browser tabs"
         );
         // tab-attention-v1: a browser tab's new mark records the page
-        // it was set on, so only a later page clears it.
+        // it was set on, so only a later page clears it. A placeholder tab
+        // on `about:blank` records none: its first real page clears it.
         if matches!(update.attention, Some(Some(_))) {
             update.attention_page = state
                 .surfaces
                 .get(&surface)
                 .and_then(|runtime| runtime.as_browser())
-                .map(|browser| browser.url())
-                .filter(|url| !url.is_empty());
+                .and_then(|browser| attention_page(&browser.url()).map(str::to_string));
         }
         Ok((tab, frontend, update))
     }
@@ -242,14 +242,15 @@ impl Mux {
     /// act on is gone (the person confirmed, logged in, or left). One read
     /// when the tab holds no such mark; otherwise a commit that decides again
     /// in its own transaction (a mark set on `page` meanwhile stays) and
-    /// restates the tab when it cleared one.
+    /// restates the tab when it cleared one. `about:blank` is no page (a
+    /// placeholder tab's mark waits for the first real load).
     pub(crate) fn clear_attention_after_navigation(
         &self,
         actor: &Actor,
         surface: SurfaceId,
         page: &str,
     ) {
-        if page.is_empty() {
+        if attention_page(page).is_none() {
             return;
         }
         let Some(tab) = self.with_state(|state| {

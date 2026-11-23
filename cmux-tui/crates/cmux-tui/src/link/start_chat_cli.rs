@@ -1221,7 +1221,7 @@ fn push(
 ) -> Result<Value, Value> {
     projected_or(
         || project_first(socket, local, remote, chat),
-        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+        || super::seed_cli::push_folder(socket, local, remote, Some(subpath)),
     )
 }
 
@@ -1285,7 +1285,7 @@ fn push_seed_only(
 ) -> Result<Value, Value> {
     projected_or(
         || project_first(socket, local, remote, chat),
-        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+        || super::seed_cli::push_folder_seed_only(socket, local, remote, Some(subpath)),
     )
 }
 
