@@ -57,6 +57,8 @@ copy of APP, then writes before and after screenshots (light and dark), a click-
 
 Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
 newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).
+`cmux customize doctor` lists every layer left on, and every customization file that does not load, is skipped,
+overrides another or sits in the wrong folder, with its fix (`doctor fix ID off|remove`); the app shows the same notice.
 
 ## Examples
 

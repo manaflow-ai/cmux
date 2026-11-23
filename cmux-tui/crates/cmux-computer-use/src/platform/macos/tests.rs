@@ -1212,6 +1212,62 @@ fn keys_and_menu_commands_reach_only_the_key_window() {
 }
 
 #[test]
+fn keys_reach_an_inline_editor_over_the_target_only() {
+    let target = Rect { x: 544.0, y: 94.0, width: 920.0, height: 436.0 };
+    // Finder's rename field, measured: no focused window, the Finder window
+    // as main window, a text field in no window, inside the target.
+    let field = roles::OverlayEditor {
+        role: "AXTextField".into(),
+        in_other_window: false,
+        frame: Some(Rect { x: 759.0, y: 228.0, width: 54.0, height: 21.0 }),
+    };
+    assert!(roles::keys_reach_overlay_editor(false, true, Some(&field), &target));
+    // A focused window (a sheet, an alert, another document) keeps the
+    // key-window rule.
+    assert!(!roles::keys_reach_overlay_editor(true, true, Some(&field), &target));
+    // The editor is over another window of the app.
+    assert!(!roles::keys_reach_overlay_editor(false, false, Some(&field), &target));
+    let elsewhere = roles::OverlayEditor {
+        frame: Some(Rect { x: 10.0, y: 40.0, width: 54.0, height: 21.0 }),
+        ..field.clone()
+    };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&elsewhere), &target));
+    // In another window, not a text input, or no frame: refused.
+    let other = roles::OverlayEditor { in_other_window: true, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&other), &target));
+    let button = roles::OverlayEditor { role: "AXButton".into(), ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&button), &target));
+    let unread = roles::OverlayEditor { frame: None, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&unread), &target));
+    assert!(!roles::keys_reach_overlay_editor(false, true, None, &target));
+    // A window as big as the target is not an editor inside it.
+    assert!(!roles::rect_within(&target, &target));
+}
+
+#[test]
+fn an_inline_editor_window_id_names_the_window_keys_go_to() {
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", Some(3902));
+    assert!(hint.contains("window 3910 is an inline editor (a text field"), "{hint}");
+    assert!(hint.contains("window_id 3902"), "{hint}");
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", None);
+    assert!(hint.contains("the window it lies over"), "{hint}");
+}
+
+#[test]
+fn set_value_focuses_a_native_field_that_commits_when_editing_ends() {
+    // Finder's Get Info name field: not focused, AXConfirm offered.
+    assert!(roles::focus_before_value_write("AXTextField", false, false, Some(false), true));
+    // Already being edited, web content, the person's app, no confirm, an
+    // unreadable focus or a text area: left as it is.
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(true), true));
+    assert!(!roles::focus_before_value_write("AXTextField", true, false, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, true, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(false), false));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, None, true));
+    assert!(!roles::focus_before_value_write("AXTextArea", false, false, Some(false), true));
+}
+
+#[test]
 fn stepping_stops_at_the_target_the_end_or_a_wrong_way_step() {
     use roles::Step;
     assert_eq!(roles::step_outcome(0.5, 0.4, 0.25, false), Step::Continue);
