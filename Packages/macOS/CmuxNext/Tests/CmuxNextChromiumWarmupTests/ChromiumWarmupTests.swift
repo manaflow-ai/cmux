@@ -85,16 +85,41 @@ import Testing
     }
 
     /// Item 6d: with Chromium the default engine, the framework map starts at the first frame (`start` runs from
-    /// the first-frame hook), not 3 s later; CefInitialize does not run then (#43942: next to the first frame it
-    /// held Home's page back).
-    @Test func theDefaultEngineMapsAtTheFirstFrameAndDoesNotInitialize() async {
+    /// the first-frame hook), not 3 s later. So does Chromium's start: every cmux page is a Chromium page under
+    /// that default, and the first one asked ~420 ms after the frame. CefInitialize runs in a task after the
+    /// hook, not inside it.
+    @Test func theDefaultEngineMapsAndStartsAtTheFirstFrame() async {
         let steps = Steps()
         let warmup = recordingWarmup(steps)
         warmup.start(defaultIsChromium: { true })
         #expect(steps.log == ["preload"])
-        await settle { false }
-        #expect(!steps.log.contains { $0.hasPrefix("warmStart") })
+        #expect(warmup.reason == .launch)
+        await settle { steps.log.count > 1 }
+        #expect(steps.log == ["preload", "warmStart:firstFrame"])
         warmup.stop()
+    }
+
+    /// The first-frame start is the launch's one warm start: the launch signal `launchPreloadDelay` later, or a
+    /// restored tab's, starts nothing again.
+    @Test func theFirstFrameStartIsTheOnlyWarmStart() async {
+        let steps = Steps()
+        let warmup = recordingWarmup(steps)
+        warmup.start(defaultIsChromium: { true })
+        warmup.chromiumLikely(.launch)
+        warmup.chromiumLikely(.restoredTab)
+        await settle { false }
+        #expect(steps.log == ["preload", "warmStart:firstFrame"])
+        warmup.stop()
+    }
+
+    /// Stopped before its task ran (the app began to quit): no start.
+    @Test func aStopBeforeTheTaskStartsNothing() async {
+        let steps = Steps()
+        let warmup = recordingWarmup(steps)
+        warmup.start(defaultIsChromium: { true })
+        warmup.stop()
+        await settle { false }
+        #expect(steps.log == ["preload"])
     }
 
     /// A person who opened a Chromium tab in the last 7 days: the map starts at the first frame, after the
