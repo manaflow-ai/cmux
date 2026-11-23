@@ -20,6 +20,7 @@ first display frame after the key.
 import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -83,6 +84,16 @@ def wait(label, predicate, timeout):
     sys.exit(f"FAIL {label} (timed out after {timeout:.0f} s)\n{json.dumps(rpc('debug.new_tab', {'action': 'state'}), indent=1)}")
 
 
+def settle_surfaces(what):
+    """Until the app's windows, panes and tabs (debug.surfaces) stop changing."""
+    wait_stable(lambda: json.dumps(rpc("debug.surfaces"), sort_keys=True), what, timeout=10, interval=0.1, raise_on_timeout=False)
+
+
+def start_neighbor_terminal():
+    print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
+    settle_surfaces("the neighbor terminal")
+
+
 def state():
     return rpc("debug.new_tab", {"action": "state"}) or {}
 
@@ -109,7 +120,8 @@ def open_and_check(expect_spare, snapshot=None, close=1, window=0):
         # Control: a key typed into the settled page, to tell a lost first key from a key path
         # that never reaches the page in this window.
         rpc("debug.key", {"key": "z"})
-        time.sleep(1)  # test harness wait
+        wait_until(lambda: "z" in ((rpc("debug.new_tab", {"action": "field"}) or {}).get("text") or ""),
+                   "the control key in the field", timeout=5, interval=0.1, raise_on_timeout=False)
         print(f"control after a settled key 'z': {rpc('debug.new_tab', {'action': 'field'})}", flush=True)
         sys.exit(f"FAIL the field lost keys: {last.get('field')}\nfocus: {json.dumps(last.get('focus'))[:1500]}")
     if not field.get("focused"):
@@ -212,14 +224,17 @@ def main_thread_profile(trace):
 def run_bench():
     closes, bangs = [], []
     if opts.neighbor == "terminal":
-        print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
-        time.sleep(1.5)  # test harness: the terminal starts
+        start_neighbor_terminal()
     recorder = None
     trace = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-bench.trace")
     if opts.trace:
+        recorder_log = os.path.join(SCRATCH, "xctrace.log")
         recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
-                                     "--time-limit", "40s", "--output", trace], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        time.sleep(3)  # test harness: the recorder attaches
+                                     "--time-limit", "40s", "--output", trace], stdout=open(recorder_log, "w"), stderr=subprocess.STDOUT)
+        # xctrace prints "Ctrl-C to stop the recording" once it is attached and recording.
+        if not wait_until(lambda: recorder.poll() is not None or "Ctrl-C to stop" in open(recorder_log).read(),
+                          "xctrace attached", timeout=20, interval=0.1, raise_on_timeout=False) or recorder.poll() is not None:
+            print(f"note: xctrace not confirmed recording: {open(recorder_log).read()[-500:]}", flush=True)
     for _ in range(opts.runs):
         ready_spare()
         rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
@@ -248,8 +263,7 @@ def run_bench():
 
 def run_bench_open():
     if opts.neighbor == "terminal":
-        print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
-        time.sleep(1.5)  # test harness: the terminal starts
+        start_neighbor_terminal()
     opens = []
     for _ in range(opts.runs):
         ready_spare()
@@ -302,7 +316,7 @@ try:
     safe_print(f"launched pid {app.pid}", flush=True)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
     safe_print("app is up", flush=True)
-    time.sleep(2)  # test harness: let the first workspace settle
+    settle_surfaces("the first workspace")
     if opts.bench:
         run_bench()
         sys.exit(0)
@@ -322,9 +336,11 @@ try:
     opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
     if opening.get("spare") is not False:
         sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
-    time.sleep(5)  # test harness: let the cold page load before reading its field
-    field = rpc("debug.new_tab", {"action": "field"}) or {}
-    safe_print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
+    # The cold page loads and its field takes the keys (or never does: KEYS LOST below).
+    field = wait_until(lambda: (lambda f: f if f.get("text") == opts.text else None)(rpc("debug.new_tab", {"action": "field"}) or {}),
+                       "the cold page's field holding the keys", timeout=15, interval=0.1, raise_on_timeout=False)
+    field = field or rpc("debug.new_tab", {"action": "field"}) or {}
+    safe_print(f"cold opening: {opening['ms']:.2f} ms main thread; field after the load: {field} "
                f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
     for _ in range(2):
         rpc("debug.key", {"key": "w", "modifiers": ["command"]})
@@ -339,7 +355,7 @@ try:
     safe_print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
     wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
     WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
-    time.sleep(2)  # test harness: let the new window's workspace settle
+    settle_surfaces("the new window's workspace")
     wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
     cross = open_and_check(True, window=1)
     safe_print(f"cross-window adoption: {cross}", flush=True)
