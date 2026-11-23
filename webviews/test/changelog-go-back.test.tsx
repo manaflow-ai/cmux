@@ -36,7 +36,7 @@ test("a go-back that ends without a relaunch frees the buttons", async () => {
   const { createRoot } = await import("react-dom/client");
   const { GoBack } = await import("../src/pages/changelog/GoBack");
   // The host answers once the swap is done and the quit started: nil, the app is going away.
-  const actions = { goBack: () => Promise.resolve(null) };
+  const actions = { openChangelog: () => undefined, goBack: () => Promise.resolve(null) };
   const root = createRoot(host);
   const draw = (running: boolean) => <GoBack goBack={goBack} running={running} strings={strings} actions={actions} />;
   await act(async () => root.render(draw(false)));
@@ -55,7 +55,7 @@ test("a go-back that ends without a relaunch frees the buttons", async () => {
 test("a card opened while a go-back runs starts busy", async () => {
   const { createRoot } = await import("react-dom/client");
   const { GoBack } = await import("../src/pages/changelog/GoBack");
-  const actions = { goBack: () => Promise.resolve(null) };
+  const actions = { openChangelog: () => undefined, goBack: () => Promise.resolve(null) };
   const root = createRoot(host);
   await act(async () => root.render(<GoBack goBack={goBack} running strings={strings} actions={actions} />));
   expect(host.querySelector<HTMLButtonElement>(".wn-goback-entry")!.disabled).toBe(true);

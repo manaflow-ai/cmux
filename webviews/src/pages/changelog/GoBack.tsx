@@ -99,7 +99,7 @@ export function GoBack({
         />
       </svg>
       <span className="wn-goback-label">
-        {busy && now.build === undefined ? strings.t("updates.goBack.going") : goBack.title}
+        {busy && (now.kind !== "going" || now.build === undefined) ? strings.t("updates.goBack.going") : goBack.title}
       </span>
     </button>
   ) : null;
@@ -134,7 +134,7 @@ export function GoBack({
               previous={row.build === goBack?.build}
               strings={strings}
               busy={busy}
-              going={busy && now.build === row.build}
+              going={busy && now.kind === "going" && now.build === row.build}
               onGo={() => go(row.build)}
             />
           ))}
