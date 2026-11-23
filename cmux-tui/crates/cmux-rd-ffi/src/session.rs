@@ -393,6 +393,12 @@ impl Session {
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
+            // An ultra capacity probe: its stream's receiver reports the arrival in that
+            // stream's feedback. A probe for a stream that is not open is dropped.
+            DatagramKind::Probe => match self.streams.get_mut(&header.stream) {
+                Some(r) => r.push_datagram(datagram, now_us).map_err(SessionError::from),
+                None => Ok(()),
+            },
             DatagramKind::ClockPong if self.clock.is_some() => {
                 let (_, payload) =
                     DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
