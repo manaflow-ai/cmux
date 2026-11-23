@@ -107,7 +107,12 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # Numeric GitHub IDs of maintainers who never sign, as opener or as
           # commit author: @lawrencecchen, @austinywang, @azooz2003-bit.
-          allowlist-ids: '54008264,38676809,67667005'
+          # 358218193 is cmux-agents-lander[bot], the maintainers' own agent
+          # GitHub App that opens lane pull requests so they stop sharing one
+          # login's content-creation limit. A Bot cannot sign, so it is exempt
+          # as opener. Lane commits keep their human git author, and every
+          # other commit author in its pull requests still signs.
+          allowlist-ids: '54008264,38676809,67667005,358218193'
           # pr-catch-up.yml's merge commits, vouched for by a status that
           # only a token with statuses write in this repository can post.
           # 41898282 is github-actions[bot], the Actions token that posts it.
