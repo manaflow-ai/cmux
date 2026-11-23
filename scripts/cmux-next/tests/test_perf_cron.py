@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1281,6 +1281,17 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_scroll_up_scale_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scroll-up"))
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.100k.older_page_drawn@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.older_page_drawn_scale@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -4295,6 +4306,31 @@ class UnreadPartFirstTests(unittest.TestCase):
         cron.decide(state, at(27), self.NEW, None, self.supported, None)
         order = cron.part_order(state, state["current"]["parts_todo"], at(27))
         self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
+
+    def test_a_superseded_tip_stops_waiting_for_an_unanswered_linux_part(self):
+        # 2026-11-23: tip 12aa19c2 gave its Mac parts up, then its web-ui-growth request went unanswered 23 h, and the
+        # newer tip with chat-size waited for ABANDON_WALL_HOURS.
+        state = self.mid_tip()
+        state["current"]["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS
+        state["current"].pop("host_asked_since", None)
+        t = cron.SUPERSEDE_AFTER_HOURS + 1
+        d = cron.decide(state, at(t), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["linux_part"], "coord-sim", "the Linux part may still run")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS / 2), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotEqual(d["action"], "finish", "inside its bound it keeps the Linux part")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertEqual(state["current"]["parts"]["coord-sim"]["state"], "superseded")
+
+    def test_a_superseded_record_from_before_the_bound_ends_at_once(self):
+        state = self.mid_tip()
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if not cron.is_linux_part(n)]:
+            cur["parts"][name] = {"state": "superseded", "reason": "x"}
+            cur["parts_todo"].remove(name)
+        cur["superseded"] = {"by": self.NEW, "why": "chat-size never produced a reading"}
+        d = cron.decide(state, at(30), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
 
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
         state = self.mid_tip()
