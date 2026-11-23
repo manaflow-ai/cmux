@@ -713,6 +713,22 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertEqual(self.unnamed(*lines), [])
 
+    def test_cargos_closing_list_names_what_a_nested_cargo_test_took(self):
+        # cmux#50445 at fb4bd6c4 (run 45036997271): a test re-ran itself under `cargo test`, and that child's summary,
+        # printed inside the parent's output, took the parent's `... FAILED` lines; the parent's closing list names both.
+        nested = ["running 3 tests", "test a::one ... FAILED", "test a::two ... FAILED",
+                  "running 1 test", "test a::two ... FAILED", "", "failures:", "", "failures:", "    a::two", "",
+                  "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out",
+                  "", "failures:", "", "---- a::one stdout ----", "boom", "", "failures:", "    a::one", "    a::two", "",
+                  "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"]
+        self.assertEqual(self.unnamed(*nested), [])
+        # A list that names fewer than its summary counts is still unnamed.
+        short = ["failures:", "    a::one", "", "test result: FAILED. 0 passed; 2 failed; 0 ignored"]
+        self.assertTrue(self.unnamed(*short))
+        # Names under a `failures:` heading that other output follows are no list.
+        broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
+        self.assertTrue(self.unnamed(*broken))
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
