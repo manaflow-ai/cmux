@@ -20,6 +20,7 @@
 .acpmux-composer-queue > .acpmux-queue-status.acpmux-queue-paused {
   grid-column: 1 / -1;
   display: flex;
+  align-items: stretch;
   padding: 0;
   color: var(--agent-text);
 }
@@ -31,6 +32,7 @@
 /* In the notice slot: the slot's own side room, the line's words at its edge. */
 output.acpmux-queue-status.acpmux-switch-notice {
   display: flex;
+  align-items: stretch;
   color: var(--agent-text);
 }
 output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padding-inline: 0; }
@@ -127,7 +129,7 @@ output.acpmux-queue-status .acpmux-queue-status-error { margin-inline-start: cal
 
 /* A queued surge digest's label (ComposerQueue.tsx, surgeDigest.ts), as the subagent resume's. */
 .acpmux-queued-kind[data-kind="digest"] {
-  vertical-align: top;
+  vertical-align: baseline;
   margin-right: 6px;
 }
 
