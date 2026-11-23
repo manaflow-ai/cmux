@@ -168,9 +168,10 @@ export default agentPaneEntry({
         ],
       },
       play: async (ctx) => {
-        const row = await ctx.waitFor(() =>
-          ctx.document.querySelector<HTMLButtonElement>('[data-prompt-id="q-resume"] .acpmux-queued-text'),
-        );
+        const select = () =>
+          ctx.document.querySelector<HTMLButtonElement>('[data-prompt-id="q-resume"] .acpmux-queued-text');
+        await ctx.waitFor(select);
+        const row = select()!;
         if (row.textContent?.includes("ts.net") || row.textContent?.includes("req_"))
           throw new Error("the resume row drew the error's host or request id");
         if (!row.querySelector(".acpmux-queued-why")) throw new Error("the resume row names no cause");
