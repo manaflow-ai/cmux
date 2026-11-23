@@ -57,7 +57,13 @@ test("the plus registry puts attach first, then the composer's actions, then the
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
   const rows = composerPlusRegistry({ canCapture: false });
-  expect(rows.map((row) => row.id)).toEqual(["add.files", "add.mention", "add.commands", "files.search"]);
+  expect(rows.map((row) => row.id)).toEqual([
+    "add.files",
+    "add.mention",
+    "add.commands",
+    "files.search",
+    "files.machine",
+  ]);
 });
 
 // Leo, 2026-11-07 (ask-b640c4d6fa): "could we also have a more native screenshot/screensharer
@@ -319,4 +325,12 @@ test("recent commands are kept most recent first, without repeats", () => {
     if (previous === undefined) delete (globalThis as { localStorage?: Storage }).localStorage;
     else globalThis.localStorage = previous;
   }
+});
+
+// Leo, 2026-11-23, the feature map's "Own machines as good as Cloud": "... and open a file, with no terminal line".
+test("Browse files on this machine follows Search files; the composer keeps it only for a chat on another machine", () => {
+  const rows = composerPlusRegistry();
+  const files = rows.filter((row) => row.section === "files").map((row) => row.id);
+  expect(files.slice(0, 2)).toEqual(["files.search", "files.machine"]);
+  expect(rows.find((row) => row.id === "files.machine")?.action).toEqual({ kind: "command", id: "machineFiles" });
 });

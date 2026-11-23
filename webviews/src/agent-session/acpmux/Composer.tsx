@@ -58,6 +58,8 @@ import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
+import { MachineFiles } from "./MachineFiles";
+import type { MachineFilesList } from "./machineFilesModel";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
@@ -426,6 +428,13 @@ type Props = {
   importSandboxed?: boolean;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// Lists one folder of a chat's own machine when it is another machine; the + menu offers
+  /// Browse files on this machine only when set (MachineFiles.tsx).
+  machineFiles?: MachineFilesList;
+  /// Where Browse files on this machine starts: the chat's folder there (none: where the machine says).
+  machineFilesStart?: string;
+  /// Opens a file Browse files on this machine picked (the host's `file.open`, which reads that machine's).
+  onOpenMachineFile?(path: string): void;
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
@@ -581,6 +590,9 @@ function ComposerFrame({
   onImportFile,
   importSandboxed,
   searchFiles,
+  machineFiles,
+  machineFilesStart,
+  onOpenMachineFile,
   capture,
   canRecord,
   plusExtensions,
@@ -645,6 +657,9 @@ function ComposerFrame({
   const draftActionsVersion = useDraftActionsVersion();
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
+  /// Where the open Browse files on this machine view draws (as Search files); null while closed.
+  const [browsingMachine, setBrowsingMachine] = useState<HTMLElement | null>(null);
+  useEffect(() => setBrowsingMachine(null), [machineFiles]);
   // `/help`'s sheet (HelpSheet.tsx), where the `/` list draws.
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => setHelpOpen(false), [sessionId]);
@@ -2921,6 +2936,7 @@ function ComposerFrame({
   const plusPlanId = planChoice && plan ? plan.id : undefined;
   const plusPlanName = planChoice?.name;
   const plusSearchesFiles = Boolean(searchFiles);
+  const plusBrowsesMachine = Boolean(machineFiles);
   const plusEntries = useMemo(
     () =>
       composerPlusRegistry({
@@ -2936,6 +2952,7 @@ function ComposerFrame({
           : {}),
       }).filter((entry) => {
         if (entry.id === "files.search") return plusSearchesFiles;
+        if (entry.id === "files.machine") return plusBrowsesMachine;
         if (entry.id === "add.commands") return Boolean(commands?.length);
         return true;
       }),
@@ -2946,6 +2963,7 @@ function ComposerFrame({
       plusExtensions,
       plusCanCapture,
       plusCanRecord,
+      plusBrowsesMachine,
       plusCanChooseProject,
       plusPlanId,
       plusPlanName,
@@ -3019,6 +3037,23 @@ function ComposerFrame({
             }}
           />,
           findingFiles,
+        )}
+      {browsingMachine &&
+        machineFiles &&
+        createPortal(
+          <MachineFiles
+            list={machineFiles}
+            {...(machineFilesStart ? { start: machineFilesStart } : {})}
+            onClose={() => {
+              setBrowsingMachine(null);
+              field.current?.focus();
+            }}
+            onOpenFile={(path) => {
+              setBrowsingMachine(null);
+              onOpenMachineFile?.(path);
+            }}
+          />,
+          browsingMachine,
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
       <ComposerQueue
@@ -3296,6 +3331,7 @@ function ComposerFrame({
                   else if (action === "composer.planMode" && modeId) togglePlan(modeId);
                   else if (action === "composer.mention") mention();
                   else if (action === "searchFiles") openFileSearch();
+                  else if (action === "machineFiles") setBrowsingMachine(form.current?.parentElement ?? null);
                   else if (action === "composer.commands") openCommands();
                 }}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}

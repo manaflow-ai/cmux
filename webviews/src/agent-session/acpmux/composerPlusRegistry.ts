@@ -63,6 +63,7 @@ const COMMANDS = {
   mention: "composer.mention",
   commands: "composer.commands",
   searchFiles: "searchFiles",
+  machineFiles: "machineFiles",
 } as const;
 
 /// What the host's `composer.capture` takes (AgentPaneCapture.swift): a region, a window, or a
@@ -224,6 +225,16 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     icon: "search",
     keywords: ["files", "chats", "search", "context"],
     action: { kind: "command", id: COMMANDS.searchFiles },
+  });
+  // A chat on another machine: that machine's own files, read by its daemon (MachineFiles.tsx).
+  rows.push({
+    id: "files.machine",
+    section: "files",
+    name: label("machineFiles.open"),
+    description: "",
+    icon: "folder",
+    keywords: ["files", "folder", "browse", "machine", "remote", "open"],
+    action: { kind: "command", id: COMMANDS.machineFiles },
   });
 
   const seen = new Set<string>();

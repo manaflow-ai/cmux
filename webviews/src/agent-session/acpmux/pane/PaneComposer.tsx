@@ -75,6 +75,8 @@ import { guestMention } from "../mentionItems";
 import { clearHeldFork, sendHeldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
 import { callNative } from "../callNative";
+import type { MachineFilesList } from "../machineFilesModel";
+import type { MachineListing } from "../remoteMachineDirectory";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
@@ -361,6 +363,13 @@ export type PaneComposerDeps = {
 
 /// The pane's composer tree: a subagent pane's SubagentComposer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
+
+/// Browse files on this machine (MachineFiles.tsx): one folder of the chat's own machine, files too,
+/// listed by its daemon (`machine.folder.list`, the host's `agent-session-list-dir`).
+const listMachineFiles: MachineFilesList = (path) =>
+  callNative<MachineListing | undefined>("machine.folder.list", { ...(path ? { path } : {}), files: true });
+/// A file it picked opens beside the chat; the host reads it from the chat's machine.
+const openMachineFile = (path: string) => void callNative("file.open", { path, where: "tab" }).catch(() => undefined);
 export function drawPaneComposer({
   markDockEdge,
   readOnlySubagent,
@@ -1418,6 +1427,10 @@ export function drawPaneComposer({
             onMode={(modeId) => callNative("chat.mode", { modeId })}
             // Without a folder there is nothing to search; the + menu leaves the item out.
             searchFiles={fileRoot ? searchFiles : undefined}
+            // A chat on another machine: that machine's files, read by its daemon, from the chat's folder there.
+            machineFiles={remoteChat ? listMachineFiles : undefined}
+            {...(remoteChat && fileRoot ? { machineFilesStart: fileRoot } : {})}
+            onOpenMachineFile={openMachineFile}
             plusExtensions={plusSearchExtensions}
             onPlusCommand={runPlusSearch}
             capture={captureScreen}

@@ -522,6 +522,14 @@
 .acpmux-file-search input{display:block;width:100%;height:calc(34 * var(--ui-px, 1px));padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-file-search [role=listbox]{max-height:min(calc(360 * var(--ui-px, 1px)),50vh);overflow:auto}
+.acpmux-machine-files:focus{outline:none}
+.acpmux-machine-files-bar{display:flex;align-items:center;gap:6px;height:calc(34 * var(--ui-px, 1px));padding:0 4px}
+.acpmux-machine-files-up{flex:none;width:calc(26 * var(--ui-px, 1px));height:calc(26 * var(--ui-px, 1px));border:0;border-radius:7px;background:none;color:var(--agent-text);font:inherit}
+.acpmux-machine-files-up:hover:not(:disabled){background:var(--acpmux-hover, rgba(127,127,127,.12))}
+.acpmux-machine-files-up:disabled{color:var(--acpmux-composer-dim)}
+.acpmux-machine-files-path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--acpmux-composer-dim)}
+.acpmux-machine-files [data-kind=folder] .acpmux-file-name{font-weight:500}
+.acpmux-machine-files-retry{border:0;background:none;color:var(--agent-accent, inherit);font:inherit;text-decoration:underline;cursor:pointer}
 .acpmux-file-search [role=listbox]:not(:empty){margin-top:4px}
 .acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
 .acpmux-file-name{flex:none}
