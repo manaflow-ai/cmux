@@ -1486,6 +1486,7 @@ mod tests {
                 session_id: "s".into(),
                 video: None,
                 session_exposure: None,
+                route: None,
                 path: None,
             },
         );

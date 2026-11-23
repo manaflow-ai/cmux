@@ -190,6 +190,9 @@
         "cmux.composer.chip/1": {
           "$ref": "#/$defs/dataImplementation"
         },
+        "cmux.composer.model.picker/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.toolbar/1": {
           "$ref": "#/$defs/dataImplementation"
         },
