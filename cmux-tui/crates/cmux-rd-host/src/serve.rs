@@ -395,6 +395,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     match crate::desktop::displays(&display) {
         Ok((sizes, current, ids)) => say(AppLine {
             displays: Some(sizes),
+            // The windows the viewer may share one of (the setup line's `window`).
+            windows: Some(crate::desktop::windows()),
             current: Some(current),
             display_ids: (!ids.is_empty()).then_some(ids),
             ..AppLine::default()

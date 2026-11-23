@@ -173,8 +173,19 @@ struct Shared {
     dirty: Vec<Rect>,
     /// ScreenCaptureKit stopped the stream (`stream:didStopWithError:`): its error code and text.
     stopped: Option<(c_long, String)>,
+    /// A shared window's news from its watcher (`window.rs`), taken by [`Capture::window_news`].
+    window: WindowNews,
     #[cfg(feature = "bench")]
     presented: Option<crate::observe::PresentedSampleQueue>,
+}
+
+/// What happened to a shared window since the last [`Capture::window_news`].
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct WindowNews {
+    /// Its newest frame after a move, in global points.
+    pub moved: Option<Bounds>,
+    /// It was closed or resized: the session ends with this sentence.
+    pub ended: Option<String>,
 }
 
 #[cfg(feature = "bench")]
@@ -216,6 +227,9 @@ struct Sink {
     /// Stream pixels per display point, and the stream size.
     scale: f64,
     size: (u32, u32),
+    /// Each frame damages the whole picture (a window's capture, whose dirty rectangles are
+    /// not in display points).
+    whole_frames: bool,
     #[cfg(feature = "bench")]
     marker: Option<MarkerConfig>,
 }
@@ -429,11 +443,25 @@ pub struct Capture {
     /// The stream is in [`live_streams`] (only a started capture is; `start` holds that lock while
     /// a failed one drops).
     registered: bool,
+    /// A shared window's watcher, stopped first on drop.
+    watch: Option<super::window::Watch>,
+}
+
+/// What a capture streams: an SCDisplay and its display id, or an SCWindow, its CGWindowID,
+/// frame in global points and the stream's pixel size.
+#[derive(Clone, Copy)]
+enum Source {
+    Display(Id, u32),
+    Window(Id, u32, Bounds, (u32, u32)),
 }
 
 /// What a restart needs to make the same stream again, and when it last did.
 struct Restart {
     display: u32,
+    /// The shared window (a CGWindowID), when the stream is one window rather than `display`.
+    window: Option<u32>,
+    /// The width the window's picture was fitted into, to fit it the same way again.
+    max_width: Option<u32>,
     fps: u32,
     shows_cursor: bool,
     /// The restarts within the last [`RESTART_WINDOW`].
@@ -454,26 +482,41 @@ fn restart_allowed(code: c_long, reason: &str, at: &mut Vec<Instant>, now: Insta
     Ok(())
 }
 
-/// A stream of `display` at `size`, its stops reported to `delegate` (the capture's output),
-/// leaving out the windows `excluded`; and whether every one of them was found in `content`.
+/// The filter (+1 reference) for `source`: a display leaving out the windows of `content` whose
+/// id is in `excluded` (and whether every one was found), or one window alone.
 ///
 /// # Safety
-/// `content` is a live SCShareableContent, `display` one of its SCDisplays and `delegate` a live
-/// CmuxRdCaptureOutput; an autorelease pool is in place.
+/// `content` is a live SCShareableContent and `source` holds one of its displays or windows; an
+/// autorelease pool is in place.
+unsafe fn source_filter(content: Id, source: Source, excluded: &[u32]) -> (Id, bool) {
+    match source {
+        Source::Display(display, _) => {
+            // SAFETY: the caller's content, display and pool.
+            let (filter, found) = unsafe { display_filter(content, display, excluded) };
+            (filter, found == excluded.len())
+        }
+        // A window's own capture shows nothing else: there is nothing to leave out.
+        Source::Window(window, ..) => (super::window::window_filter(window), true),
+    }
+}
+
+/// A stream through `filter` (+1 reference, released here) at `size`, its stops reported to
+/// `delegate` (the capture's output); `whole_frames` (one window) scales the window to fill it.
+///
+/// # Safety
+/// `filter` is an SCContentFilter (or null) and `delegate` a live CmuxRdCaptureOutput; an
+/// autorelease pool is in place.
 unsafe fn new_stream(
-    content: Id,
-    display: Id,
-    excluded: &[u32],
+    filter: Id,
     size: (u32, u32),
     fps: u32,
     shows_cursor: bool,
+    whole_frames: bool,
     delegate: Id,
-) -> Res<(Id, bool)> {
+) -> Res<Id> {
     // SAFETY: each message is sent with its documented C signature to the object just created
-    // (alloc/init pairs return +1 references released here or by the caller); `display_filter`
-    // gets the caller's content, display and pool.
+    // (alloc/init pairs return +1 references released here or by the caller).
     unsafe {
-        let (filter, found) = display_filter(content, display, excluded);
         let config = sys::send_id(sys::class(c"SCStreamConfiguration"), c"new");
         if filter.is_null() || config.is_null() {
             sys::release(filter);
@@ -483,6 +526,10 @@ unsafe fn new_stream(
         let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
         set_size(config, sel(c"setWidth:"), size.0 as usize);
         set_size(config, sel(c"setHeight:"), size.1 as usize);
+        // A window fills the picture (macOS 14 and later; before, it already does).
+        if whole_frames && super::window::responds(config, c"setScalesToFit:") {
+            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setScalesToFit:"), true);
+        }
         msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(
             config,
             sel(c"setMinimumFrameInterval:"),
@@ -513,7 +560,7 @@ unsafe fn new_stream(
         if stream.is_null() {
             return Err("ScreenCaptureKit did not make a stream".into());
         }
-        Ok((stream, found == excluded.len()))
+        Ok(stream)
     }
 }
 
@@ -562,7 +609,7 @@ unsafe impl Send for Capture {}
 
 /// The display's size in pixels fitted into [`MAX_SIZE`] and `max_width`, keeping its aspect;
 /// even, as 4:2:0 needs.
-fn fit(width: u32, height: u32, max_width: Option<u32>) -> (u32, u32) {
+pub(super) fn fit(width: u32, height: u32, max_width: Option<u32>) -> (u32, u32) {
     let limit = max_width.map_or(MAX_SIZE.0, |w| f64::from(w).min(MAX_SIZE.0));
     let scale = (limit / f64::from(width)).min(MAX_SIZE.1 / f64::from(height)).min(1.0);
     let even = |value: f64| (value.round() as u32) & !1;
@@ -600,7 +647,7 @@ fn wake_pipe() -> Res<(Fd, Fd)> {
 }
 
 /// The native pixel size of a display (its mode), else its point size.
-fn native_size(display: u32) -> (u32, u32) {
+pub(super) fn native_size(display: u32) -> (u32, u32) {
     // SAFETY: a display id; the copied mode is released here.
     unsafe {
         let mode = cg::CGDisplayCopyDisplayMode(display);
@@ -837,7 +884,7 @@ extern "C" fn did_output(
         let buffer = cm::CMSampleBufferGetImageBuffer(sample);
         let mut rects = Vec::new();
         let dirty = cf::CFDictionaryGetValue(info, sck::SCStreamFrameInfoDirtyRects());
-        if !dirty.is_null() {
+        if !dirty.is_null() && !sink.whole_frames {
             for index in 0..cf::CFArrayGetCount(dirty) {
                 let mut rect = CGRect::default();
                 let item = cf::CFArrayGetValueAtIndex(dirty, index);
@@ -1019,7 +1066,8 @@ impl Capture {
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
         let result = picked.and_then(|(display, id)| {
-            Self::stream(content, display, id, fps, max_width, shows_cursor, &excluded, marker)
+            let source = Source::Display(display, id);
+            Self::stream(content, source, fps, max_width, shows_cursor, &excluded, marker)
         });
         release_all(content, &displays);
         let (mut capture, all_found) = result?;
@@ -1033,11 +1081,98 @@ impl Capture {
         Ok(capture)
     }
 
+    /// A session sharing one window (a CGWindowID from the `windows` line): ScreenCaptureKit
+    /// captures the window alone at its pixel size fitted into `max_width`; a watcher reads
+    /// its frame again, so a move re-maps the pointer and a close or resize ends the session
+    /// ([`Capture::window_news`]). It is not in the live list: exclusions never apply to it.
+    pub fn start_window(
+        id: u32,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+    ) -> Res<Self> {
+        let content = shareable_content()?;
+        let result = Self::stream_window(content, id, fps, max_width, shows_cursor);
+        sys::release(content);
+        let mut capture = result?;
+        let start = capture.bounds;
+        let shared = capture.shared.clone();
+        // SAFETY: a close-on-exec dup of the wake pipe's write end, which the sink keeps open;
+        // the copy is the watcher's own, closed when it ends.
+        let wake = Fd(unsafe { libc::fcntl(capture.wake_write_fd()?, libc::F_DUPFD_CLOEXEC, 0) });
+        if wake.0 < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        capture.watch = Some(super::window::Watch::start(id, start, move |change| {
+            {
+                let mut shared = shared.lock().unwrap_or_else(|p| p.into_inner());
+                match super::window::end_reason(id, &change) {
+                    Some(reason) => shared.window.ended = Some(reason),
+                    None => {
+                        if let super::window::Change::Moved(bounds) = change {
+                            shared.window.moved = Some(bounds);
+                        }
+                    }
+                }
+            }
+            wake.wake();
+        }));
+        Ok(capture)
+    }
+
+    /// The SCWindow `id` of `content` (not retained: it lives as long as `content`), its frame
+    /// in global points and its streamed pixel size.
+    fn find_window(content: Id, id: u32, max_width: Option<u32>) -> Res<(Id, Bounds, (u32, u32))> {
+        let frame = super::window::frame(id).ok_or_else(|| format!("window {id} was closed"))?;
+        let window = super::window::content_windows(content)
+            .into_iter()
+            .find(|&w| super::window::window_id(w) == id)
+            .ok_or_else(|| format!("window {id} is not a window this Mac can share"))?;
+        if !frame.on_screen {
+            return Err(format!(
+                "window {id} is not on screen (minimized, hidden or on another Space)"
+            )
+            .into());
+        }
+        let scale = super::window::display_scale(frame.bounds);
+        let size = super::window::pixel_size(frame.bounds, scale, max_width)
+            .ok_or_else(|| format!("window {id} is too small to share"))?;
+        Ok((window, frame.bounds, size))
+    }
+
+    /// Window `id` of the shareable `content`, streamed at its pixel size.
+    fn stream_window(
+        content: Id,
+        id: u32,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+    ) -> Res<Self> {
+        let _pool = AutoreleasePool::new();
+        let (window, bounds, size) = Self::find_window(content, id, max_width)?;
+        let source = Source::Window(window, id, bounds, size);
+        Self::stream(content, source, fps, max_width, shows_cursor, &[], None).map(|made| made.0)
+    }
+
+    /// The write end of this capture's wake pipe (its sink's).
+    fn wake_write_fd(&self) -> Res<RawFd> {
+        let sinks = sinks().lock().unwrap_or_else(|p| p.into_inner());
+        sinks
+            .iter()
+            .find(|(object, _)| *object == self.output as usize)
+            .map(|(_, sink)| sink.wake.0)
+            .ok_or_else(|| "the capture has no output".into())
+    }
+
+    /// What happened to the shared window since the last call (nothing for a display).
+    pub fn window_news(&self) -> WindowNews {
+        std::mem::take(&mut self.shared.lock().unwrap_or_else(|p| p.into_inner()).window)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn stream(
         content: Id,
-        display: Id,
-        id: u32,
+        source: Source,
         fps: u32,
         max_width: Option<u32>,
         shows_cursor: bool,
@@ -1048,16 +1183,26 @@ impl Capture {
         #[cfg(not(feature = "bench"))]
         let _ = marker;
         let _pool = AutoreleasePool::new();
-        // SAFETY: a display id from ScreenCaptureKit.
-        let frame = unsafe { cg::CGDisplayBounds(id) };
-        let bounds = Bounds {
-            x: frame.origin.x,
-            y: frame.origin.y,
-            width: frame.size.width,
-            height: frame.size.height,
+        let (bounds, size, label, display_id, window_id) = match source {
+            Source::Display(_, id) => {
+                // SAFETY: a display id from ScreenCaptureKit.
+                let frame = unsafe { cg::CGDisplayBounds(id) };
+                let bounds = Bounds {
+                    x: frame.origin.x,
+                    y: frame.origin.y,
+                    width: frame.size.width,
+                    height: frame.size.height,
+                };
+                let native = native_size(id);
+                (bounds, fit(native.0, native.1, max_width), format!("display {id}"), id, None)
+            }
+            // No display id: a window's stream is never in the live list (exclusions skip it)
+            // and its restart finds the window again by id.
+            Source::Window(_, id, bounds, size) => {
+                (bounds, size, format!("window {id}"), 0, Some(id))
+            }
         };
-        let native = native_size(id);
-        let size = fit(native.0, native.1, max_width);
+        let whole_frames = window_id.is_some();
         let scale = f64::from(size.0) / bounds.width.max(1.0);
         // SAFETY: each message below is sent with its documented C signature to the object
         // just created (alloc/init pairs return +1 references this capture releases); `content`
@@ -1071,8 +1216,9 @@ impl Capture {
                 c"com.cmuxterm.rd.capture".as_ptr(),
                 std::ptr::null(),
             );
-            let made = new_stream(content, display, excluded, size, fps, shows_cursor, output);
-            let (stream, all_found) = match made {
+            let (filter, all_found) = source_filter(content, source, excluded);
+            let made = new_stream(filter, size, fps, shows_cursor, whole_frames, output);
+            let stream = match made {
                 Ok(made) => made,
                 Err(e) => {
                     sys::release(output);
@@ -1092,12 +1238,20 @@ impl Capture {
                 wake: wake_write,
                 scale,
                 size,
+                whole_frames,
                 #[cfg(feature = "bench")]
                 marker,
             });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
             let added = add_output(stream, output, queue);
-            let restart = Restart { display: id, fps, shows_cursor, at: Vec::new() };
+            let restart = Restart {
+                display: display_id,
+                window: window_id,
+                max_width,
+                fps,
+                shows_cursor,
+                at: Vec::new(),
+            };
             let capture = Self {
                 stream,
                 output,
@@ -1109,11 +1263,12 @@ impl Capture {
                 added: added.is_ok(),
                 restart,
                 registered: false,
+                watch: None,
             };
             added?;
             start_stream(stream)?;
             eprintln!(
-                "cmux-rd host: capturing display {id} ({}x{} px, {}x{} pt at {},{}), {fps} fps, leaving out {} window(s)",
+                "cmux-rd host: capturing {label} ({}x{} px, {}x{} pt at {},{}), {fps} fps, leaving out {} window(s)",
                 size.0, size.1, bounds.width, bounds.height, bounds.x, bounds.y, excluded.len()
             );
             Ok((capture, all_found))
@@ -1154,26 +1309,40 @@ impl Capture {
         let excluded = current_exclusions();
         let (content, displays) = shareable_displays()?;
         let wanted = self.restart.display;
-        let made = displays
-            .iter()
-            .find(|d| d.1 == wanted)
-            .map(|d| d.0)
-            .ok_or_else(|| format!("display {wanted} is no longer there").into())
-            .and_then(|display| {
-                // SAFETY: a display ScreenCaptureKit just listed and its content (both retained
-                // until release_all below), this capture's own output, under the pool above.
-                unsafe {
-                    new_stream(
-                        content,
-                        display,
-                        &excluded,
-                        self.size,
-                        self.restart.fps,
-                        self.restart.shows_cursor,
-                        self.output,
-                    )
-                }
-            });
+        let source = match self.restart.window {
+            // The same window again; its size must not have changed (the encoder's is fixed).
+            Some(id) => Self::find_window(content, id, self.restart.max_width).and_then(
+                |(window, bounds, size)| {
+                    if size != self.size {
+                        Err(format!("window {id} changed size while its capture restarted").into())
+                    } else {
+                        Ok(Source::Window(window, id, bounds, size))
+                    }
+                },
+            ),
+            None => displays
+                .iter()
+                .find(|d| d.1 == wanted)
+                .map(|d| Source::Display(d.0, wanted))
+                .ok_or_else(|| format!("display {wanted} is no longer there").into()),
+        };
+        let whole_frames = self.restart.window.is_some();
+        let made = source.and_then(|source| {
+            // SAFETY: a display or window ScreenCaptureKit just listed and its content (retained
+            // until release_all below), this capture's own output, under the pool above.
+            unsafe {
+                let (filter, all_found) = source_filter(content, source, &excluded);
+                new_stream(
+                    filter,
+                    self.size,
+                    self.restart.fps,
+                    self.restart.shows_cursor,
+                    whole_frames,
+                    self.output,
+                )
+                .map(|stream| (stream, all_found))
+            }
+        });
         release_all(content, &displays);
         let (stream, all_found) = made?;
         // The new stream takes the old one's place in the live list before the old is released.
@@ -1284,6 +1453,8 @@ impl Frames {
 
 impl Drop for Capture {
     fn drop(&mut self) {
+        // The window watcher first: it writes into this capture's state.
+        drop(self.watch.take());
         // Out of the live list first (waiting for an exclusion update that uses it), so nothing
         // messages the stream after it is released below.
         if self.registered {
