@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 use super::{OpError, string};
 use crate::backdrop_placement::Placement;
 use crate::guard;
-use crate::managed::{self, ManagedReader, ManagedSource};
+use crate::managed::{self, ManagedSource};
 use crate::schema::{self, Kind, Schema};
 
 /// The ops this area answers; `None` for an op of another area.
@@ -34,11 +34,11 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
     }
 }
 
-fn value(request: &Value, key: &str) -> Result<&Value, OpError> {
+fn value<'a>(request: &'a Value, key: &str) -> Result<&'a Value, OpError> {
     request.get(key).ok_or_else(|| OpError::Invalid(format!("expected `{key}`")))
 }
 
-fn array(request: &Value, key: &str) -> Result<&Vec<Value>, OpError> {
+fn array<'a>(request: &'a Value, key: &str) -> Result<&'a Vec<Value>, OpError> {
     value(request, key)?
         .as_array()
         .ok_or_else(|| OpError::Invalid(format!("expected an array `{key}`")))
@@ -71,12 +71,14 @@ fn density(value: &Value) -> Option<Value> {
         }
         _ => return None,
     };
-    let mut result = Map::from([
+    let mut result: Map<String, Value> = [
         ("id".to_owned(), json!(id)),
         ("name".to_owned(), json!(name.chars().take(64).collect::<String>())),
         ("level".to_owned(), json!(level)),
-    ]);
-    if let Some(value) = members.get("basedOn").filter(Value::is_string) {
+    ]
+    .into_iter()
+    .collect();
+    if let Some(value) = members.get("basedOn").filter(|value| value.is_string()) {
         result.insert("basedOn".to_owned(), value.clone());
     }
     if spacing != 1.0 {
