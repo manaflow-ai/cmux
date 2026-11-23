@@ -9,6 +9,9 @@ use std::time::Instant;
 
 use cmux_terminal_projection::{Projection, Segment};
 
+/// A grid size, `(cols, rows)`.
+type Grid = (usize, usize);
+
 fn session(history: usize) -> Projection {
     let mut projection = Projection::new(120, 40, history + 100);
     let _ = projection.set_viewport(54, 38);
@@ -175,7 +178,7 @@ fn layout_change_before_and_after() {
         bytes.extend_from_slice(b"$ ");
         bytes
     };
-    let changes: [(&str, (usize, usize), (usize, usize)); 2] =
+    let changes: [(&str, Grid, Grid); 2] =
         [("keyboard toggle", (52, 38), (52, 20)), ("rotation", (52, 38), (112, 17))];
     let mut table = String::from(
         "| change | load | history rows | before: CPU per change | before: bytes sent | after: CPU per change | after: bytes sent |\n|---|---|---:|---:|---:|---:|---:|\n",
