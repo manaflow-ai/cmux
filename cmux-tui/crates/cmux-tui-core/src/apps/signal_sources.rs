@@ -75,10 +75,9 @@ impl Source {
 /// refuse (no value schema, a floor outside 1..=86400 s) is skipped.
 pub(super) fn sources_of(app: &str, manifest: &Value) -> Vec<Source> {
     let namespace = cmux_app_manifest::app_namespace(app);
-    let Some(sources) = manifest.pointer(&format!(
-        "/implements/{}/options/sources",
-        INTERFACE.replace('/', "~1")
-    )) else {
+    let Some(sources) =
+        manifest.pointer(&format!("/implements/{}/options/sources", INTERFACE.replace('/', "~1")))
+    else {
         return Vec::new();
     };
     let mut out: Vec<Source> = sources
@@ -87,20 +86,14 @@ pub(super) fn sources_of(app: &str, manifest: &Value) -> Vec<Source> {
         .flatten()
         .filter(|(key, _)| valid_key(key))
         .filter_map(|(key, def)| {
-            let floor = def
-                .get("pollFloorSeconds")?
-                .as_u64()
-                .filter(|s| (1..=86_400).contains(s))?;
+            let floor =
+                def.get("pollFloorSeconds")?.as_u64().filter(|s| (1..=86_400).contains(s))?;
             let value = def.get("value").filter(|v| v.is_object())?.clone();
             Some(Source {
                 app: app.to_string(),
                 name: format!("{namespace}.{key}"),
                 scope: format!("{namespace}:read"),
-                docs: def
-                    .get("docs")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
+                docs: def.get("docs").and_then(Value::as_str).unwrap_or_default().to_string(),
                 value,
                 floor: Duration::from_secs(floor),
                 stale_after: def
@@ -167,10 +160,7 @@ impl SignalSources {
         if size > MAX_VALUE_BYTES {
             return Err(refusal(
                 "app.limit",
-                format!(
-                    "{}: a value is at most {MAX_VALUE_BYTES} bytes, not {size}",
-                    source.name
-                ),
+                format!("{}: a value is at most {MAX_VALUE_BYTES} bytes, not {size}", source.name),
             ));
         }
         let validator = self.validator(source)?;
@@ -185,17 +175,14 @@ impl SignalSources {
                 format!("{}: {}", source.name, errors.join("; ")),
             ));
         }
-        let kept = self
-            .kept
-            .entry(source.name.clone())
-            .or_insert_with(|| Kept {
-                app: source.app.clone(),
-                value: Value::Null,
-                updated_ms: 0,
-                updated: now,
-                told: None,
-                pending: false,
-            });
+        let kept = self.kept.entry(source.name.clone()).or_insert_with(|| Kept {
+            app: source.app.clone(),
+            value: Value::Null,
+            updated_ms: 0,
+            updated: now,
+            told: None,
+            pending: false,
+        });
         if kept.app != source.app {
             // Another app's leftover under this name (an uninstall that did not clear it).
             kept.app = source.app.clone();
@@ -222,9 +209,7 @@ impl SignalSources {
 
     /// A scheduled tell is due: true when readers should hear of the kept value now.
     pub(super) fn due(&mut self, name: &str, now: Instant) -> bool {
-        let Some(kept) = self.kept.get_mut(name).filter(|k| k.pending) else {
-            return false;
-        };
+        let Some(kept) = self.kept.get_mut(name).filter(|k| k.pending) else { return false };
         kept.pending = false;
         kept.told = Some(now);
         true
@@ -257,16 +242,13 @@ impl SignalSources {
         {
             return Ok(v.clone());
         }
-        let v = jsonschema::draft202012::new(&source.value)
-            .map(Arc::new)
-            .map_err(|e| {
-                refusal(
-                    "validation.invalid",
-                    format!("{}: the value schema does not compile: {e}", source.name),
-                )
-            })?;
-        self.validators
-            .insert(source.name.clone(), (source.value.clone(), v.clone()));
+        let v = jsonschema::draft202012::new(&source.value).map(Arc::new).map_err(|e| {
+            refusal(
+                "validation.invalid",
+                format!("{}: the value schema does not compile: {e}", source.name),
+            )
+        })?;
+        self.validators.insert(source.name.clone(), (source.value.clone(), v.clone()));
         Ok(v)
     }
 }
@@ -334,10 +316,7 @@ impl Supervisor {
                 .collect::<Vec<_>>();
             return Ok(json!({ "sources": sources }));
         }
-        let name = params
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
         let Some(source) = Self::signal_source_locked(&inner, name) else {
             return Err(refusal(
                 "signal.unknown",
@@ -355,15 +334,10 @@ impl Supervisor {
             return Ok(inner.signal_sources.read(&source, Instant::now()));
         }
         if source.app != app {
-            return Err(refusal(
-                "scope.missing",
-                format!("only {} publishes {name}", source.app),
-            ));
+            return Err(refusal("scope.missing", format!("only {} publishes {name}", source.app)));
         }
         let value = params.get("value").cloned().unwrap_or(Value::Null);
-        let tell = inner
-            .signal_sources
-            .publish(&source, value, Instant::now(), now_ms())?;
+        let tell = inner.signal_sources.publish(&source, value, Instant::now(), now_ms())?;
         match tell {
             Tell::Now => Self::publish_stream_locked(&inner, &source.stream(), json!({})),
             Tell::After(after) => {
