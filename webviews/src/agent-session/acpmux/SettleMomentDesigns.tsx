@@ -40,7 +40,7 @@ function ChatRow({ row, settled }: { row: Row; settled?: "fade" | "chip" }) {
       {settled === "chip" ? (
         <>
           <span className="smd-chip">
-            <PullRequestGlyph state="merged" size={11} />
+            <PullRequestGlyph state="merged" size={12} />
             merged, settled
           </span>
           <button type="button" className="smd-undo">
@@ -51,7 +51,7 @@ function ChatRow({ row, settled }: { row: Row; settled?: "fade" | "chip" }) {
         <>
           {row.pr && (
             <span className="smd-pr" data-state={row.pr.state}>
-              <PullRequestGlyph state={row.pr.state} size={11} />
+              <PullRequestGlyph state={row.pr.state} size={12} />
               {row.pr.number}
             </span>
           )}
