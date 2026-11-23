@@ -27,7 +27,8 @@ final class TerminalKeyOutbox {
     /// The connection serial while a daemon is attached, else nil.
     var connection: (@MainActor () -> Int?)?
     /// One request on the daemon channel of `connection` (throws when it is not current).
-    var request: (@MainActor (_ command: String, _ params: [String: Any], _ connection: Int, _ deadline: Duration) async throws -> Data)?
+    /// `params` is the request's JSON object, so it crosses to the link as Sendable bytes.
+    var request: (@MainActor (_ command: String, _ params: Data, _ connection: Int, _ deadline: Duration) async throws -> Data)?
     /// An attempt with no answer by then is lost and goes again.
     var attemptDeadline: Duration = .seconds(3)
     var clock: any Clock<Duration> = ContinuousClock()
@@ -96,7 +97,7 @@ final class TerminalKeyOutbox {
             }
         }
         if keyed == nil {
-            guard let reply = try? await request?("identify", [:], current, attemptDeadline), attached == current else { return }
+            guard let reply = try? await request?("identify", Data("{}".utf8), current, attemptDeadline), attached == current else { return }
             let caps = DaemonTerminalSession.capabilities(reply)
             keyed = outbox.setCapabilities(capabilities: caps)
         }
@@ -114,9 +115,10 @@ final class TerminalKeyOutbox {
         guard let waiter = waiters[next.seq],
               var params = (try? JSONSerialization.jsonObject(with: Data(next.paramsJson.utf8))) as? [String: Any] else { return }
         params["surface"] = waiter.surface
+        guard let body = try? JSONSerialization.data(withJSONObject: params) else { return }
         let reply: Data
         do {
-            reply = try await request?("send", params, current, attemptDeadline) ?? Data()
+            reply = try await request?("send", body, current, attemptDeadline) ?? Data()
         } catch {
             // Only the connection the queue is on counts: an older one was already given up.
             if attached == current { settle(next.seq, .lost) }
@@ -142,7 +144,7 @@ final class TerminalKeyOutbox {
             guard let waiter = waiters.removeValue(forKey: done.seq) else { continue }
             attempted.remove(done.seq)
             do {
-                let reply = try await request?("send", ["surface": waiter.surface, "bytes": waiter.bytes.base64EncodedString()], current, .seconds(20)) ?? Data()
+                let reply = try await request?("send", (try? JSONSerialization.data(withJSONObject: ["surface": waiter.surface, "bytes": waiter.bytes.base64EncodedString()] as [String: Any])) ?? Data("{}".utf8), current, .seconds(20)) ?? Data()
                 _ = try WorkspaceSync.check(reply)
                 waiter.continuation.resume()
             } catch {
