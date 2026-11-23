@@ -41,6 +41,8 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+#[cfg(test)]
+mod worker_lock_tests;
 pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
@@ -2118,7 +2120,7 @@ impl Hub {
             close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
-            append_lock: StdMutex::new(()),
+            append_lock: Default::default(),
             time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
