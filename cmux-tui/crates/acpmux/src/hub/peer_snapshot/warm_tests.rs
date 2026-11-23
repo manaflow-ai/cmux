@@ -476,6 +476,9 @@ fn peer_copies_follow_bench() {
     };
     let (mut reads, mut records, mut bytes, mut cpu) = (0u64, 0u64, 0u64, Duration::ZERO);
     let mut steady = (0u64, 0u64, Duration::ZERO);
+    // Reads past a held copy (afterSeq), and cold reads of a chat the store could not keep: the
+    // test-size store (TOTAL_BYTES, 40 KiB) holds a few of these chats, not all.
+    let (mut follow_reads, mut follow_records, mut cold_reads) = (0u64, 0u64, 0u64);
     for round in 1..=rounds {
         let started = cpu_time();
         let last = per_round * round;
@@ -499,12 +502,21 @@ fn peer_copies_follow_bench() {
             let (asks, ..) =
                 plan(name, &rows, &covers, &HashMap::new(), (now_ms(), Instant::now()));
             for ask in asks {
-                let from = match ask.params.get("afterSeq").and_then(Value::as_u64) {
+                let after = ask.params.get("afterSeq").and_then(Value::as_u64);
+                let from = match after {
                     Some(after) => after + 1,
                     None => last.saturating_sub(WARM_LIMIT - 1).max(1),
                 };
                 let events: Vec<Value> = (from..=last).map(|s| record(&ask.mux, s)).collect();
                 round_records += events.len() as u64;
+                if round > 1 {
+                    if after.is_some() {
+                        (follow_reads, follow_records) =
+                            (follow_reads + 1, follow_records + events.len() as u64);
+                    } else {
+                        cold_reads += 1;
+                    }
+                }
                 let page = json!({"events": events, "hasMore": from > 1, "lastSeq": last,
                                   "pageThrough": last, "createdAt": 42});
                 bytes += record_bytes(&page);
@@ -526,11 +538,13 @@ fn peer_copies_follow_bench() {
     eprintln!(
         "peer-copies-follow: {peers} peers x {} chats, {per_round} records/chat/round, {rounds} rounds: \
          {reads} reads, {records} records, {bytes} bytes, cpu {cpu:?}; after the first round \
-         {} reads, {} records, cpu {:?} ({per_read:?}/read); copies held {held}",
+         {} reads, {} records, cpu {:?} ({per_read:?}/read); copies held {held}; \
+         {follow_reads} reads past a copy took {follow_records} records, {cold_reads} cold",
         chats.len(),
         steady.0,
         steady.1,
         steady.2
     );
-    assert!(steady.1 <= steady.0 * per_round, "after the first round only new records are read");
+    assert!(follow_reads > 0, "some chats are followed past their copy");
+    assert!(follow_records <= follow_reads * per_round, "a read past a copy takes only new records");
 }
