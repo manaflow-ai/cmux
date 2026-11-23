@@ -344,9 +344,9 @@ reset_cdn; marker "$app" "$key" "$own"; gate_fallback "$own" "$key"
 check '[[ $status == 0 ]]' "INSTALLED_KEY equal to the build's tree keeps the marker gate"
 
 # The resolver's pending step.
-pending() { # -> status, output file
+pending() { # [VAR=value...] -> status, output file
   : > "$TMP/gh-output"; : > "$TMP/summary"; status=0
-  (cd "$TMP/src" && env "${env_common[@]}" TIP_SHA="$app" GITHUB_OUTPUT="$TMP/gh-output" GITHUB_STEP_SUMMARY="$TMP/summary" \
+  (cd "$TMP/src" && env "${env_common[@]}" "$@" TIP_SHA="$app" GITHUB_OUTPUT="$TMP/gh-output" GITHUB_STEP_SUMMARY="$TMP/summary" \
     bash scripts/ci/nightly-steps/resolve-tree-pending.sh >/dev/null 2>&1) || status=$?
 }
 reset_cdn; pending
@@ -356,6 +356,12 @@ check 'grep -qx "fallback=" "$TMP/gh-output"' "with no published tree in the his
 reset_cdn; publish_tree_as "$base_key" "$base"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=$base $base_key" "$TMP/gh-output" && grep -q "fallback client" "$TMP/summary"' \
   "an unpublished tip names the newest published tree as its fallback"
+# The newest published tree past the first look's window (base is 3 commits back; run 45097887921's was 87).
+reset_cdn; publish_tree_as "$base_key" "$base"; pending CMUX_TUI_TREE_SEARCH_COMMITS=2
+check '[[ $status == 0 ]] && grep -qx "fallback=$base $base_key" "$TMP/gh-output"' \
+  "a published tree past the first look's window is still the fallback"
+reset_cdn; publish_tree_as "$base_key" "$base"; pending CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS=2
+check '[[ $status == 0 ]] && grep -qx "fallback=" "$TMP/gh-output"' "past the wider look's window there is no fallback"
 reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending
