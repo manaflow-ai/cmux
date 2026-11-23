@@ -22,8 +22,9 @@ public final class AgentPaneSpareCovers {
         guard !view.redraw.givesNewTabFrame else { return }
         generations[id, default: 0] &+= 1
         let generation = generations[id]
-        // The offscreen parking view keeps the page out of sight while it renders: it stays visible, so its renderer
-        // stays warm (hidden, the next handout would be cold again).
+        // The offscreen parking view keeps the page out of sight while it renders: not hidden, it draws there until
+        // it painted at its parked size and while its cover is taken (`PageWebView+AwayDrawing`), so the next
+        // handout shows a page already drawn; between those it reports hidden to Chromium, as a background tab.
         view.isHidden = false
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         view.model.whenPainted { [weak self, weak view] in

@@ -265,6 +265,11 @@ pub enum PeerCmd {
         /// Restart the daemon even when an update restarted it in the last hour.
         #[arg(long)]
         now: bool,
+        /// Install the channel's build even when the installed one is built
+        /// from a newer commit (pulling a bad channel build back). Without
+        /// it the newer installed build is kept.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,

@@ -118,7 +118,7 @@
             "text": "Off: cmux asks before downloading. It always asks before restarting."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "update",
             "download",
@@ -311,6 +311,55 @@
           ]
         },
         {
+          "key": "updates.installWhenIdle",
+          "note": "Update when idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): a downloaded update installs after updates.installWhenIdleMinutes of idle, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent. Off by default.",
+          "title": {
+            "key": "settings.updates.installWhenIdle",
+            "text": "Update When Idle"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdle.help",
+            "text": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart"
+          ]
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "note": "How long cmux must be idle before updates.installWhenIdle installs a downloaded update.",
+          "title": {
+            "key": "settings.updates.installWhenIdleMinutes",
+            "text": "Idle Time Before Updating"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdleMinutes.help",
+            "text": "How long cmux must be idle before Update When Idle installs."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart",
+            "minutes"
+          ]
+        },
+        {
           "key": "updates.notify",
           "note": "How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.",
           "title": {
@@ -407,7 +456,7 @@
             "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "tips",
             "whats new",

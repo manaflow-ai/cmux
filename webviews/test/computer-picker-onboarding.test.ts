@@ -2,8 +2,10 @@
 // environment picker is not behind Labs (Leo, 2026-10-30), and with only this Mac listed it offers
 // Cloud in its list and Add Machine… and New Cloud Machine… in the control's right-click menu, from
 // a started chat too (#27083). The list is This Mac and one Cloud row, one line each, with the setup
-// actions on the right-click menu (#28999). This fresh home is signed out, so its one Cloud row is
-// Sign in for Cloud, in Cloud's place, and it signs in (#36050).
+// actions on the right-click menu (#28999). This fresh home is signed out, so a started chat's one
+// Cloud row is Sign in for Cloud, in Cloud's place, and it signs in (#36050). A new chat's Cloud row
+// is where that chat runs, a pick that makes nothing (#47677): its list has no sign-in row, and Sign
+// in for Cloud is on the control's right-click menu, where it signs in.
 // The host-call assertions prove the menu dispatch; native card/sign-in integration is separate.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -35,6 +37,8 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
   for (const entry of entries) {
     for (const colorScheme of ["light", "dark"] as const) {
       test(`${entry} ${colorScheme}: first-computer setup dispatches the existing app actions`, async () => {
+        // New Tab is a new chat: its Cloud row is where the chat runs (#47677).
+        const newChat = entry === "agent-pane.new-tab";
         const page = await browser!.newPage({ viewport: { width: 900, height: 650 }, colorScheme });
         try {
           const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -79,20 +83,42 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
               window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
             ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "device.add"),
           );
-          // Signed out (the fixture's Cloud answer), the list's one Cloud row is Sign in for Cloud and
-          // signs in; New Cloud Machine… stays on the right-click menu above (Leo, 2026-11-07: "The
-          // thing becomes just one state instead of rapidly switching to another").
+          // Signed out (the fixture's Cloud answer), one Cloud row, never two (Leo, 2026-11-07: "The
+          // thing becomes just one state instead of rapidly switching to another"). A started chat's
+          // row is Sign in for Cloud and signs in; New Cloud Machine… stays on the right-click menu
+          // above. A new chat's row is Cloud, where it runs (#47677), and Sign in for Cloud is on the
+          // right-click menu.
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator(".acpmux-env-popover");
-          const signIn = menu.getByRole("option", { name: /^Sign in for Cloud/ });
-          await signIn.waitFor();
-          const names = await menu.getByRole("option").allTextContents();
-          expect(await signIn.count(), names.join(" | ")).toBe(1);
-          expect(
-            names.filter((name) => name.startsWith("Cloud")),
-            names.join(" | "),
-          ).toEqual([]);
-          expect(await signIn.isVisible(), names.join(" | ")).toBe(true);
+          let signIn = menu.getByRole("option", { name: /^Sign in for Cloud/ });
+          if (newChat) {
+            const cloud = menu.getByRole("option", { name: /^Cloud/ });
+            await cloud.waitFor();
+            const names = await menu.getByRole("option").allTextContents();
+            expect(await cloud.count(), names.join(" | ")).toBe(1);
+            expect(await signIn.count(), names.join(" | ")).toBe(0);
+            await page.keyboard.press("Escape");
+            await page.waitForFunction(
+              () =>
+                document
+                  .querySelector('.acpmux-location-picker[data-kind="computer"] button')
+                  ?.getAttribute("aria-expanded") !== "true",
+            );
+            await computer.click({ button: "right" });
+            signIn = page.getByRole("menu").getByRole("menuitem", { name: /^Sign in for Cloud/ });
+            await signIn.waitFor();
+            const items = await page.getByRole("menu").getByRole("menuitem").allTextContents();
+            expect(await signIn.count(), items.join(" | ")).toBe(1);
+          } else {
+            await signIn.waitFor();
+            const names = await menu.getByRole("option").allTextContents();
+            expect(await signIn.count(), names.join(" | ")).toBe(1);
+            expect(
+              names.filter((name) => name.startsWith("Cloud")),
+              names.join(" | "),
+            ).toEqual([]);
+          }
+          expect(await signIn.isVisible()).toBe(true);
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `${entry}-${colorScheme}.png`) });
           await signIn.click();
           await page
