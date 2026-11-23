@@ -71,7 +71,8 @@ extension CloudHandlers {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
                 guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
-                let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
+                // The page sends `sessions`; the catalog's (palette, CLI) argument is `session`: both name chats, comma separated.
+                let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named((invocation["sessions"] ?? invocation["session"])?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }

@@ -43,7 +43,7 @@ public final class CloudAutoSignals {
     nonisolated private let events: AsyncStream<Event>.Continuation
     private let stream: AsyncStream<Event>
     private var loop: Task<Void, Never>?
-    private var pressure: DispatchSourceMemoryPressure?
+    private var pressure: (any DispatchSourceMemoryPressure)?
     private var power: CFRunLoopSource?
     private var started = false
     /// The home volume's free bytes as last read (off the main thread); the next read is under way.
