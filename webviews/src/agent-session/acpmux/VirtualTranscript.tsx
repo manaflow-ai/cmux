@@ -3776,8 +3776,21 @@ function TranscriptView({
   const followHeld =
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
-  const projectedTop =
-    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
+  // A chat switched to opens where the placement pass will put it (the open below, `didOpenAtLatest`):
+  // at the row it was left on (`openAt`), else at its latest row, or from the top when it fits. Its
+  // first commit mounts the rows it shows there. Rendered from the top instead, a switch mounted the
+  // chat's first rows, laid them out, placed the view at its end, and rendered and laid out again with
+  // the rows there before its first paint: a second render, commit and forced layout of the whole
+  // transcript (bench/settled-page.bench.ts chat_switch: about half of the switch).
+  const switchedAt = sessionSwitched && openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
+  const switchedLatest = Math.max(0, layout.totalHeight - height);
+  const projectedTop = sessionSwitched
+    ? layout.totalHeight <= height || draggedHeight !== undefined
+      ? undefined
+      : switchedAt < 0
+        ? switchedLatest
+        : Math.min(switchedLatest, layout.geometry.topAt(switchedAt) + openAt!.offset)
+    : placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -4685,7 +4698,10 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        if (at < 0) node.scrollTop = top;
+        // At the latest row the end is written as a following view's is (rounded up): floored, it
+        // rested a pixel short of a fractional end until the next following pass put it there, and
+        // a switch that mounts its rows at the end in its first commit has no next pass.
+        if (at < 0) node.scrollTop = Math.ceil(top - 0.01);
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
