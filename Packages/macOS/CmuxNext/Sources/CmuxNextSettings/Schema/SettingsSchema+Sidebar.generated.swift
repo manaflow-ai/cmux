@@ -357,35 +357,3 @@ extension WorkspaceRowSetting {
     public nonisolated static let agentSecondLineOrderPath = ["sidebar", "workspaceRow", "agent", "secondLineOrder"]
     public nonisolated static let agentSecondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
 }
-
-extension WorkspaceRowSetting {
-    /// `sidebar.workspaceRow.browser.icon`.
-    public nonisolated static let browserIconPath = ["sidebar", "workspaceRow", "browser", "icon"]
-    /// `sidebar.workspaceRow.browser.directory`.
-    public nonisolated static let browserDirectoryPath = ["sidebar", "workspaceRow", "browser", "directory"]
-    /// `sidebar.workspaceRow.browser.branch`.
-    public nonisolated static let browserBranchPath = ["sidebar", "workspaceRow", "browser", "branch"]
-    /// `sidebar.workspaceRow.browser.process`.
-    public nonisolated static let browserProcessPath = ["sidebar", "workspaceRow", "browser", "process"]
-    /// `sidebar.workspaceRow.browser.agentStatus`.
-    public nonisolated static let browserAgentStatusPath = ["sidebar", "workspaceRow", "browser", "agentStatus"]
-    /// `sidebar.workspaceRow.browser.tabCount`.
-    public nonisolated static let browserTabCountPath = ["sidebar", "workspaceRow", "browser", "tabCount"]
-    /// `sidebar.workspaceRow.browser.ports`.
-    public nonisolated static let browserPortsPath = ["sidebar", "workspaceRow", "browser", "ports"]
-    /// `sidebar.workspaceRow.browser.lastActivity`.
-    public nonisolated static let browserLastActivityPath = ["sidebar", "workspaceRow", "browser", "lastActivity"]
-    /// `sidebar.workspaceRow.browser.pullRequest`.
-    public nonisolated static let browserPullRequestPath = ["sidebar", "workspaceRow", "browser", "pullRequest"]
-    /// `sidebar.workspaceRow.browser.progress`.
-    public nonisolated static let browserProgressPath = ["sidebar", "workspaceRow", "browser", "progress"]
-    /// `sidebar.workspaceRow.browser.working`.
-    public nonisolated static let browserWorkingPath = ["sidebar", "workspaceRow", "browser", "working"]
-    /// `sidebar.workspaceRow.browser.log`.
-    public nonisolated static let browserLogPath = ["sidebar", "workspaceRow", "browser", "log"]
-    /// `sidebar.workspaceRow.browser.notification`.
-    public nonisolated static let browserNotificationPath = ["sidebar", "workspaceRow", "browser", "notification"]
-    /// `sidebar.workspaceRow.browser.secondLineOrder`.
-    public nonisolated static let browserSecondLineOrderPath = ["sidebar", "workspaceRow", "browser", "secondLineOrder"]
-    public nonisolated static let browserSecondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
-}
