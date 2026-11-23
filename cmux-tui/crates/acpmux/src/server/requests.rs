@@ -3151,22 +3151,12 @@ async fn dispatch_request_with_identity(
             hub.cold_archive_request(s, archived).await
         }
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
-        // its kept changes, so none of the three is served to a remote connection or a peer.
+        // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE => {
-            if conn.origin.web_class() {
-                return Err(RpcError::method_not_found(&format!(
-                    "{m} (not served to a remote WebSocket connection or a peer)"
-                )));
-            }
-            if m == method::MUX_AUTO_SESSION_WAKE {
-                return Ok(crate::auto_session::surface::wake(hub));
-            }
-            let s = hub.resolve(session_key(&params)?)?;
-            let set = m == method::MUX_AUTO_SESSION_SET;
             // On the heap (`heap_future.rs`): this function's frame keeps one pointer for it.
-            heap(|| crate::auto_session::surface::chat(hub, &s, &params, set)).await
+            heap(|| super::auto_gate::request(hub, conn, m, &params)).await
         }
         // One tag with a session as its value: never another tag (`_acpmux/tag`).
         method::MUX_SIDE => {

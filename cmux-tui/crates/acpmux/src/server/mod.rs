@@ -2687,6 +2687,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+mod auto_gate;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
