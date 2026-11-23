@@ -917,6 +917,10 @@ pub mod method {
     /// Ctrl-B: move a chat's running work to the background, `{sessionId,
     /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
     pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Every process and lock acpmux owns on this machine, `{callerSession?}` -> what `acpmux ps
+    /// --json` prints (`cli/process_census.rs`, `server/processes.rs`). Read-only; this machine's
+    /// clients only.
+    pub const MUX_PROCESS_CENSUS: &str = "_acpmux/process/census";
     /// Background tasks the daemon owns (`hub/bg_tasks.rs`): start one for a chat, list a
     /// chat's, read one's output, stop one.
     pub const MUX_BG_START: &str = "_acpmux/bg/start";
@@ -1040,6 +1044,9 @@ pub mod method {
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// A chat's row change as only what changed, to a connection that asked for it
+    /// (`server/session_patch.rs`).
+    pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
     /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
     /// `send_remote_batch`).
     pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";

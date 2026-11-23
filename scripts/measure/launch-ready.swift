@@ -526,12 +526,17 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
 // table the app's launch-times.jsonl rows use (LaunchStages, LaunchTimesFile.swift) and scripts/ci/launch_stages.py;
 // tests/test_launch_stages.py keeps the three equal.
 let launchStages: [(stage: String, marks: [String])] = [
+    ("dyld", ["premain.first_initializer"]),
     ("premain", ["main_start"]),
+    ("main_setup", ["main.setup_done"]),
     ("did_finish_launching", ["did_finish_launching_start"]),
     ("daemon_connected", ["daemon_connected"]),
     ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
     ("first_frame", ["first_window_frame_committed"]),
     ("webview_ready", ["cef.ready"]),
+    ("first_page_navigation", ["first_page.navigation_start"]),
+    ("first_page_dom_content_loaded", ["first_page.dom_content_loaded"]),
+    ("first_page_contentful_paint", ["first_page.first_contentful_paint"]),
     ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
     ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
 ]
@@ -554,7 +559,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout.", "terminal.", "window.", "frame."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout.", "terminal.", "window.", "frame.", "premain.", "main.", "first_page."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "stages": stages,
