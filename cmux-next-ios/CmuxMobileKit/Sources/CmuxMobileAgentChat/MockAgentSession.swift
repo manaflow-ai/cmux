@@ -61,8 +61,10 @@ public final class MockAgentSession: AgentSessionSource {
 
     public func send(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer, _, _):
-            let promptID = UUID().uuidString
+        case .prompt(let text, let attachments, let steer, let sentID, _):
+            // The client's id comes back on the echo, as acpmux does: the store
+            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
@@ -128,6 +130,8 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
+        case .answerElevation(let ask, _):
+            emit(.elevationDecision(id: ask.id))
         }
     }
 
@@ -267,7 +271,10 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if ListStressSettings.shared.streams {
+                if ListStressSettings.shared.holdsTurn {
+                    // The rig's running chat: the turn stays open, with no output, until stopped.
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                } else if ListStressSettings.shared.streams {
                     try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
                 } else if rich {
                     try await self.richTurn()

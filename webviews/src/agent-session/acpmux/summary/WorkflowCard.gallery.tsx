@@ -6,12 +6,8 @@
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { realWorkflowFixture } from "../realWorkflowFixture";
-import {
-  configureWorkflowCardOpen,
-  configureWorkflowCardSideTab,
-  WorkflowCard,
-  type WorkflowCardPresentation,
-} from "./WorkflowCard";
+import { WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
+import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./workflowCardModel";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 type Props = {

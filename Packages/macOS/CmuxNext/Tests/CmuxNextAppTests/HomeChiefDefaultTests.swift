@@ -3,7 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
-@testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextHostedChief
 @testable import CmuxNextSettings
 import Foundation
@@ -57,7 +57,7 @@ struct HomeChiefDefaultTests {
         #expect(roster.places[HomeChiefRosterTests.hosted] == .cloud)
         #expect(roster.places[HomeChiefRosterTests.placed] == .server("cmux20"))
         #expect(roster.tag(for: HomeChiefRosterTests.local, engine: nil)
-            == HomeConversationStrings.mainChief + " \u{00B7} " + HomeConversationStrings.placeThisMac)
+            == HomeModelStrings.mainChief + " \u{00B7} " + HomeModelStrings.placeThisMac)
     }
 
     /// A failed cloud read leaves `cloudChiefsRead` false for the whole launch, so the last
@@ -316,7 +316,7 @@ struct HomeChiefDefaultTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (settings, url)

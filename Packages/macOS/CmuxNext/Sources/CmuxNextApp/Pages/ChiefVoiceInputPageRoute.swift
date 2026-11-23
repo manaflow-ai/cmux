@@ -1,5 +1,5 @@
 import CmuxNextDesign
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
 

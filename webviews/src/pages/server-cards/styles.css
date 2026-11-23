@@ -1,0 +1,8 @@
+/* The server page (design/server-cards.md): the menu bar popover's routes. The page is transparent; the
+   popover is the background. Each route's own box sets the popover's size (host.ts reports it), so nothing
+   here scrolls. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}

@@ -12,6 +12,18 @@ use std::time::{Duration, Instant};
 
 const TERMINAL_ONE: &str = "term_00000000000000000000000000000001";
 const TERMINAL_TWO: &str = "term_00000000000000000000000000000002";
+/// The reads of the Codex shim's SessionStart hook for the context it gives the agent: the
+/// session's other agents (`agent.list`, `tab.list`; W5-Q #39040), then its place.
+const PLACE_READS: [&str; 8] = [
+    "agent.list",
+    "tab.list",
+    "session.get",
+    "terminal.get",
+    "tab.get",
+    "pane.get",
+    "screen.get",
+    "workspace.get",
+];
 
 #[cfg(target_os = "linux")]
 struct RouteOwner(std::process::Child);
@@ -39,7 +51,21 @@ impl Launch {
         listener.set_nonblocking(true).unwrap();
         let bin = root.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        fs::write(bin.join("codex"), "#!/bin/sh\nprintf '%s\\0' \"$@\"\n").unwrap();
+        // A stand-in Codex: it prints the launch's arguments, and answers `mcp get cmux --json`
+        // (the shim asks it for the person's own `cmux` entry) with the file `$FAKE_MCP_GET`, or
+        // Codex's "no server" when there is none, logging where and how it was asked.
+        fs::write(
+            bin.join("codex"),
+            concat!(
+                "#!/bin/sh\n",
+                "case \" $* \" in *' mcp get cmux --json ') ",
+                "printf '%s|%s\\n' \"$(pwd -P)\" \"$*\" >> \"${FAKE_MCP_GET_LOG:-/dev/null}\"; ",
+                "if [ -n \"$FAKE_MCP_GET\" ]; then cat \"$FAKE_MCP_GET\"; exit 0; fi; ",
+                "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1;; esac\n",
+                "printf '%s\\0' \"$@\"\n",
+            ),
+        )
+        .unwrap();
         fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
         Self { root, socket, listener }
     }
@@ -97,6 +123,12 @@ impl Launch {
                 continue;
             }
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            // A SessionStart hook reads its terminal's place for the agent's context
+            // (session_context.rs) after its journal event. run_hook waits for the hook first,
+            // so those reads went unanswered and are left queued: skip them.
+            if PLACE_READS.contains(&request["operation"].as_str().unwrap_or_default()) {
+                continue;
+            }
             if request["operation"] == "agent.message.list" {
                 let response = serde_json::json!({
                     "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
@@ -179,7 +211,10 @@ fn hook_command(config: &toml::Value, event: &str) -> String {
         .to_owned()
 }
 
-fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
+/// Runs the hook for `event` of `terminal`'s Codex. Its output is the empty object, except the
+/// shim's SessionStart: the context that tells the agent it runs in cmux and names its terminal
+/// (#38290). Nothing answers the hook's place reads while it runs, so only the terminal is known.
+fn run_hook(command: &str, stale_socket: Option<&Path>, event: &str, terminal: &str) {
     let mut process = Command::new("/bin/sh");
     process.args(["-c", command]).env_clear();
     if let Some(socket) = stale_socket {
@@ -194,10 +229,21 @@ fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{session}\"}}").unwrap();
+    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{terminal}\"}}").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"{}\n");
+    if event != "SessionStart" {
+        assert_eq!(output.stdout, b"{}\n", "{event}");
+        return;
+    }
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stdout)));
+    let context = &printed["hookSpecificOutput"];
+    assert_eq!(context["hookEventName"], "SessionStart", "{printed}");
+    let text = context["additionalContext"].as_str().unwrap_or_else(|| panic!("{printed}"));
+    assert!(text.starts_with("cmux: you run in a cmux terminal"), "{text}");
+    assert!(text.contains(&format!("terminal {terminal}.")), "{text}");
+    assert!(text.contains("`cmux skill show`"), "{text}");
 }
 
 #[test]
@@ -212,7 +258,7 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
         let config = settings(&argv);
         assert!(!argv.iter().any(|arg| arg == "--dangerously-bypass-hook-trust"));
         for event in ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] {
-            run_hook(&hook_command(&config, event), stale_socket, terminal);
+            run_hook(&hook_command(&config, event), stale_socket, event, terminal);
             let received = launch.event();
             assert_eq!(received["payload"]["native_event"], event);
             assert!(
@@ -277,7 +323,7 @@ fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_
     let argv = launch.argv(&mut command);
     let config = settings(&argv);
     let hook = hook_command(&config, "SessionStart");
-    run_hook(&hook, None, TERMINAL_TWO);
+    run_hook(&hook, None, "SessionStart", TERMINAL_TWO);
     let received = launch.event();
     assert_eq!(received["payload"]["native_event"], "SessionStart");
     assert!(
@@ -315,6 +361,205 @@ fn codex_wrapper_passes_through_management_opt_out_and_missing_routes() {
             launch.command().env("CMUX_TUI_SOCKET", "/missing/socket").args(["exec", "hello"])
         ),
         ["exec", "hello"]
+    );
+}
+
+/// `codex agents` (the agent command center, a full interactive session) and
+/// `codex review` (an agent session, `exec review`) start agent sessions in
+/// Codex 0.160 and 0.169: they get hooks like any session.
+#[test]
+fn codex_wrapper_injects_into_agents_and_review_sessions() {
+    let launch = Launch::new();
+    for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
+        let argv = launch.argv(launch.command().args(args));
+        assert!(argv.len() > args.len(), "{args:?}: {argv:?}");
+        assert_eq!(&argv[argv.len() - args.len()..], args, "{argv:?}");
+        assert!(settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
+    }
+    // A setting after the subcommand moves to the root list, which Codex
+    // 0.160.1 would otherwise drop for the subcommand's own.
+    for args in [&["review", "-c", "model=\"o3\"", "--uncommitted"][..], &["agents", "-c", "x=1"]] {
+        let argv = launch.argv(launch.command().args(args));
+        let at = argv.iter().position(|arg| arg == args[0]).unwrap();
+        assert!(!argv[at..].iter().any(|arg| arg == "-c"), "{argv:?}");
+        let config = settings(&argv);
+        let theirs = args[2].split('=').next().unwrap();
+        assert!(config.get("hooks").is_some() && config.get(theirs).is_some(), "{argv:?}");
+    }
+    // `a` is `apply`, which starts no session.
+    assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
+    // With the person's yes, `agents` (which switches to other sessions, in their own folders) is
+    // doubt and gets the hooks only; `review` starts a new session and gets the server too.
+    let settings_file = launch.root.path().join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let on = |args: &[&str]| {
+        launch.argv(launch.command().env("CMUX_NEXT_CONFIG_FILE", &settings_file).args(args))
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    for args in [&["agents"][..], &["-m", "o3", "agents"]] {
+        let argv = on(args);
+        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
+    }
+    assert!(has_server(&on(&["review", "--uncommitted"])));
+}
+
+/// With `agents.cmuxMcp` on (the default), every new Codex session started in a cmux
+/// terminal (interactive, with a prompt, `exec`, `review`) gets one MCP server, named `cmux`,
+/// running this build, over a stdio `cmux` entry of the person's own that Codex loads (another
+/// cmux's, user or trusted project). Codex merges the `-c`
+/// values into that entry key by key, so this build's command, args, env and `enabled = true`
+/// win; nothing is said on stderr.
+#[test]
+fn codex_wrapper_gives_codex_one_server_named_cmux() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let codex_home = root.join("codex-home");
+    let project = root.join("project");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    let other = "[mcp_servers.cmux]\ncommand = \"/opt/other/cmux\"\nargs = [\"mcp\", \"serve\"]\nenabled = false\n";
+    let this = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+    // Codex's answer for the person's entry where it loads (the user config, or a trusted
+    // project's file): that entry. A project file Codex's answer does not show it loads is doubt,
+    // and gets no server (`codex_wrapper_skips_on_doubt`).
+    let answer = root.join("mcp-get.json");
+    fs::write(
+        &answer,
+        r#"{"transport":{"type":"stdio","command":"/opt/other/cmux","args":["mcp","serve"]}}"#,
+    )
+    .unwrap();
+    for (user, in_project) in [("", ""), (other, ""), ("", other), (other, other)] {
+        fs::write(codex_home.join("config.toml"), user).unwrap();
+        fs::write(project.join(".codex/config.toml"), in_project).unwrap();
+        for args in
+            [&[][..], &["fix the bug"], &["exec", "fix the bug"], &["review", "--uncommitted"]]
+        {
+            let mut command = launch.command();
+            command
+                .current_dir(&project)
+                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                .env("CODEX_HOME", &codex_home)
+                .args(args);
+            if !user.is_empty() || !in_project.is_empty() {
+                command.env("FAKE_MCP_GET", &answer);
+            }
+            let argv = launch.argv(&mut command);
+            let config = settings(&argv);
+            let servers = config["mcp_servers"].as_table().unwrap();
+            assert_eq!(servers.keys().collect::<Vec<_>>(), ["cmux"], "{args:?}: {argv:?}");
+            let cmux = &servers["cmux"];
+            assert_eq!(cmux["command"].as_str(), this.to_str(), "{argv:?}");
+            assert_eq!(cmux["args"], toml::Value::Array(vec!["mcp".into(), "serve".into()]));
+            assert_eq!(cmux["enabled"].as_bool(), Some(true), "{argv:?}");
+            assert_eq!(cmux["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(), settings_file.to_str());
+            assert!(cmux["env"]["CMUX_TUI_SOCKET"].as_str().is_some(), "{argv:?}");
+            // A `cmux` entry `cmux acp desktop link` wrote carries the acpmux server's guest mode,
+            // which Codex merges into this server: it is always sent empty.
+            assert_eq!(cmux["env"]["ACPMUX_MCP_GUEST"].as_str(), Some(""), "{argv:?}");
+        }
+    }
+}
+
+/// Codex refuses a server with both a command and a `url`: where the person's own server named
+/// `cmux` is HTTP, as the launch's Codex itself answers (`codex <their config options> mcp get
+/// cmux --json`, in the launch folder), the shim passes no MCP server (the hooks still go) and
+/// says nothing: the person's own server keeps the name. A stdio entry, none, or no answer from
+/// Codex: this build's server goes in.
+#[test]
+fn codex_wrapper_leaves_an_http_cmux_entry_alone() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let project = root.join("project/sub");
+    fs::create_dir_all(&project).unwrap();
+    let (answer, log) = (root.join("mcp-get.json"), root.join("mcp-get.log"));
+    let run = |args: &[&str], answering: Option<&str>| {
+        let mut command = launch.command();
+        command
+            .current_dir(&project)
+            .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+            .env("FAKE_MCP_GET_LOG", &log)
+            .args(args);
+        if let Some(text) = answering {
+            fs::write(&answer, text).unwrap();
+            command.env("FAKE_MCP_GET", &answer);
+        }
+        launch.argv(&mut command)
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    let http = r#"{"transport":{"type":"streamable_http","url":"http://127.0.0.1:1/mcp"}}"#;
+    let stdio = r#"{"transport":{"type":"stdio","command":"/opt/x","args":[]}}"#;
+    let argv = run(&["-p", "work", "exec", "fix the bug"], Some(http));
+    assert!(!has_server(&argv), "{argv:?}");
+    assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
+    assert!(has_server(&run(&["exec", "fix the bug"], Some(stdio))));
+    assert!(has_server(&run(&["exec", "fix the bug"], None)));
+    // Skip on doubt: no answer from Codex is no server either.
+    let argv = run(&["exec", "fix the bug"], Some("not json"));
+    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
+    // Codex was asked in the launch folder, with the person's own config options only.
+    let asked = fs::read_to_string(&log).unwrap();
+    let first = asked.lines().next().unwrap();
+    let folder = project.canonicalize().unwrap();
+    assert_eq!(first, format!("{}|-p work mcp get cmux --json", folder.display()), "{asked}");
+}
+
+/// Skip on doubt: a project file that defines `cmux` and that Codex's answer does not show it
+/// loads (an untrusted folder the person may trust at Codex's prompt), and a launch whose loaded
+/// config can differ from the question (`--trust`, resume, fork, `--worktree`), get no MCP
+/// setting at all; the hooks still go, and nothing is said. A launch in doubt does not ask Codex.
+#[test]
+fn codex_wrapper_skips_on_doubt() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let codex_home = root.join("codex-home");
+    let project = root.join("new");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::create_dir_all(project.join(".git")).unwrap();
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    fs::write(
+        project.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    let log = root.join("mcp-get.log");
+    let run = |args: &[&str]| {
+        launch.argv(
+            launch
+                .command()
+                .current_dir(&project)
+                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                .env("CODEX_HOME", &codex_home)
+                .env("FAKE_MCP_GET_LOG", &log)
+                .args(args),
+        )
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    // Codex answers none (the folder is not trusted yet); the person may trust it at the prompt.
+    let argv = run(&[]);
+    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
+    fs::remove_dir_all(project.join(".codex")).unwrap();
+    assert!(has_server(&run(&["exec", "fix the bug"])), "no project entry: the server goes in");
+    for args in [
+        &["exec", "--trust", "fix the bug"][..],
+        &["resume", "--last"],
+        &["fork", "--last"],
+        &["exec", "resume", "--last", "go on"],
+        &["--worktree"],
+    ] {
+        let argv = run(args);
+        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(&log).unwrap().lines().count(),
+        2,
+        "a launch in doubt asks nothing"
     );
 }
 

@@ -2,8 +2,10 @@
 // Opening a tool group at the very bottom of a running turn while the agent goes on (Leo,
 // 2026-11-06, on a recording under heavy load: "the entire tool call expansion apparatus is borked",
 // "way too discontinuous"). In his recording a row opened while the list reflowed under it, rows
-// regrouped mid-motion and the view jumped. Here a third command joins the opened group on the fold's
-// third frame, with frames coming steadily and with the main thread held in every frame. An open at
+// regrouped mid-motion and the view jumped. An ended stretch's run stays open while the chat works,
+// so the reader has shut it (ExpandAtBottom.gallery.ts "under-load"); a stretch still running draws
+// no run under the live-turn-work `line`. Here the agent's next command lands on the live
+// line on the fold's third frame, with frames coming steadily and with the main thread held in every frame. An open at
 // the very bottom grows down (Lucas, 2026-11-06; transcript-expand-at-bottom.test.ts),
 // so on every painted frame the clicked line and the view's offset stay on their pixels, no row is
 // drawn over the next and the opened row only grows. Under load the fold still ends in bounded time.
@@ -51,7 +53,8 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
   });
 
   const ROW = '[data-row-id="expand-at-bottom-run"]';
-  const GROUP = `${ROW} button.cv-tool.is-toggle[aria-expanded]`;
+  /// The run's own line: its calls are toggles too, drawn while a running turn's run is open.
+  const GROUP = `${ROW} button.cv-tool.is-toggle[aria-expanded][data-tool-group]`;
 
   /// Every finite animation over, then the scroller's offset and height the same over 16 painted frames.
   const settled = (page: Page) =>
@@ -241,14 +244,21 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
       const after = await page.evaluate(
         (row) => ({
           commands: document.querySelectorAll(`${row} .cv-fold button.cv-tool`).length,
-          label: document.querySelector<HTMLElement>(`${row} button.cv-tool.is-toggle`)?.textContent ?? "",
+          label:
+            document.querySelector<HTMLElement>(`${row} button.cv-tool.is-toggle[data-tool-group]`)?.textContent ?? "",
         }),
         ROW,
       );
-      expect(after.label).toMatch(/3/);
-      expect(after.commands).toBeGreaterThanOrEqual(3);
+      expect(after.label).toMatch(/2/);
+      expect(after.commands).toBeGreaterThanOrEqual(2);
+      // The next command reads on the live line, never as a row of the opened run.
+      expect(
+        await page.evaluate(() =>
+          document.querySelector('[data-row-id="thinking-live"]')?.textContent?.includes("slow"),
+        ),
+      ).toBe(true);
       // Bounded: with frames coming steadily, the opened row stops growing within the fold's time and
-      // a few frames. Under jank the third command lands when the page gets to it, so there the
+      // a few frames. Under jank the next command lands when the page gets to it, so there the
       // bound is the one-step rule below.
       if (load === "light") {
         const last = frames.at(-1)!;
@@ -261,13 +271,16 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
           settledAt: true,
         });
       }
-      // Leo, 2026-11-06: "way too discontinuous". With frames dropping, the fold lands in one step: at
-      // most one painted frame shows it mid-flight, never a run of partial heights a frame apart.
+      // Leo, 2026-11-06: "way too discontinuous". With frames dropping, the fold lands in one step,
+      // never a run of partial heights a frame apart. One late frame is not load (Leo, 2026-11-07:
+      // "sometimes it doesn't play ythe animation"), so it lands on the second in a row: at most two
+      // painted frames show it mid-flight, the fold's first and the one its restarted clock draws
+      // (fold.ts `settleOnDroppedFrames`), both near its start.
       if (load === "jank") {
         const midFlight = frames.filter((frame) => frame.folding).length;
         // The painted frames' times, `*` where the fold is mid-flight: a slow page or a missed drop.
         const seen = frames.map((frame) => `${Math.round(frame.at)}${frame.folding ? "*" : ""}`).join(" ");
-        expect({ load, midFlight, seen, oneStep: midFlight <= 1 }).toEqual({ load, midFlight, seen, oneStep: true });
+        expect({ load, midFlight, seen, oneStep: midFlight <= 2 }).toEqual({ load, midFlight, seen, oneStep: true });
       }
       await page.close();
     });

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
@@ -21,7 +22,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine", "palette.restartServer"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -38,14 +39,23 @@ extension PageFactory {
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
+        guard let page = homeWebPage(.homeChannels, dock: dock, extra: [PageRoute(prefix: PageNativeOp.actionRun, provider: PageGestureActionProvider(page: .homeChannels, wrapping: AppPageNativeProvider(services: services, page: .homeChannels)))]) else { return nil }
+        services.home.homeDidOpen(asked: true)
+        return page
+    }
+
+    /// A Home page on this instance's daemon (Channels): the credential verb, the Chief's
+    /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
+    /// then `extra`, with the selected-text menu of the Channels page.
+    func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      editRoute]
+                      editRoute] + extra
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        guard let page = PageWebView(descriptor: .homeChannels, routes: routes,
+        guard let page = PageWebView(descriptor: descriptor, routes: routes,
                                      options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in
@@ -64,7 +74,6 @@ extension PageFactory {
                     }
                 }).rebuild(menu)
         }
-        services.home.homeDidOpen(asked: true)
         return page
     }
 }
@@ -120,7 +129,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     private func daemonCredential() async throws -> CmuxNextSettings.JSONValue {
         guard let daemon, let endpoint = try? await daemon.endpoint() else {
-            throw PageError.unavailable("the local cmux daemon is not running")
+            throw PageError.unavailable(Self.restarting)
         }
         let path = endpoint.socketPath + ".websocket.json"
         let file = try await fileCredential(daemon, path: path)
@@ -131,13 +140,13 @@ final class DaemonCredentialPageProvider: PageProvider {
         // A single-use credential for this connect (every reconnect asks again). A lost connection
         // retries. A refusal (a daemon this app did not start, so the app is not verified there)
         // keeps the file token: local conversations only, never a dead end.
-        guard let connection = daemon.connection else { throw PageError.unavailable("the local cmux daemon is restarting") }
+        guard let connection = daemon.connection else { throw PageError.unavailable(Self.restarting) }
         do {
             let page = try await connection.request(PageCredentialRequest())
             fields["token"] = .string(page.credential)
             return .object(fields)
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch {
             return file
         }
@@ -155,15 +164,15 @@ final class DaemonCredentialPageProvider: PageProvider {
         do {
             outcome = try await daemon.ensurePageListener()
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) {
-            // The daemon refused (a configured credential, an origin its listener does not admit):
-            // final, the page says why.
-            throw PageError(code: "cmux.daemon.page_listener", message: message, retryable: false)
+            // The daemon refused (a configured credential, an origin its listener does not admit): final.
+            // The page says so in its own words, with Restart cmux-tui; the daemon's text is in details.
+            throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, details: ["reason": .string(message)])
         } catch {
-            throw PageError.unavailable(String(describing: error))
+            throw PageError(code: "cmux.protocol.unavailable", message: Self.restarting, retryable: true, details: ["reason": .string(String(describing: error))])
         }
         switch outcome {
         case .ready:
@@ -178,17 +187,17 @@ final class DaemonCredentialPageProvider: PageProvider {
     }
 
     static var restarting: String {
-        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var chiefStarting: String {
-        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
                defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// The listener's credential file (`PageListenerCredentialFile`): this user's, 0600, a live daemon.
@@ -197,5 +206,15 @@ final class DaemonCredentialPageProvider: PageProvider {
             throw PageError.unavailable("This cmux daemon has no page listener. Quit cmux and its daemon, then open cmux again.")
         }
         return .object(["url": .string(file.url), "token": .string(file.token), "pages": .string(file.pages)])
+    }
+}
+
+extension HomeService {
+    /// A conversation row's menu, as the native list and the Messages page draw it.
+    var conversationMenu: HomeConversationMenu {
+        let usage = services.registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
+        return HomeConversationMenu(registry: services.registry, directory: directory, groupActions: groupActions,
+                                    deletableChief: { [weak self] in self?.deletableChief(of: $0)?.id },
+                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil)
     }
 }

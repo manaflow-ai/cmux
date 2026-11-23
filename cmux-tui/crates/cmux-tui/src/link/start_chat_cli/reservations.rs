@@ -65,13 +65,23 @@ struct Request {
     compose_key: String,
     environment: Option<String>,
     platform: Option<String>,
-    team: Option<String>,
 }
 
+/// `reserve|release --request JSON`, stdin the session credential then the install token: the
+/// reservation names the install token's team ([`super::spare_warm::install_team`]), the spare warm's team.
 pub(super) fn run(
     flags: &Flags,
     action: Action,
     stdin: &mut dyn std::io::BufRead,
+) -> Option<Value> {
+    run_with(flags, action, stdin, &|call, credential| call.post(credential))
+}
+
+pub(super) fn run_with(
+    flags: &Flags,
+    action: Action,
+    stdin: &mut dyn std::io::BufRead,
+    transport: Transport<'_>,
 ) -> Option<Value> {
     let request: Request = match serde_json::from_str(flags.one("--request")?) {
         Ok(request) => request,
@@ -79,11 +89,6 @@ pub(super) fn run(
     };
     if !valid_key(&request.compose_key)
         || request.environment.as_deref().is_some_and(|id| !valid_environment(id))
-        || request.team.as_deref().is_some_and(|team| {
-            !team.strip_prefix("team_").is_some_and(|hex| {
-                hex.len() == 20 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-            })
-        })
     {
         return Some(refused("bad_request", "invalid composer reservation"));
     }
@@ -91,15 +96,17 @@ pub(super) fn run(
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
         return Some(refused("unauthorized", "no session credential on stdin"));
     }
-    let result = Call {
+    let mut install = String::new();
+    let _ = stdin.read_line(&mut install);
+    let call = Call {
         action,
         compose_key: request.compose_key.to_lowercase(),
         send_key: None,
         environment: request.environment,
         platform: request.platform,
-        team: request.team,
-    }
-    .post(credential.trim());
+        team: super::spare_warm::install_team(&install),
+    };
+    let result = transport(&call, credential.trim());
     if action == Action::Reserve && result.as_ref().is_ok_and(|body| machine(body).is_none()) {
         return Some(refused("bad_answer", "the cmux platform reserved no readable Cloud machine"));
     }
@@ -114,10 +121,17 @@ pub(super) fn answer(result: Result<Value, PlatformCallError>) -> Value {
         }
         Ok(Value::Null) => json!({"ok": true}),
         Ok(_) => refused("bad_answer", "the cmux platform answered with no reservation"),
-        Err(PlatformCallError::Status { status, code }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!("the cmux platform refused the reservation ({status} {code})"),
-        ),
+        Err(PlatformCallError::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the reservation ({status} {code}){}",
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            super::with_handling(&mut line, status, code, facts);
+            line
+        }
         Err(PlatformCallError::Unreachable(reason)) => refused("unreachable", reason),
         Err(PlatformCallError::Unreadable(status)) => refused(
             "bad_answer",
@@ -130,10 +144,11 @@ pub(super) fn answer(result: Result<Value, PlatformCallError>) -> Value {
 pub(super) fn unbound(error: &PlatformCallError) -> bool {
     matches!(
         error,
-        PlatformCallError::Status { status: 404, code: "lease.not_found" }
+        PlatformCallError::Status { status: 404, code: "lease.not_found", .. }
             | PlatformCallError::Status {
                 status: 409,
-                code: "reservation.expired" | "reservation.terminal"
+                code: "reservation.expired" | "reservation.terminal",
+                ..
             }
     )
 }

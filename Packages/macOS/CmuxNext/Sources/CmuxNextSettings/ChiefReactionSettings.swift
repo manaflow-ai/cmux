@@ -1,3 +1,6 @@
+// The paths and defaults are generated from schemas/settings/source/chief-reactions.json
+// (Schema/SettingsSchema+ChiefReactions.generated.swift).
+
 /// `chief.reactionsCanWake` and `chief.reactionClassifier.*` in cmux.json (Lawrence 2026-10-21, a416): a
 /// tapback the person puts on a Chief message is a note, and a cheap model decides first whether it starts
 /// a turn (a ❓ on a question does, a 👍 on a status line does not). These are the person's values; each
@@ -13,22 +16,15 @@ public nonisolated struct ChiefReactionSettings: Sendable, Hashable {
     /// The classifier's instructions; empty: the host's built-in prompt.
     public var prompt: String
 
-    public init(canWake: Bool = true, harness: String = "", model: String = ChiefReactionSettings.defaultModel, prompt: String = "") {
+    public init(canWake: Bool = ChiefReactionSettings.canWakeDefault, harness: String = ChiefReactionSettings.harnessDefault,
+                model: String = ChiefReactionSettings.modelDefault, prompt: String = ChiefReactionSettings.promptDefault) {
         self.canWake = canWake
         self.harness = harness
         self.model = model
         self.prompt = prompt
     }
 
-    public static let canWakePath = ["chief", "reactionsCanWake"]
-    public static let harnessPath = ["chief", "reactionClassifier", "harness"]
-    public static let modelPath = ["chief", "reactionClassifier", "model"]
-    public static let promptPath = ["chief", "reactionClassifier", "prompt"]
-    /// Claude Haiku, the compactor's model too (Lawrence 2026-10-21: "use claude haiku as the cheap model by default").
-    public static let defaultModel = "claude-haiku-5-5"
     public static let fallback = ChiefReactionSettings()
-    /// Every key, for the agent policy (a Chief may configure its own reactions).
-    public static let keys: Set<String> = Set([canWakePath, harnessPath, modelPath, promptPath].map { $0.joined(separator: ".") })
 
     /// The values in `root`; a value of the wrong type is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (ChiefReactionSettings, [SettingsDiagnostic]) {

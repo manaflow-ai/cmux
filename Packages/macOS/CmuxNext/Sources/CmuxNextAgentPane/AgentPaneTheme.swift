@@ -15,9 +15,9 @@ import Foundation
 enum AgentPaneTheme {
     /// `motion` is the web category's policy without live resize: the page keeps these tokens
     /// after a drag ends.
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policy,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
-        AgentPaneTunables.followCodexToolRuns()
+        AgentPaneTunables.followTurnActionsPlacement()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -38,19 +38,11 @@ enum AgentPaneTheme {
             "borders": Borders.current.mode.rawValue,
             // Transcript response focus outlines follow the same optional focus-ring setting.
             "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
-            // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
-            "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
-            // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
-            "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
-            // Debug Settings agentPane.debug.liveLineBelow, pushed again on a change as codexToolRuns is.
-            "liveLineBelow": AgentPaneTunables.liveLineBelow.value,
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
             // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
             "subagentTray": AgentPaneTunables.subagentTray.value,
-            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
-            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

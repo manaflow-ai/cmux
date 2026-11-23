@@ -4,6 +4,9 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
+import CmuxNextWindowRules
+import typealias CmuxNextBridge.StripTabID
 import Foundation
 import Observation
 
@@ -19,7 +22,7 @@ import Observation
 /// `OPTCHAT_INSPECTOR_WEB=1` in the brain's), the old web page opens instead:
 /// the local brain host serves it on 127.0.0.1 (optchat-chief
 /// inspect/http.rs) behind a token traded for a one-time ticket. In the home
-/// workspace it is a tab in the right column (``ChiefInspectorPlacement``,
+/// workspace it is a tab in the right column (`chat::agent::inspector_placement`,
 /// a243); elsewhere a browser tab in a new column right of the focused pane's.
 @MainActor
 enum ChiefInspectorHandlers {
@@ -36,7 +39,9 @@ enum ChiefInspectorHandlers {
         context.services.pages.register(remotePage)
         let memory = ChiefMemoryPageService(services: context.services)
         context.services.pages.register(memory)
-        registry.bind(actionID, run: { invocation in
+        ChiefComputerPages.bind(into: registry, context: context)
+        // Not offered when the web fallback has no Chief to read here or on a paired server (as `chief.openUsage`).
+        registry.bind(actionID, unavailable: { opensWebPage && !HomeBrainHost.canStart() && remoteChief(context) == nil ? ChiefInspectorStrings.noLocalChief : nil }, run: { invocation in
             if opensWebPage {
                 try openWeb(invocation, remotePage: remotePage, context: context)
                 return
@@ -54,12 +59,10 @@ enum ChiefInspectorHandlers {
     }
 
     /// The Chief the invocation names (`chief`, `server`), else this Mac's default Chief.
+    /// The choice is cmux-window-rules `chat::agent::memory_route` (empty values name nothing).
     static func route(_ invocation: ActionInvocation) -> ChiefMemoryRoute {
-        if let machine = invocation.arguments["server"]?.stringValue, !machine.isEmpty {
-            return ChiefMemoryRoute(place: .server(machineID: machine))
-        }
-        let chief = invocation.arguments["chief"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        return ChiefMemoryRoute(place: .local(chief: chief))
+        WindowRules().memoryRoute(server: invocation.arguments["server"]?.stringValue, chief: invocation.arguments["chief"]?.stringValue)
+            .flatMap(ChiefMemoryRoute.init) ?? .defaultChief
     }
 
     /// The old web page (the fallback): the local host's page through a
@@ -121,15 +124,15 @@ enum ChiefInspectorHandlers {
     }
 
     /// Where the tab goes: in the home workspace a tab in its right column
-    /// (``ChiefInspectorPlacement``), else a new column right of
+    /// (cmux-window-rules `chat::agent::inspector_placement`), else a new column right of
     /// ``anchorPane(_:context:)``.
     private static func placement(_ invocation: ActionInvocation, context: AppActionContext) throws -> Target {
         if let focused = context.scope(invocation).pane?.pane, let screen = homeScreen(of: focused, context: context) {
-            let byHandle = Dictionary(screen.panes.map { ($0.handle, $0) }, uniquingKeysWith: { first, _ in first })
+            let byHandle = Dictionary(screen.panes.map { ($0.handle.rawValue, $0) }, uniquingKeysWith: { first, _ in first })
             let columns = screen.columns.map { column in
-                ChiefInspectorPlacement<CmuxNextDaemon.PaneID>.Column(panes: column.layout.paneIDs, isDock: column.dock != nil)
+                WindowRules.InspectorColumn(panes: column.layout.paneIDs.map(\.rawValue), dock: column.dock != nil)
             }
-            switch ChiefInspectorPlacement.resolve(focused: focused.handle, inHome: true, columns: columns) {
+            switch WindowRules().inspectorPlacement(focused: focused.handle.rawValue, inHome: true, columns: columns) {
             case .tab(let handle)?: if let pane = byHandle[handle] { return .tab(pane) }
             case .newColumn(let handle)?: if let pane = byHandle[handle] { return .newColumn(rightOf: pane) }
             case nil: break
@@ -156,17 +159,25 @@ enum ChiefInspectorHandlers {
     /// with none (Home is shown), the last pane of the window's workspace
     /// unless that is the home workspace, else of the first user workspace.
     private static func anchorPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneModel {
+        // The choice is cmux-window-rules `chat::agent::inspector_anchor`: a Home pane never anchors a new column
+        // (a243), a user workspace does; the home workspace (kind "home") holds only the Chief conversation that the
+        // Home page shows.
         let scope = context.scope(invocation)
-        // A Home pane never anchors a new column (a243): a user workspace does.
-        if let pane = scope.pane, homeScreen(of: pane.pane, context: context) == nil { return pane.pane }
-        guard invocation.target == nil || scope.pane != nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        // The home workspace (kind "home") holds only the Chief conversation
-        // that the Home page shows: the column goes into a user workspace.
-        let user = { (w: WorkspaceModel) in !w.isAnyHome && w.screens.first?.panes.last != nil }
-        let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
-            ?? context.daemon.store.workspaces.first(where: user)
-        guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        return pane
+        let pane = scope.pane, paneInHome = pane.map { homeScreen(of: $0.pane, context: context) != nil }
+        // The workspace is read only where the rule reads it: a target that names nothing reports it once.
+        let workspace = paneInHome != false && (invocation.target == nil || pane != nil) ? scope.workspace : nil
+        let workspaces = context.daemon.store.workspaces
+        let facts = { (w: WorkspaceModel) in WindowRules.AnchorWorkspace(home: w.isAnyHome, hasPane: w.screens.first?.panes.last != nil) }
+        let anchor = WindowRules().inspectorAnchor(targeted: invocation.target != nil, paneInHome: paneInHome,
+                                                   scopeWorkspace: workspace.map(facts), workspaces: workspaces.map(facts))
+        let found: PaneModel? = switch anchor {
+        case .pane?: pane?.pane
+        case .scopeWorkspace?: workspace?.screens.first?.panes.last
+        case .workspace(let index)?: workspaces.indices.contains(index) ? workspaces[index].screens.first?.panes.last : nil
+        case .refuse?, nil: nil
+        }
+        guard let found else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
+        return found
     }
 
     /// A new browser tab at `url` in `pane` (Home's right column), then shown and selected.
@@ -182,7 +193,9 @@ enum ChiefInspectorHandlers {
     /// Shows and selects the tab of `surface` once the mirror reports it.
     private static func reveal(_ surface: SurfaceID, context: AppActionContext) async {
         let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
+            for await tab in ObservationStream({
+                context.daemon.store.locatedTab(surface: surface).map { LocatedTab(tab: $0.tab, pane: $0.pane, workspace: $0.workspace) }
+            }) {
                 if let tab { return tab }
             }
             return nil as LocatedTab?
@@ -270,20 +283,95 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 
 enum ChiefInspectorStrings {
     static var pageTitle: String {
-        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var serverOffline: String {
         String(localized: "handlers.chief.inspector.serverOffline",
-               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module)
+               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
-               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again.",
-               table: "MiscHandlers", bundle: .module)
+               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again.",
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var unreachable: String {
         String(localized: "handlers.chief.inspector.unreachable",
                defaultValue: "The Chief's Memory Inspector did not answer. Restart cmux to restart the Chief, then try again.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
+    }
+}
+
+extension InternalPageID {
+    /// The Chief's profile page with its computer (cmux issue 31488): one pane tab per conversation.
+    nonisolated static let chiefComputer = InternalPageID(rawValue: "chief-computer")
+}
+
+/// The Chief's large computer pages (CmuxNextHostedChief's ChiefComputerPages) as the pane beside Home's
+/// internal page. The settings popover's Expand and the palette's Chief: Toggle Computer open them.
+extension ChiefComputerPages: InternalPageProvider {
+    var page: InternalPageID { .chiefComputer }
+    var title: String { HomeEngineStrings.computerPageTitle }
+    var symbol: String { "desktopcomputer" }
+    func makeView(for key: String, in window: WindowController?) -> NSView { makeView(for: key) }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let service = ChiefComputerPages(host: context.services)
+        service.onClose = { [weak service, weak services = context.services] in
+            if let window = services?.windows.active { _ = service?.closeShown(in: window) }
+        }
+        context.services.pages.register(service)
+        registry.bindEffect(ChiefComputerWiring.toggleActionID, requires: nil, effect: { invocation in
+            guard let window = context.services.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+            if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return .done }
+            // The palette names no conversation: the Chief Home shows first.
+            guard let conversation = invocation.arguments["conversation"]?.stringValue ?? context.services.home.defaultChiefConversation, !conversation.isEmpty,
+                  service.open(conversation, in: window, focus: invocation.allowsViewChange) != nil else {
+                return .refused(RefusalStrings.noWindowOpen)
+            }
+            return .done
+        })
+    }
+
+    @discardableResult
+    func open(_ conversation: String, in window: WindowController?, focus: Bool) -> String? {
+        guard let services = host as? AppServices, let window, let content = window.workspaceContent else { return nil }
+        for model in content.modelPanes {
+            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            if let shown = key(showing: conversation, among: keys) {
+                if focus, let pane = content.controller(for: model) {
+                    pane.select(services.pages.stripID(showing: shown, in: pane) ?? StripTabID(shown))
+                    pane.focusContent()
+                }
+                return shown
+            }
+        }
+        nextRoute = conversation
+        defer { nextRoute = nil }
+        guard services.pages.openNew(.chiefComputer, in: window, focus: focus) != nil else { return nil }
+        return key(showing: conversation)
+    }
+
+    /// Whether the workspace `window` names shows a profile tab: an observable read.
+    func isShown(in window: WindowController) -> Bool {
+        _ = window.state.workspaceID
+        guard let content = window.workspaceContent, let services = host as? AppServices else { return false }
+        let tabs = content.workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        if tabs.contains(where: { $0.page == InternalPageID.chiefComputer.rawValue }) { return true }
+        return services.pages.tab(of: .chiefComputer, inPanes: content.modelPanes.map(\.id)) != nil
+    }
+
+    /// Closes the profile tabs of the workspace `window` names; false when it shows none.
+    func closeShown(in window: WindowController) -> Bool {
+        guard let services = host as? AppServices, let content = window.workspaceContent else { return false }
+        var closed = false
+        for model in content.modelPanes {
+            guard let pane = content.controller(for: model) else { continue }
+            let store = model.tabs.filter { $0.page == InternalPageID.chiefComputer.rawValue }.map { StripTabID($0.id) }
+            let local = services.pages.tabIDs(in: model.id).filter { LocalPageTab.page(of: $0) == .chiefComputer }.map { StripTabID($0) }
+            guard !(store + local).isEmpty else { continue }
+            pane.close(store + local)
+            closed = true
+        }
+        return closed
     }
 }

@@ -6,8 +6,33 @@ import type { AcpmuxDirectClient } from "./direct";
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
-/// The harnesses whose login acpmux runs on the machine.
-export type LoginAgent = "claude" | "codex";
+/// The harnesses whose login acpmux runs on the machine. Gemini CLI signs in there with an API key
+/// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
+/// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
+/// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
+/// subscription").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor";
+
+/// The agents ``cloudAgentLogin`` offers a sign-in for.
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor"];
+
+/// `value` as a ``LoginAgent``; else undefined.
+export function loginAgent(value: string | undefined): LoginAgent | undefined {
+  return LOGIN_AGENTS.find((agent) => agent === value);
+}
+
+/// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
+/// agent but Gemini, which takes a key only.
+export function signsInByPage(agent: LoginAgent): boolean {
+  return agent !== "gemini";
+}
+
+/// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
+/// agent but Grok, which reads `XAI_API_KEY` from the person's vault, and Cursor, whose key goes in
+/// as the Cloud secret `CURSOR_API_KEY` (acpmux `agent_login` refuses one here).
+export function takesApiKey(agent: LoginAgent): boolean {
+  return agent !== "grok" && agent !== "cursor";
+}
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
 /// gives a code to paste back (Claude), and when the login lapses. `autoUrl` is Claude's automatic
@@ -34,7 +59,20 @@ export type LoginFailure =
   | "remote_refused"
   | "unknown_session"
   | "unsupported"
+  | "no_gateway"
   | "failed";
+
+/// Whether a sign-in failure's text says the machine's team has cmux's gateway (acpmux
+/// `claude_auth::GATEWAY_OFFER`, named only when the image's own check said so): the card then
+/// offers it as its third way in (``CloudSignIn/gateway``).
+export function offersGateway(message: string | undefined): boolean {
+  return message !== undefined && /\bUse cmux['’]s gateway\b/.test(message);
+}
+
+/// The agents cmux's gateway runs (the image's `agent-auth.sh` team mode).
+export function usesGateway(agent: LoginAgent): boolean {
+  return agent === "claude" || agent === "codex";
+}
 
 /// The hosts a sign-in page may be on. The page the machine's CLI names is opened on this Mac, so
 /// only its provider's own sign-in hosts, over https.
@@ -45,6 +83,9 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "console.anthropic.com",
   "auth.anthropic.com",
   "auth.openai.com",
+  "accounts.x.ai",
+  "auth.x.ai",
+  "cursor.com",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.
@@ -89,6 +130,7 @@ export function loginFailure(error: unknown): LoginFailure {
     case "busy":
     case "remote_refused":
     case "unknown_session":
+    case "no_gateway":
       return reason;
     // The login the card holds is gone (acpmux restarted, or it lapsed): start again.
     case "unknown_login":
@@ -158,6 +200,10 @@ export type CloudSignIn = {
   finish(loginId: string, code?: string): Promise<boolean>;
   /// Saves an API key for the agent on the machine. True when saved.
   apiKey(key: string): Promise<boolean>;
+  /// Runs the agent on cmux's gateway (the team's own account, as `cr use team` does) instead of a
+  /// sign-in of its own: acpmux's `start` with `<agent>@gateway`, which checks the team has the
+  /// gateway first. True when it switched. Throws a ``LoginFailure`` (`no_gateway` when it has none).
+  gateway(): Promise<boolean>;
   /// Stops a login the card started.
   cancel(loginId: string): void;
   /// Reserves the current click's gesture for one resend of the failed prompt. Call it inside the
@@ -181,9 +227,16 @@ export class LoginStepError extends Error {
 type LoginOptions = {
   connected: boolean;
   machineID: string | undefined;
+  /// The chat runs on another machine than this Mac (chatMachine.ts): a Cloud one or the person's own
+  /// (a peer, or the machine the app's wire reaches). Its agent signs in there, as a Cloud chat's does.
+  elsewhere?: boolean;
   sessionId: string | undefined;
   harness: string | undefined;
   supported: boolean;
+  /// A new chat with no session yet whose machine signs its agent in there anyway (the failed
+  /// start's card, hq#11225; ``AcpmuxDirectClient/supportsMachineLogin``): with no `sessionId`, each
+  /// step names no chat and runs on that machine itself. Retry then starts the chat signed in.
+  machineLogin?: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
   /// The host's machine-bound open (``CloudSignIn/openOnMachine``); true when it opened.
@@ -192,11 +245,13 @@ type LoginOptions = {
   currentClient: () => LoginClient | undefined;
 };
 
-/// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
-/// not connected, not on a Cloud machine, not Claude or Codex, or on an acpmux that does not
-/// advertise `agent_login`.
+/// The sign-in a sign-in failure offers for a chat on another machine, a Cloud one or the person's
+/// own (Leo 2026-11-14: "and how are the ergonomics of cmux remote tho esp in the gui?"; an own
+/// machine's chat opened a terminal with the login command instead), or undefined where there is
+/// none: a chat not connected, on this Mac, not one of ``LOGIN_AGENTS``, or on an acpmux that does
+/// not advertise `agent_login`. Each step names the chat, so acpmux runs it on the chat's machine.
 export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
-  return options.machineID ? agentLogin(options) : undefined;
+  return options.machineID || options.elsewhere ? agentLogin(options) : undefined;
 }
 
 /// Use an API key for a chat on this Mac whose built-in Claude Code or Codex is not signed in (Leo
@@ -204,25 +259,61 @@ export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined 
 /// their own api key"). acpmux saves the key where the agent's own CLI reads it (Claude's
 /// `settings.json` `env.ANTHROPIC_API_KEY`, `codex login --with-api-key`) and restarts the chat on it.
 /// Only the built-in `claude` and `codex` harnesses: a route (`claude-cr`, `claude-sr`) sets its own
-/// key and endpoint, which a saved key would never reach. Undefined for a Cloud chat (its card is
-/// ``cloudAgentLogin``'s).
+/// key and endpoint, which a saved key would never reach. Undefined for a chat on another machine
+/// (its card is ``cloudAgentLogin``'s).
 export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined {
   const harness = options.harness?.split("/").pop();
-  if (options.machineID || (harness !== "claude" && harness !== "codex")) return undefined;
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
   return agentLogin(options);
 }
 
-/// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
-/// Codex, or on an acpmux that does not advertise `agent_login`.
+/// The in-place sign-in for an agent on this Mac (logins done right; Leo, 2026-11-22: "we likewise
+/// want gh auth or device stuff to be much more convienient ui/ux wise ... this is simply logins,
+/// done righr."): the signed-out notice's Log In and a start refused for its sign-in run the agent's
+/// own login here (`_acpmux/agent_login/*`, which this Mac's socket and app may ask) in the card, its
+/// page beside the chat and its code in the card, instead of a terminal tab. Undefined for a chat
+/// elsewhere (``cloudAgentLogin``'s) and wherever ``agentLogin`` is: a daemon without `agent_login`
+/// (or, with no chat, without `agent_login_machine`) keeps the terminal login. Only the built-in
+/// `claude` and `codex` harnesses, as ``localApiKeyLogin``: a route (`claude-cr`, `claude-sr`) signs
+/// in its own way (its health's login), which the built-in agent's login would never reach.
+export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined {
+  const harness = options.harness?.split("/").pop();
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
+  return agentLogin(options);
+}
+
+/// What a start refused for its sign-in offers (App.tsx's SwitchNotice props): a start on another
+/// machine takes that machine's card (``cloudAgentLogin``) and never a login on this Mac; one here
+/// takes this Mac's in-place card (``localAgentLogin``) when there is one, and keeps the terminal
+/// login (`runsLogin`) as its fallback either way (SwitchNotice's ``signInRoute`` picks the card).
+export function refusedStartSignIn(options: {
+  startsElsewhere: boolean;
+  elsewhereCard: CloudSignIn | undefined;
+  localCard: CloudSignIn | undefined;
+  loginCommand: string | undefined;
+}): { agentSignIn?: CloudSignIn; runsLogin: boolean } {
+  const card = options.startsElsewhere ? options.elsewhereCard : options.localCard;
+  return {
+    ...(card && { agentSignIn: card }),
+    runsLogin: !options.startsElsewhere && options.loginCommand !== undefined,
+  };
+}
+
+/// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
+/// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
-  const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
+  const agent = loginAgent(agentKey(harness?.split("/").pop()));
+  // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
+  const machine = !sessionId && options.machineLogin === true;
+  if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;
+  // A chat's card works only while the pane shows its chat; a new chat's signs in on its machine.
+  const current = () => (sessionId ? isCurrent(sessionId) : true);
   const client = () => {
-    const current = currentClient();
-    if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");
-    return current;
+    const live = currentClient();
+    if (!live || !current()) throw new LoginStepError("failed");
+    return live;
   };
   const step = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
@@ -269,6 +360,14 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         const reply = (await client().agentLoginApiKey(agent, sessionId, key)) as { saved?: unknown } | undefined;
         return reply?.saved === true;
       }),
+    gateway: () =>
+      step(async () => {
+        if (!usesGateway(agent)) throw new LoginStepError("unsupported");
+        const reply = (await client().agentLoginStart(`${agent}@gateway`, sessionId)) as
+          | { gateway?: unknown }
+          | undefined;
+        return reply?.gateway === true;
+      }),
     cancel: (loginId) => {
       void currentClient()
         ?.agentLoginCancel(loginId, sessionId)
@@ -284,8 +383,9 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     resend: async (rowId, prompt, ticket, wanted = () => true) => {
       // Never a send without the person's click (the host would refuse it anyway).
       if (!ticket) return;
+      // A new chat's card resends nothing: its Retry starts the chat.
       const sender = currentClient();
-      if (!sender || !isCurrent(sessionId) || !wanted()) return;
+      if (!sessionId || !sender || !isCurrent(sessionId) || !wanted()) return;
       const draft = await sender.resendPrompt(rowId, prompt);
       if (!wanted() || !isCurrent(sessionId) || currentClient() !== sender) return;
       await sender.send(draft.input, draft.attachments, ticket.promptId, undefined, ticket.ticket);

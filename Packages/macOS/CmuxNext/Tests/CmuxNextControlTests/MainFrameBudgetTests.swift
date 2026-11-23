@@ -265,9 +265,10 @@ import Testing
         let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
         let spare = FrameBatchQueue(owner: "WorkspaceSpare", budgeted: .background, on: scheduler)
         let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
-        var steps: [String] = [], shown = 0, time = 10.0
+        var steps: [String] = [], time = 10.0
+        let shown = Box(0)
         func frame(after ms: Double) {
-            rows.enqueue { shown += 1 }
+            rows.enqueue { shown.withLock { $0 += 1 } }
             clock.advance(ms: ms)
             time += ms / 1000
             scheduler.frameDidFire(timestamp: time, refreshInterval: 1.0 / 60)
@@ -283,10 +284,10 @@ import Testing
         #expect(steps == ["reserve"], "the spare's build ran in a frame 55 ms late")
         frame(after: 28)
         #expect(steps == ["reserve"], "the spare's build ran in a frame 28 ms late")
-        #expect(shown == 3, "visible work waited in a late frame")
+        #expect(shown.withLock { $0 } == 3, "visible work waited in a late frame")
         frame(after: 16.7)
         #expect(steps == ["reserve", "build"], "the build did not run once the frames came on time")
-        #expect(shown == 4)
+        #expect(shown.withLock { $0 } == 4)
     }
 
     /// An on-time frame after a long render pass (layout, display and commit past half a refresh) has no
@@ -497,6 +498,24 @@ import Testing
         }
         #expect(ran == 5, "the checks' time was left out of the frame's budget: \(ran) requests ran")
         #expect(budget.stats.maxInputCheckNanos == 250_000)
+    }
+
+    /// A pending-input check whose own cost is longer than the 250 us window it is cached for is
+    /// still cached: the window was timed from when the check began, so an expensive check left its
+    /// answer already expired and every later call in the frame paid for another one. That is the
+    /// gate switching itself off exactly where it is needed (a loaded window server is when the
+    /// check is slow), the same shape as the agent transcript's live-resize latch.
+    @Test func anExpensiveInputCheckIsStillCachedForItsWindow() {
+        let clock = BudgetClock()
+        // 0.4 ms, longer than the 0.25 ms the answer is kept for.
+        let budget = MainFrameBudget(input: CostlyInputPending(clock: clock, ms: 0.4), uptimeNanos: clock.read)
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(budget.mayRun(.automation))
+        #expect(budget.stats.inputChecks == 1)
+        // A second task of the same frame, 0.05 ms later: inside the window, so it reads the answer.
+        clock.advance(ms: 0.05)
+        #expect(budget.mayRun(.automation))
+        #expect(budget.stats.inputChecks == 1, "the costly check ran again inside its own window")
     }
 
     /// FIFO within a connection: a client that pipelines a focus change and then a key, without

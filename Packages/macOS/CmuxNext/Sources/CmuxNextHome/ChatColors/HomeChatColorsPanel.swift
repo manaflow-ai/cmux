@@ -1,9 +1,10 @@
 public import AppKit
-import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The Chat Colors… panel (a chat row's menu, the palette, `home.chatColors`): one small floating
 /// panel for the app, showing one chat at a time; opening it for another chat switches it there.
+/// AppKit (plans/cmux-next/language-layers.md): a panel of Home is native chrome.
 @MainActor
 public final class HomeChatColorsPanel {
     private let store: HomeChatColorStore
@@ -30,12 +31,8 @@ public final class HomeChatColorsPanel {
         self.panel = panel
         let host = HomeChatColorsView(
             store: store, conversation: conversation,
-            resolve: { [design] chosen in
-                // The view calls this in its theme scope (performWithTheme).
-                let style: HomePalette.BubbleStyle = design.homeChiefBubblesThemed ? .theme : .iMessage
-                let all = HomeChatColorStore.colors(fromHexes: design.homeBubbleColors)
-                return HomeChatColorsPreview(HomeThemePalette.resolveInScope(active: true, style: style).applying(chosen.over(all)))
-            },
+            // The view calls this in its theme scope (performWithTheme).
+            resolve: { [design] chosen in HomeChatColorsPreview.resolveInScope(chosen, design: design) },
             onDone: { [weak panel] in panel?.orderOut(nil) })
         panel.contentView = host
         panel.title = name.isEmpty ? HomeChatColorsStrings.title : "\(HomeChatColorsStrings.title) — \(name)"
@@ -47,11 +44,21 @@ public final class HomeChatColorsPanel {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 400),
-                            styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
+        let panel = HomeChatColorsWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 400),
+                                         styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = true
+        // An app that refuses activation (CMUX_NEXT_NO_ACTIVATE: tours, side-by-side runs) is never active, so a
+        // hide-on-deactivate panel never reached the screen there; it stays up instead.
+        panel.hidesOnDeactivate = !WindowPlacement.noActivate
         panel.setAccessibilityIdentifier("cmux.home.chatColors")
         return panel
+    }
+}
+
+/// The Chat Colors panel's window: Escape closes it, as its close button and Done do.
+@MainActor
+final class HomeChatColorsWindow: NSPanel {
+    override func cancelOperation(_ sender: Any?) {
+        orderOut(nil)
     }
 }

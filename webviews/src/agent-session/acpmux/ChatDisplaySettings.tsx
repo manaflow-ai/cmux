@@ -6,6 +6,7 @@
 // removes every key.
 import { useEffect, useId, useRef, useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
+import { Switch } from "../../ui/Switch";
 import { type StringKey, useT } from "./i18n";
 import { CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont, DEFAULT_CHAT_UI_FONT } from "./chatUiFont";
 import {
@@ -16,10 +17,7 @@ import {
   useChatDisplay,
   type ChatFontChoice,
 } from "./chatDisplay";
-
-/// Code fonts offered beside a typed name; empty follows the Markdown viewer, then the terminal font.
-export const CODE_FONT_SUGGESTIONS = ["SF Mono", "Menlo", "Monaco", "JetBrains Mono", "Fira Code", "Berkeley Mono"];
-
+import { CODE_FONT_SUGGESTIONS } from "./chatDisplaySettingsModel";
 const shown = (value: number) => String(Number(value.toFixed(2)));
 
 export function ChatDisplaySettings({
@@ -94,13 +92,13 @@ export function ChatDisplayRows() {
         onChange={(value) => changeChatDisplay(c.width.key, value)}
       />
       <label className="acpmux-display-row acpmux-display-check">
-        <input
-          type="checkbox"
+        <span>{t("chatDisplay.fullWidth")}</span>
+        <Switch
+          size="sm"
           aria-label={t("chatDisplay.fullWidth")}
           checked={display.fullWidth}
-          onChange={(event) => changeChatDisplay(c.fullWidth.key, event.currentTarget.checked ? true : null)}
+          onCheckedChange={(on) => changeChatDisplay(c.fullWidth.key, on ? true : null)}
         />
-        <span>{t("chatDisplay.fullWidth")}</span>
       </label>
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.font")}</span>

@@ -1,6 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 public import Observation
 
@@ -287,6 +288,13 @@ public final class HomeSidebarSource {
         hidden[id] = row.summary.lastSeq
         store.save(hidden: hidden, account: account())
         return true
+    }
+
+    /// Lists `id` again after ``hide(_:)`` (its toast's Undo), across launches too.
+    public func unhide(_ id: ConversationID) {
+        hidden = store.hidden(account: account())
+        guard hidden.removeValue(forKey: id) != nil else { return }
+        store.save(hidden: hidden, account: account())
     }
 
     /// Lists every deleted conversation again; returns how many were hidden.

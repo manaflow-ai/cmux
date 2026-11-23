@@ -22,6 +22,12 @@ use serde_json::json;
 
 const USAGE: &str = "usage: cmux link seed plan --local FOLDER --bundle OUT [--base SHA]";
 
+/// The one https URL a machine clones (`https://github.com/OWNER/NAME.git`) and `OWNER/NAME`
+/// of a GitHub remote URL in any form git takes; None for anything else.
+pub(super) fn github_url(url: &str) -> Option<(String, String)> {
+    github::parse(url).map(|repo| (repo.url(), repo.slug()))
+}
+
 pub(super) fn run(args: &[String]) -> i32 {
     if matches!(args.first().map(String::as_str), None | Some("-h" | "--help" | "help")) {
         println!("{USAGE}");
@@ -74,23 +80,5 @@ fn parse(args: &[String]) -> Option<(PathBuf, PathBuf, Option<String>)> {
 }
 
 #[cfg(test)]
-mod cli_tests {
-    use super::parse;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|arg| (*arg).to_string()).collect()
-    }
-
-    #[test]
-    fn parses_plan_flags() {
-        let (local, bundle, base) =
-            parse(&args(&["plan", "--local", "/a", "--bundle", "/b", "--base", "abc"])).unwrap();
-        assert_eq!(local.to_str(), Some("/a"));
-        assert_eq!(bundle.to_str(), Some("/b"));
-        assert_eq!(base.as_deref(), Some("abc"));
-        assert!(parse(&args(&["plan", "--local", "/a"])).is_none());
-        assert!(parse(&args(&["plan", "--local", "/a", "--bundle"])).is_none());
-        assert!(parse(&args(&["push", "--local", "/a", "--bundle", "/b"])).is_none());
-        assert!(parse(&args(&["plan", "--local", "/a", "--bundle", "/b", "--x", "y"])).is_none());
-    }
-}
+#[path = "seed_cli_tests.rs"]
+mod cli_tests;

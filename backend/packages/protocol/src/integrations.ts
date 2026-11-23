@@ -31,6 +31,12 @@ export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
 /** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
 export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
 
+/** What a connection may act on: GitHub's recorded repositories, and who linked them (see Connection). */
+export const ConnectionResources = Schema.Struct({
+  repos: Schema.NullOr(Schema.Array(Schema.String)),
+  linked_by_github_id: Schema.optionalKey(Schema.Int)
+})
+
 export const Connection = Schema.Struct({
   id: ConnectionId,
   owner: TeamId,
@@ -46,9 +52,11 @@ export const Connection = Schema.Struct({
   /**
    * Provider resources this connection may act on. GitHub: the repositories the
    * linking user could access in the installation (`null` = the whole
-   * installation, when the team policy says so).
+   * installation, when the team policy says so). `linked_by_github_id`: the
+   * linking user's GitHub user id, recorded with a list; a repository that same
+   * user adds to the installation joins the list (absent on older connections).
    */
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) })),
+  resources: Schema.optionalKey(ConnectionResources),
   created_at: Schema.Int,
   updated_at: Schema.Int
 }).annotate({ identifier: "Connection" })
@@ -165,6 +173,41 @@ export type Connection = typeof Connection.Type
 
 const Scopes = Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))).check(Schema.isMaxLength(30))
 
+/** The longest return link a connect carries through its signed state. */
+export const CONNECT_RETURN_TO_MAX = 512
+const RETURN_HEX = "[0-9a-f]{32}"
+const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
+const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
+/**
+ * Where a connect started from a chat sends the person back after GitHub: a cmux object link to that chat, the
+ * grammar of `plans/cmux-next/links.json` (`<scheme>://workspace|pane|tab/<prefix><32 hex>[?machine=]`,
+ * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
+ * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
+ * no web origin, no other scheme, no other query key.
+ *
+ * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. The
+ * provider's redirect page hands the provider's `code`, `installation_id` and this `state` to that link, and the app
+ * sends `integration.complete` with its own sign-in, so the person needs no web session. The API still finishes only
+ * a state signed for that same user and team.
+ */
+export const CONNECT_RETURN_TO = new RegExp(
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+    `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
+    `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
+    `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
+    `|integration/complete` +
+    `)$`
+)
+/** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
+export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
+/** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production. */
+export const isDevReturnTo = (s: string): boolean => s.startsWith("cmux-dev")
+/**
+ * Is `s` the app's own completion link (`<scheme>://integration/complete`)? It carries no chat and is never a page
+ * to show: it only hands the redirect back to the app that holds the person's session, a development build's too.
+ */
+export const isIntegrationCompleteReturnTo = (s: string): boolean => isConnectReturnTo(s) && s.endsWith("://integration/complete")
+
 export const IntegrationConnect = def({
   name: "integration.connect",
   owner: "cloud:ConnectionDO",
@@ -175,11 +218,21 @@ export const IntegrationConnect = def({
   params: Schema.Struct({
     provider: IntegrationProvider,
     scopes: Schema.optionalKey(Scopes),
-    sharing: Schema.optionalKey(Schema.Literals(["private", "team"]))
+    sharing: Schema.optionalKey(Schema.Literals(["private", "team"])),
+    /** GitHub: the repository the person needs (OWNER/REPO). A connection that already covers it is reused. */
+    repo: Schema.optionalKey(Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))),
+    /** A cmux deep link to the chat that asked; the callback page opens it after linking (`CONNECT_RETURN_TO`). */
+    return_to: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(CONNECT_RETURN_TO_MAX), isPattern(CONNECT_RETURN_TO)))
   }),
-  result: Schema.Struct({ connection: Connection, authorize_url: Schema.String }),
+  /**
+   * `connected: true` (no `authorize_url`): a connection this person may use already covers `repo`; nothing to open.
+   * Otherwise `authorize_url` is the one page to open: GitHub's authorize page when the App is installed on the
+   * repository's owner (the completion answers `configure_url` if the person's link leaves `repo` out), else the
+   * install page, preselecting the owner when known.
+   */
+  result: Schema.Struct({ connection: Connection, authorize_url: Schema.optionalKey(Schema.String), connected: Schema.optionalKey(Schema.Literal(true)) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.limit", "policy.denied"],
-  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.",
   cli: { path: "integration connect", visible: true },
   mcp: { expose: "never", group: "integration" }
 })
@@ -197,7 +250,11 @@ export const IntegrationComplete = def({
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
     setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
   }),
-  result: Connection,
+  /**
+   * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
+   * the installation's GitHub settings page when the person's link left the asked repository out (open it first).
+   */
+  result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String), configure_url: Schema.optionalKey(Schema.String) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.state_invalid", "mutation.indeterminate"],
   docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
   cli: { path: "", visible: false },
@@ -326,7 +383,7 @@ export const ConnectionActivateParams = Schema.Struct({
   connection: ConnectionId,
   account: Schema.Struct({ key: Schema.String, name: DisplayName, url: Schema.optionalKey(Schema.String) }),
   scopes_granted: Schema.Array(Schema.String),
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) }))
+  resources: Schema.optionalKey(ConnectionResources)
 })
 
 export const PolicyApplyManagedParams = Schema.Struct({
@@ -334,6 +391,20 @@ export const PolicyApplyManagedParams = Schema.Struct({
   policy: PolicyFields,
   /** Who or what applied it (for example an IdP connection id or an MDM profile id). */
   applied_by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+})
+/**
+ * A GitHub App webhook changed what an installation grants (`installation.unsuspend`,
+ * `installation.new_permissions_accepted`, `installation_repositories.removed` or `.added`): the permissions
+ * now granted, repositories that left the installation (they leave the connection's recorded list), and
+ * repositories the linking user added (they join it).
+ * The connection's status stays as it is.
+ */
+export const ConnectionGithubSyncParams = Schema.Struct({
+  connection: ConnectionId,
+  scopes_granted: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(100)))),
+  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201)))),
+  /** Repositories the linking user added to the installation (its `sender` is the recorded `linked_by_github_id`). */
+  repos_added: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
 })
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
@@ -357,6 +428,8 @@ export const GitHubTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  /** When selected in the repository picker, require this exact authorized connection. */
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
 })
 /** POST /v1/integrations/github/machine-token: the machine-only connector path may set a short TTL. */
@@ -364,6 +437,7 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
@@ -390,6 +464,7 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("integration.github.token_minted", GitHubTokenMintedParams, "Internal: a GitHub installation token was minted for a caller (POST /v1/integrations/github/token); its audit record goes to TeamDO."),
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
+  internal("connection.github.sync", ConnectionGithubSyncParams, "Internal: a GitHub App webhook changed the installation's permissions or repositories; the status stays."),
   internal(
     "connection.expire",
     // `at` is the alarm's wake instant (the owner's own clock reading; only the owner submits this op).

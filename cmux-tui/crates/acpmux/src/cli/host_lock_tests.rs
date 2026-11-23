@@ -21,7 +21,9 @@ fn two_updates_of_one_host_never_run_at_once() {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
+        now: true,
     };
 
     // An update from another machine holds it: a second one changes nothing.
@@ -114,7 +116,9 @@ fn an_update_whose_lock_connection_drops_changes_nothing_more() {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
+        now: true,
     };
     let up = update_locked(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("lockLost")), "{up:?}");
@@ -146,6 +150,7 @@ fn of_updates_that_start_at_once_one_takes_the_lock() {
                         gone_after_copy: Default::default(),
                         copy_drops: Default::default(),
                         gone: Default::default(),
+                        link_drops_on_restart: Default::default(),
                     });
                     start.wait();
                     lock_updates(&*peer).unwrap()

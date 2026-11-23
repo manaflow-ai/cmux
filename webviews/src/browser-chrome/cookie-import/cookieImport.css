@@ -1,0 +1,174 @@
+/* IMPORT COOKIES CARD (CookieImportCard.tsx). A toast: the shared transient surface's glass,
+   the toasts' veil, radius and shadow; toasts.css), one row on the design scale (pages/shared/
+   desktop.css): a 20 icon, the one line in the body step, then the answers. In the app the native
+   card draws the glass under the page; the gallery draws its own. */
+.ci-card {
+  --ci-icon: var(--ds-icon-20, 20px);
+  --ci-ink: var(--cmux-text, var(--ds-color-fg));
+  --ci-ink-2: var(--cmux-text-secondary, var(--ds-color-muted));
+  --glass-tint: var(--transient-surface-veil);
+  --glass-elevation: var(--elevation-2);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--ds-space-2);
+  row-gap: var(--ds-space-1);
+  width: 100%;
+  min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--transient-surface-radius);
+  color: var(--ci-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* On the app's glass the card paints no fill: only its contents and the popups' one shadow. */
+.ci-card[data-native-glass] {
+  box-shadow: none;
+}
+.ci-icon {
+  flex: none;
+  width: var(--ci-icon);
+  height: var(--ci-icon);
+  object-fit: contain;
+}
+/* The one line: it takes the room left and wraps to a second line before it ever cuts a word. */
+.ci-title {
+  /* A small basis keeps the line beside the icon in the narrowest pane; it grows to the room left. */
+  flex: 1 1 8em;
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* TOAST LOOK (the app's): the overlay dialog's grammar (pages/overlay/dialog/dialog.css), Lawrence
+   2026-11-09. The line reads in the title's weight in the full ink; Don't Show Again is quiet text,
+   Not Now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius,
+   on a row of their own under the line. */
+.ci-card[data-look="toast"] {
+  --ci-icon: var(--ds-icon-32, 32px);
+  --ci-button-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ci-button-radius: calc(9px * var(--cmux-interface-scale, 1));
+  column-gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+/* As the reference notice: the icon and the line on top, the answers on their own row under the line,
+   at the trailing edge, so the line never squeezes beside three buttons. */
+.ci-card[data-look="toast"] .ci-title {
+  flex: 1 1 calc(100% - var(--ci-icon) - var(--ds-space-3));
+  font-weight: var(--weight-emphasis, 600);
+}
+.ci-card[data-look="toast"] .ci-toast-answers {
+  flex: 1 0 100%;
+}
+.ci-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--ci-button-height);
+  margin: 0;
+  padding-inline: var(--ds-space-3);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--ci-button-radius, var(--ds-radius-control));
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-action:hover,
+.ci-action:active {
+  background: var(--ds-color-pressed);
+}
+.ci-action[data-role="default"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}
+.ci-action[data-role="default"]:hover,
+.ci-action[data-role="default"]:active {
+  background: color-mix(in srgb, var(--ds-color-accent) 88%, var(--ds-color-fg));
+}
+.ci-action[data-role="quiet"] {
+  padding-inline: var(--ds-space-2);
+  background: transparent;
+  color: var(--ci-ink-2);
+}
+.ci-action[data-role="quiet"]:hover {
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+}
+.ci-action:focus-visible {
+  outline: 2px solid var(--ds-color-focus, var(--ui-ring, currentColor));
+  outline-offset: 1px;
+}
+.ci-toast-answers {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+
+/* BUTTONS AND STACKED LOOKS: Not Now and Import as compact buttons of one width, Don't Show Again a
+   ghost button of the same height in the faint ink. */
+.ci-row {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding-inline-start: calc(var(--ci-icon) + var(--ds-space-2));
+}
+.ci-card:not(:has(.ci-icon)) .ci-row {
+  padding-inline-start: 0;
+}
+.ci-spacer {
+  flex: 1;
+}
+.ci-answers {
+  display: grid;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-2);
+}
+.ci-answer.ui-btn {
+  min-width: min(calc(var(--ds-space-6) * 2), 100%);
+  overflow: hidden;
+  padding-inline: var(--ds-space-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-never.ui-btn {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ds-color-faint);
+  text-overflow: ellipsis;
+}
+.ci-card[data-look="stacked"] .ci-never.ui-btn {
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.ci-card[data-look="buttons"] .ci-never.ui-btn {
+  margin-inline-start: auto;
+}
+.ci-never.ui-btn:hover:not([data-disabled]) {
+  color: var(--ds-color-muted);
+}

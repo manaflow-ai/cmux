@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,7 +45,8 @@ const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
-const { pullTabCounts, TrayPullTab, tuckTray } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+const { TrayPullTab } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+const { pullTabCounts, tuckTray } = await import("../src/agent-session/acpmux/subagents/trayPullTabModel");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { registerChatDisplayHost, setChatDisplay, useTrayHandle, useTrayTucked, TRAY_HANDLE_KEY, TRAY_TUCKED_KEY } =
   await import("../src/agent-session/acpmux/chatDisplay");
@@ -54,14 +56,10 @@ type BackgroundCommand = import("../src/agent-session/acpmux/session-info/proces
 // The composer hat tucks away (Leo, 2026-11-04: "what if you wanted to collapse that one line?"):
 // a chevron at the hat's top middle tucks it, `agentPane.display.trayTucked` holds it, and tucked
 // only a pull tab at the composer's top middle stays, whose click brings the hat back (App.tsx).
-afterAll(() => {
+afterAll(async () => {
   registerChatDisplayHost(undefined);
   setChatDisplay({});
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 

@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use crate::local_owner::CarriedLaunch;
 use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -47,6 +48,11 @@ pub(super) enum ServerAction {
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
         restore_wait: Duration,
+        /// `--if-idle`: stop only while no other client is connected and no
+        /// terminal is live (`daemon-stop-if-idle-v1`); else exit 1 and say
+        /// what uses the daemon. An owner without the capability keeps
+        /// running and the stop exits 4.
+        if_idle: bool,
     },
     /// The daemon swap (HQ#7149 R4): stop the owner as an update hands it off
     /// (its terminal hosts live on), wait for it to exit, then ensure an owner
@@ -63,6 +69,15 @@ pub(super) enum ServerAction {
     /// state root (`CMUX_TUI_STATE_DIR` or the platform default).
     CompactRegistry {
         state_dir: Option<std::path::PathBuf>,
+    },
+    /// Private app contract: before an update hands the running owner off,
+    /// the new build folds what its first start would (the agent roster at a
+    /// new reducer version) into a side file beside the registry, read-only
+    /// and beside the owner, which keeps serving. The new owner adopts it.
+    /// Needs an explicit `--session`; `--state-dir` as for compact-registry.
+    PremigrateRegistry {
+        state_dir: Option<std::path::PathBuf>,
+        max_duration: Option<Duration>,
     },
 }
 
@@ -93,6 +108,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     if let ServerAction::CompactRegistry { state_dir } = plan.action {
         return run_compact_registry(expected_session, state_dir, global.output);
+    }
+    if let ServerAction::PremigrateRegistry { state_dir, max_duration } = plan.action {
+        return run_premigrate_registry(expected_session, state_dir, max_duration, global.output);
     }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
@@ -158,30 +176,31 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let restart = matches!(plan.action, ServerAction::Restart { .. });
     let action = match plan.action {
         ServerAction::Restart { force, restore_wait } => {
-            ServerAction::Stop { force, end_terminals: false, restore_wait }
+            ServerAction::Stop { force, end_terminals: false, restore_wait, if_idle: false }
         }
         action => action,
     };
     // The new owner takes the stopped owner's session (its `identify`), so a
     // restart by `--socket` alone never starts a "main" owner beside it.
-    let ensure_after_stop = |session: Option<String>, previous_pid: Option<u32>| {
+    // It starts with the stopped owner's launch flags and environment.
+    let ensure_after_stop = |session: Option<String>, stopped: Option<(u32, CarriedLaunch)>| {
         run_ensure(
             session,
             (None, None),
             None,
             (socket.clone(), socket_is_derived),
             (false, false),
-            (None, previous_pid),
+            (None, stopped),
             global.output,
         )
     };
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
+    if let ServerAction::Stop { force, end_terminals, restore_wait, if_idle } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
-            retry_flags: (force, end_terminals),
+            retry_flags: (force, end_terminals, if_idle),
             restart,
             output: global.output,
         };
@@ -195,11 +214,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return ensure_after_stop(expected_session, None);
         }
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
+            // A start lock an earlier owner left goes too.
+            let removed = remove_start_lock(&socket);
             return print_success(
                 json!({
                     "status":"not_running",
                     "session":expected_session,
                     "socket":socket_output,
+                    "removed":removed,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,
@@ -256,12 +278,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(true)) | None => {}
         Some(Value::Bool(false)) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.starting,
-                global.output,
-                3,
-            );
+            let message = crate::localization::catalog().local_server.starting;
+            // The message says to retry: a server still starting is retryable.
+            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            return super::wire::print_local_error(&error, global.output, 3);
         }
         Some(_) => {
             return local_error(
@@ -309,9 +329,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match action {
         ServerAction::Ensure { .. }
         | ServerAction::CompactRegistry { .. }
+        | ServerAction::PremigrateRegistry { .. }
         | ServerAction::Restart { .. } => {
             unreachable!(
-                "ensure, compact-registry and restart return before the lifecycle exchange"
+                "ensure, compact-registry, premigrate-registry and restart return before the \
+                 lifecycle exchange"
             )
         }
         // A wedged owner answers identify, but serves no workspace change: the
@@ -336,6 +358,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,
+                "screen_detection":crate::screen_detection_status::of_daemon(&identity),
             }),
             global.output,
         ),
@@ -408,7 +431,25 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals, .. } => {
+        ServerAction::Stop { force, end_terminals, if_idle, .. } => {
+            // An owner without `if_idle` ignores the field and stops however
+            // busy it is: it keeps running instead (the Rex docs' exit 4).
+            if if_idle
+                && !identity["capabilities"].as_array().is_some_and(|values| {
+                    values.iter().any(|value| value == "daemon-stop-if-idle-v1")
+                })
+            {
+                return local_error(
+                    "server.if_idle_unsupported",
+                    &super::fix_command::refused_with_fix(
+                        crate::localization::catalog().local_server.if_idle_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
+                    global.output,
+                    4,
+                );
+            }
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -416,7 +457,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.end_terminals_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -435,7 +476,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.force_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -444,18 +485,38 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     1,
                 );
             }
-            let result = match exchange(
-                &mut connection,
-                json!({
-                    "id":2,
-                    "cmd":"shutdown-daemon",
-                    "pid":pid,
-                    "generation":generation,
-                    "force":force,
-                    "end_terminals":end_terminals,
-                }),
-                deadline,
-            ) {
+            // Read while the old owner still runs: the new one repeats it.
+            let launch = restart.then(|| CarriedLaunch::of_owner(pid));
+            let mut request = json!({
+                "id":2,
+                "cmd":"shutdown-daemon",
+                "pid":pid,
+                "generation":generation,
+                "force":force,
+                "end_terminals":end_terminals,
+                // An attached TUI reconnects after a restart and exits
+                // after a stop (the daemon repeats it on its notice).
+                "restart":restart,
+            });
+            if if_idle {
+                request["if_idle"] = json!(true);
+            }
+            let reply = match exchange_reply(&mut connection, request, deadline) {
+                // A busy daemon refused the stop and keeps serving: say
+                // what uses it (exit 1, as the Rex docs' `--if-idle`).
+                Ok(reply) if reply["ok"] != true && reply["error_code"] == "daemon_busy" => {
+                    return local_error_with_details(
+                        "server.in_use",
+                        reply["error"].as_str().unwrap_or("the daemon is in use"),
+                        reply.get("error_details").cloned().unwrap_or(Value::Null),
+                        global.output,
+                        1,
+                    );
+                }
+                Ok(reply) => reply_result(reply),
+                Err(error) => Err(error),
+            };
+            let result = match reply {
                 Ok(result) => result,
                 Err(ExchangeError::Rejected(_)) => {
                     return local_error(
@@ -485,30 +546,50 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
-            if restart {
+            if let Some(launch) = launch {
                 // The old owner closes its socket before it exits; the new
                 // owner starts once the old process is gone.
                 if let Err(message) = wait_for_exit(pid, Instant::now() + Duration::from_secs(10)) {
                     return local_error("server.stop_incomplete", &message, global.output, 3);
                 }
-                return ensure_after_stop(Some(actual_session.to_owned()), Some(pid));
+                return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
             }
-            print_success(
-                json!({
-                    "status":"stopped",
-                    "accepted":true,
-                    "session":actual_session,
-                    "pid":pid,
-                    "generation":generation,
-                    "ended_terminals":result["ended_terminals"].as_u64(),
-                    "message":if end_terminals {
-                        crate::localization::catalog().local_server.stopped_terminals_ended
-                    } else {
-                        crate::localization::catalog().local_server.stopped
-                    },
-                }),
-                global.output,
-            )
+            // A running owner never holds the start lock (only a bind does),
+            // and the owner already closed its socket: remove the lock now.
+            // No pid wait: a parent that has not reaped the owner keeps a
+            // zombie, and kill(pid, 0) succeeds for a zombie.
+            let removed = remove_start_lock(&socket);
+            let mut stopped = json!({
+                "status":"stopped",
+                "accepted":true,
+                "session":actual_session,
+                "pid":pid,
+                "generation":generation,
+                "ended_terminals":result["ended_terminals"].as_u64(),
+                "removed":removed,
+                "message":if end_terminals {
+                    crate::localization::catalog().local_server.stopped_terminals_ended
+                } else {
+                    crate::localization::catalog().local_server.stopped
+                },
+            });
+            // Every terminal ended, so nothing is left to resume: the
+            // terminal and resume state goes too, and every other store of
+            // the session stays. A plain stop keeps it (`agent resume`
+            // needs it). The owner names its directory only when it ended
+            // every terminal without keeping the layout.
+            if let (true, Some(session_dir), Some(fields)) = (
+                end_terminals,
+                result.get("session_dir").and_then(Value::as_str),
+                stopped.as_object_mut(),
+            ) {
+                fields.extend(super::command::end_stopped_terminal_state(
+                    actual_session,
+                    std::path::Path::new(session_dir),
+                    Instant::now() + Duration::from_secs(10),
+                ));
+            }
+            print_success(stopped, global.output)
         }
     }
 }
@@ -561,8 +642,9 @@ struct StopWait<'a> {
     socket_is_derived: bool,
     session: Option<&'a str>,
     limit: Duration,
-    /// `--force` and `--end-terminals`, repeated in the retry command.
-    retry_flags: (bool, bool),
+    /// `--force`, `--end-terminals` and `--if-idle`, repeated in the retry
+    /// command.
+    retry_flags: (bool, bool, bool),
     /// A `server restart`'s stop: the retry command restarts, never only stops.
     restart: bool,
     output: OutputMode,
@@ -700,12 +782,15 @@ impl StopWait<'_> {
         } else {
             super::fix_command::stop_daemon(&cli, self.socket)
         };
-        let (force, end_terminals) = self.retry_flags;
+        let (force, end_terminals, if_idle) = self.retry_flags;
         if force {
             retry.push_str(" --force");
         }
         if end_terminals {
             retry.push_str(" --end-terminals");
+        }
+        if if_idle {
+            retry.push_str(" --if-idle");
         }
         retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
         let message = crate::localization::catalog().local_server.stop_gave_up(
@@ -778,20 +863,25 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// existed and `started` for one this call spawned. `socket` is the socket
 /// path and whether it was derived from the session name; the owner pair is
 /// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
-/// and `--replace-unresponsive`. `previous_pid` is the owner a `server
-/// restart` stopped: an owner this call starts then reports `restarted`.
+/// and `--replace-unresponsive`. `stopped` is the owner a `server restart`
+/// stopped and its launch: an owner this call starts repeats that launch and
+/// reports `restarted` with the carried flags.
 fn run_ensure(
     expected_session: Option<String>,
     (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
-    (websocket, previous_pid): (Option<crate::local_owner::EnsureWebSocket>, Option<u32>),
+    (websocket, stopped): (
+        Option<crate::local_owner::EnsureWebSocket>,
+        Option<(u32, CarriedLaunch)>,
+    ),
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
     let socket_output = socket.to_string_lossy().into_owned();
-    let spec = crate::local_owner::OwnerSpec {
+    let (previous_pid, launch) = stopped.unzip();
+    let mut spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
         socket_is_derived,
@@ -807,7 +897,12 @@ fn run_ensure(
         // ...and the Chief brains the app gave it (taken out at start too).
         chief_brains: cmux_tui_core::chief_brains::taken(),
         websocket,
+        carried_env: Vec::new(),
     };
+    let carried_flags = launch.as_ref().map(CarriedLaunch::flags);
+    if let Some(launch) = launch {
+        launch.apply(&mut spec);
+    }
     let replaced = if replace_unresponsive {
         match crate::local_owner::replace_if_unresponsive(&spec) {
             Ok(replaced) => replaced.map(|replaced| replaced.pid),
@@ -869,6 +964,39 @@ fn run_ensure(
             if let Some(pid) = previous_pid {
                 result.set("previous_pid", json!(pid));
             }
+            if let Some(flags) = &carried_flags {
+                result.set("carried_launch", json!(flags));
+            }
+            // A restart is done when the kept terminals run again: the new
+            // owner answers first and adopts their hosts after (R41).
+            if previous_pid.is_some() && matches!(ensured, crate::local_owner::Ensured::Started(_))
+            {
+                let adopted = wait_for_adoption(&spec.socket, spec.socket_is_derived);
+                result.set("terminals", adopted.counts());
+                if !adopted.listed || !adopted.not_running.is_empty() {
+                    let text = if adopted.listed {
+                        messages
+                            .restart_terminals_not_running
+                            .replace("{count}", &adopted.not_running.len().to_string())
+                            .replace("{terminals}", &adopted.not_running.join(", "))
+                    } else {
+                        messages.restart_terminals_unknown.to_owned()
+                    };
+                    // The top-level message says what is wrong; the success
+                    // text ("every terminal was kept") would contradict it.
+                    if let Some(result) = result.as_object_mut() {
+                        result.remove("message");
+                    }
+                    result.set("not_running", json!(adopted.not_running));
+                    return local_error_with_details(
+                        "server.terminals_not_running",
+                        &text,
+                        result,
+                        output,
+                        3,
+                    );
+                }
+            }
             print_success(result, output)
         }
         Err(error) => {
@@ -895,6 +1023,75 @@ fn run_ensure(
         }
     }
 }
+
+/// How long a restart waits for the new owner to run every kept terminal.
+const ADOPTION_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The terminals of a restarted owner, by lifecycle, once none is adopting
+/// (or at [`ADOPTION_DEADLINE`]): `not_running` are the ids still adopting
+/// or launching then; `listed` is false when the owner could not be read.
+#[derive(Debug, Default)]
+struct Adopted {
+    /// Whether the new owner listed its terminals at all.
+    listed: bool,
+    running: usize,
+    exited: usize,
+    not_running: Vec<String>,
+}
+
+impl Adopted {
+    fn counts(&self) -> Value {
+        json!({"running": self.running, "exited": self.exited, "not_running": self.not_running.len()})
+    }
+
+    /// From a `list-terminals` answer, and whether no terminal is still
+    /// being adopted or launched.
+    fn settled(listed: &Value) -> (Self, bool) {
+        let mut adopted = Self { listed: true, ..Self::default() };
+        for row in listed.get("terminals").and_then(Value::as_array).into_iter().flatten() {
+            match row.get("lifecycle").and_then(Value::as_str) {
+                Some("running") => adopted.running += 1,
+                Some("exited") => adopted.exited += 1,
+                Some("adopting" | "launching") => adopted.not_running.push(
+                    row.get("terminal_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                ),
+                _ => {}
+            }
+        }
+        let settled = adopted.not_running.is_empty();
+        (adopted, settled)
+    }
+}
+
+/// Waits until the owner at `socket` adopted every kept terminal (none is
+/// `adopting` or `launching`), up to [`ADOPTION_DEADLINE`].
+fn wait_for_adoption(socket: &std::path::Path, socket_is_derived: bool) -> Adopted {
+    let deadline = Instant::now() + ADOPTION_DEADLINE;
+    let mut last = Adopted::default();
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, socket_is_derived)
+    else {
+        return last;
+    };
+    let mut connection = BufReader::new(stream);
+    let mut id = 0_u64;
+    loop {
+        id += 1;
+        let Ok(listed) =
+            exchange(&mut connection, json!({"id": id, "cmd": "list-terminals"}), deadline)
+        else {
+            return last;
+        };
+        let (adopted, settled) = Adopted::settled(&listed);
+        if settled || Instant::now() + ADOPTION_POLL >= deadline {
+            return adopted;
+        }
+        last = adopted;
+        std::thread::sleep(ADOPTION_POLL);
+    }
+}
+
+/// The pause between two terminal lists while a restart waits for adoption.
+const ADOPTION_POLL: Duration = Duration::from_millis(25);
 
 /// One restore progress line on stdout (`server ensure --restore-progress`). The
 /// result stays the last JSON line, so a reader that takes the last line
@@ -931,6 +1128,17 @@ fn exchange(
     request: Value,
     deadline: Instant,
 ) -> Result<Value, ExchangeError> {
+    exchange_reply(connection, request, deadline).and_then(reply_result)
+}
+
+/// The whole reply to `request` (`ok`, `data`, `error`, `error_code`,
+/// `error_details`), a refusal included: for a caller that tells refusals
+/// apart by their `error_code`.
+fn exchange_reply(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    request: Value,
+    deadline: Instant,
+) -> Result<Value, ExchangeError> {
     require_time_remaining(connection, deadline)?;
     writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
@@ -942,13 +1150,18 @@ fn exchange(
         if response.get("event").is_some() || response["id"] != request["id"] {
             continue;
         }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        let error =
-            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
-        return Err(ExchangeError::Rejected(error));
+        return Ok(response);
     }
+}
+
+/// A reply's `data`, or its refusal as [`ExchangeError::Rejected`].
+fn reply_result(response: Value) -> Result<Value, ExchangeError> {
+    if response["ok"] == true {
+        return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+    }
+    let error =
+        response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+    Err(ExchangeError::Rejected(error))
 }
 
 fn read_response(
@@ -1069,6 +1282,22 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
     Ok(())
 }
 
+/// After a stop (not a restart), removes what only a running owner needs:
+/// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
+/// `remove_socket_start_lock`). The session's saved state stays after a
+/// plain stop (`cmux session <name> reset-state` removes it); a stop with
+/// `--end-terminals` removes its terminal and resume state only
+/// (`end_stopped_terminal_state`). Returns the removed path, or none when
+/// there is no lock file or a start holds it for 500 ms.
+fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
+    let lock = cmux_tui_core::server::socket_start_lock_path(socket);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {
+        Ok(true) => vec![lock.display().to_string()],
+        Ok(false) | Err(_) => Vec::new(),
+    }
+}
+
 fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
 }
@@ -1133,6 +1362,73 @@ fn run_compact_registry(
     }
 }
 
+/// `server premigrate-registry --session <name> [--state-dir <path>]
+/// [--max-seconds <n>]`: read-only beside the running owner, so it needs no
+/// socket and takes no session lock. A run stopped by `--max-seconds` or a
+/// signal saves its progress, and the next run resumes it; both exit 0.
+fn run_premigrate_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    max_duration: Option<Duration>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_premigrate_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return print_success(json!({"status": "nothing_to_do", "session": session}), output);
+    };
+    let stopped = crate::shutdown_requested;
+    let control = cmux_tui_core::PremigrateControl::new(max_duration, &stopped);
+    match cmux_tui_core::premigrate_registry(&root, &session, &control) {
+        Ok(cmux_tui_core::PremigrateOutcome::NoRegistry(path)) => {
+            eprintln!("cmux-tui: premigrate: no saved registry, nothing to do");
+            print_success(
+                json!({"status": "nothing_to_do", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::AlreadyRunning(path)) => {
+            eprintln!("cmux-tui: premigrate: already running for this registry");
+            print_success(
+                json!({"status": "already_running", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::Done(roster)) => print_success(
+            json!({
+                "status": if roster.complete { "done" } else { "partial" },
+                "session": session,
+                "path": roster.registry.to_string_lossy(),
+                "agent_roster": {
+                    "version": roster.version,
+                    "up_to_date": roster.up_to_date,
+                    "from_cursor": roster.from_cursor,
+                    "cursor": roster.cursor,
+                    "head": roster.head,
+                    "complete": roster.complete,
+                    "records_folded": roster.records_folded,
+                    "elapsed_ms": roster.elapsed_ms,
+                    "stop_reason": roster.stop_reason,
+                    "side_file": roster.side_file.to_string_lossy(),
+                },
+                "output_cleanup": {"outcome": "deferred"},
+            }),
+            output,
+        ),
+        Err(error) => local_error_with_details(
+            "server.premigrate_failed",
+            messages.registry_premigrate_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
+}
+
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     local_error_with_details(code, message, json!({}), output, exit_code)
 }
@@ -1155,272 +1451,6 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
 }
 
-/// A stop this daemon refuses (another build): `text` and the one command
-/// that restarts the daemon at `socket` with `cli`'s build
-/// (plans/cmux-next/version-skew.md).
-fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
-    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
-}
-
 #[cfg(test)]
-mod tests {
-    use std::io::{self, Cursor, Read, Write};
-    use std::net::Shutdown;
-    use std::sync::{Arc, Mutex};
-
-    use super::*;
-
-    #[test]
-    fn rejects_invalid_session_names_before_socket_resolution() {
-        assert!(!valid_session_name(""));
-        assert!(!valid_session_name("bad name"));
-        assert!(!valid_session_name("bad\nname"));
-        assert!(!valid_session_name(&"x".repeat(65)));
-    }
-
-    #[test]
-    fn accepts_session_names_for_explicit_and_default_socket_routes() {
-        assert!(valid_session_name("main"));
-        assert!(valid_session_name("agent-1"));
-    }
-
-    struct UnreadableStream;
-
-    impl Read for UnreadableStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            panic!("an expired lifecycle deadline must fail before reading")
-        }
-    }
-
-    impl Write for UnreadableStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for UnreadableStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct TimeoutRecordingStream {
-        read_timeout: Arc<Mutex<Option<Duration>>>,
-        write_timeout: Arc<Mutex<Option<Duration>>>,
-    }
-
-    impl Read for TimeoutRecordingStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            Ok(0)
-        }
-    }
-
-    impl Write for TimeoutRecordingStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for TimeoutRecordingStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self {
-                read_timeout: self.read_timeout.clone(),
-                write_timeout: self.write_timeout.clone(),
-            }))
-        }
-
-        fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            *self.read_timeout.lock().unwrap() = timeout;
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            *self.write_timeout.lock().unwrap() = timeout;
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct TransportCloseStream;
-
-    impl Read for TransportCloseStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("transport closed after shutdown acknowledgement"))
-        }
-    }
-
-    impl Write for TransportCloseStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for TransportCloseStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct RejectedStream {
-        response: Cursor<Vec<u8>>,
-    }
-
-    impl Read for RejectedStream {
-        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-            self.response.read(bytes)
-        }
-    }
-
-    impl Write for RejectedStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for RejectedStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self { response: self.response.clone() }))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn expired_deadline_fails_before_reading_another_frame() {
-        let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
-        let mut connection = BufReader::new(stream);
-        let expired = Instant::now() - Duration::from_millis(1);
-
-        assert_eq!(read_response(&mut connection, expired), Err(ExchangeError::Timeout));
-    }
-
-    #[test]
-    fn lifecycle_deadline_bounds_reads_and_writes() {
-        let read_timeout = Arc::new(Mutex::new(None));
-        let write_timeout = Arc::new(Mutex::new(None));
-        let stream: Box<dyn transport::Stream> = Box::new(TimeoutRecordingStream {
-            read_timeout: read_timeout.clone(),
-            write_timeout: write_timeout.clone(),
-        });
-        let mut connection = BufReader::new(stream);
-        let requested = Duration::from_secs(1);
-
-        require_time_remaining(&mut connection, Instant::now() + requested).unwrap();
-
-        let read_timeout = read_timeout.lock().unwrap().unwrap();
-        let write_timeout = write_timeout.lock().unwrap().unwrap();
-        assert!(!read_timeout.is_zero());
-        assert!(read_timeout <= requested);
-        assert!(!write_timeout.is_zero());
-        assert!(write_timeout <= requested);
-    }
-
-    #[test]
-    fn stop_accepts_transport_close_after_shutdown_acknowledgement() {
-        let stream: Box<dyn transport::Stream> = Box::new(TransportCloseStream);
-        let mut connection = BufReader::new(stream);
-
-        assert!(wait_for_close(&mut connection, Instant::now() + Duration::from_secs(1)).is_ok());
-    }
-
-    #[test]
-    fn exchange_preserves_daemon_rejection_details() {
-        let rejection = json!({
-            "id": 2,
-            "ok": false,
-            "error": "trusted local connection required",
-        });
-        let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
-            response: Cursor::new(format!("{rejection}\n").into_bytes()),
-        });
-        let mut connection = BufReader::new(stream);
-        let error = exchange(
-            &mut connection,
-            json!({"id":2,"cmd":"server-stats"}),
-            Instant::now() + Duration::from_secs(1),
-        )
-        .expect_err("rejected response");
-        assert_eq!(error, ExchangeError::Rejected("trusted local connection required".into()));
-    }
-
-    #[test]
-    fn lifecycle_io_errors_preserve_timeout_classification() {
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::TimedOut)),
-            ExchangeError::Timeout
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::WouldBlock)),
-            ExchangeError::Timeout
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::BrokenPipe)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::ConnectionReset)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::NotConnected)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::Other)),
-            ExchangeError::Transport
-        );
-    }
-}
+#[path = "lifecycle_tests.rs"]
+mod tests;

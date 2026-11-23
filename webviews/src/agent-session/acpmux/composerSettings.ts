@@ -25,17 +25,30 @@
 // `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
-// `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
-// AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
-// composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
 // `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
 // quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
 // PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
 // into a 5h/weekly usage type thing instead as well for some people"). The page sets it at once and
 // asks the host to write it (`pane.setComposerRing {ring}`). Anything else reads as "context".
+// `dictationSource` is `agentPane.dictationSource` ("cmux" by default): what the mic dictates with,
+// cmux's own dictation or the dictation app the person already uses, whose shortcut the host sends
+// (dictationSources.ts, design/composer-dictation.md). The mic's right-click picks it
+// (`pane.setDictationSource {source}`). `dictationShortcut` (`agentPane.dictationShortcut`) is only
+// read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `composerLook` is `agentPane.composerLook` ("auto" by default): "studio" draws Studio's look in
+// every chat (composerLook.ts); "auto" keeps the app's own. The New Tab page always draws Claude's
+// look. Anything else reads as "auto".
+// `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
+// sits a chat's composer in the middle of the pane until its first message (styles.css,
+// [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
+// AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
+// environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
+// (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
+// (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -47,9 +60,15 @@ export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
+export type ComposerLookSetting = "auto" | "studio";
+export type EmptyChatComposerPosition = "bottom" | "center";
+export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
+export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
+  dictationSource: DictationSource;
+  dictationShortcut: string;
   spellChecking: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
@@ -58,15 +77,19 @@ export type ComposerSettings = {
   plainFooter: boolean;
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
-  escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
+  composerLook: ComposerLookSetting;
+  emptyChatComposerPosition: EmptyChatComposerPosition;
+  cloudEnvironments: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
+  dictationSource: "cmux",
+  dictationShortcut: "",
   spellChecking: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
@@ -75,10 +98,12 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   plainFooter: true,
   harnessPlacement: "symbols",
   harnessSwitch: false,
-  escapeDoublePress: true,
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
+  composerLook: "auto",
+  emptyChatComposerPosition: "bottom",
+  cloudEnvironments: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -89,8 +114,8 @@ type ComposerFlag =
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
-  | "escapeDoublePress"
-  | "showMachineLoadWarnings";
+  | "showMachineLoadWarnings"
+  | "cloudEnvironments";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -102,6 +127,10 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    dictationSource: DICTATION_SOURCES.includes(raw.dictationSource as DictationSource)
+      ? (raw.dictationSource as DictationSource)
+      : "cmux",
+    dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
@@ -113,10 +142,12 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         ? raw.harnessPlacement
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
-    escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
+    composerLook: raw.composerLook === "studio" ? "studio" : "auto",
+    emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
+    cloudEnvironments: flag("cloudEnvironments"),
   };
 }
 
@@ -153,12 +184,15 @@ export function setComposerSettings(value: unknown) {
   publishComposerSettings(value);
 }
 
+/// Calls `listener` on every change of the page's composer settings; returns the unsubscribe.
+export function subscribeComposerSettings(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export function useComposerSettings(): ComposerSettings {
   return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribeComposerSettings,
     () => current,
     // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
     () => current,
@@ -274,6 +308,25 @@ export function setComposerRing(ring: ComposerRing) {
   setComposerSettings({ composerRing: ring });
   try {
     void Promise.resolve(composerRingHost?.(ring)).catch(() => undefined);
+  } catch {
+    // The page keeps its choice (above).
+  }
+}
+
+/// The host's write of `agentPane.dictationSource` (`pane.setDictationSource {source}`).
+let dictationSourceHost: ((source: DictationSource) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerDictationSourceHost(write: ((source: DictationSource) => unknown) | undefined) {
+  dictationSourceHost = write;
+}
+
+/// Picks what every composer's mic dictates with, and asks the host to persist it. The page changes
+/// at once, as the ring's pick does; the host's next value is authoritative.
+export function setDictationSource(source: DictationSource) {
+  setComposerSettings({ dictationSource: source });
+  try {
+    void Promise.resolve(dictationSourceHost?.(source)).catch(() => undefined);
   } catch {
     // The page keeps its choice (above).
   }

@@ -42,10 +42,30 @@ pub struct PoolKey {
     pub auth: String,
     /// Fingerprint of the logged-in account, where a login file names one.
     pub account: Option<String>,
-    /// The delivered machine files' metadata stamp (`login_env::machine_stamp`,
+    /// The delivered machine files' metadata stamp (`vault::machine_stamp`,
     /// never a value) when the key was made: a claim checks it again, so a
     /// host from before a delivery or revocation never reaches a chat.
     pub machine: Option<String>,
+    /// The `agents.promptSuggestions` switch a Claude or Codex agent reads once as its host
+    /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
+    /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
+    pub prompt_suggestions: Option<bool>,
+    /// The agent tool servers a session of this shape gets now (`agent_tools::current`, scoped to
+    /// its spawn env), by name: a pooled agent was given its servers as it started, so a change
+    /// since (the cmux tools setting, `agents.cmuxMcp`; `mcp.enabled`; Computer Use
+    /// off) leaves its key unmatched and the entry is discarded, never served with the old servers.
+    pub tool_servers: String,
+    /// The settings file a session of this shape is told to read (`user_settings::resolved_path`,
+    /// which its `cmux` server's env names, `agent_tools::cmux_server`): a pooled agent's server
+    /// was given the file of its start, so another file since leaves its key unmatched.
+    pub settings_file: PathBuf,
+    /// The model a Claude Code agent was started on (its `--model`, `started_on`); `None` for
+    /// its own default or a harness whose model is in `args` or set after start. A chat that
+    /// asked for another model never takes it: Claude Code cannot switch a new session's model
+    /// without a slow check (`profile_takes_model_at_spawn`), so a mismatch ran the older model.
+    pub model: Option<String>,
+    /// The effort a Claude Code agent was started on (its `--effort`), as `model`.
+    pub effort: Option<String>,
 }
 
 impl PoolKey {
@@ -348,7 +368,15 @@ impl<T> Pool<T> {
 
     /// Take the ready session for `key`. A session in the same slot under
     /// another key is removed and handed back for ending.
+    #[cfg(test)]
     pub fn take(&mut self, key: &PoolKey) -> Take<T> {
+        self.take_or_keep(key, true)
+    }
+
+    /// [`take`](Self::take); with `discard_other` false, a session in the same
+    /// slot under another key stays (a miss): a credentialed start never ends
+    /// the uncredentialed spare of its folder, which it could never take.
+    pub fn take_or_keep(&mut self, key: &PoolKey, discard_other: bool) -> Take<T> {
         if key.origin == Origin::Remote {
             return Take::Miss;
         }
@@ -362,7 +390,9 @@ impl<T> Pool<T> {
                 Slot::Ready(t) => Take::Ready(t),
             };
         }
-        if let Some(i) = self.entries.iter().position(|e| e.key.same_slot(key)) {
+        if let Some(i) = self.entries.iter().position(|e| e.key.same_slot(key))
+            && discard_other
+        {
             let e = self.entries.remove(i);
             e.settle();
             return Take::Discard(match e.slot {

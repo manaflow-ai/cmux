@@ -11,6 +11,11 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
     // `cmux server` is the machine server, routed before this parser.
     "daemon",
+    // The whole session (`session current snapshot`, `stop`, the journal) and
+    // the clients attached to it: an agent in a cmux-tui pane reads its
+    // topology and cleans up with the `cmux` on its PATH, not only `cmux-tui`.
+    "session",
+    "client",
     "workspace",
     "screen",
     "pane",
@@ -83,41 +88,79 @@ impl std::fmt::Display for ProgramName {
     }
 }
 
+/// `cmux machine --help`: the device noun's old name (cmuxterm-hq#7487 item 6). Its verbs stay;
+/// the VM verbs are `cmux vm` ([`VM_POINTER`]).
 pub(super) const MACHINE_CATALOG_HELP: &str = "\
 USAGE
   cmux machine ls [--catalog]
   cmux machine <selector> show [--catalog]
   cmux machine add | revoke | rotate | doctor
 
+`cmux machine` is the old name of `cmux device`: `cmux device <selector> show`
+and `cmux device revoke | rotate | doctor` run the same. `cmux device list`
+lists every device that can reach this one; `machine ls` is the machine catalog,
+whose ids `cmux chat --on` takes. `cmux device --help` has every device verb.
+
 With the cmux app running, `machine ls` also lists its Cloud machines
-(`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
+(`kind: cloud`, `target: vm:<id>`); without it a note says they are missing.
 ";
 
-/// `cmux machine`'s Cloud machine verbs (cli/vm.rs), in every `machine` help.
-pub(super) const MACHINE_VM_HELP: &str = "\
-Cloud machines through the cmux VM API (vm.cmux.dev):
-  run       Run a command on a fresh machine, deleted when it ends (--sync, --pull, --keep)
-  new       Make a Cloud machine (with the app signed in, the one your sidebar
-            shows; `cmux machine new --help`)
-  show      Show a machine (`cmux machine show ID`)
-  pause     Pause a machine, keeping its memory
-  resume    Resume a paused machine
-  start     Start a stopped machine
-  stop      Stop a machine; its disk stays
-  rm        Delete a machine for good
-  exec      Run a command on a machine
-  fork      Fork a machine
+/// Where a `machine` help sends a person for VMs: `vm` is the one noun that makes them (CMUX-43).
+pub(super) const VM_POINTER: &str = "\
+Cloud VMs (new, run, show, pause, resume, rm, exec, key, access) are `cmux vm`:
+`cmux vm --help`.
+";
+
+/// `cmux vm`'s VM API verbs (cli/vm.rs), in `cmux vm --help` and a `vm` usage error.
+pub(super) const VM_VERBS_HELP: &str = "\
+Cloud VMs through the cmux VM API (vm.cmux.dev):
+  run       Run a command on a fresh VM, deleted when it ends (--sync, --pull, --keep)
+  new       Make a Cloud VM (with the app signed in, the one your sidebar
+            shows; `cmux vm new --help`)
+  show      Show a VM (`cmux vm show ID`)
+  pause     Pause a VM, keeping its memory
+  resume    Resume a paused VM
+  start     Start a stopped VM
+  stop      Stop a VM; its disk stays
+  rm        Delete a VM for good (--wait: until it is gone; --with-snapshots:
+            its snapshots too)
+  exec      Run a command on a VM
+  fork      Fork a VM
   snapshot  Snapshots (new, show, ls, rm)
-  access    Short-lived access to one machine (new, ls, revoke, exec)
-  key       A machine-only agent key for any process (new, status, revoke)
+  snapshots The team's snapshots and whether their VM still exists (--orphaned)
+  access    Short-lived access to one VM (new, ls, revoke, exec)
+  key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+  file      Read saved files without starting the VM (read, ls, stat)
+  pool      The CI runner pool on Freestyle and GCP: up N, pause, watch,
+            schedule (`cmux vm pool --help`; never deletes a machine)
+  runner    Your own Freestyle runner VM for one CI job: new, ls, park
+            (`cmux vm runner --help`; resumes a parked VM, never deletes)
 
-`cmux machine access new|exec --target machine:VM_ID` mints access through the
-cmux API instead, for `cmux cloud`'s machines. Use `cmux cloud resize-machine`
-to resize one.
+`cmux vm access new|exec --target vm:VM_ID` mints access through the
+cmux API instead, for the app's Cloud VMs. Use `cmux vm resize` to
+resize one.
+";
 
-Old spellings still work: `cmux vm …` for every verb (`cmux vm ls` lists the
-VM API's machines), `cmux cloud new-machine` for `machine new`, and create, get,
-delete, `token create` and `client-session create` for new, show, rm, `key new`
-and `access new`.
+/// Japanese VM API verb help for the locale selected by the CLI catalog.
+pub(super) const VM_VERBS_HELP_JA: &str = "\
+Cloud VM API を通じた cmux の VM 操作:
+  run       新しい VM でコマンドを実行し、終了時に削除 (--sync、--pull、--keep)
+  new       Cloud VM を作成
+  show      VM を表示 (`cmux vm show ID`)
+  pause     メモリを保持したまま VM を一時停止
+  resume    一時停止した VM を再開
+  start     停止した VM を開始
+  stop      VM を停止 (ディスクは保持)
+  rm        VM を完全に削除
+  exec      VM でコマンドを実行
+  fork      VM を複製
+  snapshot  スナップショット (new、show、ls、rm)
+  access    1 台の VM への短時間アクセス (new、ls、revoke、exec)
+  key       プロセス用の VM 専用エージェントキー (new、status、revoke)
+  creation  失われた作成結果を復旧 (list、get、cancel、reconcile)
+  file      VM を開始せずに保存ファイルを読む (read、ls、stat)
+
+`cmux vm access new|exec --target vm:VM_ID` は、アプリの Cloud VM 用に
+cmux API 経由のアクセスを作成します。VM のサイズ変更には `cmux vm resize` を使います。
 ";

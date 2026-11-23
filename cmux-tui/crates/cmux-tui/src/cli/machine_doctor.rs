@@ -87,7 +87,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     // machine on any platform, signed in or not). A pasted secret is never handed on.
     if found.is_none()
         && plain_name(key)
-        && let Some(code) = super::run_app_action_fallback(args)
+        && let Some(code) = super::app_commands::run_app_action_fallback(args)
     {
         // Not a joined machine: the app's ssh Check Machine, as before. When the joined list
         // could not be read, say so: the checks above did not run.
@@ -213,7 +213,7 @@ pub(super) fn remote_steps(
                 }
                 Err(error) => {
                     let why = match error {
-                        CallError::Status { status, code } => {
+                        CallError::Status { status, code, .. } => {
                             format!("{status} {code}").trim_end().to_owned()
                         }
                         CallError::Unreachable(_) => "no answer".to_owned(),
@@ -263,7 +263,7 @@ pub(super) fn remote_steps(
     };
     steps.push(JoinStep::new("listed", StepState::Ok, format!("listed as {}", machine.machine_id)));
     steps.push(match machine.last_heartbeat_ms {
-        Some(at) if now.saturating_sub(at) < machine_join::ONLINE_WITHIN_MS => JoinStep::new(
+        Some(at) if machine.is_online(now) => JoinStep::new(
             "heartbeat",
             StepState::Ok,
             format!("last heartbeat {} ago", doctor::age_words(now.saturating_sub(at))),

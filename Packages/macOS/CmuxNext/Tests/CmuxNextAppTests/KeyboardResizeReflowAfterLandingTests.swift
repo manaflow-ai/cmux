@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
@@ -56,8 +57,8 @@ struct KeyboardResizeReflowAfterLandingTests {
     }
 
     /// The app's pane content with a terminal in each pane (cmux-ad m18: each frame at the pane's size, text re-wrapped
-    /// at it; the PTY's size coalesced, about 25 ms): no grid goes in the key's turn or with the press's first frame
-    /// (m6 sent the final grid there, one per press; a synchronous run of frames is inside one 25 ms window), and the last
+    /// at it; the PTY's size coalesced, one per refresh): no grid goes in the key's turn, at most one per terminal with the press's first frame (RESIZE P0 7)
+    /// (m6 sent the final grid there, one per press), at most the first frame's own grid with that frame (RESIZE P0 7), and the last
     /// grid each PTY gets is the grid its view rests at; in every frame the containers (the terminal hosts) take their
     /// pane's area and each surface the size its host shows it at, so its text follows the pane (S3 laid the surface out
     /// once per press: the text froze, then jumped); at the landing's release each surface rests at its host's size.
@@ -72,13 +73,28 @@ struct KeyboardResizeReflowAfterLandingTests {
                 return (pane, (session.view.frame.size, session.surfaceView.frame.size))
             })
         }
+        for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
         let reports = TerminalSurfaceView.gridReports
         let start = try sizes()
+        var startGrids: [PaneID: TerminalGridSize] = [:]
+        for pane in panes { startGrids[pane] = try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid }
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
+        #expect(TerminalSurfaceView.gridReports == reports, "the key's turn sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its refresh")
         try #require(rig.frame(), "the press did not spring")
         let atPress = try sizes()
-        #expect(TerminalSurfaceView.gridReports == reports, "up to its first frame the press sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its 25 ms")
+        // The first grid each terminal showed that differs from its start grid: the press's first frames can move a pane less
+        // than a cell (the spring starts slowly), so that grid can be a later frame's than the first (green4 87a059b7: 73 at
+        // frame 1 = the start grid, 74 the first new grid).
+        var firstChanged: [PaneID: TerminalGridSize] = [:]
+        func noteFirstGrids() throws {
+            for pane in panes where firstChanged[pane] == nil {
+                if let grid = try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid, grid != startGrids[pane] { firstChanged[pane] = grid }
+            }
+        }
+        try noteFirstGrids()
+        // RESIZE P0 7: the first frame's landed grid goes in that frame's turn, at most one per terminal.
+        #expect(TerminalSurfaceView.gridReports - reports <= panes.count, "the press's first frame sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
         var frames = 1, hostsOff: [String] = [], surfacesOff: [String] = []
         func check(_ label: String) throws {
             for pane in panes {
@@ -94,6 +110,7 @@ struct KeyboardResizeReflowAfterLandingTests {
         while frames < 240, rig.frame() {
             frames += 1
             try check("frame \(frames)")
+            try noteFirstGrids()
         }
         rig.commit()
         try check("after the landing")
@@ -105,6 +122,17 @@ struct KeyboardResizeReflowAfterLandingTests {
         }
         #expect(surfacesOff.isEmpty, "\(surfacesOff.count) frames showed a surface off its pane's size: \(surfacesOff.prefix(3))")
         #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
-        try await KeyboardResizeContentHoldTests.expectEachPTYEndsAtItsViewsGrid(panes, rig)
+        // Per terminal, exact (RESIZE P0 8, review of 28a640183a7): the PTY got the final grid, or the first new grid a frame
+        // showed (RESIZE P0 7: the first grid of a refresh goes at once; these frames run in one turn, so no refresh ends a
+        // window and the rest go as the final grid) and then the final grid. m6 (the final grid with the first frame, one per
+        // press) fails: it is neither.
+        for pane in panes {
+            let grids = try await PaneContentPolicyTests.grids(pane, rig)
+            let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
+            let first = try #require(firstChanged[pane], "\(pane)'s grid never changed from its start grid \(String(describing: startGrids[pane]))")
+            #expect(first != final, "\(pane)'s first new grid already was the landing's grid \(final)")
+            #expect(grids == [final] || grids == [first, final],
+                    "\(pane)'s PTY got \(grids), not [its first new grid \(first) (start \(String(describing: startGrids[pane]))),] then its view's rest grid \(final)")
+        }
     }
 }

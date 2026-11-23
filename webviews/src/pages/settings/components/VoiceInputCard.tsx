@@ -5,15 +5,17 @@ import { useId } from "react";
 import { useSettingsState, useStore } from "../context";
 import { t } from "../strings";
 import { Switch } from "../editors/ToggleEditor";
-import { ResetSpacer } from "./ResetButton";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 export function VoiceInputCard() {
   const store = useStore();
   const voice = useSettingsState().host?.voice_input;
   const labelId = useId();
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(voice));
   if (!voice) return null;
   return (
-    <section className="group" data-card="voice-input">
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="voice-input">
       <div className="rows">
         <div className="row" tabIndex={-1}>
           <div className="row-main">
@@ -30,7 +32,6 @@ export function VoiceInputCard() {
                 labelId={labelId}
                 onToggle={(next) => void store.setVoiceInput(next)}
               />
-              <ResetSpacer />
             </div>
           </div>
         </div>

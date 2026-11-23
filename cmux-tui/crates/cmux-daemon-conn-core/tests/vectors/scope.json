@@ -1,0 +1,790 @@
+{
+ "_doc": "DaemonCommandScope (Connection/DaemonCommandScope.swift) as a sequence of ops on one scope handle (cmux_daemon_scope_call); key: the idempotency key (null or empty: none). at_ms stands in for the clock.",
+ "cases": [
+  {
+   "name": "tickets, failures, barriers and created objects",
+   "key": "retry-1",
+   "steps": [
+    {
+     "op": "begin",
+     "request": {
+      "label": "create",
+      "at_ms": 1
+     },
+     "expect": {
+      "ticket": 1
+     }
+    },
+    {
+     "op": "begin",
+     "request": {
+      "at_ms": 2
+     },
+     "expect": {
+      "ticket": 2
+     }
+    },
+    {
+     "op": "next_mutation_id",
+     "request": {},
+     "expect": {
+      "id": "21f73286-4620-4a83-a715-16177838e7c9"
+     }
+    },
+    {
+     "op": "next_mutation_id",
+     "request": {},
+     "expect": {
+      "id": "e5667600-c9f4-469a-acf7-ebbe58df44e8"
+     }
+    },
+    {
+     "op": "next_derived",
+     "request": {
+      "kind": "terminal"
+     },
+     "expect": {
+      "uuid": "6d7e599f-73c7-4255-a965-7cfad1657fe4"
+     }
+    },
+    {
+     "op": "note_barrier",
+     "request": {
+      "sequence": 9,
+      "machine": "local"
+     },
+     "expect": {}
+    },
+    {
+     "op": "note_barrier",
+     "request": {
+      "sequence": 4,
+      "machine": "local"
+     },
+     "expect": {}
+    },
+    {
+     "op": "note_created",
+     "request": {
+      "objects": [
+       {
+        "kind": "workspace",
+        "id": "w1"
+       },
+       {
+        "kind": "tab",
+        "id": "t1"
+       },
+       {
+        "kind": "workspace",
+        "id": "w1"
+       }
+      ]
+     },
+     "expect": {}
+    },
+    {
+     "op": "end",
+     "request": {
+      "ticket": 1,
+      "failure": {
+       "label": "create",
+       "message": "timed out",
+       "may_have_applied": true
+      },
+      "at_ms": 5
+     },
+     "expect": {
+      "became_idle": false
+     }
+    },
+    {
+     "op": "end",
+     "request": {
+      "ticket": 1,
+      "at_ms": 6
+     },
+     "expect": {
+      "became_idle": false
+     }
+    },
+    {
+     "op": "stage_log",
+     "request": {},
+     "expect": {
+      "log": [
+       "open#1 create@1",
+       "open#2@2",
+       "close#1@5",
+       "open now: #2"
+      ]
+     }
+    },
+    {
+     "op": "end",
+     "request": {
+      "ticket": 2,
+      "label": "split",
+      "at_ms": 7
+     },
+     "expect": {
+      "became_idle": true
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "idle": true,
+      "open": true,
+      "failures": [
+       {
+        "label": "create",
+        "message": "timed out",
+        "may_have_applied": true,
+        "terminal_may_appear": false
+       }
+      ],
+      "created": [
+       {
+        "kind": "workspace",
+        "id": "w1"
+       },
+       {
+        "kind": "tab",
+        "id": "t1"
+       }
+      ],
+      "ticket_count": 2,
+      "barriers": {
+       "local": 9
+      }
+     }
+    },
+    {
+     "op": "close",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "begin",
+     "request": {
+      "at_ms": 8
+     },
+     "expect": {
+      "ticket": null
+     }
+    },
+    {
+     "op": "next_mutation_id",
+     "request": {},
+     "expect": {
+      "id": null
+     }
+    },
+    {
+     "op": "note_barrier",
+     "request": {
+      "sequence": 20,
+      "machine": "local"
+     },
+     "expect": {}
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "idle": true,
+      "open": false,
+      "failures": [
+       {
+        "label": "create",
+        "message": "timed out",
+        "may_have_applied": true,
+        "terminal_may_appear": false
+       }
+      ],
+      "created": [
+       {
+        "kind": "workspace",
+        "id": "w1"
+       },
+       {
+        "kind": "tab",
+        "id": "t1"
+       }
+      ],
+      "ticket_count": 2,
+      "barriers": {
+       "local": 9
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "no key derives nothing",
+   "key": "",
+   "steps": [
+    {
+     "op": "next_mutation_id",
+     "request": {},
+     "expect": {
+      "id": null
+     }
+    },
+    {
+     "op": "next_derived",
+     "request": {
+      "kind": "workspace"
+     },
+     "expect": {
+      "uuid": null
+     }
+    }
+   ]
+  },
+  {
+   "name": "the stage log keeps its first 16 and newest entries, 48 in all",
+   "key": null,
+   "steps": [
+    {
+     "op": "note",
+     "request": {
+      "stage": "s0",
+      "at_ms": 0
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s1",
+      "at_ms": 1
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s2",
+      "at_ms": 2
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s3",
+      "at_ms": 3
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s4",
+      "at_ms": 4
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s5",
+      "at_ms": 5
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s6",
+      "at_ms": 6
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s7",
+      "at_ms": 7
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s8",
+      "at_ms": 8
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s9",
+      "at_ms": 9
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s10",
+      "at_ms": 10
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s11",
+      "at_ms": 11
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s12",
+      "at_ms": 12
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s13",
+      "at_ms": 13
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s14",
+      "at_ms": 14
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s15",
+      "at_ms": 15
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s16",
+      "at_ms": 16
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s17",
+      "at_ms": 17
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s18",
+      "at_ms": 18
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s19",
+      "at_ms": 19
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s20",
+      "at_ms": 20
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s21",
+      "at_ms": 21
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s22",
+      "at_ms": 22
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s23",
+      "at_ms": 23
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s24",
+      "at_ms": 24
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s25",
+      "at_ms": 25
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s26",
+      "at_ms": 26
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s27",
+      "at_ms": 27
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s28",
+      "at_ms": 28
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s29",
+      "at_ms": 29
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s30",
+      "at_ms": 30
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s31",
+      "at_ms": 31
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s32",
+      "at_ms": 32
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s33",
+      "at_ms": 33
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s34",
+      "at_ms": 34
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s35",
+      "at_ms": 35
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s36",
+      "at_ms": 36
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s37",
+      "at_ms": 37
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s38",
+      "at_ms": 38
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s39",
+      "at_ms": 39
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s40",
+      "at_ms": 40
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s41",
+      "at_ms": 41
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s42",
+      "at_ms": 42
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s43",
+      "at_ms": 43
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s44",
+      "at_ms": 44
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s45",
+      "at_ms": 45
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s46",
+      "at_ms": 46
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s47",
+      "at_ms": 47
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s48",
+      "at_ms": 48
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s49",
+      "at_ms": 49
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s50",
+      "at_ms": 50
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s51",
+      "at_ms": 51
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s52",
+      "at_ms": 52
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s53",
+      "at_ms": 53
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s54",
+      "at_ms": 54
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s55",
+      "at_ms": 55
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s56",
+      "at_ms": 56
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s57",
+      "at_ms": 57
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s58",
+      "at_ms": 58
+     },
+     "expect": {}
+    },
+    {
+     "op": "note",
+     "request": {
+      "stage": "s59",
+      "at_ms": 59
+     },
+     "expect": {}
+    },
+    {
+     "op": "stage_log",
+     "request": {},
+     "expect": {
+      "log": [
+       "s0@0",
+       "s1@1",
+       "s2@2",
+       "s3@3",
+       "s4@4",
+       "s5@5",
+       "s6@6",
+       "s7@7",
+       "s8@8",
+       "s9@9",
+       "s10@10",
+       "s11@11",
+       "s12@12",
+       "s13@13",
+       "s14@14",
+       "s15@15",
+       "s28@28",
+       "s29@29",
+       "s30@30",
+       "s31@31",
+       "s32@32",
+       "s33@33",
+       "s34@34",
+       "s35@35",
+       "s36@36",
+       "s37@37",
+       "s38@38",
+       "s39@39",
+       "s40@40",
+       "s41@41",
+       "s42@42",
+       "s43@43",
+       "s44@44",
+       "s45@45",
+       "s46@46",
+       "s47@47",
+       "s48@48",
+       "s49@49",
+       "s50@50",
+       "s51@51",
+       "s52@52",
+       "s53@53",
+       "s54@54",
+       "s55@55",
+       "s56@56",
+       "s57@57",
+       "s58@58",
+       "s59@59"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

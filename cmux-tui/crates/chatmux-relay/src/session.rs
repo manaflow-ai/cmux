@@ -886,9 +886,16 @@ async fn relay_session(
                         if !state.managed
                             && (configured != local_trust || local_trust == Trust::Autonomous)
                         {
-                            config.pending_trust = Some(local_trust.as_str().to_owned());
-                            save(config, config_path);
+                            let pending = Some(local_trust.as_str().to_owned());
+                            if config.pending_trust != pending {
+                                config.pending_trust = pending;
+                                save(config, config_path);
+                            }
                         }
+                        let owner_changed = hello
+                            .owner_user_id
+                            .as_ref()
+                            .is_some_and(|owner| config.owner_user_id.as_ref() != Some(owner));
                         if let Some(owner) = hello.owner_user_id {
                             config.owner_user_id = Some(owner);
                         }
@@ -955,9 +962,16 @@ async fn relay_session(
                                 break Ok(connected);
                             }
                         } else if !state.managed {
-                            config.trust = Some(local_trust.as_str().to_owned());
-                            config.pending_trust = None;
-                            save(config, config_path);
+                            // A reconnect that settles the trust already saved writes no config.
+                            let trust = Some(local_trust.as_str().to_owned());
+                            if owner_changed
+                                || config.trust != trust
+                                || config.pending_trust.is_some()
+                            {
+                                config.trust = trust;
+                                config.pending_trust = None;
+                                save(config, config_path);
+                            }
                         } else {
                             config.trust = Some(hello.trust.clone());
                         }

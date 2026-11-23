@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { transcriptColumn, transcriptRowWidth } from "../model";
+import { transcriptColumn, transcriptLead, transcriptRowWidth } from "../model";
 import {
   closeComputerUsePreview,
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -12,7 +12,7 @@ import {
 
 const frame = "data:image/jpeg;base64,AA==";
 const icon = "data:image/png;base64,AA==";
-const column = { min: 720, max: 800, share: 0.625, prose: Infinity };
+const column = { min: 720, max: 800 };
 
 describe("computerUsePreview", () => {
   test("reads a running card and a done card with its icon", () => {
@@ -186,10 +186,11 @@ describe("computerUsePreview", () => {
 describe("the column keeps the card's room", () => {
   test("a pane whose gutter is too narrow moves the column's end in, and keeps its start", () => {
     const plain = transcriptColumn(900, column);
-    expect(plain).toEqual({ inset: 88, insetEnd: 88, width: 724 });
+    expect(plain).toEqual({ inset: 50, insetEnd: 50, width: 800 });
     const beside = transcriptColumn(900, column, COMPUTER_USE_PREVIEW_RESERVE);
-    expect(beside).toEqual({ inset: 88, insetEnd: 204, width: 608 });
-    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(608);
+    expect(beside).toEqual({ inset: 50, insetEnd: 204, width: 646 });
+    // Rows start at the composer's + (`transcriptLead`), so they are that much narrower than the column.
+    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(646 - transcriptLead(646));
   });
 
   test("a wide pane's gutter already holds the card: nothing moves", () => {

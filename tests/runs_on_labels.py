@@ -31,6 +31,9 @@ import math
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "manaflow-ai"
@@ -43,10 +46,11 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
-# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
-# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
-FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
+GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
+# The persistent Linux pool's label: same-repository jobs name it past their fork branch.
+PERSISTENT_LINUX = "cmux-linux"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
@@ -181,6 +185,17 @@ class _Parser:
         raise ValueError(f"unexpected {value!r}")
 
 
+def _label_array(value):
+    """fromJSON of a described variable's value: a tuple of labels, or unknown when it is not a JSON string array."""
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, list) and parsed and all(isinstance(label, str) for label in parsed):
+        return tuple(parsed)
+    return Unknown("fromjson(...)")
+
+
 def _truthy(value) -> bool:
     if value is NULL or value is False:
         return False
@@ -268,6 +283,9 @@ class _Evaluator:
                     out |= _compare(node[1], left, right)
             return out
         if kind == "call":
+            if node[1] == "fromjson" and len(node[2]) == 1 and node[2][0][0] == "ctx" and node[2][0][1] in self.variables:
+                # A described variable holding a JSON label array (vars.CI_SIDE_LANE_LABELS): the labels, as a tuple.
+                return {_label_array(value) for value in self(node[2][0])}
             return _call(node[1], [self(arg) for arg in node[2]])
         if kind == "prop":
             target = node[1]
@@ -295,7 +313,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
     text = str(runs_on).strip()
-    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    whole = gh_expressions.EXPRESSION.fullmatch(text)
     if whole is None:
         if "${{" in text:
             raise ValueError(f"runs-on mixes text and an expression: {text!r}")
@@ -323,15 +341,28 @@ def unwrap_fork_pool_reads(value: str) -> str:
 
 # A job that holds signing or release material (scripts/ci/runner_routing_table.py's `sensitive`). It keeps its
 # route under runner trust policy: a RUNNER_POOLS read would let whoever writes that variable choose the machine
-# that holds the keys.
+# that holds the keys. The signing tools and uploads; the signing secrets are read through workflow_jobs in
+# holds_signing_material (SIGNING_SECRET_PREFIXES), in every form GitHub accepts.
 SIGNING_JOB = re.compile(
-    r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload"
+    r"codesign|notarytool|signing-keychain|gh release upload"
     r"|softprops/action-gh-release", re.IGNORECASE)
 
 
+SIGNING_SECRET_PREFIXES = ("APPLE", "SIGN", "CMUX_RELEASE", "NOTARY")
+
+
 def holds_signing_material(job) -> bool:
+    """A signing tool or upload in the job, or a signing secret read in any form workflow_jobs knows
+    (`secrets['APPLE_X']`, lowercase, `toJSON(secrets)`, `secrets: inherit`), not only `secrets.APPLE_X`."""
+    import sys
     import yaml
-    return SIGNING_JOB.search(yaml.safe_dump(job)) is not None
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import workflow_jobs
+    if SIGNING_JOB.search(yaml.safe_dump(job)) is not None:
+        return True
+    names = workflow_jobs.secret_names(job)
+    return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
 
 
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:
@@ -372,19 +403,29 @@ def personal_machine_names() -> tuple[str, ...]:
     return tuple(word.lower() for word in CANDIDATE_WORDS_ANY_CASE)
 
 
+# The one label every own-branch Linux x64 job takes (scripts/ci/one_linux_label.py): the owned pool, sized by load.
+ONE_LINUX_LABEL = "cmux-linux"
+# The one Linux label's fork pull request branch (scripts/ci/one_linux_label.py): a fork's pull_request run takes
+# CI_FORK_LINUX_RUNNER, GitHub-hosted while unset, and never an owned host. tests/test_ci_fork_runner_routing.py
+# checks that branch; what an own-branch run can take is the rest of the expression.
+ONE_LABEL_FORK_BRANCH = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                         "github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || ")
+
+
+def without_fork_branch(runs_on):
+    """`runs_on` with the one-label fork pull request branch taken out: what every own-branch run can take."""
+    return runs_on.replace(ONE_LABEL_FORK_BRANCH, "") if isinstance(runs_on, str) else runs_on
+
+
 def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = None,
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
-    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
-
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX, ONE_LINUX_LABEL}
     personal = personal_machine_names()
-    if isinstance(runs_on, str):
-        for output in FLEET_LINUX_OUTPUTS:
-            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
+    runs_on = without_fork_branch(runs_on)
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}

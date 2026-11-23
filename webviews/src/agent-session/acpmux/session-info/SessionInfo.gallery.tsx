@@ -23,13 +23,16 @@ import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
 import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
-import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
-import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { SessionInfo, SessionInfoPanel } from "./SessionInfo";
+import type { SessionInfoPlacement } from "./sessionInfoModel";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import type { SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
-import { outputArtifacts } from "./OutputsSection";
+import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 type Props = ComponentProps<typeof SessionInfo> & {
   placement?: SessionInfoPlacement;
@@ -47,11 +50,40 @@ type Props = ComponentProps<typeof SessionInfo> & {
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
   edge?: string;
+  /// Gallery-only: a compared section grip (GRIP_LOOKS), for comparison with the shipped left-gutter one.
+  grip?: keyof typeof GRIP_LOOKS;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
   /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
   scroller?: "thumb";
+  /// Gallery-only: a compared head or fold look (FOLD_LOOKS), for comparison with the shipped one.
+  look?: keyof typeof FOLD_LOOKS;
 };
+
+/// Compared section heads and fold curves (sessionInfo.css), as style overrides on the shipped ones.
+const FOLD_LOOKS = {
+  /// The head lights a faint fill under the pointer (not at rest), as every row does.
+  "head-hover-fill":
+    ".acpmux-session-info-section .ui-disclosure-trigger:hover{background:var(--acpmux-session-info-row-hover)}",
+  /// The folds on the flat ease-out of the motion scale (--cmux-ease-out over its standard step).
+  "flat-ease":
+    ".acpmux-session-info{--cmux-ease-settle:var(--cmux-ease-out);--cmux-motion-settle:var(--cmux-motion-standard)}",
+} as const;
+
+/// Compared section grips (sessionInfo.css `__handle`), as style overrides on the shipped one.
+const GRIP_LOOKS = {
+  /// Faint at rest, as the reference panel draws it, and full on the grip.
+  rest: ".acpmux-session-info-section__handle{opacity:0.45}",
+  /// At the head's right end in the count's place, its dots on the rows' right text edge (shipped from
+  /// #37162 until 2026-11-15).
+  right:
+    ".acpmux-session-info-section__handle{left:auto;width:var(--grid-icon-box);" +
+    "right:calc(var(--grid-gap) - (var(--grid-icon-box) - var(--acpmux-session-info-grip-dots)) / 2)}" +
+    ".acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)" +
+    " .acpmux-session-info-section__meta{opacity:0}",
+  /// No grip until the head is hovered, and the whole head takes the grab cursor.
+  head: ".acpmux-session-info-section:has(> .acpmux-session-info-section__handle) > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger{cursor:grab}",
+} as const;
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -107,8 +139,10 @@ function GallerySessionInfo({
   tones,
   ceiling,
   edge,
+  grip,
   panelWidth = 320,
   scroller,
+  look,
   more: moreAtFirst,
   ...props
 }: Props) {
@@ -118,7 +152,9 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
       {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
+      {look ? <style>{FOLD_LOOKS[look]}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -382,9 +418,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
-/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
-/// icon, and the title does not move when it shows.
+/// rows; it shows, faint, while its section's head is hovered, in the gutter left of its title (Lawrence,
+/// 2026-11-15: "move the grabber dots to left, we have space on the left of the text"), at the reference's
+/// size, and neither the title nor the count moves or fades when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -401,24 +437,37 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
   const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const meta = head.querySelector(".acpmux-session-info-section__meta");
   const before = title.getBoundingClientRect();
+  const metaBefore = meta?.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
-  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  // The grip fades in over the quick step: read it once it has.
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) >= 0.7);
+  const opacity = Number.parseFloat(style(ctx, handle).opacity);
+  if (!(opacity < 1)) throw new Error(`The grip shows at ${opacity}, not faint`);
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  // Lucas, 2026-11-05, Session Info lab: the grip inside the pill "looks strange and poorly positioned".
-  // Two dots across and three down, in the panel's left gutter beside the head, outside its pill, on the
-  // head's middle line.
+  const metaAfter = meta?.getBoundingClientRect();
+  if (metaBefore && metaAfter && metaAfter.right !== metaBefore.right)
+    throw new Error("The count moved when the grip showed");
+  // Two dots across and three down, about 6x10, in the gutter left of the title, on its middle line: its
+  // dots end one grid gap (the head's leading padding) before the title, and the count stays.
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
-  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
   if (!(dots.height > dots.width)) throw new Error(`The grip is ${dots.width}x${dots.height}, not taller than wide`);
-  if (dots.right > pill.left + 0.5) throw new Error("The grip is not in the gutter left of its head's pill");
+  if (dots.width > 6 || dots.height > 10)
+    throw new Error(`The grip is ${dots.width}x${dots.height}, past the reference's size`);
+  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
+  if (Math.abs(dots.right - (after.left - gap)) > 1)
+    throw new Error("The grip does not end one grid gap before the title");
+  if (meta && style(ctx, meta).opacity !== "1") throw new Error("The count fades when the grip shows");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
+  // The head under the pointer draws no fill: only the grip, a control of its own, lights.
+  if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
 };
 
 /// Shows a compared grip placement: the pointer rests on the first foldable section head.
@@ -427,31 +476,21 @@ const hoverFirstHead: Play = async (ctx) => {
   await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
-/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
-/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
-/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
-/// scrollbar's thumb runs.
-const gripLeftOfEveryTitle: Play = async (ctx) => {
+/// Lawrence, 2026-11-15: "move the grabber dots to left, we have space on the left of the text". Every
+/// section's grip, icon heads (Context, Usage, Connectors) included, ends on its section's left edge, one
+/// grid gap before the head's first mark, inside the panel.
+const gripLeftOfEveryHead: Play = async (ctx) => {
   const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
   await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
   const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    // The dots: the handle's hit box reaches over the icon box's empty margin.
     const grip = handle.querySelector("svg")!.getBoundingClientRect();
-    const first = section.querySelector(
-      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
-    );
-    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
-    const glyph = first
-      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
-      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
-    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
-      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
-    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
-    if (grip.right > body.left + body.width / 2)
-      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+    const edge = section.getBoundingClientRect().left;
+    if (Math.abs(grip.right - edge) > 1)
+      throw new Error(`${section.dataset.section}'s grip does not end on its section's left edge`);
+    if (grip.left < body.left + 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
   }
 };
 
@@ -488,8 +527,9 @@ const scrollsWithNoScrollbar: Play = async (ctx) => {
   await ctx.waitFor(() => body.scrollTop > 0);
 };
 
-// The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
-// and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might be better").
+// The panel's edge: a hairline (at most 1px) at 22% of the pane's text all round (never the App's 7-9% border
+// tokens), on its rounded corners, and no fill of its own where nothing runs under it (Leo, 2026-11-03:
+// "having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").
 const hairlineEdge: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
   const panel = ctx.find({ selector: ".acpmux-session-info" });
@@ -501,14 +541,47 @@ const hairlineEdge: Play = async (ctx) => {
       throw new Error(`The panel's ${side} edge does not draw`);
   }
   const probe = ctx.document.createElement("div");
-  probe.style.color = "var(--agent-border)";
+  probe.style.color = "color-mix(in srgb, var(--agent-text) 22%, transparent)";
   panel.parentElement!.append(probe);
   const border = style(ctx, probe).color;
   probe.remove();
   if (look.borderTopColor !== border)
-    throw new Error(`The edge is ${look.borderTopColor}, not the pane's border ${border}`);
+    throw new Error(`The edge is ${look.borderTopColor}, not 22% of the pane's text (${border})`);
   if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
+};
+
+// A faint hairline between each two sections, in the gap's middle, in the theme's separator color
+// (sessionInfo.css --acpmux-session-info-divider): none beside the Show more line, none doubled.
+const sectionDividers: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-slot").length > 2);
+  const slots = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot"),
+  ];
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--acpmux-session-info-divider, var(--agent-border))"; // the line's own fallback
+  slots[0]!.append(probe);
+  const color = style(ctx, probe).color;
+  probe.remove();
+  let drawn = 0;
+  slots.forEach((slot, at) => {
+    const line = ctx.document.defaultView!.getComputedStyle(slot, "::before");
+    const between =
+      at > 0 &&
+      slot.dataset.slot !== "more" &&
+      slots[at - 1]!.dataset.slot !== "more" &&
+      slots[at - 1]!.childElementCount > 0;
+    const draws = line.content !== "none" && Number.parseFloat(line.borderTopWidth) > 0;
+    if (between && slot.childElementCount > 0 && !draws) throw new Error(`No divider above ${slot.dataset.slot}`);
+    if (!between && draws) throw new Error(`A divider above ${slot.dataset.slot ?? "the first section"}`);
+    if (draws) {
+      drawn += 1;
+      if (line.borderTopColor !== color) throw new Error(`${slot.dataset.slot}'s divider is ${line.borderTopColor}`);
+      if (Number.parseFloat(line.borderTopWidth) > 1)
+        throw new Error(`${slot.dataset.slot}'s divider is not a hairline`);
+    }
+  });
+  if (drawn === 0) throw new Error("No divider between the sections");
 };
 
 // Every section title sits on the Environment rows' icon column: heads have no icon of their own
@@ -648,6 +721,79 @@ const unpricedFleet: AcpmuxSessionEntry[] = [
     usageStats: spent({ launcher: "codex-acp", autocompact: "unknown", contextTokens: 41_000, tokens24h: 52_000_000 }),
   }),
 ];
+
+/// Every Web Animation and transition in the page has ended: the fold is at its final layout.
+const settled = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
+
+/// The Changes head, as one of the heads with a count.
+const CHANGES_HEAD = '[data-section="changes"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger';
+
+/// Leo, 2026-11-07: "simply don't highlight and have a thing you can click". A head with a count: its count
+/// ends on the rows' right text edge, at rest and under the pointer; under the pointer it draws no fill, and
+/// the grip shows left of the title, one grid gap before it; the title is on the rows' icon column.
+const plainHead: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(CHANGES_HEAD));
+  const head = ctx.find({ selector: CHANGES_HEAD });
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
+  const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
+  const edge = section.getBoundingClientRect().right - gap;
+  const meta = head.querySelector(".acpmux-session-info-section__meta")!;
+  if (Math.abs(meta.getBoundingClientRect().right - edge) > 1)
+    throw new Error("The head's count does not end on the rows' right text edge");
+  // A click on the count lands on the head, so it folds the section (and a second opens it again).
+  const box = meta.getBoundingClientRect();
+  const hit = ctx.document.elementFromPoint(box.right - 2, box.top + box.height / 2);
+  if (!hit || !head.contains(hit)) throw new Error(`A click on the count lands on ${hit?.className ?? "nothing"}`);
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
+  await ctx.hover({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) >= 0.7);
+  if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
+  if (style(ctx, meta).opacity !== "1") throw new Error("The count fades when the grip shows");
+  if (Math.abs(meta.getBoundingClientRect().right - edge) > 1) throw new Error("The count moved when the grip showed");
+  const dots = handle.querySelector("svg")!.getBoundingClientRect();
+  const title = head.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect();
+  if (Math.abs(dots.right - (title.left - gap)) > 1)
+    throw new Error("The grip does not end one grid gap before the title");
+  if (Math.abs(title.left - (head.getBoundingClientRect().left + gap)) > 0.5)
+    throw new Error("The title is off the rows' icon column");
+};
+
+/// Leo, 2026-11-07: "we also need more animations for the session info collapsing/expanding". Changes
+/// folds into its head, and the sections under it and the panel's edge rise with it; then it opens again.
+/// Each ends exactly on its final layout, with nothing left running.
+const foldAndOpen: Play = async (ctx) => {
+  const panel = () => ctx.document.querySelector('[data-section="changes"] .ui-disclosure-panel');
+  await ctx.waitFor(() => panel());
+  await ctx.click({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => !panel() && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => panel() && settled(ctx), { capMs: 3000 });
+  if (style(ctx, panel()!).height === "0px") throw new Error("The opened section ends folded");
+};
+
+/// Changes' own Show more grows its list in place and Show less closes it over the rows that go.
+const showMoreAndLess: Play = async (ctx) => {
+  const fold = () => ctx.document.querySelector("button.acpmux-session-info-pr-fold");
+  await ctx.waitFor(() => /already on base/.test(text(ctx)) && fold());
+  await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
+  if (ctx.document.querySelector("[data-folding]")) throw new Error("A Show less left its box clipped");
+};
+
+/// The panel's Show more line opens the sections under it, and Show less folds them away again.
+const panelMoreAndLess: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-more"));
+  await ctx.click({ selector: "button.acpmux-session-info-more" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-slot="changes"]') && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: "button.acpmux-session-info-more" });
+  await ctx.waitFor(() => !ctx.document.querySelector('[data-slot="changes"]') && settled(ctx), { capMs: 3000 });
+};
 
 const full: Props = {
   summary,
@@ -1515,6 +1661,23 @@ export default componentEntry<Props>({
         repository: undefined,
       },
     },
+    "connectors-loaded": {
+      note: 'Connector inventory variant: two MCP servers loaded by the attached harness read as "2 loaded". This deliberately does not claim provider authentication or resource authorization.',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          mcpServers: [
+            { name: "github", status: "connected" as const },
+            { name: "linear", status: "connected" as const },
+          ],
+        },
+      },
+    },
+    "connectors-connecting": {
+      note: 'Connector inventory variant: one MCP server is still loading, so the head says "1 connecting" rather than a green connected count.',
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
+    },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
@@ -1796,32 +1959,66 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip, two across and three down, shows in the panel's left gutter beside the head's pill, on its middle line (Lucas, 2026-11-05, Session Info lab: inside the pill it \"looks strange and poorly positioned\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows in the gutter left of the title, its dots one grid gap before it, on its middle line (Lawrence, 2026-11-15: \"move the grabber dots to left, we have space on the left of the text\"). Nothing in the head moves, and the count stays. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-edge": {
-      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
+    "header-grip-rest": {
+      note: 'Compared, not chosen: the grip faint at rest as the reference panel draws it, left of the title. Six faint dots on every section head at rest read as clutter in a panel with eight heads (Leo, 2026-11-02, on an always-on grip: "THESE ARE JUST SO INSANELY STUPID LOOKING").',
+      props: { ...full, placement: "push", grip: "rest" },
+    },
+    "header-grip-right-count": {
+      note: "Before, for comparison: the grip on head hover at the head's right end in the count's place, its dots on the rows' right text edge, the count fading out under it (shipped from #37162 until Lawrence, 2026-11-15: \"move the grabber dots to left, we have space on the left of the text\").",
+      props: { ...full, placement: "push", grip: "right" },
       play: hoverFirstHead,
     },
-    "header-grip-gutter": {
-      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
-      play: hoverFirstHead,
-    },
-    "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
+    "header-grip-whole-head": {
+      note: "Compared, not chosen: no grip at rest, the whole head takes the grab cursor, and the grip shows on hover. A press on a head already folds the section, so a whole-head drag would need a move threshold before every fold click; the grip alone keeps the fold click instant.",
+      props: { ...full, placement: "push", grip: "head" },
       play: hoverFirstHead,
     },
     "header-grip-left": {
-      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+      note: "Every section's grip, icon heads included, ends on its section's left edge, one grid gap before the head's first mark, inside the panel.",
       props: { ...full, placement: "push" },
-      play: gripLeftOfEveryTitle,
+      play: gripLeftOfEveryHead,
+    },
+    "heads-plain": {
+      note: "Chosen. A section head under the pointer, Changes with its count: no fill and no pill, the chevron and count lit in the text's color, and the grip a small control of its own left of the title, one grid gap before it, and the count on the rows' right text edge; the title on the rows' icon column (Leo, 2026-11-07: \"simply don't highlight and have a thing you can click\").",
+      props: { ...full, placement: "push" },
+      play: plainHead,
+    },
+    "heads-hover-fill": {
+      note: "Compared, not chosen: the same head with a faint fill under the pointer, as a row's. It reads as one more row to press, and its pill was what kept the grip and the title off the rows' edges.",
+      props: { ...full, placement: "push", look: "head-hover-fill" },
+      play: hoverFirstHead,
+    },
+    "fold-settle": {
+      note: `Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel's edge move together on the settle (--cmux-ease-settle, ${MOTION_SETTLE} over ${MOTION_SETTLE_MS} ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").`,
+      props: { ...full, placement: "push" },
+      play: foldAndOpen,
+    },
+    "fold-flat-ease": {
+      note: `Compared, not chosen: the same fold on the flat ease-out (--cmux-ease-out over ${MOTION_SETTLE_MS} ms). It starts slowly and stops with no tail, where the reference's starts at full speed and settles.`,
+      props: { ...full, placement: "push", look: "flat-ease" },
+      play: foldAndOpen,
+    },
+    "show-more-settle": {
+      note: "Chosen. Changes' Show more grows its list in place and Show less closes it over the rows that go, on the settle; the sections under it and the panel's edge move with it, and nothing pops in or out at the end.",
+      props: { ...full, placement: "push" },
+      play: showMoreAndLess,
+    },
+    "show-more-flat-ease": {
+      note: "Compared, not chosen: the same Show more and Show less on the flat ease-out.",
+      props: { ...full, placement: "push", look: "flat-ease" },
+      play: showMoreAndLess,
+    },
+    "panel-more-settle": {
+      note: "Chosen. The panel's Show more line opens the sections under it in place and Show less folds them away, the panel's edge moving with them on the settle.",
+      props: { ...full, placement: "push", more: false },
+      play: panelMoreAndLess,
     },
     "edge-hairline": {
-      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
+      note: 'Chosen. The panel in the gutter with no fill of its own and a hairline edge at 22% of the pane\'s text (0.5px; the App\'s border tokens are 7-9% of it) on its rounded corners (Leo, 2026-11-03: "maybe it\'s ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full },
       play: hairlineEdge,
     },
@@ -1830,12 +2027,26 @@ export default componentEntry<Props>({
       props: { ...full, transcript: true },
       play: hairlineEdge,
     },
+    "section-dividers": {
+      note: "Chosen. A faint hairline between sections in the theme's separator color, as the reference app's session info draws them (Leo, 2026-11-19: \"there should be a faint divider between the sections there on session info idk why it doesnt show up there\").",
+      props: { ...full },
+      play: sectionDividers,
+    },
+    "section-dividers-edge": {
+      note: "Alternative: the dividers at the panel edge's 22% of the pane's text, which reads as a ruled list rather than a faint pause.",
+      props: { ...full, edge: "--acpmux-session-info-divider:color-mix(in srgb, var(--agent-text) 22%, transparent)" },
+      play: sectionDividers,
+    },
+    "section-dividers-none": {
+      note: "Before, for comparison: the sections one gap apart with no divider (the glance layout's rule matched no element).",
+      props: { ...full, edge: "--acpmux-session-info-divider:transparent" },
+    },
     "edge-none": {
       note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",
       props: { ...full, edge: "border-color:transparent" },
     },
-    "edge-strong": {
-      note: "Alternative: a stronger edge (--agent-border-strong). It reads as a box drawn around the panel.",
+    "edge-faint": {
+      note: 'Before, for comparison: the pane\'s border tokens as the App sends them (--agent-border-strong is the pane border, 7% of the text dark and 9% light; --agent-border the separator, 8% and 7%; AgentPaneTheme.swift), which read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full, edge: "border-color:var(--agent-border-strong)" },
     },
     "over-chat-blur-only": {

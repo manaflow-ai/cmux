@@ -66,11 +66,6 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(cost.runningSince == nil)
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
         #expect(cost.usage(now: Self.now, locale: Self.enUS) == SidebarStrings.costRateWhenRunning("$0.26"))
-
-        let fields = CloudHandlers.costFields(Self.machine(.paused), now: Self.now)
-        #expect(fields["hourly_rate_usd"] == .double(0.2645))
-        #expect(fields["running_since"] == nil)
-        #expect(fields["estimated_cost_usd"] == nil)
     }
 
     @Test func aMachineWithNoCostFactsHasNoCostLine() {
@@ -107,7 +102,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         [{"id":"vm-1","status":"running","hourlyRateUsd":0.2645,"runningSince":1800000000000},
          {"id":"vm-2","status":"paused","hourlyRateUsd":null,"runningSince":null}]
         """#
-        let vms = try JSONDecoder().decode([CloudMachine].self, from: Data(body.utf8))
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
         #expect(vms[0].hourlyRateUsd == 0.2645)
         #expect(vms[0].runningSince == Self.now)
         #expect(vms[1].hourlyRateUsd == nil)
@@ -117,7 +112,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
     /// A cost this client cannot read drops the line, never the machine.
     @Test func malformedCostFactsKeepTheMachines() throws {
         let body = #"[{"id":"vm-1","status":"running","hourlyRateUsd":"cheap","runningSince":"soon"}]"#
-        let vms = try JSONDecoder().decode([CloudMachine].self, from: Data(body.utf8))
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
         #expect(vms.map(\.id) == ["vm-1"])
         #expect(vms[0].hourlyRateUsd == nil)
         #expect(vms[0].runningSince == nil)
@@ -125,17 +120,17 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
 
     // MARK: Surfaces
 
-    /// Hovering a Cloud machine's sidebar header shows its cost under the status.
+    /// Hovering a Cloud machine's sidebar header shows its cost after the status, on the tooltip's one line.
     @Test func theCloudHeaderTooltipCarriesTheCostLine() throws {
         let cost = SidebarMachine.Cost(hourlyRateUsd: 0.2645, runningSince: Date().addingTimeInterval(-8_040), cap: .capped(running: 2, max: 3))
         let tip = try #require(Self.header(SidebarMachine(id: MachineID("vm-cost"), name: "api", kind: .cloud, status: .connected, cost: cost)).themedToolTip)
-        let lines = tip.components(separatedBy: "\n")
-        #expect(lines.first == SidebarStrings.statusConnected)
-        #expect(lines.last == SidebarStrings.capOf(2, 3))
-        #expect(lines.count == 3)
+        #expect(!tip.contains("\n"), "the tooltip took more than one line")
+        // The status first, then the cost (a cost line holds its own " · ": the rate and the time it has run), the cap last.
+        #expect(tip.hasPrefix(SidebarStrings.statusConnected + " · "), "\(tip)")
+        #expect(tip.hasSuffix(" · " + SidebarStrings.capOf(2, 3)), "\(tip)")
 
         #expect(SectionHeaderRowView.machineToolTip(status: SidebarStrings.statusConnected, cost: cost, now: Self.now)
-            == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: "\n"))
+            == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: " · "))
         #expect(SectionHeaderRowView.machineToolTip(status: nil, cost: nil, now: Self.now) == nil)
     }
 
@@ -146,9 +141,12 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
             == SidebarStrings.statusConnected)
     }
 
-    /// `cloud machine-status` answers agents with the cost fields.
+    /// `cloud machine-status` answers agents with the cost fields (cmux-cloud-handlers has the rounding cases).
     @Test func machineStatusFieldsCarryTheCost() {
-        let fields = CloudHandlers.costFields(Self.machine(.running), now: Self.now)
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-cost")
+        session.machine = Self.machine(.running)
+        let fields = CloudHandlers.status(session, CloudMachineStats(state: "running"), now: Self.now).fields
         #expect(fields["hourly_rate_usd"] == .double(0.2645))
         #expect(fields["running_since"] == .string(Self.now.addingTimeInterval(-8_040).ISO8601Format()))
         #expect(fields["estimated_cost_usd"] == .double(0.5907))

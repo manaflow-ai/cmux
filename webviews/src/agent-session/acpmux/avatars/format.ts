@@ -4,12 +4,21 @@
 // and a small JSON manifest naming each state's row and frame count (after Codex's pets, whose
 // sheets keep one animation per row and draw running-left/running-right as their own rows). The
 // Chief pet, Chief avatars and agent avatars share it; a person's own upload is checked here too.
+// Optional `directions` rows (look left/right/up/down while thinking, lean toward a drag) sit
+// under the state rows; a manifest without them stays valid and draws its states as before.
 // Pure: no DOM, so the native side and the upload path read the same rules.
 
 export const AVATAR_FORMAT = "cmux-avatar/1";
 export const AVATAR_STATES = ["idle", "working", "thinking", "waiting", "done", "error"] as const;
 export type AvatarState = (typeof AVATAR_STATES)[number];
 export type AvatarFacing = "left" | "right";
+export const AVATAR_DIRECTIONS = ["left", "right", "up", "down"] as const;
+export type AvatarDirection = (typeof AVATAR_DIRECTIONS)[number];
+/** `look`: the character looks that way (thinking); `drag`: it leans toward the way it is dragged. */
+export const AVATAR_MOTIONS = ["look", "drag"] as const;
+export type AvatarMotion = (typeof AVATAR_MOTIONS)[number];
+export type AvatarDirectionSpec = { row: number; frames: number; fps?: number; loop?: boolean };
+export type AvatarDirections = Partial<Record<AvatarMotion, Partial<Record<AvatarDirection, AvatarDirectionSpec>>>>;
 
 export type AvatarStateSpec = {
   row: number;
@@ -30,6 +39,8 @@ export type AvatarManifest = {
   pixelArt: boolean;
   faces: AvatarFacing;
   states: Partial<Record<AvatarState, AvatarStateSpec>> & { idle: AvatarStateSpec };
+  /** Rows drawn toward a screen direction, in the facing `faces` names; absent in older manifests. */
+  directions?: AvatarDirections;
 };
 
 /** What draws one state: its row, frames, rate, whether it loops, and whether the row is mirrored. */
@@ -81,6 +92,34 @@ function stateSpec(value: unknown, name: string): AvatarStateSpec | string {
   return spec;
 }
 
+/** `directions`, or why it is refused. Every motion and direction is optional; unknown ones are ignored. */
+function directionSpecs(value: unknown): AvatarDirections | string {
+  if (!value || typeof value !== "object") return "directions must be an object";
+  const raw = value as Record<string, unknown>;
+  const out: AvatarDirections = {};
+  for (const motion of AVATAR_MOTIONS) {
+    const group = raw[motion];
+    if (group === undefined) continue;
+    if (!group || typeof group !== "object") return `directions.${motion} must be an object`;
+    const specs: Partial<Record<AvatarDirection, AvatarDirectionSpec>> = {};
+    for (const direction of AVATAR_DIRECTIONS) {
+      const entry = (group as Record<string, unknown>)[direction];
+      if (entry === undefined) continue;
+      const spec = stateSpec(entry, `${motion}.${direction}`);
+      if (typeof spec === "string") return spec.replace(/^states\./, "directions.");
+      const { row, frames, fps, loop } = spec;
+      specs[direction] = {
+        row,
+        frames,
+        ...(fps === undefined ? {} : { fps }),
+        ...(loop === undefined ? {} : { loop }),
+      };
+    }
+    out[motion] = specs;
+  }
+  return out;
+}
+
 /** The manifest, or why it is refused (one reason, for the upload's message). Unknown fields and states are ignored. */
 export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest } | { error: string } {
   if (!value || typeof value !== "object") return { error: "avatar.json must be an object" };
@@ -112,6 +151,12 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
     states[name] = spec;
   }
   if (!states.idle) return { error: "states.idle is required" };
+  let directions: AvatarDirections | undefined;
+  if (raw.directions !== undefined) {
+    const parsed = directionSpecs(raw.directions);
+    if (typeof parsed === "string") return { error: parsed };
+    directions = parsed;
+  }
   const manifest: AvatarManifest = {
     format: AVATAR_FORMAT,
     id: raw.id,
@@ -122,6 +167,7 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
     pixelArt: raw.pixelArt === true,
     faces: raw.faces === "left" ? "left" : "right",
     states: { ...states, idle: states.idle },
+    ...(directions ? { directions } : {}),
   };
   const need = sheetSize(manifest);
   if (need.width > MAX_SHEET || need.height > MAX_SHEET)
@@ -132,8 +178,13 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
 /** The sheet's size in px that the manifest needs: the longest row's frames by the highest row used.
  * A sheet may be larger (padded); a renderer that cuts cells by background must use its real size. */
 export function sheetSize(manifest: AvatarManifest): { width: number; height: number } {
-  const specs = Object.values(manifest.states);
-  const rows = specs.flatMap((spec) => [spec.row, spec.rowLeft ?? 0, spec.rowRight ?? 0]);
+  const directed = Object.values(manifest.directions ?? {}).flatMap((group) => Object.values(group));
+  const states = Object.values(manifest.states);
+  const specs = [...states, ...directed];
+  const rows = [
+    ...states.flatMap((spec) => [spec.row, spec.rowLeft ?? 0, spec.rowRight ?? 0]),
+    ...directed.map((spec) => spec.row),
+  ];
   return {
     width: Math.max(...specs.map((spec) => spec.frames)) * manifest.frame.width,
     height: (Math.max(...rows) + 1) * manifest.frame.height,
@@ -156,4 +207,32 @@ export function avatarTrack(manifest: AvatarManifest, state: AvatarState, facing
     loop: spec.loop ?? true,
     mirrored: turned && own === undefined,
   };
+}
+
+const OPPOSITE: Record<AvatarDirection, AvatarDirection> = { left: "right", right: "left", up: "down", down: "up" };
+
+/** How the character draws `motion` toward the screen direction `direction` while facing `facing`,
+ * or null when the manifest has no row for it (the caller draws the state instead). Rows are drawn
+ * facing `faces`: turned, the row for the mirrored direction draws mirrored (looking left facing
+ * left is looking right, mirrored), and up and down mirror with the facing. A missing left or right
+ * borrows the other side's row, mirrored. */
+export function directionTrack(
+  manifest: AvatarManifest,
+  motion: AvatarMotion,
+  direction: AvatarDirection,
+  facing: AvatarFacing,
+): AvatarTrack | null {
+  const specs = manifest.directions?.[motion];
+  if (!specs) return null;
+  const turned = facing !== manifest.faces;
+  const horizontal = direction === "left" || direction === "right";
+  const drawn = turned && horizontal ? OPPOSITE[direction] : direction;
+  let spec = specs[drawn];
+  let mirrored = turned;
+  if (!spec && horizontal) {
+    spec = specs[OPPOSITE[drawn]];
+    mirrored = !mirrored;
+  }
+  if (!spec) return null;
+  return { row: spec.row, frames: spec.frames, fps: spec.fps ?? manifest.fps, loop: spec.loop ?? true, mirrored };
 }

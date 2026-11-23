@@ -1,0 +1,18 @@
+[package]
+name = "cmux-action-catalog"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux NEXT's action catalog: every action descriptor (id, title in every app language, CLI name, shortcut, arguments, surfaces, menu placements), the default key bindings and the palette tables, and the C ABI the macOS app reads them through"
+
+[dependencies]
+serde_json.workspace = true
+
+# build.rs turns strings.json into a static table.
+[build-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

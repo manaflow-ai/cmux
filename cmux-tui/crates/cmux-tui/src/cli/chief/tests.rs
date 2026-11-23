@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::adapter::{Draft, DraftKind, Drafts, UiEvent, adapt};
 use super::chat::Chat;
 use super::editor::{Editor, EditorAction};
-use super::link::{envelope, is_brain_socket, select_chief, send_params};
+use super::link::{is_brain_socket, select_chief};
 use super::pipe::finish_text;
 use super::render::wrap;
 use super::turn::TurnWatch;
@@ -172,21 +172,6 @@ fn a_brain_session_socket_is_refused() {
     assert!(is_brain_socket(Path::new("/Users/me/.cmux/brains/chief/daemon.sock")));
     assert!(!is_brain_socket(Path::new("/tmp/cmux-501/main.sock")));
     assert!(!is_brain_socket(Path::new("/Users/me/brains/.cmux/x.sock")));
-}
-
-#[test]
-fn requests_are_v2_operations_on_the_current_session() {
-    let line = envelope("chief-1", "conversation.send", send_params(CONV, "hi"), Some("cli-1"));
-    assert_eq!(line["protocol"], "cmux.protocol/2");
-    assert_eq!(line["type"], "request");
-    assert_eq!(line["operation"], "conversation.send");
-    assert_eq!(line["idempotency_key"], "cli-1");
-    assert_eq!(
-        line["params"],
-        json!({"conversation": CONV, "text": "hi", "machine": "current", "session": "current"})
-    );
-    let read = envelope("chief-2", "conversation.list", json!({}), None);
-    assert!(read.get("idempotency_key").is_none());
 }
 
 #[test]
@@ -827,4 +812,50 @@ fn chief_primary_runs_the_home_action_with_the_chief() {
     assert!(action_args(&strings(&[])).is_err());
     assert!(action_args(&strings(&["muse", "codex"])).is_err());
     assert!(action_args(&strings(&["--force"])).is_err());
+}
+
+#[test]
+fn runs_plain_text_makes_agent_terminal_controls_inert() {
+    use super::script::{run_row_text, step_line};
+    let osc52 = "\u{1b}]52;c;cHduZWQ=\u{7}";
+    let clear = "\u{1b}[2J";
+    let step = serde_json::json!({"kind": "talk", "status": "done",
+                                  "text": format!("hi{osc52}{clear}\u{9b}31m there\nsecond")});
+    let line = step_line(&step);
+    assert!(!line.chars().any(|c| c.is_control()), "{line:?}");
+    assert!(line.contains("hi") && line.contains("there") && !line.contains("second"), "{line:?}");
+    let run =
+        serde_json::json!({"id": "turn:1", "status": "done", "title": format!("t{clear}{osc52}")});
+    let row = run_row_text(&run);
+    assert!(!row.chars().any(|c| c.is_control()), "{row:?}");
+    assert!(row.starts_with("turn:1  done"), "{row:?}");
+}
+
+#[test]
+fn runs_steps_updated_between_pages_keep_the_newest_copy_once() {
+    use super::script::merge_steps;
+    let mut steps = Vec::new();
+    merge_steps(
+        &mut steps,
+        vec![
+            serde_json::json!({"id": "tool:1", "rev": 1, "status": "running"}),
+            serde_json::json!({"id": "talk:1", "rev": 2}),
+        ],
+        "rev",
+    );
+    // The next page: tool:1 was updated (newer rev), and an older copy of
+    // talk:1 must not replace the newer one.
+    merge_steps(
+        &mut steps,
+        vec![
+            serde_json::json!({"id": "tool:1", "rev": 3, "status": "done"}),
+            serde_json::json!({"id": "talk:1", "rev": 1}),
+            serde_json::json!({"id": "talk:2", "rev": 4}),
+        ],
+        "rev",
+    );
+    let ids: Vec<&str> = steps.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["tool:1", "talk:1", "talk:2"]);
+    assert_eq!(steps[0]["status"], "done");
+    assert_eq!(steps[1]["rev"], 2);
 }

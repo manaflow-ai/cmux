@@ -60,6 +60,10 @@ final class TerminalClipboardRequests {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let pasteboard = TerminalPasteboard.pasteboard(location)
         let imagePaste = location == .standard && userPasteInProgress
+        if imagePaste, wantsText, view?.session?.handOffFilePaste(pasteboard) == true {
+            Self.complete(surface, text: "", available: ["text/plain"], state: state, confirmed: false)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
         let text: String? = if imagePaste, wantsText {
             TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
         } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,
@@ -108,6 +112,8 @@ final class TerminalClipboardRequests {
     /// it asks for confirmation only when the user set `ask` (and drops the
     /// write for `deny`), so an unconfirmed write is committed silently.
     func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        // Nothing to copy: no write, and no dialog asking to copy nothing.
+        guard !TerminalPasteboard.isBlank(items) else { return }
         switch Self.writeDecision(userInitiated: userClipboardWriteInProgress,
                                   requiresConfirmation: requiresConfirmation) {
         case .write:
@@ -192,29 +198,29 @@ final class TerminalClipboardRequests {
     /// Ghostty's paste confirmation does: Return presses Allow. A program's OSC 52 request
     /// gives Allow no key: the program picks the moment that dialog opens, so a Return typed
     /// for the terminal must never hand the clipboard over (as in the clipboard-read broker
-    /// dialog). No dialog opens with the keyboard on a button (`CmuxDialogView.focusInitial`),
+    /// dialog). No dialog opens with the keyboard on a button (the overlay page's dialog focuses its first text field or the card),
     /// so a typed Space presses neither.
     static func spec(for kind: TerminalClipboardRequestKind, preview text: String) -> CmuxDialogSpec {
         let title: String
         let message: String
         switch kind {
         case .paste:
-            title = String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module)
-            message = String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module)
+            title = String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .localizedModule)
         case .osc52Read:
-            title = String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module)
-            message = String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module)
+            title = String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .localizedModule)
         case .osc52Write:
-            title = String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module)
-            message = String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module)
+            title = String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .localizedModule)
         }
         let limit = 2_000
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
-        return CmuxDialogSpec(
+        return CmuxDialogSpec(usesTransientMaterial: true,
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
-                CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
-                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module),
+                CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .localizedModule), role: .cancel),
+                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .localizedModule),
                                  role: kind == .paste ? .default : .normal),
             ],
             identifier: "cmux.dialog.terminalClipboard")

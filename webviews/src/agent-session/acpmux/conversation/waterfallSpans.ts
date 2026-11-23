@@ -27,7 +27,29 @@ export type Waterfall = {
   /// The call that took longest, called out on its row (never a thought: the tag says which call
   /// to look at); undefined with fewer than two calls.
   slowest?: number;
+  /// The stretches of the axis no span covers, as offsets in ms: the model reading, deciding and
+  /// writing its reply with no tool or thought running. Without them a turn of one 2.7s call on a
+  /// 14.1s axis drew most of its time as nothing (Leo, 2026-11-05: "im not sure what the total thing
+  /// is meant to represent").
+  gaps: { from: number; to: number }[];
+  /// The gaps' sum: the spans' union and this make the whole axis.
+  gapTotal: number;
 };
+
+/// The stretches of [0, total] that no span covers, in order.
+export function waterfallGaps(
+  spans: readonly Pick<WaterfallSpan, "from" | "to">[],
+  total: number,
+): { from: number; to: number }[] {
+  const gaps: { from: number; to: number }[] = [];
+  let covered = 0;
+  for (const span of [...spans].sort((a, b) => a.from - b.from)) {
+    if (span.from > covered) gaps.push({ from: covered, to: span.from });
+    covered = Math.max(covered, span.to);
+  }
+  if (covered < total) gaps.push({ from: covered, to: total });
+  return gaps;
+}
 
 /// How many spans an opened waterfall draws before its "Show N more": a turn of hundreds of calls
 /// opens in constant time, and the rest draw only when asked.
@@ -104,10 +126,14 @@ export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefin
   return work.length ? work : undefined;
 }
 
-/// The footer's spans on one axis. The axis starts at the turn's start (its summary's time less its
+/// The footer's spans on one axis. The axis starts at the turn's start (where its work ended less its
 /// duration), or at the first span when that came earlier, and ends at the turn's end or the last
-/// span's end.
-export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: readonly AcpmuxActivity[]): Waterfall {
+/// span's end. Its work ended at its own time, or later for a stretch the person came in on, which
+/// worked until his steer (model.ts `workEndedAt`).
+export function waterfall(
+  row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">,
+  work: readonly AcpmuxActivity[],
+): Waterfall {
   let first = Infinity;
   let last = -Infinity;
   for (const item of work) {
@@ -115,8 +141,9 @@ export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: reado
     first = Math.min(first, from!);
     last = Math.max(last, to!);
   }
-  const start = row.durationMs !== undefined ? Math.min(first, row.at - row.durationMs) : first;
-  const end = row.durationMs !== undefined ? Math.max(last, row.at) : last;
+  const ended = row.workEndedAt ?? row.at;
+  const start = row.durationMs !== undefined ? Math.min(first, ended - row.durationMs) : first;
+  const end = row.durationMs !== undefined ? Math.max(last, ended) : last;
   const spans = work.map((item): WaterfallSpan => {
     const [began, ended] = spanTimes(item);
     const from = began! - start;
@@ -135,5 +162,8 @@ export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: reado
       if (!span.item.tool) return;
       if (slowest === undefined || span.to - span.from > spans[slowest]!.to - spans[slowest]!.from) slowest = at;
     });
-  return { start, total: Math.max(1, end - start), spans, ...(slowest !== undefined && { slowest }) };
+  const total = Math.max(1, end - start);
+  const gaps = waterfallGaps(spans, total);
+  const gapTotal = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  return { start, total, spans, ...(slowest !== undefined && { slowest }), gaps, gapTotal };
 }

@@ -34,6 +34,11 @@ import zlib
 from pathlib import Path
 from urllib.parse import urlsplit
 
+# reuse_app_host_products.py imports this from the workflow's checkout; a `python3 -I` run has no script folder
+# on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 API = "https://api.github.com"
 MAX_BYTES = 8 * 1024**3
 CHUNK_BYTES = 16 * 1024 * 1024
@@ -123,8 +128,10 @@ def blob_url(repository, artifact_id, token=None):
 def _fetch_range(url, start, end, fd, deadline):
     expected = end - start + 1
     request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
-    timeout = max(1.0, min(REQUEST_TIMEOUT_SECONDS, deadline - time.monotonic()))
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    # Each wait ends after REQUEST_TIMEOUT_SECONDS of silence, as urlopen's timeout did, and the whole range by the
+    # download's DEADLINE (monotonic), mid-body too. raise_errors keeps the HTTPError the worker retries a 403 on.
+    left = max(deadline - time.monotonic(), 0.0)
+    with deadline_http.stream(request, left, stall=REQUEST_TIMEOUT_SECONDS, raise_errors=True) as response:
         if response.status != 206:
             raise TransportError(f"range request returned HTTP {response.status}")
         content_range = response.headers.get("Content-Range", "")
@@ -151,8 +158,9 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
 
     url_factory() returns a signed URL; it is called again after an HTTP 403 so
     an expired signature re-resolves instead of failing the transfer.
-    The deadline prevents new requests and retries; it does not interrupt an
-    in-flight URL resolver or fetch.
+    The deadline prevents new requests and retries, and ends a fetch in
+    flight (deadline_http.stream); it does not interrupt an in-flight URL
+    resolver.
     """
     size = _positive(size, "size")
     if size > MAX_BYTES:

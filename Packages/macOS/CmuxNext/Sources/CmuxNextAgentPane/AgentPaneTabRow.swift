@@ -2,7 +2,7 @@ public import CoreGraphics
 public import CmuxNextDesign
 import CmuxNextSettings
 
-/// A chat's header tools in its pane's tab row (`ChromeTunables.tabRowTools`, header/tabRow.ts):
+/// A chat's header tools in its pane's tab row (header/tabRow.ts):
 /// the width the page last reported for them (`pane.tabRowTools {width}`, CSS pixels) and the row
 /// last offered to the page (the `tabRow` event, CSS pixels; height 0 ends the page's one-row
 /// mode). Kept on the model: ``AgentPaneView`` is at its size limit.
@@ -18,7 +18,9 @@ import CmuxNextSettings
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
     var tabsShown = true
-    /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
+    /// Native chrome holes, in the chat view's coordinates; Session Info adds its own overlay hole. Turned into the
+    /// page's coordinates at each apply (``AgentPaneView/applyNativeRects()``), so a page the view lays elsewhere for a
+    /// while (held away while an adopted chat draws) gets them back where it shows.
     var holes: [CGRect] = []
     /// What the pane's toolbar hole paints (``holeFill(chromium:shares:tabsShown:page:)``), set with each offer.
     public private(set) var holeFill: CGColor?
@@ -30,10 +32,16 @@ import CmuxNextSettings
     var supportsNativeTools = false
     public var nativeToolsEnabled: Bool { supportsNativeTools && ChromeTunables.nativeRowTools.value }
 
+    /// The page loaded again and has not reported since: its tools keep their place in the row until it does
+    /// (``sharedWidth(zoom:)``). A report, 0 included, ends it.
+    private var awaitingReport = false
+
     /// The page reported its tools' width.
     func report(width: CGFloat) {
         if width > 0 { neededWidth = width }
-        guard width != toolsWidth else { return }
+        let awaited = awaitingReport
+        awaitingReport = false
+        guard width != toolsWidth || awaited else { return }
         toolsWidth = width
         onChange?()
     }
@@ -45,6 +53,7 @@ import CmuxNextSettings
         offered = nil
         offeredNativeRowTools = nil
         toolsWidth = 0
+        awaitingReport = neededWidth > 0
         onChange?()
     }
 
@@ -54,33 +63,37 @@ import CmuxNextSettings
                 nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
     }
 
-    /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
-    /// the page draws no tools in the row.
+    /// The tools' width in points at `zoom` (points per CSS pixel); nil while the page draws no tools in the row. A page
+    /// that loaded again (a discarded chat shown, a reload) keeps its ``sharedNeed(zoom:)`` until it reports: a pane that
+    /// followed the 0 laid the chat under the strip until the width came back, so its tools showed in a second row under
+    /// the tabs and then jumped up into the row under the pointer (Leo 2026-11-07: "the top right button area is
+    /// somehow, like, shifting its layout"). A 0 the page reports is its tools leaving the row (a replay, a quick
+    /// surface), and the tabs take the row back; a row offered anew gets the width again with no 0 (header/tabRow.ts).
     public func sharedWidth(zoom: CGFloat) -> CGFloat? {
-        guard ChromeTunables.tabRowTools.value, toolsWidth > 0 else { return nil }
-        return toolsWidth * max(0.25, zoom)
+        if toolsWidth > 0 { return toolsWidth * max(0.25, zoom) }
+        return awaitingReport ? sharedNeed(zoom: zoom) : nil
     }
 
-    /// ``neededWidth`` in points at `zoom`; nil while the setting is off or before the page reported.
+    /// ``neededWidth`` in points at `zoom`; nil before the page reported (its first offer learns it).
     public func sharedNeed(zoom: CGFloat) -> CGFloat? {
-        guard ChromeTunables.tabRowTools.value, neededWidth > 0 else { return nil }
+        guard neededWidth > 0 else { return nil }
         return neededWidth * max(0.25, zoom)
     }
 
     /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
-    /// end (0, or the setting off: no row), converted to CSS pixels; pushed only when it changed.
+    /// end (0: no row), converted to CSS pixels; pushed only when it changed.
     public static func offer(points height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
         let zoom = max(0.25, view.webView.pageZoom)
-        let on = ChromeTunables.tabRowTools.value && height > 0
+        let on = height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
-        let shares = on && row.toolsWidth > 0
+        let shares = on && row.sharedWidth(zoom: zoom) != nil
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
         row.holeFill = holeFill(chromium: view.chromiumPage != nil, shares: shares, tabsShown: row.tabsShown,
                                 page: view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: view.surfaceKind) })
-        if let page = view.page {
+        if view.page != nil {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
             // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
             // each one is mirrored from its own maxY (a hole shorter than the row, the rim's, stays at the
@@ -90,7 +103,7 @@ import CmuxNextSettings
                                              tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
             row.holes = holes.map { hole in
                 let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
-                return page.convert(CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height), from: view)
+                return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
             }
             view.applyNativeRects()
         }

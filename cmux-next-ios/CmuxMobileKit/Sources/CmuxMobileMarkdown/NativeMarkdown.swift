@@ -490,11 +490,19 @@ public final class NativeMarkdownView: UIView {
     }
 
     /// The link under `point` (in `label`'s coordinates): only on the glyph itself, not the blank
-    /// space after a line or between paragraphs.
-    public static func link(in label: UILabel, at point: CGPoint) -> URL? {
+    /// space after a line or between paragraphs. `asDrawn`: lay the text out as UILabel draws it,
+    /// with no font leading between lines and centered in a frame taller than the text (the chat's
+    /// labels); otherwise with TextKit's leading from the frame's top (the Feed's fixed-height lines).
+    public static func link(in label: UILabel, at point: CGPoint, asDrawn: Bool = false) -> URL? {
         guard let text = label.attributedText, text.length > 0 else { return nil }
+        var point = point
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
+        if asDrawn {
+            manager.usesFontLeading = false
+            let drawn = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 0).height
+            point.y -= max(0, label.bounds.height - drawn) / 2
+        }
         // Unbounded height: the label's height leaves out the last line's leading TextKit adds.
         let container = NSTextContainer(size: CGSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
@@ -626,6 +634,12 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     private func updateFade() {
         let more = scroll.contentOffset.x + scroll.bounds.width < scroll.contentSize.width - 1
+        // The mask is a bare layer, whose frame changes animate implicitly (0.25 s): it trailed the
+        // scroll, so the code the finger brought in stayed masked until the mask caught up. It
+        // moves with the content in the same frame (ChatCodeCardView does the same).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if more {
             fade.frame = scroll.bounds
             let width = max(scroll.bounds.width, 1)

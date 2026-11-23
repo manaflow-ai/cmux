@@ -5,10 +5,13 @@ import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
+import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
-import { shownPresence } from "./multiplayer/LivePresence";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDebug";
+import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
+import { tickWatch } from "./tickWatch";
+import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
@@ -16,6 +19,8 @@ import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
+import type { PasteProbeOptions } from "./pasteProbe";
+import type { TypingLoadOptions } from "./typingLoadDebug";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -36,11 +41,17 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
-  /// "waiting-steers".
+  /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
+  /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
+  /// (subagentReportFixture.ts) when it is "subagent-report", or with a reply holding the user's ```mermaid
+  /// chart (mermaidFixture.ts) when it is "mermaid".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  /// The transcript's frames while real wheel input scrolls it (tickWatch.ts): starts a watch, or with
+  /// `stop` ends it and returns its frames, work, wheel events and the page's own offset writes.
+  tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
@@ -50,6 +61,15 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
+  toast(text: string): Record<string, unknown>;
+  /** Selects characters `from` to `to` of the text in the first element matching `selector` (across its lines and
+   * child elements), then ends it as a drag does (pointerup), so the selection and its Reply chip show as a
+   * person's would: captures of the chat's selection (no drag reaches a Chromium page in a capture slot). */
+  selectText(selector: string, from: number, to: number): Record<string, unknown>;
+  /** Has the pane read every chat, not only the first page's, as the composer's @ chat search asks
+   *  (sessionPages.ts `wantAllSessions`). */
+  wantAllSessions(): void;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -72,12 +92,23 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
-  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole), with `queued` prompts
+   * waiting in its queue, through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean; queued?: number }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
+  loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
+  /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
+   * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
+  renders(): Record<string, number>;
+  /** Requests the page posted to the native host by method since the last call (native.ts), then counts from zero. */
+  nativePosts(): Record<string, number>;
+  /** Pastes a Retina screenshot into the composer and times each step until its chip shows (pasteProbe.ts). */
+  pasteProbe(options?: PasteProbeOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -120,6 +151,8 @@ export function createAcpmuxDebug(
     /// The shown transcript's row ids (loadDebug.ts `loadTick` tells the history from the new turn).
     rowIds?(): string[];
     sessionId?(): string | undefined;
+    /// The pane's toasts (paneNotices `transient`).
+    toast?(text: string): void;
     automation?: automation.AutomationHost;
   },
   wire: AcpWireLog = acpWire,
@@ -154,8 +187,12 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
+        LINKED_GITHUB_PULL_REQUEST,
+        selectionRows,
+        mermaidRows,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -164,6 +201,10 @@ export function createAcpmuxDebug(
         sharedRows,
         WAITING_STEERS_SNAPSHOT,
         waitingSteersRows,
+        subagentReportRows,
+        subagentReportLog,
+        CAPPED_ID,
+        goalSnapshot,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -175,24 +216,49 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn"
+          : fixture === "worked-turn" || fixture === "goal"
             ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
-                : fixture === "organization"
-                  ? organizationRows(Date.now() - 120_000)
-                  : fixture === "tool-summary"
-                    ? toolSummaryRows(Date.now() - 60_000)
-                    : fixture === "shared"
-                      ? sharedRows(Date.now() - 1_020_000)
-                      : fixture === "waiting-steers"
-                        ? waitingSteersRows(Date.now() - 90_000)
-                        : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+            : fixture === "worked-turn-page"
+              ? workedTurnPageRows(Date.now() - 60_000)
+              : fixture === "incoming"
+                ? incomingRows(Date.now() - 120_000)
+                : fixture === "link" || fixture === "github-link"
+                  ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                  : fixture === "selection"
+                    ? selectionRows(Date.now() - 60_000)
+                    : fixture === "mermaid"
+                      ? mermaidRows(Date.now() - 60_000)
+                      : fixture === "organization"
+                        ? organizationRows(Date.now() - 120_000)
+                        : fixture === "tool-summary"
+                          ? toolSummaryRows(Date.now() - 60_000)
+                          : fixture === "shared"
+                            ? sharedRows(Date.now() - 1_020_000)
+                            : fixture === "waiting-steers"
+                              ? waitingSteersRows(Date.now() - 90_000)
+                              : fixture === "subagent-report"
+                                ? subagentReportRows(Date.now() - 5_000_000)
+                                : syntheticRows(
+                                    Math.max(3, Math.floor(count)),
+                                    fixture === "short" ? "short" : "mixed",
+                                  );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
+      host.replaceRows(
+        rows,
+        fixture === "waiting-steers"
+          ? WAITING_STEERS_SNAPSHOT
+          : fixture === "goal"
+            ? goalSnapshot(Date.now())
+            : undefined,
+      );
+      if (fixture === "subagent-report") {
+        // The capped card's Show more reads its subagent's own records: on the showcase's mock
+        // daemon only (`live` is unset on a real one), seeded into the chat the rows replaced.
+        const { MockAcpmuxSocket } = await import("./mock");
+        const sessionId = host.sessionId?.();
+        if (sessionId) MockAcpmuxSocket.live?.seedSubagentLog(sessionId, CAPPED_ID, subagentReportLog());
+      }
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -276,6 +342,8 @@ export function createAcpmuxDebug(
 
     flingStats,
 
+    tickWatch,
+
     perfStats(options = {}) {
       acpmuxPerf.enable();
       return {
@@ -283,6 +351,7 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
+        start_state_trail: acpmuxPerf.startStateTrail(),
         launch: acpmuxPerf.launchTimeline(),
       };
     },
@@ -293,12 +362,22 @@ export function createAcpmuxDebug(
 
     typingStats() {
       acpmuxPerf.enable();
-      return typingSummary(acpmuxPerf.typing);
+      // With what the keys asked of the app since the reset (native.ts).
+      const prompt = document.querySelector<HTMLElement>(
+        '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
+      );
+      return {
+        ...typingSummary(acpmuxPerf.typing),
+        composer_text: prompt?.textContent ?? null,
+        epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
+        native_posts: takeNativePosts(),
+      };
     },
 
     resetTyping() {
       acpmuxPerf.enable();
       acpmuxPerf.typing.length = 0;
+      takeNativePosts();
       return { keys: 0 };
     },
 
@@ -330,7 +409,11 @@ export function createAcpmuxDebug(
       // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
       await nextFrame();
       await nextFrame();
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
+      return {
+        opened: label,
+        open: button?.getAttribute("aria-expanded") === "true",
+        menu: openMenuRows(),
+      };
     },
 
     acpLog(options = {}) {
@@ -341,6 +424,44 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    selectText(selector, from, to) {
+      const element = document.querySelector(selector);
+      if (!element) return { selected: false, error: `nothing matches ${selector}` };
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let seen = 0;
+      let started = false;
+      for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+        const length = node.data.length;
+        if (!started && from <= seen + length) {
+          range.setStart(node, Math.max(0, from - seen));
+          started = true;
+        }
+        if (started && to <= seen + length) {
+          range.setEnd(node, Math.max(0, to - seen));
+          break;
+        }
+        seen += length;
+      }
+      if (!started) return { selected: false, error: "from is past the element's text" };
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      return { selected: true, text: selection?.toString() ?? "" };
+    },
+
+    toast(text) {
+      // No text is no toast: a capture that sent none drew an empty toast and read it back as `shown`.
+      if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
+      host.toast?.(text);
+      return { shown: host.toast != null, text };
+    },
+
+    wantAllSessions() {
+      wantAllSessions();
     },
 
     chatState() {
@@ -363,6 +484,9 @@ export function createAcpmuxDebug(
             // absent/unknown state that still offers the sign-in action.
             cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
+            // The transcript's scroll offset and height in CSS pixels (null with no transcript drawn): a swap
+            // to another tab and back reads the same offset (scripts/cmux-next/media/tours/terminal-chat-swap.json).
+            ...transcriptScroll(),
           }
         : NO_AUTOMATION;
     },
@@ -402,6 +526,10 @@ export function createAcpmuxDebug(
       return layoutWatch(options);
     },
 
+    async pasteProbe(options = {}) {
+      const { pasteProbe } = await import("./pasteProbe");
+      return pasteProbe(options);
+    },
     async idleProbe(options = {}) {
       const { idleProbe } = await import("./idleProbe");
       return idleProbe(options);
@@ -410,20 +538,50 @@ export function createAcpmuxDebug(
       const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    async loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000, options = {}) {
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+      return loadSeed(
+        { selectSession: automationHost.selectSession, rowCount: host.rowCount, rowIds: host.rowIds },
+        turns,
+        options,
+      );
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
+    async typingLoad(options = {}) {
+      const { typingLoad } = await import("./typingLoadDebug");
+      return typingLoad(host.sessionId?.(), options);
+    },
     async loadTick(options = {}) {
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
+    async loadTools(options = {}) {
+      const { loadTools } = await import("./loadDebug");
+      return loadTools({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    renders() {
+      acpmuxPerf.enable();
+      const out = Object.fromEntries(acpmuxPerf.renders);
+      acpmuxPerf.resetRenders();
+      return out;
+    },
+    nativePosts() {
+      return takeNativePosts();
+    },
+  };
+}
+
+/// The transcript's `.acpmux-scroll` offset and scroll height, rounded to CSS pixels; null with none drawn.
+function transcriptScroll() {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  return {
+    scrollTop: scroller ? Math.round(scroller.scrollTop) : null,
+    scrollHeight: scroller ? Math.round(scroller.scrollHeight) : null,
   };
 }
 

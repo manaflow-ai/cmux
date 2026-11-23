@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
-import { attachmentPath } from "../src/agent-session/acpmux/FileAttachment";
+import { attachmentPath } from "../src/agent-session/acpmux/fileAttachmentModel";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 
 const file: ComposerAttachment = {

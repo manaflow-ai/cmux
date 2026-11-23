@@ -86,7 +86,11 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   const SPECULAR_BAND = "1px 1.5px 1px -1px inset";
   const RETURN_BAND = "-1px -1px 1px -1px inset";
   const SHEEN = "0px 16px 20px -16px inset";
-  const DEPTH = "0px 12px 32px -12px";
+  // The composer's own depth (glass.css --glass-material-depth-composer; Leo 2026-11-06: "maybe less
+  // shadow? ... Probably just a little bit more subtle."): the material's two steps at about half the
+  // reach and half the dark, never the floating glass's 0 12px 32px -12px at 22% / 55%.
+  const DEPTH = "0px 6px 18px -8px";
+  const FLOATING_DEPTH = "0px 12px 32px -12px";
   const windows: { name: string; attributes: Record<string, string> }[] = [
     { name: "an opaque window", attributes: {} },
     { name: "art under Plain glass", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
@@ -98,10 +102,17 @@ await requireBrowserLane("glass-material.test.ts", async () => {
         const page = await open(colorScheme, { ...window.attributes, "data-theme": colorScheme });
         for (const id of ["composer", "strip-composer"]) {
           const { shadow } = await look(page, id);
-          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.3);
-          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.1);
-          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.05);
-          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.2);
+          // In a dark theme the input box draws the material's light at half (composerStates.css,
+          // --acpmux-composer-glint; Leo 2026-11-07: "super duper prominent glass"): a 24% band, an
+          // 8% return and a 3.5% sheen. Present, never gone.
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.2);
+          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.05);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.03);
+          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.05);
+          // Under the floating glass's 55% dark (this harness's root is color-scheme dark, so both
+          // cases read the dark branch); the geometry check below tells it from the floating depth.
+          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeLessThan(0.3);
+          expect(layerAlpha(shadow, FLOATING_DEPTH), `${id} floating glass's depth`).toBe(-1);
           // The specular light is brighter than its return: lit from above.
           expect(layerAlpha(shadow, SPECULAR_BAND)).toBeGreaterThan(layerAlpha(shadow, RETURN_BAND));
         }
@@ -113,10 +124,10 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page);
       expect(backdrop).toContain("blur(24px)");
-      expect(backdrop).toContain("saturate(1.8)");
+      expect(backdrop).toContain("saturate(1.6)");
       // Chromium's underlay (glass.css) is the fill's color layer: under floating glass it hides
-      // crisp text at 70%. A card outside the dock keeps it.
-      expect(fill, "a card outside the dock keeps Chromium's 70% underlay").toBeCloseTo(0.7, 2);
+      // crisp text at the design scale's 40% (design/glass-system.md, rule 6). A card outside the dock keeps it.
+      expect(fill, "a card outside the dock keeps Chromium's 40% underlay").toBeCloseTo(0.4, 2);
       await page.close();
     });
 
@@ -125,7 +136,7 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page, "docked-composer");
       expect(fill, "no underlay under the docked card").toBe(0);
-      expect(backdrop).toContain("saturate(1.8)");
+      expect(backdrop).toContain("saturate(1.6)");
       const tint = await page.evaluate(
         () => getComputedStyle(document.getElementById("docked-composer")!).backgroundImage,
       );
@@ -136,9 +147,12 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   test("an opaque window keeps the card's tint and blur (the transcript under it, not art)", async () => {
     const page = await open("dark", {});
     const { fill, backdrop } = await look(page);
-    expect(fill).toBeCloseTo(0.7, 2);
+    // The popover level's dark tint (design-scale glass popover darkTint 72: 64 broke the legibility
+    // floor, and 70 left the prompt's code at 4.48:1 over a white page).
+    expect(fill).toBeCloseTo(0.72, 2);
     expect(backdrop).toContain("blur(24px)");
-    expect(backdrop).not.toContain("saturate(1.8)");
+    // One saturation (design/glass-system.md): the opaque window's card frosts at the level's 1.6 too.
+    expect(backdrop).toContain("saturate(1.6)");
     await page.close();
   });
 
@@ -158,6 +172,26 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       expect(layerAlpha(shadow, DEPTH)).toBe(-1);
       await page.close();
     });
+
+  // Liquid Glass off (appearance.liquidGlass; the host sends data-glass="off", CMUX-653): the same
+  // solid card as Reduce Transparency, over art and on an opaque window, floating and docked.
+  for (const colorScheme of ["light", "dark"] as const)
+    for (const seeThrough of [true, false])
+      test(`${colorScheme}, ${seeThrough ? "over art" : "opaque window"}, Liquid Glass off: a solid card, no specular band, no frost, no depth`, async () => {
+        const page = await open(colorScheme, {
+          ...(seeThrough ? { "data-cmux-see-through": "" } : {}),
+          "data-glass": "off",
+        });
+        for (const id of ["composer", "docked-composer"]) {
+          const { fill, backdrop, shadow } = await look(page, id);
+          expect(fill, `${id} fill`).toBe(1);
+          expect(backdrop, `${id} backdrop`).toBe("none");
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBe(-1);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen`).toBe(-1);
+          expect(layerAlpha(shadow, DEPTH), `${id} depth`).toBe(-1);
+        }
+        await page.close();
+      });
 
   // The system's Reduce Transparency (prefers-reduced-transparency), with no host attribute: the
   // same solid card, for the floating and the docked card alike.

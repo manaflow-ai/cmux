@@ -14,6 +14,7 @@ struct ApprovalBannerTests {
     final class Answerer: AgentApprovalAnswering {
         var pending: [String: AgentApproval] = [:]
         var answered: [(approval: AgentApproval, allow: Bool)] = []
+        var always: [AgentApproval] = []
         var lookups: [String] = []
 
         func pendingApproval(session: String) async -> AgentApproval? {
@@ -23,6 +24,11 @@ struct ApprovalBannerTests {
 
         func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
             answered.append((approval, allow))
+            return true
+        }
+
+        func answerAlways(_ approval: AgentApproval) async -> Bool {
+            always.append(approval)
             return true
         }
     }
@@ -85,6 +91,28 @@ struct ApprovalBannerTests {
         other.answerApproval(banner: try #require(other.desktop.posted.last).id, surface: SurfaceID(rawValue: 1), allow: false)
         for _ in 0..<200 where denied.answered.isEmpty { await Task.yield() }
         #expect(denied.answered.map(\.allow) == [false])
+    }
+
+    /// A prompt that offers Always allow gets it on its banner too, and the banner's Always allow
+    /// answers with it, not with allow once (hands-on task 17: answer from the notification).
+    @Test func aPromptThatOffersAlwaysAllowGetsItOnItsBanner() async throws {
+        let plain = Answerer()
+        plain.pending["sess-1"] = Self.bash
+        let once = try #require(try await deliver(Self.needsInput, answerer: plain).desktop.posted.last)
+        #expect(once.category == AgentApprovalBanners.category, "no Always allow the prompt does not offer")
+
+        var offering = Self.bash
+        offering.alwaysOffered = true
+        let answerer = Answerer()
+        answerer.pending["sess-1"] = offering
+        let service = try await deliver(Self.needsInput, answerer: answerer)
+        let posted = try #require(service.desktop.posted.last)
+        #expect(posted.approval)
+        #expect(posted.category == AgentApprovalBanners.alwaysCategory)
+        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true, always: true)
+        for _ in 0..<200 where answerer.always.isEmpty { await Task.yield() }
+        #expect(answerer.always == [offering])
+        #expect(answerer.answered.isEmpty, "Always allow is not an allow once")
     }
 
     @Test func noPromptAnotherMacOrATerminalKeepsAPlainBanner() async throws {

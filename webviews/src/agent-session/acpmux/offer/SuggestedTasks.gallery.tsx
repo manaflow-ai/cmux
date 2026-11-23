@@ -91,6 +91,7 @@ function GallerySuggestedTasks({ initial, received = [], fails = false }: Props)
   const [offers, setOffers] = useState(initial);
   // What the last Start carried, for the play that checks the Options picks reach it.
   const [startedWith, setStartedWith] = useState<Record<string, unknown>>();
+  // gallery-capture: answers only Start, Do it here or a dismiss, which only a play clicks (it waits for the answer).
   const answer = (offerId: string, next: Partial<AcpmuxSessionOffer>) =>
     new Promise<void>((resolve, reject) =>
       setTimeout(() => {

@@ -14,24 +14,25 @@ import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEve
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { askSiteAgain, usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { isDeniedPath, pathName, textLinks } from "./paths";
-import { bareFileNames, useReplyFolders } from "./replyFolders";
+import { isDeniedPath, pathName } from "./paths";
+import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./PullRequestCard";
-import { usePullRequestState } from "./pullRequestStore";
+import { githubItemRef } from "./pullRequestCardModel";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
-import { useAgentLinkClick } from "../conversation/SessionRef";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { useAgentLinkClick } from "../conversation/sessionRefModel";
+import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
+import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+type PathChipProps = { path: string; line?: number; label?: ReactNode; written?: string };
+export function PathChip({ path, line, label, written }: PathChipProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
@@ -39,10 +40,10 @@ export function PathChip({ path, label, written }: { path: string; label?: React
   // reader's every path is on the owner's machine.
   if (scope?.host !== undefined || readOnly)
     return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} line={line} label={label} written={written} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({ path, line, label, written }: PathChipProps) {
   const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
@@ -61,7 +62,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       title={outside ? `${t("chip.outsideProject")}\n${path}` : path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
@@ -132,8 +133,22 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 
 /// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
 /// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path.
-export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
+/// keeps the host's link-click path. `reference`: it draws as a reference chip (whole on one line,
+/// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
+export function UrlChip({
+  href,
+  target,
+  icon,
+  reference = false,
+  children,
+}: {
+  href: string;
+  /** Run-step links keep opening a new browsing context while sharing the preview card. */
+  target?: "_blank";
+  icon?: ReactNode;
+  reference?: boolean;
+  children: ReactNode;
+}) {
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
   // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
@@ -152,11 +167,10 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  const pullRequest = pullRequestRef(href);
-  // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
-  // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
-  // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
-  const state = usePullRequestState(pullRequest?.url);
+  // A pull request or an issue gets the card (Leo 2026-11-08). Its mark keeps the link's colour,
+  // as any link does: no state colour that turned it purple once a hover read the pull request
+  // (Lucas, 2026-11-11: "we'll just keep it blue since its a link"). The card's glyph says its state.
+  const pullRequest = githubItemRef(href);
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
@@ -206,20 +220,22 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={setAnchor}
-        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
-        data-pr-state={state}
+        className={`cv-link cv-chip is-web${ref || reference ? " is-ref" : ""}`}
         data-session-ref={agent["data-session-ref"]}
         // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
         data-open-session={agent["data-open-session"]}
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
+        target={target}
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onPointerEnter?.();
           enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onFocus?.();
           enter().onFocus?.(event);
         }}
@@ -234,75 +250,37 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         <LinkHoverCard
           href={href}
           anchor={anchor}
+          // Preserve the page's link-click route for links with an explicit browsing target.
+          // Channels has no agent browser.openIn host; clicking its anchor lets the app handle it.
+          onOpenLink={target === "_blank" ? () => anchor?.click() : undefined}
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
-          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+          pullRequest={
+            pullRequest && {
+              repo: pullRequest.repo,
+              number: pullRequest.number,
+              title: githubRefTitle(site?.title),
+            }
+          }
         />
       )}
     </>
   );
 }
 
-/// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
-export function linkedText(text: string, key: string): ReactNode[] {
-  const links = textLinks(text);
-  if (!links.length) return namedText(text, key);
-  const out: ReactNode[] = [];
-  let at = 0;
-  links.forEach((link, index) => {
-    if (link.start > at) out.push(...namedText(text.slice(at, link.start), `${key}-${index}-names`));
-    out.push(
-      link.kind === "path" ? (
-        <PathChip
-          key={`${key}-${index}`}
-          path={link.path!}
-          written={link.value}
-          label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
-        />
-      ) : (
-        <UrlChip key={`${key}-${index}`} href={link.value}>
-          {githubRefLabel(link.value) ?? link.value}
-        </UrlChip>
-      ),
-    );
-    at = link.end;
-  });
-  if (at < text.length) out.push(...namedText(text.slice(at), `${key}-names`));
-  return out;
-}
-
-/// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
-function namedText(text: string, key: string): ReactNode[] {
-  const names = bareFileNames(text);
-  if (!names.length) return [text];
-  const out: ReactNode[] = [];
-  let at = 0;
-  names.forEach((name, index) => {
-    if (name.start > at) out.push(text.slice(at, name.start));
-    out.push(<SiblingFileChip key={`${key}-${index}`} name={name.name} />);
-    at = name.end;
-  });
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
-const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
-
-/// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
-export function githubRefLabel(href: string): string | undefined {
-  const match = GITHUB_REF.exec(href);
-  return match ? `${match[1]}#${match[2]}` : undefined;
-}
-
-/// A pull request's or issue's own title from GitHub's page title ("Fix the thing by leo ·
-/// Pull Request #12 · owner/repo · GitHub") for its hover card, or undefined when cmux has no
-/// title for it.
-export function githubRefTitle(page: string | undefined): string | undefined {
-  if (!page) return undefined;
-  const title = page
-    .split(" · ")[0]!
-    .replace(/ by [\w-]+$/, "")
-    .trim();
-  return title && !/^(GitHub|Pull Request|Issue)\b/.test(title) ? title : undefined;
+/// A file id only its provider opens (`foreignFileIds`): its id, shortened, and a note that it
+/// cannot be opened here. Never a link, a file chip or an image (Leo, 2026-11-06: "do we not have
+/// a good path for them sending images to you?"); an agent hands over an image with
+/// `acpmux send --attach`.
+export function ForeignFileRef({ id }: { id: string }) {
+  const t = useT();
+  const shown = id.length > 20 ? `${id.slice(0, 16)}…` : id;
+  return (
+    <span className="cv-foreign-file">
+      <Lock size={12} className="cv-foreign-file__icon" />
+      <span className="cv-foreign-file__id">{shown}</span>
+      <span className="cv-foreign-file__note">{t("message.foreignFile")}</span>
+    </span>
+  );
 }

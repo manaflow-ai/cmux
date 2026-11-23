@@ -252,15 +252,15 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
             expect(before.footerGap).toBeGreaterThanOrEqual(0);
             expect(Math.abs(before.bubbleRight - before.rowRight)).toBeLessThanOrEqual(1);
-            // The row's 28 controls overhang the bubble's edge by their glyph inset, so their glyphs
-            // end on it (design/grid.md 5.5).
-            const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+            // The row's controls (every action row's 24 square, conversation.css --cv-action-button)
+            // overhang the bubble's edge by their glyph inset, so their glyphs end on it (design/grid.md 5.5).
+            const overhang = (24 - gridLength("transcript-icon-box")) / 2;
             expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
             // Copy, × and Send now sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
             // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): the
             // last control's ink (Send now's words while it waits) ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
-            // and every icon button is the sent row's square.
-            const control = gridLength("transcript-action-control");
+            // and every icon button is the sent row's square, every action row's 24 (--cv-action-button).
+            const control = 24;
             expect(Math.abs(before.lastGlyphRight - before.bubbleRight)).toBeLessThanOrEqual(1);
             expect(Math.abs(after.lastGlyphRight - after.bubbleRight)).toBeLessThanOrEqual(1);
             expect(Math.abs(before.glyphGap - after.glyphGap)).toBeLessThanOrEqual(1);
@@ -373,7 +373,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
   // Claude desktop's queued row (Leo, 2026-11-03: "the copy is always showing for no reason... plus
   // the order is wrong"): at rest only Send now; on hover Copy, Retry, Fork and × come first, in the
   // sent row's order, and Send now stays last without moving.
-  test("a waiting steer shows only Send now at rest and Copy, Retry, × then Send now on hover", async () => {
+  test("a waiting steer shows only Send now at rest and Copy, × then Send now on hover", async () => {
     const page = await open();
     try {
       const row = footer(page);
@@ -412,12 +412,51 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(hovered.controls.at(-2)).toBe("×");
       expect(hovered.controls.indexOf("Copy")).toBeLessThan(hovered.controls.indexOf("×"));
       expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
-      // Retry is shown but held while the steer waits: a resend would reach the agent twice
-      // (cmux#34613), and it has no model menu in this row (cmux#34614).
+      // A waiting steer has no inline resend or model control: sending it twice would duplicate delivery.
       const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
-      expect(await retry.count()).toBe(1);
-      expect(await retry.isDisabled()).toBe(true);
+      expect(await retry.count()).toBe(0);
       expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
+    } finally {
+      await page.context().close();
+    }
+  });
+  // G03: the queued row's actions are keyboard reachable. The transcript's row stop on the queued
+  // prompt, or Tab onto its Send now, shows Copy and × as hover does, and Send now does not move.
+  test("keyboard focus on a waiting steer's row or its Send now shows its hover actions", async () => {
+    const page = await open();
+    try {
+      const row = footer(page);
+      const groupOpacity = () =>
+        page.evaluate(() => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity);
+      const sendRight = () =>
+        row.locator(".cv-user__send-now").evaluate((element) => element.getBoundingClientRect().right);
+      await page.mouse.move(0, 0);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "0",
+      );
+      const rest = await sendRight();
+      // A key first, so the script focus that follows is keyboard modality (:focus-visible).
+      await page.keyboard.press("Shift");
+      await page.evaluate(() => {
+        const article = document.querySelector<HTMLElement>("article.acpmux-user:has(.cv-user__pending)")!;
+        if (!article.hasAttribute("tabindex")) article.tabIndex = -1;
+        article.focus();
+      });
+      expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible") ?? false)).toBe(true);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "1",
+      );
+      expect(Math.abs((await sendRight()) - rest)).toBeLessThanOrEqual(0.5);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "0",
+      );
+      await row.locator(".cv-user__send-now").focus();
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "1",
+      );
+      expect(await groupOpacity()).toBe("1");
+      expect(Math.abs((await sendRight()) - rest)).toBeLessThanOrEqual(0.5);
     } finally {
       await page.context().close();
     }

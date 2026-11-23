@@ -47,8 +47,10 @@ pub fn breaks_params_rule(
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
-    // A permission answer's `_meta` holds the pick's ticket and nothing else.
-    if method == "_acpmux/permission_respond" {
+    // A permission answer's `_meta` holds the pick's ticket and nothing else, as
+    // does a plan build's (it answers the plan approval).
+    if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
+    {
         return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
@@ -62,9 +64,76 @@ pub fn breaks_params_rule(
     if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
         return true;
     }
+    // A harness list's peer names one machine (AcpmuxPaneMethods+Params.swift
+    // `breaksParamsRule`): a non-empty string.
+    if method == "_acpmux/harnesses"
+        && acpmux.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+    {
+        return true;
+    }
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
     method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+}
+
+/// The `_meta.acpmux` keys an `initialize` may never carry, even as an opt-in
+/// the relay does not know: the LocalApp token is the host's alone and the
+/// person key never crosses the socket (cx-fcaq). They stay refused, as does a
+/// daemon `modeFields` name (AcpmuxPaneMethods+Params.swift
+/// `initializeRefusedAcpmux`).
+pub const INITIALIZE_REFUSED_ACPMUX: [&str; 2] = ["localAppToken", "personKey"];
+
+/// The handshake fails safe (AcpmuxPaneMethods+Params.swift
+/// `strippingInitializeOptIns`): an `initialize` with `_meta.acpmux` keys
+/// outside its known list (capability opt-ins a newer page asks for, as
+/// cmux#46563's `peerRowBatches` was) goes with those keys removed, so the
+/// daemon never sees them, instead of the relay refusing every connect. Only
+/// those keys: a credential ([`INITIALIZE_REFUSED_ACPMUX`]) or a daemon mode
+/// field stays for the params rule to refuse, as do an unknown top-level
+/// param, a `_meta` key beside `acpmux`, a non-object `_meta` or `acpmux`, and
+/// every key on every other method. None: nothing to strip. The keys come
+/// sorted.
+pub fn stripping_initialize_opt_ins(
+    object: &Map<String, Value>,
+    mode_fields: Option<&BTreeSet<String>>,
+) -> Option<(Map<String, Value>, Vec<String>)> {
+    let p = policy();
+    if object.get("method").and_then(Value::as_str) != Some(p.initialize.as_str()) {
+        return None;
+    }
+    let known = p.known_params.get(&p.initialize)?;
+    let params = object.get("params")?.as_object()?;
+    let meta = params.get("_meta")?.as_object()?;
+    let acpmux = meta.get("acpmux")?.as_object()?;
+    // Compared as the params rule compares (NFC), so no spelling of a refused
+    // key is stripped instead of refused.
+    let refused: BTreeSet<String> =
+        INITIALIZE_REFUSED_ACPMUX.iter().map(|k| (*k).to_owned()).collect();
+    let keys: Vec<String> = acpmux
+        .keys()
+        .filter(|k| {
+            !contains(&known.acpmux, k)
+                && !contains(&refused, k)
+                && !mode_fields.is_some_and(|m| contains(m, k))
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if keys.is_empty() {
+        return None;
+    }
+    let mut acpmux = acpmux.clone();
+    for key in &keys {
+        acpmux.remove(key);
+    }
+    let mut meta = meta.clone();
+    meta.insert("acpmux".into(), Value::Object(acpmux));
+    let mut params = params.clone();
+    params.insert("_meta".into(), Value::Object(meta));
+    let mut object = object.clone();
+    object.insert("params".into(), Value::Object(params));
+    Some((object, keys))
 }
 
 /// The longest `_meta.acpmux.model` a start may carry, in bytes.
@@ -239,7 +308,9 @@ pub fn session_refusal(
 ) -> Option<Refused> {
     let p = policy();
     let method = object.get("method").and_then(Value::as_str)?;
-    let named = object.get("params").and_then(Value::as_object).and_then(|p| p.get("sessionId"));
+    let primary = p.primary_session_params.get(method).map(String::as_str).unwrap_or("sessionId");
+    let named =
+        object.get("params").and_then(Value::as_object).and_then(|params| params.get(primary));
     let optional = contains(&p.optionally_session_scoped, method);
     // A frame that may name a session and names none is not session-scoped
     // (a JSON null names one that is not a string: refused).

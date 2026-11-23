@@ -11,7 +11,7 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
-// The App offers the pane's tab row (chrome.tabs.rowTools, on by default): the status slot is under the
+// The App offers the pane's tab row: the status slot is under the
 // tabs, so the warning leads the tools instead (ChatHeaderInlineStatus).
 const inTabRow: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");

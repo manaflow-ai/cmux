@@ -7,7 +7,7 @@ import Testing
 /// painting id marked nothing current. The row now names what the window shows.
 @Suite struct BackdropPaletteOptionTests {
     static var descriptor: SettingDescriptor {
-        get throws { try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath)) }
+        get throws { try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting.configPath)) }
     }
 
     @Test func yourOwnImageShowsByName() throws {

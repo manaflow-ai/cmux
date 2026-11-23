@@ -19,7 +19,7 @@
 
 use crate::hub::{Control, Hub, Session};
 use crate::rpc::RpcError;
-use crate::server::{Conn, ConnAuth, Origin};
+use crate::server::{Conn, Origin};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -33,7 +33,7 @@ fn of(conn: &Conn, params: &Value) -> bool {
     }
     let control = crate::server::remote_guard::control_of(conn.origin, conn.auth, params);
     conn.origin == Origin::Peer
-        && conn.auth == ConnAuth::PeerToken
+        && conn.auth.peer_daemon()
         && control == Control::Peer
         && crate::hub::vm_boundary::owner(conn.auth, control, params)
         && params.pointer("/_meta/acpmux").and_then(|m| m.get(FIELD)) == Some(&Value::Bool(true))

@@ -6,7 +6,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_relay::{Relay, RelayConfig};
 use cmux_remote::client::WorkspaceClient;
-use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+use cmux_remote::connection::{
+    ClientConnection, ClientConnectionConfig, ReconnectPolicy, RedialBudget,
+};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::observability::{ConnectionState, TransportPathKind};
@@ -342,6 +344,12 @@ async fn native_relay_resumes_real_daemon_services_after_live_tunnel_carrier_los
                             heartbeat_timeout: Duration::from_millis(50),
                             maximum_attempts: Some(100),
                             maximum_duration: None,
+                            attempts_per_recovery: 3,
+                            // Real-clock fixture: redial as fast as its delays allow.
+                            redial_budget: RedialBudget {
+                                capacity: 1_000,
+                                refill_interval: Duration::from_millis(1),
+                            },
                         },
                     },
                 )
@@ -563,6 +571,12 @@ async fn native_relay_recovers_after_every_carrier_is_dropped() {
                 heartbeat_timeout: Duration::from_millis(50),
                 maximum_attempts: Some(20),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
         },
     )
@@ -740,6 +754,12 @@ async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
                             heartbeat_timeout: Duration::from_millis(1_500),
                             maximum_attempts: None,
                             maximum_duration: None,
+                            attempts_per_recovery: 3,
+                            // Real-clock fixture: redial as fast as its delays allow.
+                            redial_budget: RedialBudget {
+                                capacity: 1_000,
+                                refill_interval: Duration::from_millis(1),
+                            },
                         },
                     },
                 )

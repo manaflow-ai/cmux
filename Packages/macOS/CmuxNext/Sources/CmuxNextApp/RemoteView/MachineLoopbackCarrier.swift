@@ -8,7 +8,7 @@ import CmuxNextCompat
 /// `loopback-forward-v1` stream over that machine's daemon link (cx-2cob
 /// slice 2). It adds no listener on either side. The stream opens when the
 /// transport starts; a failed open, a host that closes, or a lost link ends
-/// the session (`.closed`), so the tab says why and never waits.
+/// the session (`.closed(reason:)`), so the tab says why and never waits.
 nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
     private let open: @Sendable () async throws -> LoopbackStream
     private let outgoing: AsyncStream<Data>
@@ -41,7 +41,7 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
             do {
                 stream = try await open()
             } catch {
-                self.emit(.closed)
+                self.emit(.closed(reason: "loopback-forward stream did not open: \(String(describing: error))"))
                 return
             }
             guard self.adopt(stream) else {
@@ -54,7 +54,7 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
                     for await event in stream.events {
                         switch event {
                         case .data(let bytes): self.emit(.data(bytes)) { stream.consumed(bytes.count) }
-                        case .eof, .closed: self.emit(.closed)
+                        case .eof, .closed: self.emit(.closed(reason: "loopback-forward stream ended: \(event)"))
                         }
                     }
                 }
@@ -63,7 +63,7 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
                         do {
                             try await stream.write(bytes)
                         } catch {
-                            self.emit(.closed)
+                            self.emit(.closed(reason: "loopback-forward write failed: \(String(describing: error))"))
                             return
                         }
                     }

@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::model::{self, Kind, Role, Sources, State, Via};
 use super::network::{
@@ -147,6 +147,52 @@ fn a_peer_that_cannot_connect_is_an_error_with_the_reason() {
 }
 
 #[test]
+fn a_peer_down_for_days_is_offline_with_how_to_remove_it_not_an_error() {
+    // 2026-11-14: four lane VMs, retired and stopped for a week, sat at the top of a
+    // dogfood list as "not working" with a retry countdown that never moved.
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "retired-lane", "url": "ssh://retired-lane", "state": "reconnecting",
+        "connected": false, "parked": true, "downSince": 1_794_064_328_690_u64,
+        "nextRetryAt": 1_794_690_000_000_u64,
+        "error": "peer unavailable; next automatic retry in 2519s"
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let lane = device(&listing, "peer:retired-lane");
+    assert_eq!(lane.state, State::Offline, "{lane:?}");
+    let detail = lane.detail.as_deref().unwrap_or_default();
+    assert!(detail.contains("cmux device remove retired-lane"), "{detail}");
+    assert!(!detail.contains("2519s"), "no frozen countdown: {detail}");
+    assert_eq!(device(&listing, "peer:vm-1").state, State::Error, "a fresh failure stays an error");
+}
+
+#[test]
+fn short_lived_pool_machines_fold_into_one_line_and_named_machines_stay() {
+    let mut more = nodes();
+    let node = |name: &str, n: u8| NetworkNode {
+        name: name.into(),
+        dns_name: format!("{name}.tail1234.ts.net"),
+        ips: vec![ip(&format!("100.70.1.{n}"))],
+        os: "linux".into(),
+        online: true,
+        mine: false,
+    };
+    more.push(node("ci-linux-pool-1114-162023-3fa17bde", 1));
+    more.push(node("ci-linux-pool-1114-171948-3bede61c", 2));
+    more.push(node("ci-linux-pool-1114-171948-8e3cefa4", 3));
+    more.push(node("swarm-01", 4));
+    more.push(node("swarm-02", 5));
+    more.push(node("swarm-03", 6));
+    more.push(node("release-20261114", 7));
+    let listing = model::merge(&sources(), tailscale_up(), &more);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["build-box", "release-20261114", "swarm-01", "swarm-02", "swarm-03"]);
+    assert_eq!(listing.pools.len(), 1, "{:?}", listing.pools);
+    assert_eq!(listing.pools[0].stem, "ci-linux-pool");
+    assert_eq!(listing.pools[0].count, 3);
+}
+
+#[test]
 fn a_daemon_pairing_and_its_peer_are_one_device_with_both_records() {
     let listing = listing();
     assert!(listing.devices.iter().all(|d| d.id != "paired:dv_sandbox"), "merged into the peer");
@@ -247,6 +293,41 @@ fn available_lists_online_network_computers_that_are_not_devices_mine_first() {
     assert_eq!(names, vec!["studio", "build-box"]);
 }
 
+/// hq#11835 row 12: on Leo's air-blue, cmux16 (a peer joined over the mesh, `url: null`) was
+/// "connected" under Devices and again under "Not added yet" with a `cmux device add` line.
+/// A record with no address takes its network node by name: a URL-less peer, a joined
+/// machine and a paired computer each keep their node out of `available` and get its reach.
+#[test]
+fn a_device_with_no_address_takes_its_network_node_by_name() {
+    let mut more = nodes();
+    for name in ["mesh-mac", "lane-vm-3", "leo-mbp"] {
+        more.push(NetworkNode {
+            name: name.into(),
+            dns_name: format!("{name}.tail1234.ts.net"),
+            ips: vec![ip("100.70.0.20")],
+            os: "linux".into(),
+            online: true,
+            mine: true,
+        });
+    }
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "mesh-mac", "url": null, "state": "connected", "connected": true
+    }));
+    let listing = model::merge(&src, tailscale_up(), &more);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["build-box"], "{:#?}", listing.available);
+    for (id, address) in [
+        ("peer:mesh-mac", "mesh-mac.tail1234.ts.net"),
+        ("joined:m_lane3", "lane-vm-3.tail1234.ts.net"),
+        ("paired:dv_leo", "leo-mbp.tail1234.ts.net"),
+    ] {
+        let row = device(&listing, id);
+        assert_eq!(row.reach.as_ref().map(|r| r.address.as_str()), Some(address), "{id}");
+        assert_eq!(row.os.as_deref(), Some("linux"), "{id}");
+    }
+}
+
 #[test]
 fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
     let mut src = sources();
@@ -293,6 +374,48 @@ fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
     let listing = model::merge(&src, NetworkStatus::none("no tailscale"), &[]);
     let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, vec!["alpha", "build-box", "old-air", "studio-ts", "Zeta"]);
+}
+
+/// hq#11835 row 3: `cmux device list` offered `cmux device add HOST.tailnet.ts.net --yes` for a
+/// tailnet computer the person's ssh config already names, and that MagicDNS name failed `Host
+/// key verification failed` (the config pins the key under its alias) while `cmux device add
+/// HOST --yes` reached it. A computer an ssh alias names is offered by that alias.
+#[test]
+fn a_network_computer_the_ssh_config_names_is_offered_by_its_alias() {
+    let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
+        alias: alias.to_owned(),
+        host_name: host_name.map(str::to_owned),
+    };
+    let address = |hosts: Vec<SshConfigHost>| {
+        let mut src = sources();
+        src.ssh_hosts = hosts;
+        let listing = model::merge(&src, tailscale_up(), &nodes());
+        let row = listing.available.iter().find(|a| a.name == "build-box").cloned().unwrap();
+        assert_eq!(row.found, model::Found::Network);
+        row.address
+    };
+    // No alias: the MagicDNS name, as before.
+    assert_eq!(address(Vec::new()), "build-box.tail1234.ts.net");
+    // Its short name as a Host (HostKeyAlias and the rest under it).
+    assert_eq!(address(vec![host("build-box", None)]), "build-box");
+    // An alias whose HostName is its MagicDNS name, short name or address wins over its name.
+    assert_eq!(
+        address(vec![host("build-box", None), host("bb", Some("build-box.tail1234.ts.net"))]),
+        "bb"
+    );
+    assert_eq!(address(vec![host("bb", Some("100.70.0.9"))]), "bb");
+    assert_eq!(address(vec![host("BB", Some("Build-Box"))]), "BB");
+    // An alias named as the node that goes elsewhere is not it.
+    assert_eq!(address(vec![host("build-box", Some("10.9.9.9"))]), "build-box.tail1234.ts.net");
+    // The printed command is the alias, a shell word.
+    let mut src = sources();
+    src.ssh_hosts = vec![host("build-box", None)];
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let row = serde_json::to_value(&listing.available[0]).unwrap();
+    assert_eq!(
+        (row["name"].as_str(), row["address"].as_str()),
+        (Some("build-box"), Some("build-box"))
+    );
 }
 
 #[test]
@@ -444,7 +567,7 @@ fn a_joined_machine_is_a_computer_that_runs_agents_and_its_remove_revokes_it() {
 #[test]
 fn no_joined_source_adds_no_rows() {
     let mut sources = sources();
-    sources.joined = serde_json::Value::Null;
+    sources.joined = Value::Null;
     let listing = model::merge(&sources, tailscale_up(), &nodes());
     assert!(listing.devices.iter().all(|d| !d.id.starts_with("joined:")));
 }
@@ -495,4 +618,310 @@ fn output_flags_may_come_before_device_or_the_verb() {
     );
     assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
     assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
+}
+
+/// A removed joined machine leaves the machine list; one that was only revoked stays.
+#[test]
+fn removed_joined_machines_leave_the_list_and_revoked_ones_stay() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty(), "no file: nothing hidden");
+    removed::add_in(dir.path(), "m_1", 1).unwrap();
+    removed::add_in(dir.path(), "m_1", 2).unwrap();
+    let ids = removed::ids_in(dir.path());
+    assert_eq!(ids.len(), 1, "recorded once");
+    let rows = vec![
+        json!({"kind": "joined", "id": "m_1", "name": "lane-vm-3", "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_2", "name": "build-box", "state": "revoked"}),
+        json!({"kind": "joined", "name": "no id"}),
+    ];
+    let shown = removed::without(rows, &ids);
+    let names: Vec<&str> = shown.iter().filter_map(|r| r["name"].as_str()).collect();
+    assert_eq!(names, ["build-box", "no id"], "only the removed one leaves; a revoked one stays");
+}
+
+/// A removed-machines file that cannot be read hides nothing, and a removal refuses to write
+/// over it (that would bring back every machine it hid).
+#[test]
+fn an_unreadable_removed_file_hides_nothing() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(removed::FILE);
+    std::fs::write(&path, b"{not json").unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty());
+    assert!(removed::add_in(dir.path(), "m_9", 3).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"{not json", "left as it was");
+    std::fs::remove_file(&path).unwrap();
+    removed::add_in(dir.path(), "m_9", 3).unwrap();
+    assert!(removed::ids_in(dir.path()).contains("m_9"));
+    assert!(!dir.path().join(format!("{}.{}.tmp", removed::FILE, std::process::id())).exists());
+}
+
+/// Removing a joined machine without a revoke needs the hub's own list to show it revoked: a
+/// list that could not be read, or a machine still live or unknown, is never a quiet removal.
+#[test]
+fn only_a_machine_the_hub_lists_as_revoked_leaves_without_a_revoke() {
+    use super::removed::listed_revoked;
+    let rows = || {
+        Some(Ok(vec![
+            json!({"id": "m_gone", "state": "revoked"}),
+            json!({"id": "m_live", "state": "online"}),
+        ]))
+    };
+    assert!(listed_revoked(rows(), "m_gone").unwrap());
+    assert!(!listed_revoked(rows(), "m_live").unwrap(), "a live machine is revoked first");
+    assert!(!listed_revoked(rows(), "m_unknown").unwrap(), "an unknown id proves nothing");
+    assert!(listed_revoked(Some(Err("hub down".into())), "m_gone").is_err(), "an unread list");
+    assert!(listed_revoked(None, "m_gone").is_err(), "signed out");
+}
+
+/// Removals at once all stay recorded: the read, append and write hold the file's lock.
+#[test]
+fn removals_at_once_all_stay_recorded() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let threads: Vec<_> = (0..16)
+        .map(|n| {
+            let path = path.clone();
+            std::thread::spawn(move || removed::add_in(&path, &format!("m_{n}"), n).unwrap())
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(removed::ids_in(&path).len(), 16);
+}
+
+/// `cmux device --help` prints the device verbs (it fell through to the resource grammar), and
+/// the usage names the verbs `device` runs as `machine …` and sends VMs to `cmux vm`
+/// (cmuxterm-hq#7487 item 6). `device add` without `--yes` stays the app's Add Device card.
+#[test]
+fn device_help_names_every_device_verb_and_points_vms_at_vm() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    for help in ["--help", "-h", "help"] {
+        assert_eq!(super::device_args(&words(&["device", help])), Some(words(&[help])), "{help}");
+        assert_eq!(super::verb_and_args(&words(&[help])).0, help);
+    }
+    assert_eq!(super::device_args(&words(&["device", "add", "studio"])), None);
+    // hq#11835 row 13: `device SELECTOR show` reads the device list first; `--catalog` and the
+    // other selector verbs stay the machine catalog's.
+    assert_eq!(
+        super::device_args(&words(&["device", "mac-mini", "show"])),
+        Some(words(&["show", "mac-mini"]))
+    );
+    assert_eq!(
+        super::device_args(&words(&["--json", "device", "mac-mini", "show"])),
+        Some(words(&["--json", "show", "mac-mini"]))
+    );
+    assert_eq!(
+        super::device_args(&words(&["device", "mac-mini", "show", "--json"])),
+        Some(words(&["show", "mac-mini", "--json"]))
+    );
+    assert_eq!(super::device_args(&words(&["device", "mac-mini", "show", "--catalog"])), None);
+    assert_eq!(super::device_args(&words(&["device", "mac-mini", "session"])), None);
+    assert_eq!(super::device_args(&words(&["device", "revoke", "m_1"])), None);
+    for verb in [
+        "device list",
+        "device add",
+        "device invite",
+        "device remove",
+        "device setup",
+        "device start",
+        "SELECTOR show",
+        "device revoke|rotate",
+        "device doctor",
+        "cmux vm --help",
+        "`cmux machine` is the old name",
+    ] {
+        assert!(super::USAGE.contains(verb), "{verb} missing:\n{}", super::USAGE);
+    }
+}
+
+/// Every row says what its device is, with the glyph its kind names: what a peer reported, the
+/// source (a `ws://` peer is a Cloud machine), the OS, a phone pairing, else generic.
+#[test]
+fn every_row_carries_its_device_kind_and_glyph() {
+    use cmux_device_kind::DeviceKind;
+    let mut src = sources();
+    src.peers["peers"][0]["health"] = json!({"os": "macos", "device": "mac-mini"});
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1,
+    }));
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_tab", "name": "tab-1", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 0, "device": "ipad",
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    for (id, kind) in [
+        ("peer:mini-7", DeviceKind::MacMini),
+        ("peer:vm-1", DeviceKind::Generic),
+        ("peer:sandbox", DeviceKind::Cloud),
+        ("paired:dv_phone", DeviceKind::IPhone),
+        ("paired:dv_tab", DeviceKind::IPad),
+        ("paired:dv_leo", DeviceKind::Generic),
+    ] {
+        let row = device(&listing, id);
+        assert_eq!((row.device, row.symbol), (kind, kind.symbol()), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:mini-7")).unwrap();
+    assert_eq!(
+        (wire["device"].as_str(), wire["symbol"].as_str()),
+        (Some("mac-mini"), Some("macmini"))
+    );
+    for row in &listing.devices {
+        assert_eq!(row.symbol, row.device.symbol(), "{}", row.id);
+    }
+}
+
+/// Leo, 2026-11-15: "and why dont' i see the other linked up vms and such? and [a Linux desktop]?" The
+/// Screen Sharing page lists every linked machine, and each row says what its kind can do there:
+/// a Mac or a Linux desktop is viewed through the device hub, a Cloud machine through its desktop,
+/// and every other machine is listed with why it has nothing to press. Leo, 2026-11-15: "we do
+/// have mac to windows and mac to linux and mac to mac on top of the other way around too right?"
+#[test]
+fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let mut src = sources();
+    src.peers["peers"][0]["health"] = json!({"os": "macos", "device": "mac-mini"});
+    src.peers["peers"][1]["health"] = json!({"os": "linux", "device": "linux-server"});
+    let peers = src.peers["peers"].as_array_mut().unwrap();
+    peers.push(json!({"name": "linux-desk", "url": "ssh://linux-desk", "connected": true,
+                      "health": {"os": "linux", "device": "linux-desktop"}}));
+    peers.push(
+        json!({"name": "old-air", "url": "ssh://old-air.tail1234.ts.net", "connected": false}),
+    );
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1,
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let view = |route| Some(Screen::View { route });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, screen) in [
+        ("peer:mini-7", view(ScreenRoute::Hub)),
+        ("peer:sandbox", view(ScreenRoute::Cloud)),
+        // A Mac that is not connected (its OS from the network, no health yet).
+        ("peer:old-air", none(NoScreen::Offline)),
+        ("peer:vm-1", none(NoScreen::NoDesktop)),
+        // A Linux desktop is viewed through the device hub like a Mac (`cmux-rd linux-host`).
+        ("peer:linux-desk", view(ScreenRoute::Hub)),
+        // A joined Linux machine that reported no kind: desktop or server, nothing tells.
+        ("joined:m_lane3", none(NoScreen::Unknown)),
+        ("joined:m_quiet", none(NoScreen::Unknown)),
+        ("paired:dv_phone", none(NoScreen::Phone)),
+        ("paired:dv_leo", none(NoScreen::Unknown)),
+        // A person's login is not a machine: the page leaves it out.
+        ("allow:austin@manaflow.ai", None),
+        ("grant:new@manaflow.ai", None),
+    ] {
+        assert_eq!(device(&listing, id).screen, screen, "{id}");
+    }
+    let wire = |id| serde_json::to_value(device(&listing, id)).unwrap()["screen"].clone();
+    assert_eq!(wire("peer:mini-7"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:sandbox"), json!({"action": "view", "route": "cloud"}));
+    assert_eq!(wire("peer:linux-desk"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:vm-1"), json!({"action": "none", "reason": "no-desktop"}));
+    assert!(wire("allow:austin@manaflow.ai").is_null());
+}
+
+/// A machine reached only through the mesh hub (`via: "hub"`) has no ssh health: its kind and
+/// its offer come from what the device hub says of it (`deviceHub`). Leo, 2026-11-21: "...plus
+/// most of our vms (if we even have any lanes on freestyle vms yet!?) dont have screns..."
+#[test]
+fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
+    use cmux_device_kind::DeviceKind;
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let hub_row = |name: &str, device_hub: Value| {
+        let mut row = json!({"name": name, "connected": true, "state": "connected", "via": "hub",
+                             "lastSeen": 1, "sessions": 0});
+        if !device_hub.is_null() {
+            row["deviceHub"] = device_hub;
+        }
+        row
+    };
+    let src = Sources {
+        peers: json!({"peers": [
+            hub_row("lane-desk", json!({"listed": true, "platform": "linux", "screenShared": true})),
+            hub_row("lane-off", json!({"listed": true, "platform": "linux", "screenShared": false})),
+            hub_row("lane-bare", json!({"listed": false})),
+            hub_row("hub-mac", json!({"listed": true, "platform": "macos", "screenShared": false})),
+            hub_row("lane-unread", Value::Null),
+        ]}),
+        ..Sources::default()
+    };
+    let listing = model::merge(&src, tailscale_up(), &[]);
+    let view = |route| Some(Screen::View { route });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, kind, screen) in [
+        ("peer:lane-desk", DeviceKind::LinuxDesktop, view(ScreenRoute::Hub)),
+        ("peer:lane-off", DeviceKind::Generic, none(NoScreen::SharingOff)),
+        ("peer:lane-bare", DeviceKind::Generic, none(NoScreen::NoScreenHost)),
+        ("peer:hub-mac", DeviceKind::Generic, view(ScreenRoute::Hub)),
+        // No share host here read the hub's list: nothing tells.
+        ("peer:lane-unread", DeviceKind::Generic, none(NoScreen::Unknown)),
+    ] {
+        let d = device(&listing, id);
+        assert_eq!((d.device, d.screen), (kind, screen), "{id}");
+    }
+    assert_eq!(device(&listing, "peer:lane-off").os.as_deref(), Some("linux"));
+    let wire = |id| serde_json::to_value(device(&listing, id)).unwrap()["screen"].clone();
+    assert_eq!(wire("peer:lane-desk"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:lane-bare"), json!({"action": "none", "reason": "no-screen-host"}));
+    // A hub-only machine that is down says so first.
+    let mut down = src;
+    down.peers["peers"][2]["connected"] = json!(false);
+    let listing = model::merge(&down, tailscale_up(), &[]);
+    assert_eq!(device(&listing, "peer:lane-bare").screen, none(NoScreen::Offline));
+}
+
+/// A Linux desktop reached over ssh (`linux-desktop` in its health) is shared through the screen
+/// host the device hub lists for it: its row carries that host's hub id (what `macScreen.open
+/// --device` opens), and with none listed it says so instead of a View that opens nothing.
+/// 2026-11-23: a Linux desktop's row read "view" while `--device peer:NAME` named no device.
+/// Leo, 2026-11-18: "i should be able to see into any connected mac or linux machine".
+#[test]
+fn an_ssh_linux_desktop_is_shared_through_the_screen_host_the_hub_lists() {
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let row = |name: &str, device_hub: Value| {
+        let mut row = json!({"name": name, "url": format!("ssh://{name}"), "connected": true,
+                             "health": {"os": "linux", "device": "linux-desktop"}});
+        if !device_hub.is_null() {
+            row["deviceHub"] = device_hub;
+        }
+        row
+    };
+    let src = Sources {
+        peers: json!({"peers": [
+            row("desk-on", json!({"listed": true, "id": "dev_on", "platform": "linux",
+                                  "online": true, "screenShared": true})),
+            row("desk-off", json!({"listed": true, "id": "dev_off", "platform": "linux",
+                                   "online": true, "screenShared": false})),
+            row("desk-none", json!({"listed": false})),
+            row("desk-unread", Value::Null),
+        ]}),
+        ..Sources::default()
+    };
+    let listing = model::merge(&src, tailscale_up(), &[]);
+    let view = Some(Screen::View { route: ScreenRoute::Hub });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, screen, hub_device) in [
+        ("peer:desk-on", view, Some("dev_on")),
+        ("peer:desk-off", none(NoScreen::SharingOff), Some("dev_off")),
+        ("peer:desk-none", none(NoScreen::NoScreenHost), None),
+        // No share host here read the hub's list: its kind decides, as before.
+        ("peer:desk-unread", view, None),
+    ] {
+        let d = device(&listing, id);
+        assert_eq!((d.screen, d.hub_device.as_deref()), (screen, hub_device), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:desk-on")).unwrap();
+    assert_eq!(wire["hub_device"], json!("dev_on"));
+    assert!(
+        serde_json::to_value(device(&listing, "peer:desk-none"))
+            .unwrap()
+            .get("hub_device")
+            .is_none()
+    );
 }

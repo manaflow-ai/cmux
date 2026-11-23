@@ -41,7 +41,7 @@ extension AgentPaneGitPullRequest {
 
     /// The user's default merge method for the repository (`merge`, `squash` or `rebase`); `merge`
     /// when gh can't say.
-    @concurrent private static func method(gh: String, in folder: String, url: String) async -> String {
+    @concurrent static func method(gh: String, in folder: String, url: String) async -> String {
         let parts = URL(string: url)?.path.split(separator: "/").map(String.init) ?? []
         guard let host = URL(string: url)?.host, parts.count >= 2 else { return "merge" }
         let view = await AgentPaneGitProcess.output(["repo", "view", "\(host)/\(parts[0])/\(parts[1])", "--json", "viewerDefaultMergeMethod"],
@@ -54,37 +54,37 @@ extension AgentPaneGitPullRequest {
     /// The branch's pull request is not the one the page showed.
     nonisolated static var mergeChangedMessage: String {
         String(localized: "agentPane.error.gitMergeChanged",
-               defaultValue: "This branch's pull request changed. Look at it again before merging.", bundle: .module)
+               defaultValue: "This branch's pull request changed. Look at it again before merging.", bundle: .localizedModule)
     }
 
     /// The pull request is merged or closed.
     nonisolated static var mergeNotOpenMessage: String {
-        String(localized: "agentPane.error.gitMergeNotOpen", defaultValue: "This pull request isn't open.", bundle: .module)
+        String(localized: "agentPane.error.gitMergeNotOpen", defaultValue: "This pull request isn't open.", bundle: .localizedModule)
     }
 
     /// A draft, a check not passed, or GitHub's merge state not clean (a review, conflicts).
     nonisolated static var mergeNotReadyMessage: String {
         String(localized: "agentPane.error.gitMergeNotReady",
-               defaultValue: "GitHub says this pull request isn't ready to merge: a check, a review or a conflict is still open.",
-               bundle: .module)
+               defaultValue: "GitHub says this pull request can't merge yet.",
+               bundle: .localizedModule)
     }
 
     /// GitHub wants the branch updated with its base first.
     nonisolated static var mergeBehindMessage: String {
         String(localized: "agentPane.error.gitMergeBehind",
-               defaultValue: "This branch is behind its base. Update it, then merge.", bundle: .module)
+               defaultValue: "This branch is behind its base. Update it, then merge.", bundle: .localizedModule)
     }
 
     /// GitHub has not worked out yet whether it can merge (just after a push).
     nonisolated static var mergeUnknownMessage: String {
         String(localized: "agentPane.error.gitMergeUnknown",
                defaultValue: "GitHub is still checking whether this pull request can merge. Try again in a moment.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// This Mac's HEAD is not the pull request's head.
     nonisolated static var mergeHeadMessage: String {
         String(localized: "agentPane.error.gitMergeHead",
-               defaultValue: "This branch here isn't the pull request's head. Push or pull first, then merge.", bundle: .module)
+               defaultValue: "This branch here isn't the pull request's head. Push or pull first, then merge.", bundle: .localizedModule)
     }
 }

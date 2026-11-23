@@ -93,11 +93,19 @@ public nonisolated final class FocusMachine {
                 columns.withUnsafeBufferPointer { columns in
                     columnPanes.withUnsafeBufferPointer { columnPanes in
                         wire.bytes.withUnsafeBufferPointer { bytes in
-                            var encoded = CmuxFocusTopology(
-                                workspace: workspace, panes: panes.baseAddress, tabs: tabs.baseAddress, columns: columns.baseAddress,
-                                column_panes: columnPanes.baseAddress, pane_count: UInt32(panes.count), tab_count: UInt32(tabs.count),
-                                column_count: UInt32(columns.count), column_pane_count: UInt32(columnPanes.count),
-                                screen_count: screenCount, reserved: 0)
+                            // Field by field over a zeroed value: a field the header adds later (the close
+                            // siblings, issue 38194) goes out as none until this code sets it.
+                            var encoded = CmuxFocusTopology()
+                            encoded.workspace = workspace
+                            encoded.panes = panes.baseAddress
+                            encoded.tabs = tabs.baseAddress
+                            encoded.columns = columns.baseAddress
+                            encoded.column_panes = columnPanes.baseAddress
+                            encoded.pane_count = UInt32(panes.count)
+                            encoded.tab_count = UInt32(tabs.count)
+                            encoded.column_count = UInt32(columns.count)
+                            encoded.column_pane_count = UInt32(columnPanes.count)
+                            encoded.screen_count = screenCount
                             return call { cmux_input_focus_set_topology($0, $1, $2, &encoded, bytes.baseAddress, bytes.count) }
                         }
                     }

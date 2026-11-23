@@ -23,6 +23,17 @@ fn no_record(tool: &str) -> bool {
 
 #[test]
 fn the_list_is_the_one_the_host_offers_today() {
+    // `CHIEF_UPDATE_GOLDEN=1` rewrites the files, as the prompt goldens do.
+    if std::env::var("CHIEF_UPDATE_GOLDEN").is_ok_and(|f| f == "1") {
+        for (name, subagent) in [("chief", false), ("subagent", true)] {
+            let path = format!(
+                "{}/tests/golden/tools/{name}.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let text = serde_json::to_string_pretty(&tool_list(subagent, &no_record)).unwrap();
+            std::fs::write(path, format!("{text}\n")).unwrap();
+        }
+    }
     assert_eq!(tool_list(false, &no_record), golden("chief"));
     assert_eq!(tool_list(true, &no_record), golden("subagent"));
 }
@@ -56,7 +67,7 @@ fn pi_durable_gets_every_tool_its_host_can_do_with_a_replay_flag() {
         assert!(n.contains(&want.to_owned()), "{want} missing: {n:?}");
     }
     // Host-only: the Mac's app, moving a Mac home and a command off the turn.
-    for host_only in ["version", "move", "watch"] {
+    for host_only in ["version", "move", "watch", "mcp"] {
         assert!(!n.contains(&host_only.to_owned()), "{host_only}: {n:?}");
     }
     for t in s.as_array().unwrap() {

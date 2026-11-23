@@ -88,7 +88,14 @@ alive() { ps -p "$1" >/dev/null 2>&1; }
 app_pid() { pgrep -f "^$app/Contents/MacOS/" | head -1 || true; }
 wait_socket() { local i; for i in $(seq 1 60); do rpc debug.windows '{}' 3 2>/dev/null | grep -q '"ok": *true' && return 0; sleep 1; done; return 1; }
 wait_exit() { local i; for i in $(seq 1 "$2"); do alive "$1" || return 0; sleep 1; done; return 1; }
-launch() { open -g -n "$app"; wait_socket; sleep 4; APP_PID="$(app_pid)"; log "app pid $APP_PID"; }
+# launch: until the socket answers, the app's process is listed and its cmux-tui daemon runs (30 s).
+launched() { [ -n "$(app_pid)" ] && pgrep -f "^$BIN/cmux-tui --headless --session cmux-app-$slug " >/dev/null; }
+launch() {
+  local i; open -g -n "$app"; wait_socket
+  for i in $(seq 1 300); do launched && break; sleep 0.1; done
+  launched || log "launch: no app process or cmux-tui daemon 30 s after the socket answered"
+  APP_PID="$(app_pid)"; log "app pid $APP_PID"
+}
 daemon_sock() { ps -o command= -p "$TUI_PID" | sed -E 's/.*--socket ([^ ]+).*/\1/'; }
 cli() { "$BIN/cmux" --socket "$DSOCK" "$@"; }
 acp() { "$BIN/acpmux" "$@"; }
@@ -160,22 +167,10 @@ cli terminal list --json >"$out/pre-term.json"
 rpc_ok debug.windows '{}' >"$out/pre-windows.json"
 snapshot pre
 
-# 5. Cmd-Q (asks how to quit; Keep Sessions is the default: QUIT P0) --------
-# With local terminals, Cmd-Q asks Keep Sessions / End Sessions, Keep Layout /
-# End Everything / Cancel. Return (the default) keeps the terminals and agents
+# 5. Cmd-Q (never asks; keeps the sessions: Leo 2026-11-05) -------------------
+# With local terminals, Cmd-Q quits at once and the terminals and agents keep
 # running in their daemons.
 rpc_ok debug.quit '{"open":true}' >"$out/quit-open.json"
-asked=no
-for i in $(seq 1 15); do
-  alive "$APP_PID" || break
-  if rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true'; then
-    asked=yes
-    rpc debug.quit '{"press":"keep"}' 5 >/dev/null 2>&1 || true
-    break
-  fi
-  sleep 1
-done
-check quit-asks "$(cond test "$asked" = yes)" "$(tr -d '\n' <"$out/quit-open.json" | cut -c1-200)"
 check app-quits-on-keep "$(cond wait_exit "$APP_PID" 15)"
 
 # 6. Survive the reap grace -----------------------------------------------------
@@ -213,15 +208,15 @@ rpc_ok action.run '{"id":"selectWorkspaceByNumber","args":{"index":1}}' >/dev/nu
 snapshot post-terminal
 
 # 9. Variants (on the live app) ---------------------------------------------------
-# A second Cmd-Q while the quit dialog shows answers its default (Keep). It is
-# sent once the dialog shows: before that the quit is still reading its facts.
-rpc_ok debug.quit '{"open":true}' >/dev/null
-for i in $(seq 1 15); do
-  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && break
-  alive "$APP_PID" || break
-  sleep 1
-done
-rpc_ok debug.quit '{"open":true}' >/dev/null || true
+# A second Cmd-Q during a quit (a held or doubled key) joins the quit already
+# running: Cmd-Q never asks (#36818), so the first one is already quitting,
+# keeps the sessions, and the second starts nothing of its own.
+rpc_ok debug.quit '{"open":true}' >"$out/second-quit-first.json"
+rpc debug.quit '{"open":true}' 2 >"$out/second-quit-second.json" 2>/dev/null || true
+check second-quit-first-starts "$(cond grep -q '"requested": *true' "$out/second-quit-first.json")" "$(tr -d '\n' <"$out/second-quit-first.json")"
+# An empty reply is the app already gone, which also starts nothing.
+second_quit_joined() { [ ! -s "$1" ] || grep -qE '"requested": *false' "$1"; }
+check second-quit-joins "$(cond second_quit_joined "$out/second-quit-second.json")" "$(tr -d '\n' <"$out/second-quit-second.json")"
 check second-quit-keeps "$(cond wait_exit "$APP_PID" 15)" "app quit"
 check second-quit-daemon-alive "$(cond alive "$TUI_PID")" "daemon $TUI_PID"
 launch
@@ -229,10 +224,13 @@ check dock-quit-inactive 1 "needs debug.quit {open:true, inactive:true}"
 # 9b. Update relaunch (R138, D3): Sparkle's relaunch path never asks and keeps sessions.
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
 rpc_ok debug.updater '{"action":"relaunch"}' >"$out/update-relaunch.json"
+# No quit asks how to quit any more (#36818); what could still stop an update
+# relaunch is the "Some sessions did not end" alert (debug.quit reports it as
+# `failure`). Its quit must not show it.
 asked=no
 for i in $(seq 1 15); do
   alive "$APP_PID" || break
-  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && asked=yes
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"failure"' && asked=yes
   sleep 1
 done
 check update-relaunch-no-prompt "$(cond test "$asked" = no)" "$(cat "$out/update-relaunch.json")"

@@ -34,13 +34,14 @@ final class DeclarativePopupHost {
         self.isAppActive = isAppActive
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
-        let scroll = NSScrollView()
+        popup.followsOpeningPress = true
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
         content.autoresizingMask = [.width]
         scroll.documentView = content
-        surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface = Glass.makeMenuPanel(content: scroll)
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in
@@ -128,16 +129,22 @@ final class DeclarativePopupHost {
         shownParent = window
         panel.adoptThemeScope(of: webView)
         surface.applyTheme()
+        let styleV2 = DesignSettings.shared.experiment("menuStyleV2")
+        applyEdge(styleV2: styleV2)
+        // `experiments.menuStyleV2`: a submenu sits flush on its parent row, its first row level with
+        // that row (the card rises by the first row's inset: padding, plus the title when it has one).
+        var placedAnchor = anchor
+        if sideBySide, styleV2, let firstRow = content.rowViews.first?.1.frame.minY { placedAnchor.origin.y += firstRow }
         popup.dismissalWindow = webView.window
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
-                                      anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
+                                      anchor: placedAnchor, in: window, preferred: next.side == .top ? .above : .below,
                                       trailing: sideBySide ? false : next.align == .end, makeKey: opening,
-                                      sideBySide: sideBySide) else { model = nil; return ["shown": false] }
+                                      sideBySide: sideBySide, sideGap: styleV2 ? 0 : 4) else { model = nil; return ["shown": false] }
         content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
         if opening { content.focusInitial() }
-        else if preserveKey { panel.makeKey() }
+        else if preserveKey { FocusRoute(.system, "a popup keeps its keys").makeKey(panel) }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
     }
@@ -148,7 +155,7 @@ final class DeclarativePopupHost {
         _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent,
                  sideBySide: sideBySide, preserveKey: preserveKey)
         guard let next = model else { return }
-        let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
+        let enabled = Self.enabledRows(next.allRows)
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.opensChildren }),
            let rows = row.children, !rows.isEmpty,
@@ -156,7 +163,11 @@ final class DeclarativePopupHost {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
+            submenu.railPlacement = nil
             submenu.footer = nil
+            submenu.columns = nil
+            submenu.columnsHeight = nil
+            submenu.searchAccessory = nil
             submenu.search = nil
             submenu.title = row.label
             submenu.parentId = next.id
@@ -185,7 +196,7 @@ final class DeclarativePopupHost {
         model = nil
         popup.hide()
         if let window = returnWindow, window.isVisible, let responder = returnResponder {
-            window.makeFirstResponder(responder)
+            FocusRoute(.system, "a popup hides: the keys go back").moveKeyboard(in: window, to: responder)
         }
     }
 
@@ -208,7 +219,7 @@ final class DeclarativePopupHost {
     private func event(_ type: NativePopupEventType, id: String?, value: String?, reason: String? = nil) {
         guard let model, popup.isShown,
               let current = root.model, current.id == model.id, current.revision == model.revision else { return }
-        let rows = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
+        let rows = Self.enabledRows(current.allRows)
         let row = rows.first { $0.id == id }
         let actionParent = rows.first { $0.actions?.contains(where: { $0.id == id }) == true }
         let action = actionParent?.actions?.first { $0.id == id }
@@ -257,7 +268,7 @@ final class DeclarativePopupHost {
 
     private func open(_ row: NativePopupRow, from view: NSView) {
         guard let model, let current = root.model, let webView,
-              let row = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
+              let row = Self.enabledRows(current.allRows)
                 .first(where: { $0.id == row.id && $0.opensChildren }),
               let rows = row.children, !rows.isEmpty else { return }
         child?.hide()
@@ -269,7 +280,11 @@ final class DeclarativePopupHost {
         // Events retain the root popup identity/revision; consumers need no second listener.
         next.rows = rows
         next.rail = nil
+        next.railPlacement = nil
         next.footer = nil
+        next.columns = nil
+        next.columnsHeight = nil
+        next.searchAccessory = nil
         next.title = row.label
         next.search = nil
         next.highlighted = nil
@@ -278,6 +293,17 @@ final class DeclarativePopupHost {
         // root's trailing alignment cannot pull it back over its parent row.
         next.align = .start
         _ = submenu.show(next, screenAnchor: submenuAnchor(for: view), in: panel, sideBySide: true)
+    }
+
+    /// `experiments.menuStyleV2` in dark mode: a 1 pt hairline in the separator ink edges the card in
+    /// place of the popup shadow; light mode (and the switch off) keeps the shadow and no line.
+    private func applyEdge(styleV2: Bool) {
+        let hairline = styleV2 && surface.themeTokens.isDark
+        (panel.contentView as? PopupHostView)?.shadowLayer.isHidden = hairline
+        surface.contentView.wantsLayer = true
+        guard let layer = surface.contentView.layer else { return }
+        layer.borderWidth = hairline ? Metrics.lineWidth(1) : 0
+        layer.borderColor = hairline ? surface.performWithTheme { Palette.separator.cgColor } : nil
     }
 
     private func submenuAnchor(for view: NSView) -> CGRect {

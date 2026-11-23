@@ -1,0 +1,6 @@
+{"sessionUpdate":"tool_call","toolCallId":"apply","kind":"edit","title":"Edit auth.rs","status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"apply","status":"completed","content":[{"type":"diff","path":"auth.rs","oldText":"old\n","newText":"new\n"}]}
+{"sessionUpdate":"tool_call","toolCallId":"validation","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"validation","status":"failed","rawOutput":{"stderr":"auth.rs:88"}}
+{"sessionUpdate":"tool_call","toolCallId":"revert","kind":"edit","title":"Edit auth.rs","status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"revert","status":"completed","content":[{"type":"diff","path":"auth.rs","oldText":"new\n","newText":"old\n"}]}

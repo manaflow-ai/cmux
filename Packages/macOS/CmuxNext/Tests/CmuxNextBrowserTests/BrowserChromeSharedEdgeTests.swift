@@ -100,6 +100,7 @@ import Testing
     @Test func aCookieOfferComesBackWithItsTab() async {
         let t = Self.tab("t.example"), u = Self.tab("u.example")
         let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
         let pane = BrowserPaneChrome()
         let chrome = pane.bind(t, state: stateT)
         let window = Self.window(chrome)
@@ -109,12 +110,168 @@ import Testing
             t.close()
             u.close()
         }
-        let offer = BrowserCookieImportOffer(icons: [], title: "Import", detail: "", importTitle: "Import", notNowTitle: "Not now")
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
         chrome.showCookieImportOffer(offer) { _ in }
         pane.bind(u, state: stateU)
         #expect(!chrome.showsCookieImportOffer)
         pane.bind(t, state: stateT)
         #expect(chrome.showsCookieImportOffer, "the offer left with the switch and never came back")
+    }
+
+    /// The cookie import card waits clear until its page measured itself: the overlay host shows what
+    /// it presents at full opacity, and a present (the first, or again after a tab switch) kept that.
+    @Test func aCookieOfferStaysClearUntilItsPageMeasuredItself() async {
+        let t = Self.tab("t.example"), u = Self.tab("u.example")
+        let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+            u.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
+        chrome.showCookieImportOffer(offer) { _ in }
+        let card = chrome.currentCookieImportCard
+        #expect(card?.superview != nil, "the card was not presented")
+        #expect(card?.alphaValue == 0, "the empty card showed before its page measured it")
+        pane.bind(u, state: stateU)
+        pane.bind(t, state: stateT)
+        #expect(card?.superview != nil, "the card did not come back with its tab")
+        #expect(card?.alphaValue == 0, "presenting the card again showed it before its page measured it")
+    }
+
+    /// Leo, 2026-11-08: "the import cookies from google chrome card flickers sometimes". The card shows
+    /// once and stays put: its page measuring itself, the person's keyboard leaving the tab and coming
+    /// back, and the same offer shown again (Show Import Cookies Banner, a second finished load) keep the
+    /// one card where it is. Each of those dismissed and presented it again (its page moved to a new view
+    /// and drew a blank frame) or faded it out and a new card in.
+    @Test func aCookieOfferAppearsOnceAndStaysPut() async throws {
+        let t = Self.tab("t.example")
+        let stateT = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
+        var answers: [String] = []
+        chrome.showCookieImportOffer(offer) { _ in answers.append("first") }
+        let card = try #require(chrome.currentCookieImportCard)
+        let holder = try #require(card.superview, "the card was not presented")
+
+        card.received("size", ["height": 48, "revision": 1])
+        #expect(card.isMeasured)
+        #expect(card.superview === holder, "measuring itself presented the card again")
+
+        stateT.hasKeyboard = false
+        #expect(!chrome.showsCookieImportOffer, "the card shows over a terminal or chat beside the tab")
+        #expect(card.superview === holder, "the keyboard leaving the tab presented the card again")
+        #expect(holder.isHidden, "the waiting card stays on screen")
+        stateT.hasKeyboard = true
+        #expect(chrome.showsCookieImportOffer)
+        #expect(card.superview === holder, "the keyboard coming back presented the card again")
+        #expect(holder.isHidden == false && card.isHidden == false)
+
+        chrome.showCookieImportOffer(offer) { _ in answers.append("second") }
+        #expect(chrome.currentCookieImportCard === card, "the same offer again made a new card")
+        #expect(!card.isDismissing && card.superview === holder)
+        card.onChoice?(.notNow)
+        #expect(answers == ["second"], "the answer goes to the latest caller once")
+    }
+
+    /// Review of #38375 (F1): the same offer shown again while another tab of the pane shows (Show
+    /// Import Cookies Banner on tab U) must not take over the card held, hidden, for tab T: U gets its
+    /// own card with U's answer, and T's held card never answers for U.
+    @Test func theSameOfferOnAnotherTabNeverReusesTheHeldCard() async throws {
+        let t = Self.tab("t.example"), u = Self.tab("u.example")
+        let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true
+        stateU.hasKeyboard = true
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+            u.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
+        var answers: [String] = []
+        chrome.showCookieImportOffer(offer) { _ in answers.append("t") }
+        let held = try #require(chrome.currentCookieImportCard)
+        pane.bind(u, state: stateU)
+        #expect(held.isHidden && held.heldFor === stateT)
+        chrome.showCookieImportOffer(offer) { _ in answers.append("u") }
+        let shown = try #require(chrome.currentCookieImportCard)
+        #expect(shown !== held, "tab U's offer reused the card held for tab T")
+        #expect(chrome.showsCookieImportOffer, "tab U's offer did not show")
+        shown.onChoice?(.importCookies)
+        #expect(answers == ["u"])
+    }
+
+    /// Review of #38375 at df0bd78b (follow-up F1): the same offer shown again while a window toast now
+    /// shows keeps its card and raises it over the toast, where it is; offered again with no toast, it
+    /// comes back down.
+    @Test func aReusedCookieOfferTakesTheNewToastLift() async throws {
+        let t = Self.tab("t.example")
+        let stateT = BrowserChromeTabState()
+        stateT.hasKeyboard = true
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
+        chrome.showCookieImportOffer(offer) { _ in }
+        let card = try #require(chrome.currentCookieImportCard)
+        let holder = try #require(card.superview)
+        holder.layoutSubtreeIfNeeded()
+        // Window coordinates grow upward, whatever the overlay holder's flip: higher is a larger y.
+        let bottom = { card.convert(card.bounds, to: nil).minY }
+        let resting = bottom()
+        #expect(chrome.pageOverlays.lift(of: card) == 0)
+
+        chrome.showCookieImportOffer(offer, aboveToast: true) { _ in }
+        #expect(chrome.currentCookieImportCard === card && card.superview === holder, "a new card or a new present")
+        #expect(chrome.pageOverlays.lift(of: card) == BrowserChromeView.toastClearance)
+        holder.layoutSubtreeIfNeeded()
+        #expect(abs(bottom() - resting - BrowserChromeView.toastClearance) < 0.5,
+                "the card did not rise by the toast clearance: \(resting) -> \(bottom())")
+
+        chrome.showCookieImportOffer(offer) { _ in }
+        holder.layoutSubtreeIfNeeded()
+        #expect(chrome.pageOverlays.lift(of: card) == 0 && abs(bottom() - resting) < 0.5)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/45018: the host's `browser.siteEngines` check sees every page a tab
+    /// commits, a hidden one's too, once per address: a Chromium New Tab page where open.spotify.com is typed, a link
+    /// or a redirect reaches the check, not only a tab made at that address.
+    @Test func eachCommittedPageReachesTheSiteEngineCheckOnce() async {
+        let page = Self.tab("start.example")
+        let entry = BrowserEntry(tab: page)
+        defer { entry.close() }
+        var committed: [URL] = []
+        entry.state.onPageCommitted = { committed.append($0) }
+        let spotify = URL(string: "https://open.spotify.com/track/1")!
+        page.load(spotify)
+        await Self.settle()
+        #expect(committed.last == spotify, "the typed address reached the check: \(committed)")
+        let count = committed.filter { $0 == spotify }.count
+        page.reload()
+        await Self.settle()
+        #expect(committed.filter { $0 == spotify }.count == count, "the same address is reported once: \(committed)")
     }
 
     /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
@@ -155,6 +312,7 @@ import Testing
     @Test func aHiddenTabMovedToAnotherPaneTakesItsCookieOffer() async {
         let t = Self.tab("t.example"), u = Self.tab("u.example")
         let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
         let paneA = BrowserPaneChrome(), paneB = BrowserPaneChrome()
         let chromeA = paneA.bind(t, state: stateT)
         let window = Self.window(chromeA)
@@ -165,7 +323,7 @@ import Testing
             t.close()
             u.close()
         }
-        let offer = BrowserCookieImportOffer(icons: [], title: "Import", detail: "", importTitle: "Import", notNowTitle: "Not now")
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
         chromeA.showCookieImportOffer(offer) { _ in }
         paneA.bind(u, state: stateU)
         let chromeB = paneB.bind(t, state: stateT)

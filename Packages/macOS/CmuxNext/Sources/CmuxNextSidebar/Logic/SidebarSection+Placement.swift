@@ -15,11 +15,9 @@ nonisolated extension SidebarSection {
     /// not list yet (a new one whose own placement is still in flight) is no
     /// anchor: placing before it once sent quick Cmd-N presses to the bottom.
     public static func globalIndex(localIndex: Int, local: [String], global: [String]) -> Int {
-        let slot = min(max(localIndex, 0), local.count)
-        let position = Dictionary(global.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        if let anchor = local[slot...].lazy.compactMap({ position[$0] }).first { return anchor }
-        if let index = local[..<slot].reversed().lazy.compactMap({ position[$0] }).first { return index + 1 }
-        return global.count
+        var request = RustEditRequest("global_index")
+        (request.localIndex, request.local, request.global) = (localIndex, local, global)
+        return RustSidebarClient.call("sidebar_edits", request, as: Int.self) ?? global.count
     }
 
     /// One personal placement (`workspace.place`): `key` goes to `index` in
@@ -47,14 +45,10 @@ nonisolated extension SidebarSection {
     /// show (which keeps that order); then the moved workspaces go after the
     /// slot's last shown workspace, or before its first.
     public static func personalPlacements(moving: [String], localIndex: Int, shown: [String], rowed: [String]) -> [PersonalPlacement] {
-        var rowed = rowed, positioned = Set(rowed) // a set: O(n), not a scan of `rowed` per shown row
-        let slot = min(max(localIndex, 0), shown.count)
-        var plan: [PersonalPlacement] = []
-        for key in shown.prefix(slot) where positioned.insert(key).inserted {
-            plan.append(PersonalPlacement(key: key, index: rowed.count))
-            rowed.append(key)
+        var request = RustEditRequest("personal_placements")
+        (request.moving, request.localIndex, request.shown, request.rowed) = (moving, localIndex, shown, rowed)
+        return (RustSidebarClient.call("sidebar_edits", request, as: [RustPersonalPlacement].self) ?? []).map {
+            PersonalPlacement(key: $0.key, index: $0.index)
         }
-        let index = globalIndex(localIndex: slot, local: shown, global: rowed)
-        return plan + moving.enumerated().map { PersonalPlacement(key: $1, index: index + $0) }
     }
 }

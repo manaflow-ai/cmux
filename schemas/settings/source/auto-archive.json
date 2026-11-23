@@ -20,9 +20,12 @@
           },
           "help": {
             "key": "settings.autoArchive.style.help",
-            "text": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+            "text": "Archived workspaces stay dimmed in their group and come back when opened."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "AutoArchiveStyle"
+          },
           "choices": [
             {
               "value": "suggest",
@@ -89,7 +92,7 @@
           },
           "help": {
             "key": "settings.autoArchive.idleDays.help",
-            "text": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+            "text": "Days unopened and unchanged. Pinned, running and waiting workspaces never archive."
           },
           "kind": "number",
           "range": {

@@ -12,6 +12,7 @@ import { translate } from "./i18n";
 import type { QueuedPrompt } from "./model";
 import { QueuedMessageCard } from "./conversation/QueuedMessageCard";
 import { queuedMessageRows } from "./conversation/queuedMessages";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of keys)
     if (saved.has(key)) scope[key] = saved.get(key);
     else delete scope[key];

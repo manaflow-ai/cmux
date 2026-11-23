@@ -12,7 +12,9 @@ import {
   hoverInfo,
   withSessionIds,
 } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent, hoverCardSide } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { SessionHoverContent } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { hoverCardSide } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
+import { settleReact } from "./support/domTeardown";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -210,7 +212,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -224,7 +227,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   const { UiProvider } = await import("../src/ui/UiProvider");
   const { StartedSessionChip } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
   const { SessionHoverContext, SESSION_HOVER_DELAY } =
-    await import("../src/agent-session/acpmux/started/SessionHoverCard");
+    await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
   const store = new SessionHoverStore();
@@ -326,11 +329,12 @@ test("without a hover store a chip draws no card", async () => {
 // A sender's name opens its chat as a sender (App.tsx `openSenderChat`); its card opens it the same
 // way, not as the page's started chats do (review of #36360 at b9c69d0c). A chat the list does not
 // have draws no card, so its name keeps its tooltip.
-test("a sender's card opens its chat as the name does; an unlisted chat's name keeps its tooltip", async () => {
+test("a sender's card opens its chat as the name does; neither name has a tooltip", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { SessionHoverContext, useSessionHover } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { useSessionHover } = await import("../src/agent-session/acpmux/started/useSessionHover");
   const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
@@ -359,7 +363,8 @@ test("a sender's card opens its chat as the name does; an unlisted chat's name k
   });
   const [listed, unlisted] = [...rootElement.querySelectorAll<HTMLButtonElement>("button.cv-agent-tag")];
   expect(listed!.getAttribute("title")).toBeNull();
-  expect(unlisted!.getAttribute("title")).toBe("Open unlisted");
+  // Its name shows, so it has no tooltip either (a1315's cut 2).
+  expect(unlisted!.getAttribute("title")).toBeNull();
   await act(async () => unlisted!.focus());
   expect(unlisted!.hasAttribute("aria-describedby")).toBe(false);
   await act(async () => listed!.focus());
@@ -375,7 +380,7 @@ test("an agent link to a listed chat shows that chat's card, opening it as the l
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
   const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
   const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
@@ -430,7 +435,7 @@ test("an agent link that resolves while its card is up shows the chat's card in 
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
   const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
   const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
@@ -484,7 +489,8 @@ test("a chat that leaves the list and comes back draws no card until it is hover
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { SessionHoverContext, useSessionHover } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { useSessionHover } = await import("../src/agent-session/acpmux/started/useSessionHover");
   const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
@@ -533,7 +539,7 @@ test("an agent link whose chat leaves the list gives the link back to the site's
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
   const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
   const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");

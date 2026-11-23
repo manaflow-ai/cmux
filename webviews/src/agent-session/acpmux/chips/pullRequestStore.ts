@@ -12,35 +12,11 @@
 // While the host says a read is running, the page asks it again every ``WAIT_MS`` — a local call
 // to the app, never to GitHub — so a card opened before the first read lands fills in by itself.
 import { useEffect, useSyncExternalStore } from "react";
-import type { HeaderPullRequest } from "../header/headerState";
+import type { LinkedPullRequest, PullRequestFile } from "./pullRequestTypes";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
-/** One file of a pull request, for the card's by-kind breakdown of its `+/−`. */
-export type PullRequestFile = {
-  readonly path: string;
-  readonly additions: number;
-  readonly deletions: number;
-};
-
-/** The header's pull request with everything else the card draws. */
-export type LinkedPullRequest = HeaderPullRequest & {
-  readonly author?: string;
-  /** GitHub's ISO 8601 text; empty when the host did not say. */
-  readonly createdAt?: string;
-  readonly updatedAt?: string;
-  readonly mergedAt?: string;
-  readonly additions?: number;
-  readonly deletions?: number;
-  /** Files changed as GitHub counts them, which can be more than `files` holds. */
-  readonly changedFiles?: number;
-  readonly files?: readonly PullRequestFile[];
-  readonly labels?: readonly string[];
-  readonly baseRef?: string;
-  readonly headRef?: string;
-  /** Its comments, review comments included; null or absent when the host's read did not say. */
-  readonly comments?: number | null;
-};
+export type { LinkedPullRequest, PullRequestFile };
 
 /** What the host has for one link: the pull request, and when gh last answered about it. */
 export type PullRequestAnswer = {
@@ -56,8 +32,9 @@ export type PullRequestAnswer = {
   readonly cacheOnly?: boolean;
 };
 
-/** How long the page waits before asking the host again while it reads. */
-const WAIT_MS = 1_500;
+/** How long the page waits before asking the host again while it reads: a local call, so a read
+ *  that lands just after the card opened fills it within a beat, not a second and a half later. */
+const WAIT_MS = 400;
 const MAX_KEPT = 200;
 
 const answers = new Map<string, PullRequestAnswer>();
@@ -82,6 +59,8 @@ function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer):
   if (!previous) return false;
   if (previous.reading !== next.reading || previous.fetchedAt !== next.fetchedAt) return false;
   if (previous.cacheOnly !== next.cacheOnly) return false;
+  // The author's picture loads after the read it belongs to, under the same `fetchedAt`.
+  if (previous.pullRequest?.authorAvatar !== next.pullRequest?.authorAvatar) return false;
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 
@@ -92,6 +71,16 @@ function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer):
  */
 export function askPullRequest(url: string): void {
   ask(url, true);
+}
+
+/**
+ * Asks the host for `url` as a card that opens does, on hover intent: the pointer arrived on its
+ * link and the card's dwell has only started (Leo 2026-11-08: "we're almost, like, streaming in the
+ * first hover preview"). The host answers from its cache and reads GitHub only when its answer is
+ * stale, so the read the card needs runs during the dwell and the card opens with it in hand.
+ */
+export function prefetchPullRequest(url: string): void {
+  ask(url);
 }
 
 /** How many answers the store has taken; changes exactly when one does. */

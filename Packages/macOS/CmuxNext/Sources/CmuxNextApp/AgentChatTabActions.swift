@@ -8,8 +8,9 @@ import CmuxNextAgentPane
 /// at its type budget.
 @MainActor
 struct AgentChatTabActions {
-    /// The chat's tab now (a provisional id becomes the store's).
+    /// The chat's tab now (a provisional id becomes the store's), and the machine whose tree lists it: a tab id two machines share names two chats.
     let tab: @MainActor () -> String
+    var machine: String?
     let registry: @MainActor () -> ActionRegistry?
     /// Opens the Files tree of a folder beside the chat (AgentTabStore.openFiles), on tab `target` or in a new column.
     var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
@@ -36,7 +37,7 @@ struct AgentChatTabActions {
         if target == nil, let kind = ["splitRight": RightColumnPlacement.Kind.terminal, "splitBrowserRight": .browser][id],
            openTool(kind, cwd) { return }
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
-        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user).onMachine(machine)
         // The header's Terminal and Split Down open a terminal, not the New Tab page a person's split from a chat opens.
         invocation.opensTerminal = terminal
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
@@ -46,7 +47,7 @@ struct AgentChatTabActions {
     /// its tab: in tab `target`'s column, or with no target in a new column right of the chat. A
     /// person clicked it, so the tab takes the focus (``ActionInvocation/besideTakesFocus``).
     func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
-        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user).onMachine(machine)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
         invocation.besideTakesFocus = true
@@ -60,7 +61,7 @@ struct AgentChatTabActions {
 
     /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.
     func close(tab id: String) {
-        _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+        _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user).onMachine(machine))
     }
 
     /// The "..." menu's Move to Floating Chat: once `float` put session `id` in Start Agent's
@@ -74,7 +75,7 @@ struct AgentChatTabActions {
     /// Search the Web on selected chat text: a browser tab beside the chat, with the omnibar's
     /// search engine.
     func searchWeb(_ text: String) {
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: ["text": .string(text)], origin: .user)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: ["text": .string(text)], origin: .user).onMachine(machine)
         _ = registry()?.perform("browser.selection.search", invocation: invocation)
     }
 
@@ -82,7 +83,7 @@ struct AgentChatTabActions {
     func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
         return registry.contextMenuItems(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
-                                         entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()))
+                                         entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()), machineID: machine)
     }
     /// A named chat's sidebar row rows (``ActionRegistry/priorityRowItems(chat:)``).
     func sessionMenuItems(_ session: String) -> [NSMenuItem] { registry()?.priorityRowItems(chat: session) ?? [] }

@@ -37,10 +37,11 @@ struct HomeNarrowSidebarTests {
     private func page(listWidth: CGFloat) throws -> Page {
         _ = NSApplication.shared
         let suite = "cmux.tests.narrowSidebar.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -68,6 +69,7 @@ struct HomeNarrowSidebarTests {
         #expect(!home.searchButton.isHidden, "the search icon is gone from the \(width) pt list")
         #expect(home.unreadToggle.frame.maxX <= width && home.searchButton.frame.minX >= 0)
         #expect(!home.unreadToggle.frame.intersects(home.searchButton.frame))
+        #expect(home.newChief.isHidden, "New Chief shows in the \(width) pt list")
         #expect(home.searchCapsule.isHidden, "the search capsule shows in the \(width) pt list")
         #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0,
                 "the search field shows in the \(width) pt list")
@@ -81,7 +83,10 @@ struct HomeNarrowSidebarTests {
         #expect(!button.isHidden)
         let frame = button.convert(button.bounds, to: p.content)
         let fromTop = p.content.isFlipped ? frame.minY : p.content.bounds.height - frame.maxY
-        #expect(frame.minX >= 4 && frame.minX <= 24, "compose sits \(frame.minX) pt from the chat's left edge")
+        // Chats sits at the chat's top-left (the Chief replaces Home, 2026-11-20), compose right after it.
+        let chats = p.split.chatColumn.chats.convert(p.split.chatColumn.chats.bounds, to: p.content)
+        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
+        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
         #expect(fromTop >= 4 && fromTop <= 20, "compose sits \(fromTop) pt under the chat's top")
         #expect(abs(frame.width - frame.height) < 0.5, "compose is no round button (\(frame.size))")
         // A chat the page shows later (a conversation, New Message) never covers it.

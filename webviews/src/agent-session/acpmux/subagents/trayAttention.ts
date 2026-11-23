@@ -3,7 +3,7 @@
 // cap while the header said "1 failed"). A line needs the person when it waits on them or failed;
 // the rest keep their order (runningTray.ts: what runs newest first, then what ended, latest first).
 // A nested subagent moves with the top-level line it sits under, so a tree never breaks apart.
-import { subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus } from "../summary/subagentStatusListModel";
 import { sessionRetry } from "./retryState";
 import type { TrayItem } from "./runningTray";
 import type { StartedSession } from "../started/startedSessions";

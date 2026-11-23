@@ -1,12 +1,13 @@
 //! Sign-out erases every peer copy, including a leased peer whose connection already ended.
-//! The rows lock orders the barrier and clear after every accepted listing/capture. Existing
-//! peer instances stay barred even if they reconnect; only a new instance may cache again.
+//! The rows writer lock (`RemoteTable::fence`) orders the barrier and clear after every accepted
+//! listing/capture. Existing peer instances stay barred even if they reconnect; only a new
+//! instance may cache again.
 
 use super::*;
 
 /// The caller holds this home's daemon lock, so there is no concurrent snapshot writer.
 pub(crate) fn clear_offline(home: &Path) -> anyhow::Result<()> {
-    let mut store = Store::new(disk::root(home), Arc::default());
+    let mut store = Store::new(disk::root(home), Arc::default(), Arc::default());
     store.scan();
     if !store.clear() {
         anyhow::bail!("peer snapshot removal did not complete");
@@ -54,7 +55,7 @@ impl Hub {
     /// for the store's existing retry and is reported as an error rather than success.
     pub fn clear_peer_snapshots(&self) -> Result<Value, RpcError> {
         let reply = {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             self.peer_snapshots.begin_clear()
         };
         if let Some(reply) = reply

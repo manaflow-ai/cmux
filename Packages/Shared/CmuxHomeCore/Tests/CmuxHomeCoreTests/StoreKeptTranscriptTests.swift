@@ -52,6 +52,42 @@ import CmuxHomeCoreTestSupport
         #expect(source.snapshots == [id, id])
         store.stop()
     }
+
+    /// The user, 2026-11-10: opening a teammate's conversation after their new message drew its
+    /// rows only after about 2 s. The new message is on the switch itself, before the read answers.
+    @Test func aTeammatesNewMessageWhileAwayDrawsOnTheSwitch() async throws {
+        let (store, source, mock) = await started()
+        await store.open(id)
+        store.close(id)
+        let author = try #require(store.summary(id)?.participants.first { $0.id != store.me?.id }?.id)
+        let posted = try #require(await mock.post("new from a teammate", from: author, in: id, key: IdempotencyKey("k_new")))
+        await waitUntil { (store.summary(id)?.lastSeq ?? 0) >= posted }
+
+        source.hold()
+        let reopening = store.beginOpen(id)
+        let shown = store.mirror.windows[id]?.messages.map(\.seq) ?? []
+        #expect(shown.contains(posted), "the new message waited for the read")
+        #expect(shown.count > 1, "the earlier rows waited for the read")
+        await waitUntil { source.waiting == 1 }
+        source.release()
+        await reopening.value
+        store.stop()
+    }
+
+    /// A conversation not opened since launch draws the newest message the inbox names at once.
+    @Test func aConversationNeverOpenedDrawsItsNewestMessageAtOnce() async throws {
+        let (store, source, _) = await started()
+        let newest = try #require(store.summary(id)?.lastMessage)
+        source.hold()
+        let opening = store.beginOpen(id)
+        #expect(store.mirror.windows[id]?.messages.map(\.seq) == [newest.seq], "an empty transcript while the read was out")
+        #expect(!store.transcript(for: id).isEmpty)
+        await waitUntil { source.waiting == 1 }
+        source.release()
+        await opening.value
+        #expect((store.mirror.windows[id]?.messages.count ?? 0) > 1, "the read did not lay the rest around it")
+        store.stop()
+    }
 }
 
 /// The mirror's kept transcripts: bounded, never live, and gone with their conversation.
@@ -102,6 +138,38 @@ import CmuxHomeCoreTestSupport
         #expect(!oldest, "the oldest closed transcript outlived the bound")
         #expect(second)
         #expect(newest)
+    }
+
+    @Test func theClientCacheKeepsAClosedTranscript() {
+        let conv = ConversationID("conv_a")
+        var mirror = opened([conv])
+        mirror.endTranscript(conv)
+        #expect(mirror.cachedWindows[conv]?.map(\.seq) == [1], "a relaunch would open it empty")
+    }
+
+    @Test func aClosedTranscriptFollowsTheInboxNewestMessage() {
+        let conv = ConversationID("conv_a")
+        var mirror = opened([conv])
+        mirror.endTranscript(conv)
+        var moved = summary(conv, rev: 2, lastSeq: 2)
+        moved.lastMessage = message(conv, 2)
+        mirror.apply(.conversationChanged(moved, stream: .inbox, rev: 2))
+        // A message past a hole is not joined.
+        var jumped = summary(conv, rev: 3, lastSeq: 9)
+        jumped.lastMessage = message(conv, 9)
+        mirror.apply(.conversationChanged(jumped, stream: .inbox, rev: 3))
+        mirror.restoreKept(conv)
+        #expect(mirror.windows[conv]?.messages.map(\.seq) == [1, 2])
+    }
+
+    @Test func aClosedTranscriptTakesAPageThatJoinsIt() {
+        let conv = ConversationID("conv_a")
+        var mirror = opened([conv])
+        mirror.endTranscript(conv)
+        mirror.apply(.conversationPage(ConversationPage(conversation: summary(conv, rev: 2, lastSeq: 3),
+                                                        messages: [message(conv, 2), message(conv, 3)])))
+        mirror.restoreKept(conv)
+        #expect(mirror.windows[conv]?.messages.map(\.seq) == [1, 2, 3])
     }
 
     @Test func aRemovedConversationTakesItsKeptTranscriptWithIt() {

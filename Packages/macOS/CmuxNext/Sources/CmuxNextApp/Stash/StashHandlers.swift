@@ -74,12 +74,13 @@ enum StashHandlers {
             _ = try show(services, focus: invocation.allowsViewChange)
         })
         registry.bind("stash.importOneTab", unavailable: { stash.unavailableReason() }, run: { invocation in
-            stash.draft(for: try show(services, focus: invocation.allowsViewChange)).open()
+            guard let page = services.pages.provider(.stashed) as? StashTopPage else { return }
+            try page.openImport { try show(services, focus: invocation.allowsViewChange) }
         })
     }
 
     /// Shows the Stashed Tabs page: a person's run as the active window's top page, automation
-    /// as a background tab. Returns the page's key (its own search and OneTab paste box).
+    /// as a background tab. Returns the page's key.
     @discardableResult
     static func show(_ services: AppServices, focus: Bool) throws -> String {
         let key = focus ? TopPages.show(.page(.stashed), services: services)
@@ -154,7 +155,7 @@ enum StashHandlers {
             return try WindowMembershipHandlers.groupMembers(invocation, context)
         case "window.stash":
             // A row's menu takes the window that lists the row.
-            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
+            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.actingWindow(for: $0.id) : nil }
             return try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         default:
             return try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
@@ -207,7 +208,7 @@ enum StashHandlers {
 /// The Save and Close handlers' strings (Resources/Stash.xcstrings).
 nonisolated enum StashHandlerStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Stash", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Stash", bundle: .module.inAppLanguage)
     }
 
     static var saved: String { t("stash.saved", "Saved to Stashed Tabs") }

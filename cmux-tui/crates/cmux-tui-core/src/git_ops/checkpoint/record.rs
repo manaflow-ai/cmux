@@ -172,7 +172,7 @@ pub(super) fn saturate(value: u64) -> u32 {
 }
 
 /// Milliseconds since the Unix epoch.
-pub(super) fn now_ms() -> u64 {
+pub(in crate::git_ops) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
@@ -180,7 +180,7 @@ pub(super) fn now_ms() -> u64 {
 }
 
 /// RFC 3339 in UTC with milliseconds, for example 2026-10-02T12:00:00.000Z.
-pub(super) fn rfc3339(ms: u64) -> String {
+pub(in crate::git_ops) fn rfc3339(ms: u64) -> String {
     let seconds = ms / 1000;
     let days = i64::try_from(seconds / 86_400).unwrap_or(i64::MAX / 2);
     let of_day = seconds % 86_400;

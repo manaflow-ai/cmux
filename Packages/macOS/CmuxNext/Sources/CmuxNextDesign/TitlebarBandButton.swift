@@ -1,9 +1,13 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
 public final class TitlebarBandButton: ClickableButton {
-    public static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    /// The chrome's one button size, the top row's (``TopRowSpacing/buttonSide``): the top-left band, the pane's top-right
+    /// tools, the sidebar's + and the tab bar's `+ ⌄` all draw at it (Lawrence 2026-11-11: "we want the same buttons
+    /// everywhere and for all the buttons to be the same size based on the density").
+    public static var side: CGFloat { TopRowSpacing.buttonSide }
     /// The SF Symbol it draws, or a custom glyph name ``customImage`` draws.
     public var symbol: String {
         didSet { if symbol != oldValue { renderedIconSize = 0; renderSymbol() } }
@@ -26,9 +30,14 @@ public final class TitlebarBandButton: ClickableButton {
         didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
     }
     /// The glyph's point size, read at layout so density changes apply live; nil draws at
-    /// `Metrics.smallIconSize` (a split button's menu indicator draws smaller).
+    /// `Metrics.toolbarSymbolPointSize`, the top controls' one size (a split button's menu indicator draws smaller).
     public var symbolPointSize: (() -> CGFloat)? {
         didSet { renderedIconSize = 0; renderSymbol() }
+    }
+    /// A tool in a pane's tab row (beside the tab bar's + and the pane's ⋮): its hover fill rounds as a tab pill
+    /// (``Metrics/tabBarControlCornerRadius(fitting:)``), as they do; off, it keeps the band's proportional corner.
+    public var roundsAsTabBarControl = false {
+        didSet { if roundsAsTabBarControl != oldValue { needsLayout = true } }
     }
     private let badgeLabel = NSTextField(labelWithString: "")
     private var renderedIconSize: CGFloat = 0
@@ -47,10 +56,12 @@ public final class TitlebarBandButton: ClickableButton {
         imageScaling = .scaleProportionallyDown
         applyText()
         renderSymbol()
-        contentTintColor = performWithTheme { Palette.textSecondary }
+        // The glyph keeps its own ink while disabled: AppKit's dimming took it under 2:1; the tertiary
+        // text is the disabled ink, which holds the legible floor (NativeControlContrastAuditTests).
+        (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
+        applyInk()
         badgeLabel.font = Typography.caption
         badgeLabel.alignment = .center
-        badgeLabel.textColor = performWithTheme { Palette.textSecondary }
         badgeLabel.isBezeled = false
         badgeLabel.drawsBackground = false
         badgeLabel.isEditable = false
@@ -71,12 +82,49 @@ public final class TitlebarBandButton: ClickableButton {
     /// Disabled under a still pointer (Back with no history left): hover
     /// follows at once (cx-3wu5).
     override public var isEnabled: Bool {
-        didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
+        didSet {
+            if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() }
+            applyInk()
+        }
+    }
+
+    // The ink is read in the button's own theme scope (a workspace's theme, not only the app's) when it
+    // joins a window, on every theme change and when it shows: read once at init it kept the app
+    // theme's gray (#bfc0c3) in every room, 1.3 to 2.6:1 on light and tinted themes.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyInk()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyInk()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        applyInk()
+    }
+
+    /// Secondary text at rest, tertiary while disabled, in the button's scope; on a popover's glass each fit to the
+    /// glass over any page (``NSView/glassInk(_:minimum:)``: 2.01:1 and, disabled, 1.35:1 over a black page before).
+    private func applyInk() {
+        performWithTheme {
+            let secondary = glassInk(\.textSecondary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textSecondary
+            contentTintColor = isEnabled ? secondary
+                : glassInk(\.textTertiary, minimum: CmuxDialogButtonLook.disabledMinimumContrast) ?? Palette.textTertiary
+            badgeLabel.textColor = secondary
+        }
     }
 
     override public func layout() {
         super.layout()
         renderSymbol()
+        // The hover fill is the button's own layer, rounded by the tab's ratio on its own height, so it keeps one
+        // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious);
+        // in a tab row, as the tabs beside it (Lawrence 2026-11-20).
+        layer?.cornerRadius = roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: bounds.size)
+            : Metrics.buttonCornerRadius(proportionalTo: bounds.height)
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
@@ -90,13 +138,16 @@ public final class TitlebarBandButton: ClickableButton {
         return Self.side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
     }
 
-    private func renderSymbol() {
-        let size = symbolPointSize?() ?? Metrics.smallIconSize
+    /// Draws the glyph at the current density's size, once per size. `layout()` runs it; a container that measures the
+    /// image (the toolbar band's slots) runs it first, since its own layout comes before this button's.
+    public func renderSymbol() {
+        let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)
+            ?? NSImage.packOverride(forSymbol: symbol, pointSize: size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Metrics.toolbarSymbolWeight))
     }
 
     private func applyText() {

@@ -144,10 +144,11 @@ mod tests {
 
     #[test]
     fn an_empty_answer_says_so_and_names_unreached_peers() {
-        let a = json!({"sessions": [], "unreached": [{"host": "big-red", "error": "no answer in 5 s"}]});
+        let a =
+            json!({"sessions": [], "unreached": [{"host": "my-vm", "error": "no answer in 5 s"}]});
         assert_eq!(
             text(&a),
-            "No other session works on these.\n(not asked: big-red: no answer in 5 s)\n"
+            "No other session works on these.\n(not asked: my-vm: no answer in 5 s)\n"
         );
     }
 }

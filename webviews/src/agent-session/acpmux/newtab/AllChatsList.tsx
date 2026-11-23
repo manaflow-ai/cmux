@@ -10,24 +10,32 @@
 // Projects (cx-ncc.66, Claude parity) shows the same chats grouped under their project folder.
 // Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
 // wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { devicePushCount, subscribeDeviceChats } from "./deviceChats";
-import { chatsChangedSinceSettled, rememberChats, settledChats } from "./settledCache";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { pressToOpen } from "../../../ui/pressToOpen";
+
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
-import { errorMessage } from "../transportErrors";
+
 import { AgentMark } from "../NewTabPage";
-import { ageLabel } from "../newTabModel";
+import { ageLabel, nextAgeLabel } from "../newTabModel";
 import { useNt } from "./strings";
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
-
-export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
-export type AllChatsDesign = "quiet" | "age" | "project";
+import {
+  type AllChatsRow,
+  type LoadChatsPage,
+  CHATS_READ_CEILING_MS,
+  type ChatProject,
+  projectGroups,
+  useChatPages,
+  useChatOpenFeedback,
+  watchable,
+} from "./allChatsListModel";
+import { pressToOpen } from "../../../ui/pressToOpen";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
@@ -38,21 +46,6 @@ export type ActiveChat = {
   label: string;
 };
 
-export type AllChatsPage = {
-  chats: AllChatsRow[];
-  nextCursor?: string;
-  ready?: boolean;
-  enabled?: boolean;
-  design?: string;
-};
-
-/// The host's `chats.page`; rejects or resolves undefined when the daemon cannot answer.
-export type LoadChatsPage = (params: {
-  query?: string;
-  cursor?: string;
-  limit: number;
-}) => Promise<AllChatsPage | undefined>;
-
 /// The header's Filter: All shows the list as it always was. Only live chats carry a state, so
 /// Working and Needs input show live chats alone, and Done adds the indexed chats after them.
 /// A failed or broken turn waits on the user as much as a question does.
@@ -62,93 +55,7 @@ const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<Active
   done: new Set(["unread", "idle"]),
 };
 
-const PAGE = 100;
-/// How long a first read may go unanswered before the list says it couldn't load and offers Try
-/// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
-export const CHATS_READ_CEILING_MS = 15_000;
 const ROW_HEIGHT = 30;
-
-type State = {
-  query: string;
-  rows: AllChatsRow[];
-  nextCursor?: string;
-  loading: boolean;
-  loaded: boolean;
-  /// The daemon's index has finished its first scan (`ready`); before that an empty page is not "No chats".
-  ready: boolean;
-  /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
-  failed: boolean;
-  /// The cursor page that last failed. The loader stays in place, so it must expose its own retry.
-  failedCursor?: string;
-  /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
-  rowsQuery: string;
-  design: AllChatsDesign;
-};
-
-const initial: State = {
-  query: "",
-  rows: [],
-  loading: false,
-  loaded: false,
-  ready: false,
-  failed: false,
-  rowsQuery: "",
-  design: "age",
-};
-
-/// The list a page starts with: the first page the last page read (settledCache.ts), drawn on the
-/// first frame, else empty until its read lands.
-function initialState(): State {
-  const settled = settledChats();
-  if (!settled) return initial;
-  return {
-    ...initial,
-    rows: settled.rows,
-    ...(settled.nextCursor ? { nextCursor: settled.nextCursor } : {}),
-    loaded: true,
-    ready: settled.ready,
-    design: settled.design ?? initial.design,
-  };
-}
-
-function design(value: unknown): AllChatsDesign | undefined {
-  return value === "quiet" || value === "age" || value === "project" ? value : undefined;
-}
-
-function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
-  if (!page || !Array.isArray(page.chats)) return [];
-  return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
-}
-
-/// A first page read again (a push from the chat index) over the loaded rows: its rows lead, and
-/// the loaded rows it does not name keep their order below (they are older than all of it).
-export function mergeFirstPage(fresh: AllChatsRow[], rows: AllChatsRow[]): AllChatsRow[] {
-  const named = new Set(fresh.map((row) => row.key));
-  return [...fresh, ...rows.filter((row) => !named.has(row.key))];
-}
-
-/// A project of the Projects view: the chats of one folder (`cwd` unset: chats in no project).
-export type ChatProject = { key: string; cwd?: string; label?: string; rows: AllChatsRow[] };
-
-/// The loaded chats by folder, each project where its newest chat stands (the rows come newest
-/// first), its chats in their own order.
-export function projectGroups(rows: AllChatsRow[]): ChatProject[] {
-  const groups = new Map<string, ChatProject>();
-  for (const row of rows) {
-    const key = row.cwd ?? "";
-    let group = groups.get(key);
-    if (!group) {
-      group = {
-        key,
-        rows: [],
-        ...(row.cwd ? { cwd: row.cwd, label: row.cwd.split("/").filter(Boolean).pop() || row.cwd } : {}),
-      };
-      groups.set(key, group);
-    }
-    group.rows.push(row);
-  }
-  return [...groups.values()];
-}
 
 /// One row of the list: a project's header (Projects only) or a chat.
 type ListEntry = { kind: "project"; project: ChatProject; open: boolean } | { kind: "chat"; row: AllChatsRow };
@@ -164,279 +71,248 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
   });
 }
 
-/// The pages of one query: a new query starts over at the first page (its old cursor is dropped
-/// at once, so no page of the old query is asked for again); a reply for an older query is
-/// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
-/// latest one in a ref, so a parent render never restarts the list.
-export function useChatPages(load: LoadChatsPage) {
-  const [state, setState] = useState<State>(initialState);
-  // Rows from the settled first page: the mount reads only a change pushed since (see below).
-  const [seeded] = useState(() => state.loaded);
-  // A list drawn from a saved first page that mounts to a changed index takes that first read
-  // whole: a chat deleted or archived since must not stay listed (merging keeps every row the
-  // fresh page does not name). Pages read past the saved one meanwhile stay; only saved rows go.
-  const replaceSaved = useRef(false);
-  const [savedKeys] = useState(() => new Set(state.rows.map((row) => row.key)));
-  const pagedPastSaved = useRef(false);
-  const latestLoad = useRef(load);
-  latestLoad.current = load;
-  const generation = useRef(0);
-  const inFlight = useRef<string | undefined>(undefined);
-  const fetchPage = useCallback((query: string, cursor: string | undefined) => {
-    const ticket = cursor ? generation.current : ++generation.current;
-    const marker = `${ticket}:${cursor ?? ""}`;
-    if (inFlight.current === marker) return;
-    inFlight.current = marker;
-    const atPush = devicePushCount();
-    setState((s) =>
-      cursor
-        ? { ...s, loading: true, failedCursor: undefined }
-        : { ...s, query, nextCursor: undefined, loading: true, failedCursor: undefined },
-    );
-    void latestLoad
-      .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
-      .catch(() => undefined)
-      .then((page) => {
-        if (ticket !== generation.current) return;
-        if (inFlight.current === marker) inFlight.current = undefined;
-        setState((s) => {
-          // A failed page keeps the cursor. The loader may still be in view, so the row exposes Retry.
-          if (!page)
-            return {
-              ...s,
-              loading: false,
-              loaded: true,
-              ...(cursor
-                ? { nextCursor: cursor, failedCursor: cursor }
-                : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
-            };
-          const fresh = rowsOf(page);
-          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
-          if (!cursor && !query)
-            rememberChats(
-              {
-                rows: fresh,
-                ready: page.ready !== false,
-                ...(nextCursor ? { nextCursor } : {}),
-                ...(design(page.design) ? { design: design(page.design) } : {}),
-              },
-              atPush,
-            );
-          if (cursor) pagedPastSaved.current = true;
-          else replaceSaved.current = false;
-          const known = new Set(s.rows.map((row) => row.key));
-          const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
-          return {
-            ...s,
-            rows,
-            nextCursor,
-            loading: false,
-            loaded: true,
-            ready: page.ready !== false,
-            failed: false,
-            failedCursor: undefined,
-            rowsQuery: query,
-            design: design(page.design) ?? s.design,
-          };
-        });
-      });
-  }, []);
-  // A loaded list reads its first page again when the index pushes a change and puts it on top of
-  // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
-  // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
-  const refreshing = useRef<"idle" | "busy" | "again">("idle");
-  const refreshFirstPage = useCallback(() => {
-    if (refreshing.current !== "idle") {
-      refreshing.current = "again";
-      return;
-    }
-    refreshing.current = "busy";
-    const ticket = generation.current;
-    const atPush = devicePushCount();
-    void latestLoad
-      .current({ limit: PAGE })
-      .catch(() => undefined)
-      .then((page) => {
-        if (page) {
-          const fresh = rowsOf(page);
-          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
-          rememberChats(
-            {
-              rows: fresh,
-              ready: page.ready !== false,
-              ...(nextCursor ? { nextCursor } : {}),
-              ...(design(page.design) ? { design: design(page.design) } : {}),
-            },
-            atPush,
-          );
-        }
-        if (page && ticket === generation.current) {
-          const replace = replaceSaved.current;
-          replaceSaved.current = false;
-          setState((s) => {
-            if (s.query) return s;
-            const fresh = rowsOf(page);
-            if (replace && !pagedPastSaved.current) {
-              const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
-              return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
-            }
-            // An index-ready first page without a cursor is the whole list: rows omitted from it
-            // were deleted or archived. A paged first page cannot distinguish those from rows
-            // that merely moved to a later page, so retain older fetched rows in that case.
-            const complete = page.ready !== false && !page.nextCursor;
-            const named = new Set(fresh.map((row) => row.key));
-            const rows = complete
-              ? fresh
-              : mergeFirstPage(
-                  fresh,
-                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-                );
-            // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
-            const same =
-              rows.length === s.rows.length &&
-              rows.every(
-                (row, i) =>
-                  row === s.rows[i] ||
-                  (row.key === s.rows[i]?.key &&
-                    row.updatedAt === s.rows[i]?.updatedAt &&
-                    row.title === s.rows[i]?.title &&
-                    row.cwd === s.rows[i]?.cwd),
-              ) &&
-              (!complete || (s.nextCursor === undefined && s.ready));
-            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
-          });
-        }
-        const again = refreshing.current === "again";
-        refreshing.current = "idle";
-        if (again) refreshFirstPage();
-      });
-  }, [savedKeys]);
-  // The first page when the list mounts. A list that drew the settled first page (a workspace
-  // closed or opened and its page mounted again) reads it only for a change the chat index pushed
-  // since; a later push reads it as on any loaded list (Leo 2026-10-18: the list emptied and refilled).
-  useEffect(() => {
-    if (!seeded) fetchPage("", undefined);
-    else if (chatsChangedSinceSettled()) {
-      replaceSaved.current = true;
-      refreshFirstPage();
-    }
-  }, [seeded, fetchPage, refreshFirstPage]);
-  // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
-  // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
-  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
-  const latest = useRef(state);
-  latest.current = state;
-  useEffect(
-    () =>
-      subscribeDeviceChats(() => {
-        const current = latest.current;
-        if (current.query) return;
-        if (!current.ready || current.rows.length === 0) fetchPage("", undefined);
-        else refreshFirstPage();
-      }),
-    [fetchPage, refreshFirstPage],
-  );
-  return { state, fetchPage };
-}
+const NO_KEYS: string[] = [];
 
 /// Selection by Cmd/Ctrl-click (toggle) and Shift-click (the range from the last clicked row),
-/// in list order. A new query starts with nothing selected.
+/// in list order. A new query starts with nothing selected. `click`, `collapse` and `clear` keep
+/// their identity (they read the rows of the last render), so a row that takes them stays memoized;
+/// `has` is a Set built once per selection change, so a row asks for its own key in O(1).
 function useSelection(rows: AllChatsRow[], query: string) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(NO_KEYS);
   const anchor = useRef<string | undefined>(undefined);
+  const shown = useRef(rows);
+  useLayoutEffect(() => {
+    shown.current = rows;
+  });
+  const clear = useCallback(() => setSelected((current) => (current.length === 0 ? current : NO_KEYS)), []);
   useEffect(() => {
-    setSelected([]);
+    clear();
     anchor.current = undefined;
-  }, [query]);
+  }, [query, clear]);
   /// True when the click selected (a modifier was held); false leaves it to open.
-  const click = (event: React.MouseEvent, key: string): boolean => {
-    if (event.shiftKey) {
-      const from = rows.findIndex((row) => row.key === anchor.current);
-      const to = rows.findIndex((row) => row.key === key);
-      if (from < 0 || to < 0) {
-        anchor.current = key;
-        setSelected([key]);
-      } else {
-        setSelected(rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.key));
+  const click = useCallback(
+    (event: React.MouseEvent, key: string): boolean => {
+      if (event.shiftKey) {
+        const rows = shown.current;
+        const from = rows.findIndex((row) => row.key === anchor.current);
+        const to = rows.findIndex((row) => row.key === key);
+        if (from < 0 || to < 0) {
+          anchor.current = key;
+          setSelected([key]);
+        } else {
+          setSelected(rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.key));
+        }
+        return true;
       }
-      return true;
-    }
-    if (event.metaKey || event.ctrlKey) {
+      if (event.metaKey || event.ctrlKey) {
+        anchor.current = key;
+        setSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
+        return true;
+      }
       anchor.current = key;
-      setSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
-      return true;
-    }
-    anchor.current = key;
-    setSelected([]);
-    return false;
-  };
+      clear();
+      return false;
+    },
+    [clear],
+  );
   /// A plain open of `key`: the selection collapses and `key` anchors the next Shift-click.
-  const collapse = (key: string) => {
-    anchor.current = key;
-    setSelected([]);
-  };
-  const clear = useCallback(() => setSelected([]), []);
-  return { selected, click, collapse, clear };
+  const collapse = useCallback(
+    (key: string) => {
+      anchor.current = key;
+      clear();
+    },
+    [clear],
+  );
+  const has = useMemo(() => new Set(selected), [selected]);
+  return { selected, has, click, collapse, clear };
 }
 
-/** A chat-open request keeps its originating row through host acceptance or refusal.
- * One click creates one request; a late refusal cannot overwrite a newer row's status.
- * A bulk History open reports failure without offering an unsafe all-rows replay.
- */
-export function useChatOpenFeedback(onOpen: (key: string) => unknown, onBring?: (keys: string[]) => unknown) {
+/// A chat's age ("5m") on the shared minute clock (clock.ts useLabelClock): it wakes only at the
+/// minute its own words change, and renders nothing but itself; the row never takes the clock.
+function ChatAge({ at }: { at: number }) {
   const t = useT();
-  const [opening, setOpening] = useState<string>();
-  const [failure, setFailure] = useState<{ key?: string; message: string }>();
-  const pending = useRef(new Set<string>());
-  const newest = useRef(0);
-  const message = (error: unknown) => errorMessage(error) || t("transport.refused");
-  const open = (key: string) => {
-    if (pending.current.has(key)) return;
-    pending.current.add(key);
-    const ticket = ++newest.current;
-    setOpening(key);
-    setFailure(undefined);
-    // The call begins on this person gesture; the host requires that for some actions.
-    let request: unknown;
-    try {
-      request = onOpen(key);
-    } catch (error) {
-      request = Promise.reject(error);
-    }
-    void Promise.resolve(request).then(
-      () => {
-        pending.current.delete(key);
-        if (ticket === newest.current) setOpening(undefined);
-      },
-      (error: unknown) => {
-        pending.current.delete(key);
-        if (ticket !== newest.current) return;
-        setOpening(undefined);
-        setFailure({ key, message: message(error) });
-      },
-    );
-  };
-  const bring = (keys: string[]) => {
-    if (!onBring) return;
-    const ticket = ++newest.current;
-    setOpening(undefined);
-    setFailure(undefined);
-    let request: unknown;
-    try {
-      request = onBring(keys);
-    } catch (error) {
-      request = Promise.reject(error);
-    }
-    // Some rows in a multi-open may have succeeded. Report the refusal without replaying them.
-    void Promise.resolve(request).catch((error: unknown) => {
-      if (ticket === newest.current) setFailure({ message: message(error) });
-    });
-  };
-  return { opening, failure, open, bring };
+  const now = useLabelClock(at, nextAgeLabel);
+  const age = ageLabel(at, now, t);
+  return age ? <span className="nt-all-meta">{age}</span> : null;
 }
 
-/// A chat acpmux can show without running it: Claude Code and Codex (acpmux `hub/watch.rs`).
-export const watchable = (key: string) => /^(claude-code|codex):./.test(key);
+type ChatRowProps = {
+  chatKey: string;
+  harness: string;
+  title: string | undefined;
+  cwd: string | undefined;
+  updatedAt: number;
+  index: number;
+  setSize: number;
+  style: React.CSSProperties;
+  showProject: boolean;
+  showAge: boolean;
+  /// A fixed clock (tests, gallery); unset, the age reads the shared clock itself (ChatAge).
+  now: number | undefined;
+  selected: boolean;
+  busy: boolean;
+  onPress(key: string): void;
+  onClickRow(event: React.MouseEvent, key: string): void;
+  deferPress(key: string): boolean;
+  onMenu(key: string): void;
+};
+
+/// One chat of the list. Every prop is a value of this chat or a callback that keeps its identity
+/// (VirtualList hands the same frozen `style` while the row's place holds), so selecting, opening
+/// or updating another chat, a scroll step and a clock tick render no other row.
+const ChatRow = memo(function ChatRow({
+  chatKey,
+  harness,
+  title: given,
+  cwd,
+  updatedAt,
+  index,
+  setSize,
+  style,
+  showProject,
+  showAge,
+  now,
+  selected,
+  busy,
+  onPress,
+  onClickRow,
+  deferPress,
+  onMenu,
+}: ChatRowProps) {
+  const t = useT();
+  const title = given ?? t("sidebar.newChat");
+  // The project names an untitled chat apart from the others ("New chat · cmux").
+  const project = cwd ? cwd.split("/").filter(Boolean).pop() : undefined;
+  const age = showAge && now !== undefined ? ageLabel(updatedAt, now, t) : undefined;
+  return (
+    <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
+      role="listitem"
+      className="nt-all-item"
+      style={style}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+      onContextMenuCapture={() => onMenu(chatKey)}
+    >
+      <button
+        type="button"
+        className="nt-all-row"
+        data-focus-ring="row"
+        data-untitled={given ? undefined : true}
+        data-selected={selected ? true : undefined}
+        aria-busy={busy}
+        // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
+        // of a multi-selection waits for the release (the Finder rule).
+        {...pressToOpen(() => onPress(chatKey), {
+          deferPress: () => deferPress(chatKey),
+          onClick: (event) => onClickRow(event, chatKey),
+        })}
+      >
+        <span className="nt-all-glyph">
+          <AgentMark harness={harness} />
+        </span>
+        <span className="nt-all-title">{title}</span>
+        {project && showProject && (
+          <WithFacts facts={[{ value: cwd ?? "", code: true }]}>
+            {(facts) => (
+              <span {...facts} className="nt-all-project">
+                {project}
+              </span>
+            )}
+          </WithFacts>
+        )}
+        {age && <span className="nt-all-meta">{age}</span>}
+        {showAge && now === undefined && updatedAt ? <ChatAge at={updatedAt} /> : null}
+      </button>
+    </div>
+  );
+});
+
+/// A project's header (Projects only); a press folds or unfolds its chats.
+const ProjectRow = memo(function ProjectRow({
+  projectKey,
+  label,
+  chats,
+  open,
+  index,
+  setSize,
+  style,
+  onToggle,
+}: {
+  projectKey: string;
+  label: string | undefined;
+  chats: number;
+  open: boolean;
+  index: number;
+  setSize: number;
+  style: React.CSSProperties;
+  onToggle(key: string, open: boolean): void;
+}) {
+  const nt = useNt();
+  return (
+    <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
+      role="listitem"
+      className="nt-all-item"
+      style={style}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+    >
+      <button
+        type="button"
+        className="nt-all-group"
+        data-focus-ring="row"
+        aria-expanded={open}
+        onClick={() => onToggle(projectKey, open)}
+      >
+        <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        <span className="nt-all-group-name">{label ?? nt("noProject")}</span>
+        <span className="nt-all-group-count">{chats}</span>
+      </button>
+    </div>
+  );
+});
+
+/// A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4). It takes
+/// the chat's values, not the chat: the page builds new chat objects on each of its renders.
+const LiveChatRow = memo(function LiveChatRow({
+  id,
+  title,
+  harness,
+  state,
+  label,
+  onOpen,
+}: {
+  id: string;
+  title: string;
+  harness: string | undefined;
+  state: ActiveChat["state"];
+  label: string;
+  onOpen(id: string): void;
+}) {
+  const nt = useNt();
+  return (
+    <li>
+      <ContextMenu className="nt-row-host" items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpen(id) }]}>
+        <button
+          type="button"
+          className="nt-all-row"
+          data-focus-ring="row"
+          data-state={state}
+          {...pressToOpen(() => onOpen(id))}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={harness} />
+          </span>
+          <span className="nt-all-title">{title}</span>
+          <span className="nt-all-state">{label}</span>
+        </button>
+      </ContextMenu>
+    </li>
+  );
+});
 
 export function AllChatsList({
   load,
@@ -469,10 +345,9 @@ export function AllChatsList({
 }) {
   const t = useT();
   const nt = useNt();
-  // The shared clock (clock.ts), as the New Tab cards: one age for one chat on every page.
-  const clock = useMinuteClock();
-  const now = fixedNow ?? clock;
-  const { state, fetchPage } = useChatPages(load);
+  // Ages read the shared clock (clock.ts) in each row's ChatAge, as the New Tab cards: one age for
+  // one chat on every page. `fixedNow` (tests, gallery) holds every age still.
+  const { state, fetchPage, search } = useChatPages(load);
   const openFeedback = useChatOpenFeedback(onOpen, onBring);
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
@@ -499,30 +374,19 @@ export function AllChatsList({
         );
   // The leaders show under All with no search; a filter or a search is about the chats.
   const leadsShown = filter === "all" && !state.query ? leads : [];
-  // A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4).
+  // The callbacks rows take keep their identity and read this render's values when called.
+  const latest = useRef({ openFeedback, onOpenActive, onBring, selection: NO_KEYS as string[] });
+  const openActive = useCallback((id: string) => latest.current.onOpenActive?.(id), []);
   const liveRow = (chat: ActiveChat) => (
-    <li key={chat.id}>
-      <ContextMenu
-        className="nt-row-host"
-        items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
-      >
-        <button
-          type="button"
-          className="nt-all-row"
-          data-focus-ring="row"
-          data-state={chat.state}
-          {...pressToOpen(() => onOpenActive?.(chat.id))}
-        >
-          <span className="nt-all-glyph">
-            <AgentMark harness={chat.harness} />
-          </span>
-          <span className="nt-all-title" title={chat.title}>
-            {chat.title}
-          </span>
-          <span className="nt-all-state">{chat.label}</span>
-        </button>
-      </ContextMenu>
-    </li>
+    <LiveChatRow
+      key={chat.id}
+      id={chat.id}
+      title={chat.title}
+      harness={chat.harness}
+      state={chat.state}
+      label={chat.label}
+      onOpen={openActive}
+    />
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
@@ -530,10 +394,47 @@ export function AllChatsList({
   const shown = entries.flatMap((entry) => (entry.kind === "chat" ? [entry.row] : []));
   const selection = useSelection(shown, state.query);
   // The menu acts on the selection when the clicked row is in it, else on that row.
-  const menuKeys = menuTarget ? (selection.selected.includes(menuTarget) ? selection.selected : [menuTarget]) : [];
+  const menuKeys = menuTarget ? (selection.has.has(menuTarget) ? selection.selected : [menuTarget]) : [];
   // While rows are selected, Enter opens them and Escape clears them. The page listens, not the
   // rows: WebKit does not focus a button on click, so after Cmd/Shift-click no row has focus.
-  const { selected, clear } = selection;
+  const { selected, clear, collapse, click } = selection;
+  useLayoutEffect(() => {
+    latest.current = { openFeedback, onOpenActive, onBring, selection: selected };
+  });
+  const pressChat = useCallback(
+    (key: string) => {
+      collapse(key);
+      latest.current.openFeedback.open(key);
+    },
+    [collapse],
+  );
+  const clickChat = useCallback(
+    (event: React.MouseEvent, key: string) => {
+      if (latest.current.onBring && click(event, key)) return;
+      latest.current.openFeedback.open(key);
+    },
+    [click],
+  );
+  const deferChatPress = useCallback((key: string) => {
+    const { onBring: bringing, selection: keys } = latest.current;
+    return !!bringing && keys.length > 1 && keys.includes(key);
+  }, []);
+  const chatMenu = useCallback((key: string) => {
+    menuKey.current = key;
+  }, []);
+  const toggleProject = useCallback(
+    (key: string, open: boolean) => {
+      // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
+      clear();
+      setFolded((current) => {
+        const next = new Set(current);
+        if (open) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    },
+    [clear],
+  );
   useEffect(() => {
     if (!onBring || selected.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
@@ -588,95 +489,42 @@ export function AllChatsList({
     }
     if (entry.kind === "project") {
       const { project, open } = entry;
-      const label = project.label ?? nt("noProject");
       return (
-        <div
+        <ProjectRow
           key={`project-${project.key}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
-          role="listitem"
-          className="nt-all-item"
+          projectKey={project.key}
+          label={project.label}
+          chats={project.rows.length}
+          open={open}
+          index={index}
+          setSize={count}
           style={style}
-          aria-posinset={index + 1}
-          aria-setsize={count}
-        >
-          <button
-            type="button"
-            className="nt-all-group"
-            data-focus-ring="row"
-            aria-expanded={open}
-            onClick={() => {
-              // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
-              selection.clear();
-              setFolded((current) => {
-                const next = new Set(current);
-                if (open) next.add(project.key);
-                else next.delete(project.key);
-                return next;
-              });
-            }}
-          >
-            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-              <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <span className="nt-all-group-name">{label}</span>
-            <span className="nt-all-group-count">{project.rows.length}</span>
-          </button>
-        </div>
+          onToggle={toggleProject}
+        />
       );
     }
     const row = entry.row;
-    const title = row.title ?? t("sidebar.newChat");
-    // The project names an untitled chat apart from the others ("New chat · cmux").
-    const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
     return (
-      <div
+      <ChatRow
         key={row.key}
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
-        role="listitem"
-        className="nt-all-item"
+        chatKey={row.key}
+        harness={row.harness}
+        title={row.title}
+        cwd={row.cwd}
+        updatedAt={row.updatedAt}
+        index={index}
+        setSize={count}
         style={style}
-        aria-posinset={index + 1}
-        aria-setsize={count}
-        onContextMenuCapture={() => (menuKey.current = row.key)}
-      >
-        <button
-          type="button"
-          className="nt-all-row"
-          data-focus-ring="row"
-          data-untitled={row.title ? undefined : true}
-          data-selected={selection.selected.includes(row.key) ? true : undefined}
-          aria-busy={openFeedback.opening === row.key}
-          // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
-          // of a multi-selection waits for the release (the Finder rule).
-          {...pressToOpen(
-            () => {
-              selection.collapse(row.key);
-              openFeedback.open(row.key);
-            },
-            {
-              deferPress: () => !!onBring && selection.selected.length > 1 && selection.selected.includes(row.key),
-              onClick: (event) => {
-                if (onBring && selection.click(event, row.key)) return;
-                openFeedback.open(row.key);
-              },
-            },
-          )}
-        >
-          <span className="nt-all-glyph">
-            <AgentMark harness={row.harness} />
-          </span>
-          <span className="nt-all-title" title={title}>
-            {title}
-          </span>
-          {project && state.design !== "quiet" && view === "chats" && (
-            <span className="nt-all-project" title={row.cwd}>
-              {project}
-            </span>
-          )}
-          {age && <span className="nt-all-meta">{age}</span>}
-        </button>
-      </div>
+        showProject={state.design !== "quiet" && view === "chats"}
+        showAge={state.design !== "quiet"}
+        now={fixedNow}
+        selected={selection.has.has(row.key)}
+        busy={openFeedback.opening === row.key}
+        onPress={pressChat}
+        onClickRow={clickChat}
+        deferPress={deferChatPress}
+        onMenu={chatMenu}
+      />
     );
   };
   const items = [
@@ -748,7 +596,7 @@ export function AllChatsList({
             value={state.query}
             placeholder={t("sidebar.searchPlaceholder")}
             aria-label={t("sidebar.search")}
-            onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
+            onChange={(event) => search(event.currentTarget.value)}
           />
         </label>
       </header>

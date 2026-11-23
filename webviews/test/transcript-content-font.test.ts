@@ -98,7 +98,9 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [".cv-shell__body", 12],
               [".cv-shell__exit", 13],
               [".cv-tool-output", 12],
-              [".cv-command__line", 12.5],
+              // A command's line is the row's own text, as every row's label (Lucas, 2026-11-14: the
+              // "Ran" command in the same font as the rows).
+              [".cv-command__line", 14],
               [".cv-command__meta", 12],
               [".cv-code-plain", 12],
               [".cv-footnotes", 12.5],
@@ -126,9 +128,17 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [390, 1.25],
             ] as const) {
               await page.setViewportSize({ width, height: 1100 });
-              await page.evaluate((zoom) => {
-                document.documentElement.style.zoom = String(zoom);
-              }, zoom);
+              // Measured a frame after the resize: a sideways box takes its thin scrollbar's lane
+              // (`data-cmux-sideways`, sideways.ts) from a ResizeObserver callback, which runs before
+              // the frame paints but after this script; read sooner, its bar sits in the eighth line.
+              await page.evaluate(
+                (zoom) =>
+                  new Promise<void>((done) => {
+                    document.documentElement.style.zoom = String(zoom);
+                    requestAnimationFrame(() => requestAnimationFrame(() => done()));
+                  }),
+                zoom,
+              );
               if (size === 14 && width === 760) {
                 for (const [selector, height] of [
                   [".cv-codeblock__header", 45.5],

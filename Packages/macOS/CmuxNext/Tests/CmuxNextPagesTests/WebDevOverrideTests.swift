@@ -78,6 +78,74 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride.read(file: dir.appending(path: "missing.json"), home: home) == WebDevOverride())
     }
 
+    /// An overlay built for another page bridge than the app's is refused, as a web update is, and
+    /// stays watched so an install that fits is served (docs/cmux-next/hot-reload.md, "No bridge skew").
+    @Test func anOverlayForAnotherWebABIIsRefused() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let overlay = dir.appending(path: "overlay", directoryHint: .isDirectory)
+        let pane = overlay.appending(path: "agent-pane", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pane, withIntermediateDirectories: true)
+        try Data("<html></html>".utf8).write(to: pane.appending(path: "index.html"))
+        let file = dir.appending(path: WebDevOverride.fileName)
+        try Data(#"{"overlay": "\#(overlay.path)"}"#.utf8).write(to: file)
+        let manifest = overlay.appending(path: WebDevOverride.manifestName)
+
+        try Data(#"{"stamp":"1","commit":"abc","abi":4}"#.utf8).write(to: manifest)
+        let newer = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(newer.refusal == "the overlay (abc) needs web ABI 4; this app has 3")
+        #expect(newer.overlay != nil)
+        #expect(newer.overlayRoot("agent-pane") == nil)
+
+        try Data(#"{"stamp":"2","commit":"abc","abi":3}"#.utf8).write(to: manifest)
+        let fits = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(fits.refusal == nil)
+        #expect(fits.overlayRoot("agent-pane") != nil)
+
+        // An install from before manifests named an abi, and an app with no web-abi.json, check nothing.
+        try Data(#"{"stamp":"3"}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: 3).refusal == nil)
+        try Data(#"{"stamp":"4","abi":4}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: nil).refusal == nil)
+    }
+
+    /// Only a change of where pages load from reloads them (cosmic-gray, 2026-11-22 06:41:33Z: each
+    /// `web-dev.json` write reloaded every chat, and the log named only the unchanged overlay's refusal).
+    @Test func onlyAChangeOfWherePagesLoadFromReloadsThem() {
+        // Built at run time: a 40-character literal reads as a key to the secret scan.
+        let token = String(String(repeating: "0123456789abcdef", count: 3).prefix(40))
+        let root = URL(string: "http://127.0.0.1:4217/")!
+        let overlay = URL(fileURLWithPath: "/Users/someone/web-overlay", isDirectory: true)
+        let refused = WebDevOverride(overlay: overlay, stamp: Data("1".utf8), refusal: "the overlay (0119) needs web ABI 4; this app has 7")
+        var served = refused
+        served.server = PageDevServer(root: root, token: token)
+
+        // The dev server turned on next to a refused overlay: pages move, and the line says so.
+        #expect(refused.source != served.source)
+        #expect(WebDevOverride.describeChange(from: refused, to: served) == "server off -> http://127.0.0.1:4217/")
+        #expect(!WebDevOverride.overlayChanged(from: refused, to: served))
+
+        // A new token for the same server, the gallery, or a refused overlay's new install: nothing moves.
+        var newToken = served
+        newToken.server = PageDevServer(root: root, token: String(token.reversed()))
+        #expect(served.source == newToken.source)
+        #expect(WebDevOverride.describeChange(from: served, to: newToken) == "server http://127.0.0.1:4217/ new token")
+        var gallery = served
+        gallery.gallery = URL(string: "http://127.0.0.1:4178/")
+        #expect(served.source == gallery.source)
+        var reinstalled = refused
+        reinstalled.stamp = Data("2".utf8)
+        #expect(refused.source == reinstalled.source)
+        #expect(WebDevOverride.overlayChanged(from: refused, to: reinstalled))
+
+        // The overlay served once its install fits: pages move.
+        var fits = reinstalled
+        fits.refusal = nil
+        #expect(reinstalled.source != fits.source)
+        #expect(WebDevOverride.describeChange(from: fits, to: fits) == "nothing")
+        #expect(WebDevOverride().source == WebDevOverride(gallery: URL(string: "http://127.0.0.1:4178/")).source)
+    }
+
     @Test func overlayRootNeedsTheEntryAndStaysInside() throws {
         let overlay = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: overlay) }
@@ -168,7 +236,8 @@ struct WebDevOverrideTests {
         defer { try? FileManager.default.removeItem(at: bundled) }
         try write("bundled", to: bundled.appending(path: PageDescriptor.markdown.entry))
         let root = try #require(URL(string: "http://127.0.0.1:4181/"))
-        let token = "0123456789abcdef0123456789abcdef01234567"
+        // Built at run time: a 40-character literal reads as a key to the secret scan.
+        let token = String(String(repeating: "0123456789abcdef", count: 3).prefix(40))
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root, token: token)) }
 

@@ -47,8 +47,8 @@ owner and its workspaces. Use `cmux daemon status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client
-behavior begins only with `remote connect`, `remote ssh`, `remote forward`, or
-`remote rpc`.
+behavior begins only with `remote connect`, `remote ssh`, `remote forward`,
+`remote dial-tcp`, or `remote rpc`.
 
 ## Enroll and revoke devices
 
@@ -74,6 +74,23 @@ Invitation startup stays alive through the invitation's remaining lifetime and t
 Approval binds the invitation to the first device key that claimed it. That same device may retry failed secondary lane setup for 60 seconds without another approval. A different key cannot reuse the invitation.
 
 `cmux-tui remote enroll create --advertise <route>` replaces the daemon's generated invitation route list. Repeat the flag to supply every desired fallback. Every route named by `--relay-route` must also appear in this explicit `--advertise` list. Prefer server-level `--advertise` when the route should be added to the automatically discovered Iroh, relay, WebSocket, and Unix routes.
+
+### Enroll an agent's device in one step
+
+A machine with no person at it, such as an agent's VM, can enroll without an approval step. The VM prints its device key, the daemon's owner makes an invitation bound to that key, and the VM connects with it:
+
+```sh
+# On the VM: print this device's public key (and its fingerprint).
+cmux-tui remote device-key
+# On the daemon's machine: an invitation only that key can use.
+cmux-tui remote enroll create --session dev --device-key <key> --device-name agent-vm
+# On the VM: connect with the invitation; it enrolls at once.
+cmux-tui remote connect --invite-file invitation.txt
+```
+
+`device-key --json` prints `{"public_key": ..., "fingerprint": ...}`, and creates the client identity first if there is none. The daemon enrolls the bound key as soon as it presents the invitation and refuses every other key with "invitation is bound to another device", without queuing a pending request. `--device-name` names the device in `enroll devices`; without it, the client's `--device-name` is used.
+
+A bound invitation is useless without the private key that matches its device key, which never leaves the VM, so it may travel over a logged channel. The five-minute expiry, the 60-second retry grace and revocation apply as to any invitation, and revoking a device also voids every unused invitation bound to its key. A daemon without bound invitations would make one that needs approval; `enroll create --device-key` refuses to print it.
 
 Inspect or revoke access without restarting the daemon:
 
@@ -131,7 +148,7 @@ The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (
 
 ## Client option reference
 
-`connect`, `ssh`, `forward`, and `rpc` share these connection options:
+`connect`, `ssh`, `forward`, `dial-tcp`, and `rpc` share these connection options:
 
 | Option | Effect and default |
 | --- | --- |
@@ -144,7 +161,7 @@ The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (
 | `--state-dir <path>` | Override client identity and known-daemon storage |
 | `--remote-state-dir <path>` | Select a non-default state directory on an SSH server |
 | `--local-socket <path>` | Override the local mux-compatible socket created by the remote client runtime |
-| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward` and `rpc` are already headless |
+| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward`, `dial-tcp`, and `rpc` are already headless |
 | `--headless --json` | Emit a credential-free JSON snapshot at startup and whenever the generation, state, lane bindings, provider, route, or selected Iroh path changes |
 | `--iroh-relay <url>` | Override the Iroh relay routing hint |
 | `--iroh-address <addr>` | Add an Iroh direct address; repeat for several addresses |
@@ -209,6 +226,41 @@ cmux-tui remote forward <route> \
 ```
 
 The command prints a local URL such as `http://127.0.0.1:53142`. A cmux WebView can load that URL without knowing whether the underlying path is SSH, Iroh, direct WebSocket, or a relay. Each accepted local TCP connection becomes a separate `tcp-tunnel` stream. Tunnel bytes are not replayed after carrier failure, so the local browser reconnects the affected HTTP connection while the cmux session resumes.
+
+## Dial a remote port over stdin and stdout
+
+`remote dial-tcp` carries one TCP connection to a loopback port on the remote machine on its own stdin and stdout, so ssh can use it as a `ProxyCommand`. It takes the same route and connection options as `forward`, including relay routes such as `relay+do://` with `--relay-slot` and `--relay-ticket-file` or `--relay-ticket-command`:
+
+```sshconfig
+Host build-box
+  User me
+  ProxyCommand cmux-tui remote dial-tcp relay+do://relay-worker.example --relay-slot <base64url-slot> --relay-ticket-command relay-token --host 127.0.0.1 --port 22
+```
+
+The route uses the same loopback-only policy as `forward`, so the daemon refuses a host that does not resolve to a loopback address. The daemon scopes every route to a workspace the client holds open, so `dial-tcp` opens one: `/` by default, or `--workspace-root PATH`. EOF on stdin half-closes the connection and the command keeps reading until the remote side closes; it then exits 0. A refused route, a remote reset, a lost session, or a signal ends it with status 1 and one line on stderr. Stdout carries only the stream. Stdin carries the stream too, so `--wireguard-hub-token-stdin` and `--invite-file -` are refused. Tunnel bytes are not replayed after carrier failure: a carrier failure ends the connection, and ssh sees it drop.
+
+## Run commands and copy files
+
+`remote exec` runs one command on the paired machine and streams its stdout and stderr back as they arrive. Local stdin goes to the command, and EOF on it closes the command's stdin. The CLI exits with the command's status: 128+N when signal N ended it, and 255 when the connection or the CLI failed. Ctrl-C sends the command an interrupt; a third one stops waiting and exits 130. The command lives only as long as the connection that started it, so it ends when the CLI does.
+
+```sh
+cmux remote exec <route> --state-dir DIR --cwd /srv/app -- git status
+cmux remote exec <route> --env RUST_LOG=debug --timeout-seconds 600 -- cargo test
+cmux remote exec <route> --tty -- htop
+tar -C src -cf - . | cmux remote exec <route> -- tar -C /srv/app -xf -
+cmux remote exec <route> -- tar -C /srv/app -cf - . | tar -C copy -xf -
+```
+
+Without `--cwd` the command runs in `/`. `--tty` runs it under a terminal sized like the local one (80x24 when stdout is not a terminal) with the local `TERM`, and puts a local terminal in raw mode. At the end of piped input it sends Control-D (twice when the last line has no newline, so `printf foo | cmux remote exec <route> --tty -- cat` ends).
+
+`remote cp` copies one file each way. Exactly one side is `remote:PATH`, an absolute path on the remote machine; a destination that is a directory (or a remote path ending in `/`) gets the file under its own name. `--json` prints `{"bytes","seconds","mib_per_s"}` when the copy is done.
+
+```sh
+cmux remote cp <route> ./build.tar remote:/srv/app/build.tar --json
+cmux remote cp <route> remote:/var/log/app.log ./
+```
+
+Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads go up as 8 MiB `write-file` parts into a private staging directory beside the destination (`mktemp -d`, mode 0700; each part must be a new file), each checked against its SHA-256, and a remote `/bin/sh` joins them into a file it creates exclusively under umask 077, gives it its mode once complete, and renames it into place, refusing a destination that is a directory; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads get the local file's permission bits before they are published, so a private file is never visible with a wider mode. Downloads never widen access: a new file is 0600 (0700 when the remote file is executable) less the local umask, and a replaced file keeps its mode, narrowed to that. Directories are refused: copy a tree with `remote exec` and `tar` as above.
 
 ## Coding-agent RPC
 

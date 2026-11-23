@@ -14,9 +14,7 @@ import UniformTypeIdentifiers
 @Suite(.serialized) @MainActor struct HomePictureViewerTests {
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     static func folder() -> URL {
@@ -141,8 +139,8 @@ import UniformTypeIdentifiers
         #expect(gallery.moved(by: -1).index == 2)
     }
 
-    /// The viewer: the arrow keys step through the table's pictures, C shows Before and After side by side,
-    /// Esc leaves the comparison first and then closes the viewer.
+    /// The viewer: the arrow keys step through the table's pictures, C shows Before and After side by side;
+    /// one Esc closes the viewer, also from the comparison (the user, 2026-11-07: "i have to press esc twice").
     @Test func theViewerStepsComparesAndClosesFromTheKeyboard() async throws {
         let items = ["Light · Before", "Light · After", "Dark · Before", "Dark · After"].enumerated().map { i, title in
             HomePictureGallery.Item(source: "s\(i)", url: URL(fileURLWithPath: "/tmp/s\(i).png"), title: title, row: i / 2, column: i % 2)
@@ -159,9 +157,7 @@ import UniformTypeIdentifiers
         #expect(viewer.gallery.index == 0)
         #expect(viewer.handle(.compare))
         #expect(viewer.isComparing)
-        #expect(viewer.handle(.escape))
-        #expect(!viewer.isComparing)
-        #expect(closed == 0)
+        // One Esc closes, also from the comparison (the user, 2026-11-07: "i have to press esc twice").
         #expect(viewer.handle(.escape))
         #expect(closed == 1)
         await viewer.loaded()

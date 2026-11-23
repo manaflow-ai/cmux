@@ -1,6 +1,6 @@
 //! A personal group a Chief subagent's workspace joins is made where `workspaces.newPlacement`
-//! says a new workspace goes: first under `top` (the default, with no settings file either),
-//! last under `bottom`. Before, the group was always made last, so the workspace the Chief
+//! says a new workspace goes: last only under `bottom`, else first (`afterCurrent`, the default,
+//! with no settings file either, and `top`). Before, the group was always made last, so the workspace the Chief
 //! made landed at the very end of the sidebar.
 
 use optchat_chief::workspaces::new_group_index;
@@ -35,7 +35,7 @@ fn top_puts_a_new_group_first() {
 }
 
 #[test]
-fn an_unknown_value_gets_the_default_top() {
+fn an_unknown_value_gets_the_default() {
     let home = home_with(Some(r#"{"workspaces": {"newPlacement": "sideways"}}"#));
     assert_eq!(new_group_index(home.path()), Some(0));
 }
@@ -47,9 +47,9 @@ fn bottom_keeps_the_daemon_place_last() {
 }
 
 #[test]
-fn after_current_keeps_the_daemon_place_last() {
+fn after_current_puts_a_new_group_first_never_last() {
     let home = home_with(Some(r#"{"workspaces": {"newPlacement": "afterCurrent"}}"#));
-    assert_eq!(new_group_index(home.path()), None);
+    assert_eq!(new_group_index(home.path()), Some(0));
 }
 
 #[test]

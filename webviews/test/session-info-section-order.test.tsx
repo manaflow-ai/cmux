@@ -13,6 +13,7 @@
 // session-info-section-order-browser.test.tsx checks in Chromium that the handles draw nothing until hover.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -62,13 +63,9 @@ const { ORDER_KEY, parseOrder, resetSectionOrderForTests } =
 const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
 type SessionInfoProps = import("react").ComponentProps<typeof SessionInfo>;
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -469,9 +466,9 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
     "progress",
     "context",
     "tasks",
-    "alsoHere",
     "sources",
     "outputs",
+    "alsoHere",
     "more",
     "changes",
     "usage",

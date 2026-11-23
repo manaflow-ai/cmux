@@ -58,6 +58,17 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxChatOpenPlan(result: result)
     }
 
+    /// `_acpmux/chat_resolve {ref}`: the chat a pasted session id, id start, transcript path or
+    /// resume command names (`/resume <ref>`): its key (`harness:sessionId`) when exactly one chat
+    /// matches, else ``ChatResumeStatus`` saying why none opens.
+    @concurrent static func chatResolve(socketPath: String, ref: String,
+                                        deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> Result<String, ChatResumeStatus> {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_resolve", params: ["ref": ref], deadline: deadline)
+        let status = result["status"] as? String
+        if status == "found", let key = result["key"] as? String, key.contains(":") { return .success(key) }
+        return .failure(ChatResumeStatus(resolveStatus: status))
+    }
+
     /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
     /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
     @concurrent static func chatTranscript(socketPath: String, key: String,
@@ -81,11 +92,15 @@ nonisolated enum AcpmuxStatusClient {
     /// running for the next daemon. With `endAgents` (Quit Everything) they end, except the
     /// agents of `keepSessions`. A daemon of another acpmux home on the socket belongs to
     /// another app or tag and is never stopped: `.otherHome`.
-    @concurrent static func shutdown(socketPath: String, home: URL, endAgents: Bool = false, keepSessions: [String] = [],
-                                     deadline: Duration = .seconds(2)) async throws {
+    /// `reason` names the trigger; the daemon logs it beside this app's executable, and the daily
+    /// count of the app's stops (leo-workspace tools/daemon_stops.py) sorts them by it. Required,
+    /// so no stop is added without saying why.
+    @concurrent static func shutdown(socketPath: String, home: URL, reason: String, endAgents: Bool = false,
+                                     keepSessions: [String] = [], deadline: Duration = .seconds(2)) async throws {
         let running = try await status(socketPath: socketPath, deadline: deadline)
         guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
-        let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        var params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        params["reason"] = "app: " + reason
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
 

@@ -336,6 +336,18 @@ impl App {
                             self.request_restore_managed_workspace(&id);
                             self.focus = FocusTarget::Pane;
                         }
+                        Some(WorkspaceRailTarget::Agent(surface)) => {
+                            let target = self
+                                .sidebar_status
+                                .agents()
+                                .iter()
+                                .find(|row| row.surface == surface)
+                                .map(|row| row.target);
+                            if let Some(target) = target {
+                                self.activate_projection_target(target)?;
+                                self.focus = FocusTarget::Pane;
+                            }
+                        }
                         None => {}
                     }
                 }

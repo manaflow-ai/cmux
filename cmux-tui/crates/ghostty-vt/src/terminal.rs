@@ -28,6 +28,13 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod window_replay;
+pub use window_replay::VtReplayWindow;
+
+mod settled_replay;
+
+mod alternate_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -53,7 +60,12 @@ pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
 mod active_text;
 
+mod logical_text;
+
 mod clear_history;
+
+mod command_output;
+pub use command_output::CommandOutput;
 
 mod program_status;
 pub use program_status::{
@@ -78,6 +90,8 @@ const _: () = assert!(
 );
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+/// DEC private mode 2026, synchronized output.
+const SYNCHRONIZED_OUTPUT_MODE: u16 = 2026;
 
 /// Per-terminal Kitty resource limits that every byte-stream emulator must
 /// share to make admission and eviction deterministic.
@@ -388,6 +402,9 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    /// A resize may have put off a prompt clear the replay must show run
+    /// (`settled_replay`); false once a snapshot showed none waits.
+    prompt_clear_may_wait: bool,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -491,6 +508,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // A resize's prompt clear (OSC 133 redraw=1) waits for the shell's
+        // next byte and runs only if the grid then differs from the grid
+        // the shell drew at. A bounce (34 -> 35 -> 34 columns) whose
+        // SIGWINCHes the shell reads as one keeps its prompt: zsh redraws
+        // nothing for an unchanged size, so an immediate clear left a new
+        // pane empty (close-then-type P0). The host and the daemon's
+        // mirror get the same bytes and resizes, so both stay the same.
+        let prompt_clear_waits = true;
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL,
+                (&prompt_clear_waits as *const bool).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -514,6 +549,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            prompt_clear_may_wait: false,
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -589,9 +625,7 @@ impl Terminal {
         self.ensure_history_anchor();
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
-        let normalized = self.c1_normalizer.normalize(data);
-        let normalized = self.empty_kitty_probe_filter.write(normalized);
-        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
+        let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -703,6 +737,15 @@ impl Terminal {
     /// flags cannot represent when several format modes are flagged at once.
     pub fn active_mouse_format(&self) -> MouseWireFormat {
         self.active_mouse_format
+    }
+
+    /// How many synchronized updates (DEC private mode 2026) the program may
+    /// have started so far, counted as the parser meets each `CSI ? 2026 h`.
+    /// A reader that looks at the mode only now and then compares it with
+    /// the count it last saw: a change means a new update began since, even
+    /// when the last one ended and this one started between two looks.
+    pub fn synchronized_update_starts(&self) -> u64 {
+        self.mouse_mode_change_detector.synchronized_update_starts
     }
 
     fn current_mouse_mode_bits(&self) -> u8 {
@@ -964,19 +1007,6 @@ impl Terminal {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
     }
 
-    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
-        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
-            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        })?;
-        while prompt_y > 0
-            && self.active_row_prompt_semantic(prompt_y - 1)
-                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        {
-            prompt_y -= 1;
-        }
-        Some(prompt_y)
-    }
-
     fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
         while y > 0 && self.active_row_wrap_continuation(y)? {
             y -= 1;
@@ -1044,6 +1074,7 @@ impl Terminal {
             cell_height: cell_height_px,
         };
         if reflows {
+            self.prompt_clear_may_wait = true;
             self.bump_history_epoch();
             self.reset_history_anchor();
             self.history_markers_reflowed();
@@ -1547,23 +1578,45 @@ impl Terminal {
 
         for y in start..end {
             let mut row = Vec::with_capacity(cols as usize);
+            // A history lookup walks the page list from the top of the
+            // history, so the row is looked up once and each cell is the same
+            // row's ref at its column. The row's last column is looked up too:
+            // only when both ends resolve to the same page row is every
+            // column in between on it; a row whose page is narrower than the
+            // terminal (a reflow not done yet) takes the checked lookup for
+            // each cell, as before.
+            let first = if cols == 0 { None } else { Some(self.history_grid_ref(0, y)?) };
+            let whole_row = first.filter(|first| {
+                cols == 1
+                    || self.history_grid_ref(cols - 1, y).is_ok_and(|last| {
+                        last.node == first.node && last.y == first.y && last.x == cols - 1
+                    })
+            });
             for x in 0..cols {
-                let point = sys::GhosttyPoint {
-                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
-                    value: sys::GhosttyPointValue {
-                        coordinate: sys::GhosttyPointCoordinate { x, y },
-                    },
+                let grid_ref = match whole_row {
+                    Some(first) => sys::GhosttyGridRef { x, ..first },
+                    None => self.history_grid_ref(x, y)?,
                 };
-                let mut grid_ref = sys::GhosttyGridRef {
-                    size: size_of::<sys::GhosttyGridRef>(),
-                    ..Default::default()
-                };
-                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
                 row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
             }
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    /// The grid ref of history cell (`x`, `y`), `y` from the oldest
+    /// retained row.
+    fn history_grid_ref(&self, x: u16, y: u32) -> Result<sys::GhosttyGridRef> {
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut grid_ref =
+            sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
+        #[cfg(test)]
+        HISTORY_GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
+        check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+        Ok(grid_ref)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
@@ -1584,6 +1637,26 @@ impl Terminal {
         }
         let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
         Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    /// Whether [`Terminal::pwd`] would return `expected`, without building a
+    /// `String`. A pwd that is not valid UTF-8 never matches here (`pwd`
+    /// returns it lossily), so a caller then falls back to `pwd`.
+    pub fn pwd_is(&self, expected: Option<&str>) -> bool {
+        let current: Option<sys::GhosttyString> = self
+            .get(sys::GHOSTTY_TERMINAL_DATA_PWD)
+            .ok()
+            .filter(|s: &sys::GhosttyString| s.len != 0 && !s.ptr.is_null());
+        match (current, expected) {
+            (None, None) => true,
+            (Some(s), Some(expected)) => {
+                // SAFETY: the terminal owns `len` bytes at `ptr` until its
+                // next write, and `&self` rules a write out for this borrow.
+                let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
+                bytes == expected.as_bytes()
+            }
+            _ => false,
+        }
     }
 
     /// Query a terminal mode (DEC private when `ansi` is false).
@@ -1954,6 +2027,26 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
+    /// Bounded plain text of the active screen and its retained history.
+    /// `None` means the formatter would exceed `max_bytes`; it never builds
+    /// an unbounded output buffer first.
+    pub fn plain_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: false,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: ptr::null(),
+        };
+        Ok(self
+            .format_bounded(opts, max_bytes)?
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
+    }
+
     /// Replay of the terminal's current state.
     ///
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
@@ -2162,13 +2255,19 @@ impl Terminal {
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
             viewport_start.min(visible_start)
         });
-        let active_text = self.vt_replay_text_layout_bounded(
-            remaining,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-            max_history_rows,
-        )?;
+        // While a resize's prompt clear waits for the shell, the text comes
+        // from a copy that has run it, so a byte mirror matches this
+        // terminal after the shell's redraw (`settled_replay`).
+        let settled = self.settled_prompt_copy();
+        let active_text = self.with_replay_grid(settled.as_ref(), |term| {
+            term.vt_replay_text_layout_bounded(
+                remaining,
+                catalog.placement_rows(),
+                active_start,
+                include_palette,
+                max_history_rows,
+            )
+        })?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
@@ -2183,13 +2282,15 @@ impl Terminal {
         let text = if reuse {
             active_text
         } else {
-            self.vt_replay_text_layout_bounded(
-                text_budget,
-                catalog.placement_rows(),
-                active_start,
-                include_palette,
-                max_history_rows,
-            )?
+            self.with_replay_grid(settled.as_ref(), |term| {
+                term.vt_replay_text_layout_bounded(
+                    text_budget,
+                    catalog.placement_rows(),
+                    active_start,
+                    include_palette,
+                    max_history_rows,
+                )
+            })?
         };
         let history_rows_omitted = text.range.map_or(0, |range| range.start);
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
@@ -2208,7 +2309,21 @@ impl Terminal {
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
         }
-        let mut bytes = Vec::with_capacity(total);
+        // Under an alternate screen, the primary screen and its history go
+        // first, in what the alternate replay left (`alternate_replay`). Not
+        // before a reset, which would clear them.
+        let primary = if reset_before_images {
+            None
+        } else {
+            self.primary_under_alternate_replay(
+                max_bytes - total,
+                include_palette,
+                max_history_rows,
+            )
+        }
+        .unwrap_or_default();
+        let mut bytes = Vec::with_capacity(total + primary.len());
+        bytes.extend_from_slice(&primary);
         if reset_before_images {
             bytes.extend_from_slice(&interleaved);
             bytes.extend_from_slice(&graphics.image_bytes);
@@ -3203,12 +3318,34 @@ thread_local! {
     static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: lay the text out twice, as before the reuse.
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: history grid lookups `styled_history_rows` made.
+    static HISTORY_GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+
+#[cfg(test)]
+#[path = "styled_history_tests.rs"]
+mod styled_history_tests;
 
 #[cfg(test)]
 #[path = "replay_layout_tests.rs"]
 mod replay_layout_tests;
 
+#[cfg(test)]
+#[path = "prompt_clear_tests.rs"]
+mod prompt_clear_tests;
+
+#[cfg(test)]
+#[path = "alternate_replay_tests.rs"]
+mod alternate_replay_tests;
+
+#[cfg(test)]
+#[path = "window_replay_tests.rs"]
+mod window_replay_tests;
+
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[cfg(test)]
+#[path = "vt_write_breakdown_tests.rs"]
+mod vt_write_breakdown_tests;

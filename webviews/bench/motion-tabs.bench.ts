@@ -16,7 +16,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle } from "./stability";
 
@@ -268,7 +269,15 @@ try {
             floor: 0.5,
           });
           if (idle.cpuMs !== null)
-            perfRow({ name: `${name}.idle_cpu_ms`, p50: idle.cpuMs, p95: idle.cpuMs, target: 5, floor: 2 });
+            perfRow({
+              name: `${name}.idle_cpu_ms`,
+              p50: idle.cpuMs,
+              p95: idle.cpuMs,
+              target: 5,
+              floor: 2,
+              clock: "cpu",
+              version: 3,
+            });
         }
       } catch (error) {
         failed += 1;

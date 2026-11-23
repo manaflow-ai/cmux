@@ -22,6 +22,10 @@ inputs match. Two readers:
       prints those the pull request does not own. A path is owned when the
       pull request changed it, or when it is an output whose inputs the pull
       request changed. pr-autofix-apply.sh leaves the rest out of the push.
+  generated_outputs.py bot-only < paths
+      Of the paths on stdin, prints the bot-only ones (no input of theirs is a
+      pull request's: only the base autofix writes them). pr-autofix-apply.sh
+      drops them from every push, with or without --changed.
 """
 from __future__ import annotations
 
@@ -35,9 +39,12 @@ from pathlib import Path
 # The Swift exports compile their module and its dependencies: a setting can be
 # declared in CmuxNextDesign (SidebarNavigationSettings, AttentionSettings), so
 # any CmuxNext source is an input, not only CmuxNextSettings or CmuxNextActions.
+# The Rust action catalog (cmux-action-catalog) is one too: the app reads its catalog from it, and the
+# crate's swift_parity test holds action-surfaces.json to it, so a catalog change carries the export.
 ACTIONS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
+    r"|cmux-tui/crates/cmux-action-catalog/"
     r"|scripts/cmux-next/regenerate-action-exports\.sh"
 )
 SETTINGS_INPUTS = (
@@ -80,20 +87,30 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
     (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
      "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
-    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
+    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/action-catalog.json",
+      "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (SETTINGS_EXPORTS,
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),
-    # The defaults snapshot reads the action and settings exports and the app's Swift sources.
-    (("schemas/defaults/cmux-next.json",),
-     r"Packages/macOS/CmuxNext/Sources/|" + ACTIONS_INPUTS + "|" + SETTINGS_INPUTS + r"|scripts/ci/defaults_guard\.py$",
-     "python3 scripts/ci/defaults_guard.py snapshot"),
-    (("web/data/cmux-shortcuts.generated.json",),
-     ACTIONS_INPUTS + r"|web/scripts/export-docs-shortcuts\.ts$",
-     "web/scripts/export-docs-shortcuts.ts"),
+    # Bot-only (RFD 0045). Nothing at a pull request head reads the defaults snapshot: the
+    # defaults guard (scripts/ci/defaults_guard.py check) computes both sides from the exports
+    # and sources, and CI never runs check-fresh. A copy a pull request carried went stale as
+    # soon as the base changed a default. The base autofix regenerates it after each merge.
+    (("schemas/defaults/cmux-next.json",), BOT_ONLY,
+     "python3 scripts/ci/defaults_guard.py snapshot; only the base autofix writes it"),
+    # Bot-only (RFD 0048). The docs copies of the action catalog and the settings schema: the web
+    # tests build the same data from the catalog and the schema at the pull request head and never
+    # compare the copies, and the docs pages only render them, so a copy one base autofix run behind
+    # its inputs lags and never fails. The base autofix regenerates them after each merge
+    # (base-autofix.sh steps 1e, 1e1 and 1e1').
+    (("web/data/cmux-shortcuts.generated.json",), BOT_ONLY,
+     "bun web/scripts/export-docs-shortcuts.ts; only the base autofix writes it"),
+    (("web/data/next-docs/cli-reference.generated.json", "web/data/next-docs/palette-reference.generated.json",
+      "web/data/next-docs/settings-reference.generated.json"), BOT_ONLY,
+     "bun web/scripts/export-next-docs.ts; only the base autofix writes it"),
     (("cmux-tui/crates/cmux-app-host/generated/*",),
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
-     r"|cmux-tui/crates/cmux-app-host/tools/|" + ACTIONS_INPUTS,
+     r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,
      "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"),
     (("cmux-tui/bindings/*/.cmux-resource-api.json", "cmux-tui/bindings/*.cmux-sdk-manifest.json",
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",
@@ -137,13 +154,19 @@ def drift(changed: list[str]) -> list[str]:
         found = output_of(path)
         if found is None or caused(path, changed):
             continue
-        why = ("only the base autofix writes it" if found[0].pattern == BOT_ONLY
+        why = ("only the base autofix writes it" if bot_only(path)
                else "this pull request changes none of its inputs")
         messages.append(
             f"{path}: generated by {found[1]}, but {why}. "
             f"Drop it (git checkout origin/feat-cmux-next -- {path}, or delete it if the base has none); "
             "the base autofix regenerates it after each merge.")
     return messages
+
+
+def bot_only(path: str) -> bool:
+    """Whether only the base autofix writes `path`."""
+    found = output_of(path)
+    return found is not None and found[0].pattern == BOT_ONLY
 
 
 def drop(paths: Iterable[str], changed: set[str]) -> list[str]:
@@ -157,9 +180,16 @@ def read_lines(text: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("drift", "drop"))
-    parser.add_argument("--changed", required=True, help="file with the pull request's changed paths, one per line")
+    parser.add_argument("command", choices=("drift", "drop", "bot-only"))
+    parser.add_argument("--changed", help="file with the pull request's changed paths, one per line")
     args = parser.parse_args(argv)
+    if args.command == "bot-only":
+        for path in read_lines(sys.stdin.read()):
+            if bot_only(path):
+                print(path)
+        return 0
+    if args.changed is None:
+        parser.error(f"{args.command} needs --changed")
     with open(args.changed, encoding="utf-8") as handle:
         changed = read_lines(handle.read())
     if args.command == "drift":

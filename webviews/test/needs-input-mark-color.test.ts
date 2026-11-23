@@ -37,8 +37,8 @@ await requireBrowserLane("needs-input-mark-color.test.ts", async () => {
   const marks = [
     [
       "question card pill dot",
-      `<span class="acpmux-question-status"><span class="acpmux-question-status-dot"></span></span>`,
-      ".acpmux-question-status-dot",
+      `<span class="acpmux-question-status"><span class="acpmux-needs-you-dot"></span></span>`,
+      ".acpmux-question-status .acpmux-needs-you-dot",
       "background",
     ],
     ["question card pill text", `<span class="acpmux-question-status"></span>`, ".acpmux-question-status", "color"],

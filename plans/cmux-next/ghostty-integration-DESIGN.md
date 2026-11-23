@@ -182,8 +182,9 @@ redrew only after the animation and the daemon echo.
   frame. A key resize whose host follows its pane is the exception (cmux-ad m14, m18; switch on or off): its
   surface takes the pane's size in every frame, so the preview stays on and each frame draws the grid that size
   fits, with the cursor row in view (no low-prompt bottom hold). Its grid goes to the PTY through
-  `TerminalGridReportCoalescer` (Ghostty.app's 25 ms rule: the first change opens a window, the newest goes when it
-  ends, the landing flushes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
+  `TerminalGridReportCoalescer` (the first change opens a window, the newest goes at the next display refresh, the
+  landing flushes; RESIZE P0 6: Chromium's begin-frame rule, not Ghostty.app's 25 ms `min_ms`, which is only the
+  backstop when no refresh comes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
   that carries its bounds lands late (`TerminalFramePresenter.Stats.lateLandings`); nothing keeps an old size.
 - Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
   lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the
@@ -229,7 +230,7 @@ Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by findin
 | Release test polls with sleep/yield | Fixed: `TerminalOutputLane.queued(atLeast:)` and `ScriptedTerminalIO.streamEnded()` signals (a999f0d2ccd, 00ffc8fe13e) |
 | bash funsub/`@a` change has no test or NEXT.md row | NEXT.md row added (8ffdf01); behavior test is PL-shell-integration's `fork_count_tests.rs` |
 | ghostty-next red runs on PR heads, not main commits | Open: rerun on the main commits after PR 49 merges |
-| ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23) |
+| ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23; the no-new-CI rule was lifted 2026-11-18) |
 
 G1 result (2026-10-23, aws-m4pro-9, 60 Hz, bench-terminal-resize light drag: 2 terminals with 20k lines,
 240 moves): the pre-commit presenter (branch plghx-g1-full, `TerminalHostFramePresenter` +

@@ -2,7 +2,8 @@ import Foundation
 
 /// The task lane a person pinned a workspace to (`workspace-status-v1`, the
 /// workspace's `extra.task_status`), classic cmux's `WorkspaceTaskStatus`.
-/// No lane (nil) is automatic. Raw values are the wire format.
+/// No lane (nil) is automatic. Raw values are the wire format; the cycle order
+/// (Cycle Workspace Status) is cmux-window-rules `workspaces::STATUS_LANES`.
 public enum WorkspaceTaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
     /// Not started.
     case todo
@@ -14,16 +15,4 @@ public enum WorkspaceTaskStatus: String, Codable, CaseIterable, Sendable, Hashab
     case review
     /// Finished.
     case done
-
-    /// The next lane in cycle order (todo, working, needs-attention, review,
-    /// done, then todo again): Cycle Workspace Status.
-    public var next: WorkspaceTaskStatus {
-        switch self {
-        case .todo: .working
-        case .working: .needsAttention
-        case .needsAttention: .review
-        case .review: .done
-        case .done: .todo
-        }
-    }
 }

@@ -176,8 +176,9 @@ impl Hub {
     }
 
     /// Cancel for the fork `token` names: stops it while it is made, or takes it back once made.
-    /// False for a token no fork has (any more).
-    pub(crate) async fn cancel_pending_fork(&self, token: &str) -> bool {
+    /// False for a token no fork has (any more); the refusal of a made fork that was used since
+    /// (review of #36979: it answered true and the fork stayed).
+    pub(crate) async fn cancel_pending_fork(&self, token: &str) -> Result<bool, RpcError> {
         let pending =
             self.pending_forks.0.lock().unwrap_or_else(|e| e.into_inner()).get(token).cloned();
         let Some(pending) = pending else {
@@ -186,18 +187,18 @@ impl Hub {
             early.cancelled.store(true, Ordering::SeqCst);
             let mut forks = self.pending_forks.0.lock().unwrap_or_else(|e| e.into_inner());
             if token.is_empty() || token.len() > MAX_TOKEN_BYTES || forks.contains_key(token) {
-                return false;
+                return Ok(false);
             }
             forks.insert(token.to_owned(), early.clone());
             drop(forks);
             self.pending_forks.forget_later(token, &early);
-            return true;
+            return Ok(true);
         };
         pending.cancelled.store(true, Ordering::SeqCst);
         let made = pending.made.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(fork) = made.and_then(|id| self.resolve(&id).ok()) {
-            let _ = self.cancel_fork(&fork).await;
+            self.cancel_fork(&fork).await?;
         }
-        true
+        Ok(true)
     }
 }

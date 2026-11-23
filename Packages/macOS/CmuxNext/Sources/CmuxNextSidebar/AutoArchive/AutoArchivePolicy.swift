@@ -1,6 +1,6 @@
 /// What auto-archive does with idle workspaces (plans/cmux-next/auto-archive-DESIGN.md): the App maps
 /// `workspaces.autoArchive` (CmuxNextSettings' `AutoArchiveSettings`) onto this value, so the sidebar's
-/// logic needs no settings dependency.
+/// logic needs no settings dependency. The rules that read it are Rust's (`auto_archive_plan`).
 public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
     /// How idle workspaces leave the way (the setting's `style` values).
     public nonisolated enum Style: String, CaseIterable, Sendable {
@@ -30,7 +30,4 @@ public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
     public init(styleName: String?, idleDays: Double?) {
         self.init(style: styleName.flatMap(Style.init(rawValue:)) ?? .manual, idleDays: idleDays ?? 3)
     }
-
-    /// `idleDays` in seconds.
-    public var idleSeconds: Double { idleDays * 86_400 }
 }

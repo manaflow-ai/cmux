@@ -23,6 +23,11 @@ public final class BrowserChromeTabState: Sendable {
         get { loads.onPageFinished }
         set { loads.onPageFinished = newValue }
     }
+    /// Each main-frame URL the tab commits, once (`BrowserPageLoads.onPageCommitted`).
+    public var onPageCommitted: ((URL) -> Void)? {
+        get { loads.onPageCommitted }
+        set { loads.onPageCommitted = newValue }
+    }
     public var loadOverride: ((URL) -> Bool)? { didSet { chrome?.loadOverride = loadOverride } }
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)? { didSet { chrome?.onOpenURL = onOpenURL } }
     public var onTypedCommit: (() -> Void)? { didSet { chrome?.onTypedCommit = onTypedCommit } }
@@ -82,6 +87,13 @@ public final class BrowserChromeTabState: Sendable {
         if let chrome { chrome.showNotice(text, action: action) } else { pendingNotice = (text, action) }
     }
 
+    /// Takes the notice away, shown or waiting, while it still says `text` (a notice whose condition
+    /// ended; one that says something else since stays).
+    public func hideNotice(saying text: String) {
+        if pendingNotice?.text == text { pendingNotice = nil }
+        if chrome?.noticeText == text { chrome?.hideNotice() }
+    }
+
     /// The notice over the tab's page, shown or waiting (diagnostics, the import offer's check).
     public var noticeText: String? { chrome?.noticeText ?? pendingNotice?.text }
     /// The omnibar as the tab left it: its address, or the text typed and left there, with its selection.
@@ -90,6 +102,12 @@ public final class BrowserChromeTabState: Sendable {
     var find: (query: String, matchCase: Bool)?
     var isOmnibarHidden = false
     var wakingAddress: BrowserTabState?
+    /// Whether this tab has the keyboard in its window: its page, address bar, find bar or docked DevTools.
+    /// The host writes it from the window's focus (``BrowserEntry/followKeyboard(focusedTab:key:window:)``);
+    /// the cookie import card shows only while it is true, never over a terminal, chat or Home.
+    public var hasKeyboard = false {
+        didSet { if hasKeyboard != oldValue { chrome?.syncPageOverlays() } }
+    }
     /// The chrome a cookie import offer waits in, hidden, for this tab (`BrowserCookieImportCard.heldFor`).
     weak var cookieOfferHolder: BrowserChromeView?
 
@@ -99,6 +117,13 @@ public final class BrowserChromeTabState: Sendable {
 extension BrowserChromeView {
     /// Shows `tab` with its own toolbar state `state` (`BrowserChromeTabSwitch`): a tab switch in a pane whose tabs share this chrome.
     public func bind(_ tab: any BrowserTab, state: BrowserChromeTabState) { BrowserChromeTabSwitch(chrome: self).bind(tab, state) }
+
+    /// Whether this chrome shows `state` now: a tab whose state moved to another tab id (a new tab's stand-in replaced by
+    /// the daemon's tab, `TabContentCache.moveBrowser`) is the same tab here, so its omnibar keeps the keyboard and its text.
+    ///
+    /// - Parameter state: The toolbar state of the tab the pane is about to show.
+    /// - Returns: True when ``bind(_:state:)`` would change nothing.
+    public func shows(_ state: BrowserChromeTabState) -> Bool { boundState === state }
 }
 
 /// A tab switch in a shared chrome (`BrowserChromeView.bind(_:state:)`). The tab that leaves keeps its state and its

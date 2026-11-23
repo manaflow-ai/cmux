@@ -51,12 +51,16 @@ public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, Ca
     case instant
     case crossfade
     case lift
+    /// The agent chat's tool-call roll (`MotionGate.rollTitle`): the old name rises and fades out
+    /// above as the new one rises in from below, softening as it goes.
+    case roll
 
     public var tunableTitle: String {
         switch self {
         case .instant: "Instant"
         case .crossfade: "Crossfade"
         case .lift: "Lift"
+        case .roll: "Roll (as a chat's tool calls)"
         }
     }
 }
@@ -96,6 +100,13 @@ public nonisolated enum SidebarTunables {
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
         default: .off, code: "SidebarTunables.agentMark")
 
+    /// How a row shows an agent driving the screen or a browser (`AgentDriveIndicatorView`): on whatever
+    /// `presenceDots` says, since it is the one presence mark that needs the person's eye.
+    public static let driveIndicator = Tunable<SidebarDriveIndicatorVariant>.choice(
+        "sidebar.driveIndicator", .sidebar, "Agent drive indicator",
+        help: "How a workspace row shows an agent using the computer or a browser: a capsule with its name, a glyph, a solid badge or the old dot.",
+        default: .capsule, code: "SidebarTunables.driveIndicator")
+
     /// Multiplayer agent presence (cx-gg84): off until the dots are styled
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
     public static let presenceDots = Tunable<Bool>.toggle(
@@ -127,12 +138,35 @@ public nonisolated enum SidebarTunables {
         help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
         default: false, code: "SidebarTunables.groupByStatus")
 
+    /// Lineage nesting (Leo 2026-10-21: "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE
+    /// SIDE BY DEFAULT"): a workspace whose agent another workspace's agent started lists under that workspace, at any
+    /// depth, and a parent below the top level starts folded with its roll-up. Only person-started sessions are top
+    /// level. On by default; the rest of `sidebar.sessionTree` (keycaps, chat history) stays opt-in.
+    public static let lineageNesting = Tunable<Bool>.toggle(
+        "sidebar.lineageNesting", .sidebar, "Nest agent-started sessions",
+        help: "A workspace an agent started lists under the workspace whose agent started it, at any depth. Sessions a lane started stay folded under it until you open them. Off lists every workspace at the top level.",
+        default: true, code: "SidebarTunables.lineageNesting")
+
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+
+    /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
+    /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956). Off by default: the sidebar is the
+    /// chrome's own surface, one color with the footer, its cards and the titlebar (Leo 2026-11-11, on the nightly
+    /// that shipped a 0.2 dim: "bro why is the sidebar now a different color?"). A Debug toggle to try the dim.
+    /// Only where nothing else shades the sidebar: no `appearance.surfaces.sidebar` color, no separate chrome shade.
+    public static let surfaceDimDark = Tunable<Double>.number(
+        "sidebar.surfaceDim.dark", .sidebar, "Sidebar dim (dark themes)",
+        help: "Dark themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 (the default) draws the sidebar on the window's own color.",
+        default: 0, range: 0...0.6, step: 0.01, unit: .fraction, code: "SidebarTunables.surfaceDimDark")
+    public static let surfaceDimLight = Tunable<Double>.number(
+        "sidebar.surfaceDim.light", .sidebar, "Sidebar dim (light themes)",
+        help: "Light themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 (the default) draws the sidebar on the window's own color.",
+        default: 0, range: 0...0.3, step: 0.005, unit: .fraction, code: "SidebarTunables.surfaceDimLight")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
@@ -142,6 +176,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
         help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
         default: false, code: "SidebarTunables.nowLine")
+
+    /// A row whose agent chat has steps left in its task list (acpmux `taskList`: the harness's
+    /// plan, else the one its Chief keeps) shows how many are done ("3/7") on the name's line, and
+    /// its hover card says what runs now and what is next. On by default (David Beyer, Nov 20 call).
+    public static let taskProgress = Tunable<Bool>.toggle(
+        "sidebar.taskProgress", .sidebar, "Rows show their agent's task progress",
+        help: "While an agent chat in a workspace has steps left in its task list, the row shows how many are done (3/7) and the hover card says what runs now and what is next.",
+        default: true, code: "SidebarTunables.taskProgress")
 
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
@@ -199,11 +241,13 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
+    /// agent-derived title after creation, or is renamed. Roll is the shipped default (Leo,
+    /// 2026-11-08: "i feel like when workspaces get renamed (esp by agents) it should have that
+    /// same fade in animation that the tool call situation has...").
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
-        help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
+        help: "A late or renamed workspace or agent-chat title: instant, crossfade, a short upward lift in the existing title slot, or the chat's tool-call roll.",
+        default: .roll, code: "SidebarTunables.workspaceTitleMotion")
 
     /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
     public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(
@@ -234,16 +278,21 @@ public nonisolated enum SidebarTunables {
             agentMark.descriptor,
             collapseMotion.descriptor,
             dragThreshold.descriptor,
+            driveIndicator.descriptor,
             groupByStatus.descriptor,
             groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
+            surfaceDimDark.descriptor,
+            surfaceDimLight.descriptor,
             laneStatus.descriptor,
+            lineageNesting.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
             nowLine.descriptor,
+            taskProgress.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
@@ -257,22 +306,27 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
-            SidebarGroupPalette.tunable.descriptor,
+            SpaceSwitcherStyle.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
             SidebarNoColorGroupLook.tunable.descriptor,
             SidebarGroupGlass.tunable.descriptor,
             SidebarLeadingColumnLook.tunable.descriptor,
+            SidebarPinnedRowLeading.tunable.descriptor,
             SidebarInsertMotion.nudgeDistance.descriptor,
             SidebarInsertMotion.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,
             updateCardAutomaticControl.descriptor,
+            updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
+            updateCardLayout.descriptor,
+            workspaceHoverCardLeave.descriptor,
+            workspaceHoverCardTitle.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
-        ] + SidebarSectionTunables.all
+        ] + SidebarSectionTunables.all + SidebarRowTuning.all
     }
 }

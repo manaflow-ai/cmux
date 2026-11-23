@@ -17,4 +17,15 @@ extension DaemonService {
         }
         return try await connection.listWorkspaces().workspaces.first { $0.key == key }.map(WorkspaceShape.init)
     }
+
+    /// Names tab `surface` of workspace `key`. A terminal whose shell ended before the rename reached it took its tab
+    /// with it: a refused rename for a tab the workspace no longer lists is not an error. Only a refusal reads the shape.
+    public func renameTab(_ surface: SurfaceID, to name: String, in key: WorkspaceKey, on connection: DaemonConnection) async throws {
+        do {
+            try await connection.renameTab(surface, to: name)
+        } catch {
+            let surfaces = try await shape(of: key, after: connection)?.screens.flatMap(\.panes).flatMap(\.surfaces) ?? []
+            if surfaces.contains(surface) { throw error }
+        }
+    }
 }

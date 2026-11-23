@@ -25,3 +25,11 @@ export function pullRequestDiffUrl(url: string | undefined): string | undefined 
 export function openPullRequestDiff(diffUrl: string): void {
   void callChipHost("browser.openIn", { url: diffUrl, browserId: "cmux" });
 }
+
+/// Opens a pull request, issue or commit the way a GitHub link clicked in the chat opens (the chip host's
+/// `browser.openIn` with browserId `cmux`): the App's GitHub page for a plain pull request link where
+/// it has one (WebPageTab.openGitHub, GitHubLink.page), else github.com in a cmux tab. Never the
+/// `/files` form, which opens the diff viewer.
+export function openOnGitHub(url: string): void {
+  void callChipHost("browser.openIn", { url, browserId: "cmux" });
+}

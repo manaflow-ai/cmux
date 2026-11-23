@@ -19,7 +19,21 @@ impl Hub {
             .filter(|s| matches!(s.status(), SessionStatus::Running | SessionStatus::Waiting))
             .map(|s| s.id.clone())
             .collect();
-        crate::stats::summarize(&*self.store, options, &live)
+        // The profiles that run Claude Code over its stream (`HarnessKind::ClaudeStdio`), whatever
+        // they are named: their records' input was always the fresh part alone. Read once, so the
+        // pass holds no config lock.
+        let claude_stdio: HashSet<String> = match self.config.try_read() {
+            Ok(cfg) => cfg
+                .harnesses
+                .iter()
+                .filter(|(_, p)| p.kind == crate::config::HarnessKind::ClaudeStdio)
+                .map(|(name, _)| name.clone())
+                .collect(),
+            Err(_) => HashSet::new(),
+        };
+        crate::stats::summarize_with(&*self.store, options, &live, &|meta| {
+            claude_stdio.contains(&meta.harness) || meta.input_excludes_cache()
+        })
     }
 
     /// After a restart: a session the dead daemon left waiting (a turn's

@@ -152,6 +152,18 @@ pub(super) fn set_split_ratio(
     Ok(json!({}))
 }
 
+/// `set-divider-visible` (`split-divider-visibility-v1`).
+pub(super) fn set_divider_visible(
+    mux: &Arc<Mux>,
+    actor: Actor,
+    split: SplitId,
+    visible: bool,
+    transaction: Option<u64>,
+) -> anyhow::Result<Value> {
+    mux.set_divider_visible_checked_as(&actor, split, visible, transaction)?;
+    Ok(json!({}))
+}
+
 /// `set-layout-sizes`: every value as one change, or none (a refused value answers with its single command's error
 /// code, and the message names its index).
 pub(super) fn set_layout_sizes(

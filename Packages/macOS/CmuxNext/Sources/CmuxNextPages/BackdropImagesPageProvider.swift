@@ -91,7 +91,7 @@ public final class BackdropImagesPageProvider: PageProvider {
             guard let settings, let pickFolder else { throw PageError(code: "cmux.page.unavailable", message: "no settings or folder picker") }
             guard let folder = await pickFolder() else { return ["id": .null] }
             let id = BackdropSelectionSetting.folderPrefix + folder.standardizedFileURL.path
-            try await settings.setSetting(at: BackdropSelectionSetting().configPath, to: .string(id), by: .user)
+            try await settings.setSetting(at: BackdropSelectionSetting.configPath, to: .string(id), by: .user)
             return ["id": .string(id)]
         case Self.prefix + "screen_saver":
             // The wallpaper store and the aerial folder are read off the main actor.

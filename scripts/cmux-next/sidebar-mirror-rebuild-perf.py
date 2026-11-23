@@ -10,15 +10,15 @@ $NX_APP_STOP at the end; with --tag it attaches to a running tagged app and quit
 the laptop. It makes `--count` empty workspaces (`perf-NNNN`, the names
 sidebar-rows-perf-live.py uses, so either script reuses the other's), then `--rebuilds` times
 creates one workspace and closes it again. Each create and each close changes the live workspace
-set, so the sidebar asks the Rust mirror for its rows again (one `view` FFI call) and lays out the
+set, so the sidebar asks the Rust mirror for its rows again (one `project` FFI call) and lays out the
 list again. Measured from `debug.sidebar_perf` (reset before the phase):
 
   mirror_ns   main-thread time in SidebarMirror.rows / .acceptance (request encode, Rust call, reply read)
   main_ns     main-thread time of the list layout paths
-  rebuilds, list_reloads, and the mirror `view` calls (`debug.sidebar_rows` doc.ffi_calls)
+  rebuilds, list_reloads, and the mirror `project` calls (`debug.sidebar_rows` doc.ffi_calls)
 
-It reports the time per `view` call and per rebuild. It fails when the build has no `mirror_ns`
-counter, when the sidebar document mode is not active, or when no `view` call happened.
+It reports the time per `project` call and per rebuild. It fails when the build has no `mirror_ns`
+counter, when the sidebar document mode is not active, or when no `project` call happened.
 """
 
 import argparse, atexit, json, os, socket, subprocess, sys, tempfile, time
@@ -72,7 +72,7 @@ def titles():
 
 
 def view_calls():
-    return int(((rows().get("doc") or {}).get("ffi_calls") or {}).get("view", 0))
+    return int(((rows().get("doc") or {}).get("ffi_calls") or {}).get("project", 0))
 
 
 def wait(predicate, seconds):
@@ -152,7 +152,7 @@ def main():
         json.dump(summary, out, indent=2)
     print(json.dumps(summary), flush=True)
     if views == 0:
-        sys.exit("FAIL no mirror view call during the rebuilds")
+        sys.exit("FAIL no mirror project call during the rebuilds")
     print("ok", flush=True)
 
 

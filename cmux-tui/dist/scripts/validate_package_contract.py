@@ -324,6 +324,9 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
         NOTICE_FILE,
+        SCREEN_DETECTION_BINARY,
+        TERMINAL_HOST_BINARY,
+        npm_companion_binaries,
     )
 
     if package_name == "cmux":
@@ -342,7 +345,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
             }
         )
     else:
-        extension = ".exe" if "win32" in package_name else ""
+        os_name = "win32" if "win32" in package_name else "linux" if "-linux-" in package_name else "darwin"
+        extension = ".exe" if os_name == "win32" else ""
         expected = frozenset(
             {
                 "package.json",
@@ -352,8 +356,11 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 NPM_SSH_MANIFEST,
                 NOTICE_FILE,
             }
-            # The Windows package also packs the per-terminal host (cx-1vlzr).
-            | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else set())
+            # The Windows package also packs the per-terminal host (cx-1vlzr);
+            # the macOS and Linux packages pack the agent screen-detection
+            # plugin the daemon runs from beside its own executable, and the
+            # Linux packages the slim terminal host (CMUX-571).
+            | {f"bin/{name}{extension}" for name in npm_companion_binaries(os_name)}
         )
     expected_names = {f"package/{path}" for path in expected}
     try:
@@ -379,6 +386,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
                 or member.name.endswith("/bin/cmux-tui-host.exe")
+                or member.name.endswith(f"/bin/{SCREEN_DETECTION_BINARY}")
+                or member.name.endswith(f"/bin/{TERMINAL_HOST_BINARY}")
                 or member.name.endswith("/bin/chatmux-relay")
                 or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")

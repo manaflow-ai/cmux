@@ -15,12 +15,12 @@ import Observation
 public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     public let indicator = StatusIndicatorView()
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
+    /// Undock Chief is there too (cmux#37372: "Chief needs an obvious way to undock"); it refuses when not docked.
     public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
-                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.undockChief", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
-    private var shownInRow = ChromeTunables.tabRowTools.value
     /// The Chief has a subagent now (the Subagents row is enabled).
     public private(set) var hasSubagents = false
 
@@ -33,11 +33,9 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
         addSubview(indicator)
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
         watch = Task { [weak self, chief] in
-            for await (status, subagents, inRow) in ObservationStream({ (chief.status, chief.allSubagents().count, ChromeTunables.tabRowTools.value) }) {
+            for await (status, subagents) in ObservationStream({ (chief.status, chief.allSubagents().count) }) {
                 guard let self else { return }
                 show(status, subagents: subagents)
-                // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
-                if inRow != shownInRow { shownInRow = inRow; superview?.needsLayout = true }
             }
         }
     }
@@ -116,12 +114,12 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
 
 /// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
-    static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
-    static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .localizedModule) }
+    static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .localizedModule) }
     /// A Chief subagent's row or menu item before its chat has a title.
-    nonisolated static var subagent: String { String(localized: "chief.subagent.untitled", defaultValue: "Subagent", bundle: .module) }
+    nonisolated static var subagent: String { String(localized: "chief.subagent.untitled", defaultValue: "Subagent", bundle: .localizedModule) }
     /// Open Chief Subagent's refusal when its run names no subagent row.
     static var noSubagent: String {
-        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .localizedModule)
     }
 }

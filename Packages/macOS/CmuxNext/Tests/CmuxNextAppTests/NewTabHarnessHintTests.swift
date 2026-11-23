@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ struct NewTabHarnessHintTests {
 
     @Test func aDismissedHarnessHintStaysDismissedAfterARelaunch() async throws {
         let suite = "NewTabHarnessHintTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         #expect(!memory.harnessHintDismissed)

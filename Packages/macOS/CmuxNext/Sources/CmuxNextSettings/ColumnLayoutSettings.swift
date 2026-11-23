@@ -8,47 +8,10 @@ public import CoreGraphics
 /// `layout.scrollModifier`, `layout.pagesHandleCommandScroll`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
-    public static let splitSizingPath = ["layout", "splitSizing"]
-    public static let newColumnWidthPath = ["layout", "newColumnWidth"]
-    public static let dockEdgePath = ["layout", "dockColumnEdge"]
-    public static let dockModePath = ["layout", "dockColumnMode"]
     /// R87: the keys nightly-next builds wrote before the dock rename, read
     /// for one release when the dock key is absent. Remove after it.
     static let legacyDockEdgePath = ["layout", "stickyColumnEdge"]
     static let legacyDockModePath = ["layout", "stickyColumnMode"]
-    public static let frameOrientationPath = ["layout", "frameOrientation"]
-    public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
-    public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
-    public static let rowsPath = ["layout", "rows"]
-    public static let focusFollowsMousePath = ["layout", "focusFollowsMouse"]
-    public static let scrollAreasPath = ["layout", "scrollAreas"]
-    public static let scrollModifierPath = ["layout", "scrollModifier"]
-    public static let pagesHandleCommandScrollPath = ["layout", "pagesHandleCommandScroll"]
-
-    public static let splitSizingFallback: SplitSizing = .even
-    /// `layout.newColumnWidth` defaults to fixed at `layout.defaultColumnWidth` (two thirds): a
-    /// new column is never full width just because the column beside it is (Lawrence 2026-10-28).
-    public static let newColumnWidthFallback: NewColumnWidthMode = .fixed
-    public static let dockEdgeFallback: DockDefaultEdge = .nearest
-    public static let dockModeFallback: DockDefaultMode = .docked
-    public static let frameOrientationFallback: FrameOrientation = .columnMajor
-    /// `layout.rows` defaults on for dogfood (rows.md O1).
-    public static let rowsFallback = true
-    /// `layout.focusFollowsMouse` defaults off: hovering or scrolling a pane leaves
-    /// keyboard focus where it is, so typing is never pulled into another pane.
-    public static let focusFollowsMouseFallback = false
-    /// `layout.scrollAreas` defaults off until dogfood (scroll-areas-DESIGN.md, open question 1).
-    public static let scrollAreasFallback = false
-    /// `layout.scrollModifier` defaults to Command: Command + scroll moves the layout, a plain
-    /// scroll goes to the pane under the pointer (Lawrence 2026-10-24).
-    public static let scrollModifierFallback: LayoutScrollModifier = .command
-    /// `layout.pagesHandleCommandScroll` defaults on: Figma and Excalidraw keep their Command +
-    /// scroll zoom, every other page lets it pan the columns (Lawrence 2026-10-28).
-    public static let pagesHandleCommandScrollFallback = true
-    public static let minimumPaneWidthFallback: Double = 200
-    public static let minimumPaneHeightFallback: Double = 64
-    public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
-    public static let minimumPaneHeightRange: ClosedRange<Double> = 32...600
 
     static func choice<T: RawRepresentable & CaseIterable>(_ root: JSONValue, _ path: [String], fallback: T,
                                                            diagnostics: inout [SettingsDiagnostic]) -> T where T.RawValue == String {
@@ -79,11 +42,11 @@ public nonisolated enum ColumnLayoutSettings {
             guard DefaultColumnWidthSetting.range.contains(number) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.newColumnWidth",
                                                       message: "expected \"matchCurrent\", \"fitScreen\", \"fixed\" or a share from 0.1 to 1.0"))
-                return (newColumnWidthFallback, nil)
+                return (newColumnWidthDefault, nil)
             }
             return (.fixed, number)
         }
-        return (choice(root, newColumnWidthPath, fallback: newColumnWidthFallback, diagnostics: &diagnostics), nil)
+        return (choice(root, newColumnWidthPath, fallback: newColumnWidthDefault, diagnostics: &diagnostics), nil)
     }
 
     /// `path`, or `legacy` when only the old key is set (R87).
@@ -94,65 +57,65 @@ public nonisolated enum ColumnLayoutSettings {
     /// Parses every key into `snapshot`.
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         var diagnostics: [SettingsDiagnostic] = []
-        snapshot.splitSizing = choice(root, splitSizingPath, fallback: splitSizingFallback, diagnostics: &diagnostics)
+        snapshot.splitSizing = choice(root, splitSizingPath, fallback: splitSizingDefault, diagnostics: &diagnostics)
         let (mode, fixed) = newColumnWidth(root, diagnostics: &diagnostics)
         snapshot.newColumnWidth = mode
         if let fixed { snapshot.defaultColumnWidth = fixed }
         let edgePath = path(root, dockEdgePath, legacy: legacyDockEdgePath)
-        snapshot.dockColumnEdge = choice(root, edgePath, fallback: dockEdgeFallback, diagnostics: &diagnostics)
+        snapshot.dockColumnEdge = choice(root, edgePath, fallback: dockEdgeDefault, diagnostics: &diagnostics)
         // "floating" is the UI name of `overlay`; both are accepted.
         let modePath = path(root, dockModePath, legacy: legacyDockModePath)
         if root.value(at: modePath)?.stringValue == "floating" {
             snapshot.dockColumnMode = .overlay
         } else {
-            snapshot.dockColumnMode = choice(root, modePath, fallback: dockModeFallback, diagnostics: &diagnostics)
+            snapshot.dockColumnMode = choice(root, modePath, fallback: dockModeDefault, diagnostics: &diagnostics)
         }
-        snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
-        snapshot.layoutScrollModifier = choice(root, scrollModifierPath, fallback: scrollModifierFallback, diagnostics: &diagnostics)
-        let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)
-        let height = number(root, minimumPaneHeightPath, fallback: minimumPaneHeightFallback, range: minimumPaneHeightRange,
+        snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationDefault, diagnostics: &diagnostics)
+        snapshot.layoutScrollModifier = choice(root, scrollModifierPath, fallback: scrollModifierDefault, diagnostics: &diagnostics)
+        let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthDefault, range: minimumPaneWidthRange, diagnostics: &diagnostics)
+        let height = number(root, minimumPaneHeightPath, fallback: minimumPaneHeightDefault, range: minimumPaneHeightRange,
                             diagnostics: &diagnostics)
         snapshot.minimumPaneContentSize = CGSize(width: width, height: height)
         if let value = root.value(at: rowsPath) {
             if let on = value.boolValue {
                 snapshot.layoutRows = on
             } else {
-                snapshot.layoutRows = rowsFallback
+                snapshot.layoutRows = rowsDefault
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.rows", message: "expected true or false"))
             }
         } else {
-            snapshot.layoutRows = rowsFallback
+            snapshot.layoutRows = rowsDefault
         }
         if let value = root.value(at: focusFollowsMousePath) {
             if let on = value.boolValue {
                 snapshot.focusFollowsMouse = on
             } else {
-                snapshot.focusFollowsMouse = focusFollowsMouseFallback
+                snapshot.focusFollowsMouse = focusFollowsMouseDefault
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusFollowsMouse", message: "expected true or false"))
             }
         } else {
-            snapshot.focusFollowsMouse = focusFollowsMouseFallback
+            snapshot.focusFollowsMouse = focusFollowsMouseDefault
         }
         if let value = root.value(at: scrollAreasPath) {
             if let on = value.boolValue {
                 snapshot.layoutScrollAreas = on
             } else {
-                snapshot.layoutScrollAreas = scrollAreasFallback
+                snapshot.layoutScrollAreas = scrollAreasDefault
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.scrollAreas", message: "expected true or false"))
             }
         } else {
-            snapshot.layoutScrollAreas = scrollAreasFallback
+            snapshot.layoutScrollAreas = scrollAreasDefault
         }
         if let value = root.value(at: pagesHandleCommandScrollPath) {
             if let on = value.boolValue {
                 snapshot.pagesHandleCommandScroll = on
             } else {
-                snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
+                snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollDefault
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.pagesHandleCommandScroll",
                                                       message: "expected true or false"))
             }
         } else {
-            snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
+            snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollDefault
         }
         snapshot.diagnostics += diagnostics
     }

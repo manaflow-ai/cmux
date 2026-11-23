@@ -19,11 +19,15 @@ export const DIFF_GIT_OPS = {
   push: "cmux.diff.git.push",
   stage: "cmux.diff.git.stage",
   unstage: "cmux.diff.git.unstage",
+  pullRequest: "cmux.diff.git.pullRequest",
 } as const;
 
 /** The viewer's git, when the host lists every op it needs; undefined otherwise. */
 export function diffGitSource(page: PageClient | null, ops: readonly string[] | undefined): ChangesSource | undefined {
-  if (!page || !Object.values(DIFF_GIT_OPS).every((op) => ops?.includes(op))) return undefined;
+  const required = Object.entries(DIFF_GIT_OPS)
+    .filter(([name]) => name !== "pullRequest")
+    .map(([, op]) => op);
+  if (!page || !required.every((op) => ops?.includes(op))) return undefined;
   installGitStrings();
   const call = (op: string, params: Record<string, unknown> = {}) => page.call<unknown>(op, params);
   return {
@@ -32,6 +36,7 @@ export function diffGitSource(page: PageClient | null, ops: readonly string[] | 
     commit: (params) => call(DIFF_GIT_OPS.commit, params),
     push: (params) => call(DIFF_GIT_OPS.push, params),
     stage: (paths, unstage) => call(unstage ? DIFF_GIT_OPS.unstage : DIFF_GIT_OPS.stage, { paths }),
+    ...(ops?.includes(DIFF_GIT_OPS.pullRequest) ? { pullRequest: () => call(DIFF_GIT_OPS.pullRequest) } : {}),
   };
 }
 

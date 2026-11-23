@@ -75,19 +75,23 @@ public struct SettingsSchemaExport {
                 "lead": spec.lead.map(\.rawValue),
                 "trail": spec.trail.map(\.rawValue),
                 "actions": spec.actions.map(\.rawValue),
-                "aliases": spec.aliases.map(\.rawValue),
+                // Section ids, then old category ids (`theme`, `server`), that open this category.
+                "aliases": spec.aliases.map(\.rawValue) + spec.legacyIDs,
             ]
             // Only DEV builds show it (the page asks the host); absent everywhere else.
             if spec.devOnly { entry["dev_only"] = true }
             return entry
         }
-        // The sidebar's titled runs of categories; the untitled lead run has a null title.
+        // The sidebar's titled runs of categories; the untitled lead run has a null title. A
+        // collapsed run (More) is drawn closed until opened; absent on every other run.
         let sidebarSections: [[String: Any]] = SettingsPageLayout.sidebarSections.map { section in
-            [
+            var entry: [String: Any] = [
                 "id": section.id,
                 "title": section.title.map { text($0.text, $0.key) as Any } ?? NSNull(),
                 "categories": section.categories.map(\.id),
             ]
+            if section.collapsed { entry["collapsed"] = true }
+            return entry
         }
         return [
             "default_category": SettingsPageLayout.defaultCategory,
@@ -117,9 +121,6 @@ public struct SettingsSchemaExport {
             "page_hidden": descriptor.page != .shown,
             "surfaces": descriptor.surfacePlan.exportObject,
         ]
-        let samples = SettingsSchemaSamples.samples(for: descriptor)
-        row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
-        row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)
         func choices(_ choices: [SettingChoice]) -> [[String: Any]] {
             choices.map { ["value": $0.value, "title": text($0.title, $0.titleKey)] }
         }
@@ -163,28 +164,15 @@ public struct SettingsSchemaExport {
             row["choices"] = choices(list)
             row["ordered"] = false
         }
-        // Kinds whose valid values only the app knows (theme names, installed
-        // fonts, system sounds): another validator checks them against the
-        // value domain the app publishes, not a fixed rule.
-        if descriptor.path == ChatSettings.rootsPath {
-            row["validation"] = "domain:chat_roots"
-        } else if descriptor.path == CustomDensitiesSetting().configPath {
-            row["validation"] = "domain:custom_densities"
-        } else if descriptor.path == CommandLabelsSetting().configPath {
-            row["validation"] = "domain:command_labels"
-        } else if descriptor.path == BackdropSelectionSetting().configPath {
-            row["validation"] = "domain:backdrop_selection"
-        } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
-            // Portable: a web address that contains %s or {searchTerms}, or empty.
-            row["validation"] = "domain:search_template"
-        } else {
-            switch descriptor.kind {
-            case .theme: row["validation"] = "domain:theme"
-            case .fontFamily: row["validation"] = "domain:font_family"
-            case .sound: row["validation"] = "domain:sound"
-            default: row["validation"] = "portable"
-            }
-        }
+        // How another validator checks the value: portable, or a domain only the app knows (theme
+        // names, installed fonts, system sounds) or with its own shape (row-facts.json).
+        row["validation"] = SettingsSchema.validationByKey[descriptor.id]
+            ?? (row["kind"] as? String).flatMap { SettingsSchema.validationByKind[$0] } ?? SettingsSchema.defaultValidation
+        // An app id row carries the manifest's id pattern, so the web page checks the same rule.
+        if row["validation"] as? String == "domain:app_id" { row["pattern"] = SettingsSchema.appIDPattern }
+        let samples = SettingsSchemaSamples.samples(row: row)
+        row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
+        row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)
         return row
     }
 

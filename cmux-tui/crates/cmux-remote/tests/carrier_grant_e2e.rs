@@ -223,6 +223,75 @@ async fn a_valid_grant_admits_and_the_session_outlives_its_expiry() {
     daemon.server.shutdown().await.unwrap();
 }
 
+/// One raw handshake carrying every lane on one physical link, so the
+/// test picks the connection attempt (the client library draws a fresh one).
+async fn raw_link(
+    daemon: &Daemon,
+    identity: &StaticIdentity,
+    token: &str,
+    session: SessionId,
+    attempt: cmux_remote::crypto::ConnectionAttemptId,
+) -> Result<cmux_remote::crypto::SecureLink, cmux_remote::crypto::CryptoError> {
+    use cmux_remote::crypto::{ClientHandshake, initiate_secure_link};
+    use cmux_remote::provider::LinkRequest;
+    let group = group(daemon, session).await;
+    let physical = group.open(LinkRequest { lane: Lane::ALL[0], generation: 0 }).await.unwrap();
+    tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        initiate_secure_link(
+            physical,
+            ClientHandshake {
+                identity: identity.clone(),
+                expected_daemon: Some(daemon.auth.identity().public_key()),
+                auth: ClientAuthMode::Grant { token: Zeroizing::new(token.to_owned()) },
+                device_name: "carrier-grant-client".into(),
+                session,
+                lane: Lane::ALL[0],
+                lanes: Lane::ALL.to_vec(),
+                generation: 0,
+                connection_attempt: attempt,
+                resume: Lane::ALL.into_iter().map(|lane| (lane, 0)).collect(),
+                handshake_timeout: CONNECT_TIMEOUT,
+            },
+        ),
+    )
+    .await
+    .expect("raw grant handshake timed out")
+}
+
+/// Review BLOCK at 56ed18ef: a session formed from a grant closed, and the
+/// same token, key, session, generation and connection attempt (the same
+/// link group) opened another session before the grant expired. Once a
+/// grant's session registers, its link group admits nothing more.
+#[tokio::test]
+async fn a_closed_grant_session_cannot_be_opened_again_from_the_same_link_group() {
+    use cmux_remote::crypto::ConnectionAttemptId;
+    let signer = Signer::generate();
+    let now = Arc::new(AtomicU64::new(NOW));
+    let mut daemon = daemon(Some(verifier(&signer, &now))).await;
+    let identity = StaticIdentity::generate().unwrap();
+    let token = signer.grant(&identity.public_key(), 1);
+    let session = SessionId([13; 16]);
+    let attempt = ConnectionAttemptId([9; 16]);
+
+    let first = raw_link(&daemon, &identity, &token, session, attempt)
+        .await
+        .expect("a valid grant was refused");
+    let accepted =
+        tokio::time::timeout(CONNECT_TIMEOUT, daemon.accepted.recv()).await.unwrap().unwrap();
+    accepted.close().await.unwrap();
+    drop(first);
+
+    raw_link(&daemon, &identity, &token, session, attempt)
+        .await
+        .expect_err("a closed grant session's link group opened a session again");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), daemon.accepted.recv()).await.is_err(),
+        "the daemon registered a second session from one grant"
+    );
+    daemon.server.shutdown().await.unwrap();
+}
+
 /// Default deny: a daemon with no grant verifier refuses every grant.
 #[tokio::test]
 async fn a_daemon_without_a_verifier_refuses_grants() {

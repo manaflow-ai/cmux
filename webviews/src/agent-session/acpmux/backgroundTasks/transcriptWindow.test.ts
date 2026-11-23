@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { WINDOW, windowRange } from "./SubagentTranscript";
+import { WINDOW, windowRange } from "./subagentTranscriptModel";
 
 const rows = (n: number): AcpmuxRow[] =>
   Array.from({ length: n }, (_, index) => ({ id: `r${index}`, version: 1, at: index, kind: "assistant", text: "x" }));

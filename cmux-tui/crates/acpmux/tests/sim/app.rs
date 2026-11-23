@@ -75,13 +75,21 @@ struct Conn {
     next_id: i64,
     /// Request id to the prompt id it carries.
     prompts: HashMap<i64, String>,
+    /// Messages handled so far, including those read while waiting for a call's answer.
+    handled: u64,
 }
 
 impl Conn {
     async fn open() -> std::io::Result<Self> {
         let stream = turmoil::net::TcpStream::connect((DAEMON, PORT)).await?;
         let (read, write) = stream.into_split();
-        Ok(Self { write, lines: BufReader::new(read).lines(), next_id: 0, prompts: HashMap::new() })
+        Ok(Self {
+            write,
+            lines: BufReader::new(read).lines(),
+            next_id: 0,
+            prompts: HashMap::new(),
+            handled: 0,
+        })
     }
 
     async fn send(&mut self, method: &str, params: Value) -> std::io::Result<i64> {
@@ -153,6 +161,7 @@ impl Conn {
 
     /// A notification, or a prompt's answer.
     fn handle(&mut self, app: &Shared, msg: &Value) {
+        self.handled += 1;
         if msg["method"] == acpmux::rpc::method::MUX_PROMPT_ACCEPTED {
             let pid = msg["params"]["promptId"].as_str().unwrap_or_default();
             let mut a = app.borrow_mut();
@@ -239,6 +248,26 @@ fn due(app: &Shared) -> (Vec<Prompt>, Option<Duration>) {
     (owed, next.map(|t| ready + t))
 }
 
+/// The daemon's own word that the app's chat is done: no turn running or starting, nothing
+/// queued, and no automatic retry waiting or being decided.
+async fn chat_settled(app: &Shared, conn: &mut Conn) -> std::io::Result<bool> {
+    let session = app.borrow().session.clone().unwrap_or_default();
+    let listed = conn.call(app, acpmux::rpc::method::MUX_SESSIONS, json!({})).await?;
+    let row = listed["sessions"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["sessionId"] == json!(session)));
+    Ok(row.is_some_and(|r| {
+        r["turn"].is_null()
+            && r["queued"].as_u64().unwrap_or(0) == 0
+            && r["queue"].as_array().is_none_or(Vec::is_empty)
+            && r["retry"].is_null()
+            && !["starting", "retryDeciding", "waitsForSlot"]
+                .iter()
+                .any(|k| r[*k].as_bool() == Some(true))
+            && matches!(r["status"].as_str(), Some("ready" | "idle"))
+    }))
+}
+
 fn all_answered(app: &Shared) -> bool {
     app.borrow().items.iter().all(|(_, i)| i.outcome.is_some())
 }
@@ -302,16 +331,36 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
             // Every send has its answer; the daemon may still be working (a turn a restart cut
             // goes on as its continuation). Stay until it has said nothing for SETTLE, so the
             // run ends on the daemon's settled state, not on the app's last answer.
+            // The last read found the chat settled, and nothing has come since.
+            let mut settled_once = false;
             loop {
                 match conn.next(SETTLE).await {
-                    Ok(msg) => conn.handle(app, &msg),
+                    Ok(msg) => {
+                        settled_once = false;
+                        conn.handle(app, &msg);
+                    }
                     Err(e) if e.to_string() == QUIET_ERROR => {
                         let calm = app.borrow().ready_at.map(|r| r + app.borrow().calm_after);
-                        if calm.is_some_and(|c| now() >= c) {
+                        if calm.is_none_or(|c| now() < c) {
+                            // A fault may still hide the daemon: drop this connection, open
+                            // another.
+                            return Err(e);
+                        }
+                        // A quiet connection is not a settled daemon: one a partition cut can
+                        // miss the daemon's crash, and with it the restart's continuation
+                        // (seeds 2663130, 3000166). Ask the daemon: a dead connection fails
+                        // the call and another is opened; a turn still running, or a prompt
+                        // still queued, is waited for. Two settled reads a quiet SETTLE apart:
+                        // one row is no atomic idle check (a dequeued prompt can be between
+                        // the queue and its turn).
+                        // A message read while the call waited for its answer (a turn or a
+                        // retry starting) breaks the streak as one read here would.
+                        let before = conn.handled;
+                        let settled = chat_settled(app, conn).await? && conn.handled == before;
+                        if (settled && settled_once) || now() > GIVE_UP {
                             return Ok(());
                         }
-                        // A fault may still hide the daemon: drop this connection, open another.
-                        return Err(e);
+                        settled_once = settled;
                     }
                     Err(e) => return Err(e),
                 }

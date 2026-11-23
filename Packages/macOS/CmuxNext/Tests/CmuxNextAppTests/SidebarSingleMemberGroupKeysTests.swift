@@ -37,7 +37,6 @@ import Testing
 
     static func close(_ sidebar: SidebarView, _ window: NSWindow) {
         sidebar.list.groupEditor.hide()
-        sidebar.list.groupEditor.bubble?.close()
         window.close()
     }
 

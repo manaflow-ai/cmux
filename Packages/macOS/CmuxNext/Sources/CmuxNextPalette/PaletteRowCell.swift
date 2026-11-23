@@ -30,6 +30,24 @@ final class PaletteKeycapsView: NSView {
         return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
     }
 
+    /// Where `cap` draws in `rect` (flipped), on the pixel grid. Its ink is centered left to right. Up and
+    /// down, a symbol key (↩ ⇥ ⌘ ⌥ ⇧ ⌫, arrows) centers its own ink: centered by its line box, ↩ and ⇥ drew
+    /// below the middle of the cap and of the text beside it (#48512). Letters, digits and punctuation
+    /// center the font's capitals instead, so "," "'" "." and "_" keep their height on the line.
+    private func baseline(of cap: String, in rect: NSRect) -> NSPoint {
+        let font = Typography.shortcut
+        let unbounded = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        // Measured from the baseline, y up.
+        let ink = (cap as NSString).boundingRect(with: unbounded, options: [.usesDeviceMetrics], attributes: attributes)
+        let isSymbol = !cap.isEmpty && cap.unicodeScalars.allSatisfy {
+            $0.properties.generalCategory == .otherSymbol || $0.properties.generalCategory == .mathSymbol
+        }
+        let y = isSymbol && !ink.isEmpty ? rect.midY + ink.midY : rect.midY + font.capHeight / 2
+        let x = ink.isEmpty ? rect.midX - (cap as NSString).size(withAttributes: attributes).width / 2 : rect.midX - ink.midX
+        let scale = window?.backingScaleFactor ?? 2
+        return NSPoint(x: (x * scale).rounded() / scale, y: (y * scale).rounded() / scale)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
@@ -41,8 +59,7 @@ final class PaletteKeycapsView: NSView {
                 Palette.hoverFill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
                 let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                text.draw(with: NSRect(origin: baseline(of: cap, in: rect), size: .zero), options: [], attributes: attributes)
                 x += width + Metrics.space1
             }
         }
@@ -54,7 +71,7 @@ final class PaletteKeycapsView: NSView {
 /// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
 /// at once.
 final class PaletteTableRowView: NSTableRowView {
-    private let fill = CALayer()
+    let fill = CALayer()
     private var fadesNextFill = false
 
     override func prepareForReuse() {
@@ -100,6 +117,8 @@ final class PaletteTableRowView: NSTableRowView {
     override func layout() {
         super.layout()
         fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+        // Read again here, so a density change while the palette is open reshapes a reused row.
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
@@ -121,7 +140,7 @@ final class PaletteRowCell: NSTableCellView {
     private let icon = NSImageView()
     let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
-    private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
+    let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keycaps = PaletteKeycapsView()
     /// An on/off command's state (``PaletteItem/toggleState``), left of the keycaps.
@@ -130,6 +149,8 @@ final class PaletteRowCell: NSTableCellView {
     private var titleText = ""
     private var titleFace: NSFont?
     private var highlights: [Int] = []
+    private var subtitleText = ""
+    private var subtitleHighlights: [Int] = []
     private var isSelected = false
     private var swatches: [ThemeRGB] = []
     private var ball: PaletteBall?
@@ -138,6 +159,8 @@ final class PaletteRowCell: NSTableCellView {
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
+        // Its text's right end is the row's right edge, where a key would end.
+        accessory.alignment = .right
         subtitle.lineBreakMode = .byTruncatingMiddle
         [icon, swatch, title, subtitle, accessory, toggleBadge, keycaps].forEach(addSubview)
     }
@@ -165,12 +188,16 @@ final class PaletteRowCell: NSTableCellView {
         titleText = item.title
         titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
-        applyColors()
         // A reused cell can come from before a text size change.
         subtitle.refreshFont()
         accessory.refreshFont()
-        subtitle.stringValue = item.subtitle ?? ""
+        subtitleText = item.subtitle ?? ""
+        subtitleHighlights = item.subtitleHighlights
+        // A snippet keeps its start, where its words are; a path keeps both ends.
+        subtitle.lineBreakMode = subtitleHighlights.isEmpty ? .byTruncatingMiddle : .byTruncatingTail
         subtitle.isHidden = item.subtitle == nil
+        // After the subtitle's text: a snippet draws its words emphasized there.
+        applyColors()
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
@@ -206,6 +233,11 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights, face: titleFace)
+            if subtitleHighlights.isEmpty {
+                subtitle.stringValue = subtitleText
+            } else {
+                subtitle.attributedStringValue = Self.highlightedSubtitle(subtitleText, subtitleHighlights)
+            }
             swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches
         }
     }
@@ -217,7 +249,8 @@ final class PaletteRowCell: NSTableCellView {
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
         swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
-        var right = bounds.maxX - padding
+        // Keys and kind labels end on the panel's one right edge, the field's hint's too.
+        var right = bounds.maxX - PaletteLayout.trailingInset
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
@@ -232,9 +265,10 @@ final class PaletteRowCell: NSTableCellView {
         }
         if !accessory.isHidden {
             let width = min(PaletteText.fittingWidth(accessory), bounds.width / 4)
-            right -= width
-            accessory.frame = centered(x: right, width: width, field: accessory)
-            right -= Metrics.space4
+            // The cell draws its text inset from the frame; the frame goes past the edge by that inset.
+            let inset = PaletteText.textInset(accessory)
+            accessory.frame = centered(x: right + inset - width, width: width, field: accessory)
+            right -= width - inset + Metrics.space4
         }
         let left = icon.frame.maxX + Metrics.space4
         let available = max(0, right - left)
@@ -249,6 +283,26 @@ final class PaletteRowCell: NSTableCellView {
     private func centered(x: CGFloat, width: CGFloat, field: NSTextField) -> NSRect {
         let height = PaletteText.height(field)
         return pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
+    }
+
+    /// A subtitle snippet with the words it was found by in full label color and a heavier weight,
+    /// the rest in the subtitle's own tone. theme-scoped: called inside `performWithTheme`.
+    static func highlightedSubtitle(_ text: String, _ positions: [Int]) -> NSAttributedString {
+        let font = Typography.caption
+        let result = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: Palette.textSecondary])
+        let emphasized: [NSAttributedString.Key: Any] = [
+            .font: Typography.system(.default, size: font.pointSize, weight: .semibold), .foregroundColor: Palette.textPrimary,
+        ]
+        let wanted = Set(positions)
+        var utf16Offset = 0
+        for (offset, scalar) in text.unicodeScalars.enumerated() {
+            let length = scalar.utf16.count
+            if wanted.contains(offset) {
+                result.addAttributes(emphasized, range: NSRange(location: utf16Offset, length: length))
+            }
+            utf16Offset += length
+        }
+        return result
     }
 
     /// Matched characters in full label color and the emphasized weight; the

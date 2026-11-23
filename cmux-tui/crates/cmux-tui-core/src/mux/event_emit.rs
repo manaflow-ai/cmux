@@ -3,6 +3,12 @@
 use super::*;
 
 impl Mux {
+    /// The revision of what `list-workspaces` shows (`list-workspaces-known-v1`,
+    /// mux/tree_revision.rs). Read it before reading the tree.
+    pub(crate) fn tree_revision(&self) -> String {
+        self.tree_revision.current()
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
@@ -86,6 +92,9 @@ impl Mux {
         ) {
             self.respawn_gate.wake_waiters();
         }
+        if tree_revision::changes_tree(&event) {
+            self.tree_revision.bump();
+        }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
@@ -129,7 +138,7 @@ impl Mux {
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
         for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
+            self.emit(MuxEvent::terminal_title(placement, title.clone()));
         }
     }
 
@@ -192,11 +201,17 @@ impl Mux {
 
     pub(super) fn emit_committed_workspace_delta(
         &self,
-        _registry: &WorkspaceRegistry,
-        delta: TreeDelta,
+        registry: &WorkspaceRegistry,
+        mut delta: TreeDelta,
         selection_resync: bool,
     ) {
         debug_assert!(delta.workspace_revision.is_some());
+        // One read per delta, here, instead of one per subscriber in
+        // `tree_delta_json`. A failed read leaves the fields out, as before.
+        delta.mutation = delta
+            .workspace_revision
+            .and_then(|revision| registry.event_mutation(revision).ok().flatten())
+            .map(|(origin, mutation_id)| Arc::new(DeltaMutation { origin, mutation_id }));
         self.emit_tree_delta(delta, selection_resync);
     }
 
@@ -229,6 +244,8 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {

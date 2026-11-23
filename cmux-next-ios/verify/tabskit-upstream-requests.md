@@ -1,5 +1,11 @@
 # Proposed CmuxTabsKit changes for the tabs-kit owner
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 cmux-next-ios uses `Packages/iOS/CmuxTabsKit` exactly as `origin/feat-cmux-next-tabs-kit`
 ships it (52bf6989026d when this was written). We do not patch the package. These
 are proposals only; nothing was pushed to `feat-cmux-next-tabs-kit`.

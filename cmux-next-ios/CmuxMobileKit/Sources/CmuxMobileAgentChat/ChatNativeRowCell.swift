@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import UIKit
+import UniformTypeIdentifiers
 
 /// What a native row's views do with the person's input (links, copy and share of the
 /// whole message, showing a long code card in full).
@@ -195,6 +196,11 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         for index in usedLabels..<labels.count { labels[index].isHidden = true }
         for index in usedSymbols..<symbols.count { symbols[index].isHidden = true }
         for index in usedBars..<bars.count { bars[index].isHidden = true }
+        // The app's accessibility tree walks the content view's children, not the cell's own
+        // list: without this a closed disclosure read as its bare text and a chevron "Forward",
+        // no button (fleet simulator step 6e3909152bd42115b3975c3c). The cell keeps the list too,
+        // for its readers (`setFindMarked`).
+        contentView.accessibilityElements = accessibilityElements
     }
 
     override func layoutSubviews() {
@@ -269,16 +275,17 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             perform(match.hit)
             return
         }
-        if let table, !table.isHidden, let url = table.link(at: tap.location(in: table)) {
-            actions.openLink(url)
-            return
-        }
+        if let url = link(at: location) { actions.openLink(url) }
+    }
+
+    /// The link at `location` (in the content view): in a table's cell or a text run; nil elsewhere.
+    func link(at location: CGPoint) -> URL? {
+        if let table, !table.isHidden, let url = table.link(at: contentView.convert(location, to: table)) { return url }
         for label in labels where !label.isHidden {
-            let point = tap.location(in: label)
-            guard label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point) else { continue }
-            actions.openLink(url)
-            return
+            let point = contentView.convert(location, to: label)
+            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point, asDrawn: true) { return url }
         }
+        return nil
     }
 
     /// A tap region's action, from a tap or an assistive technology's activation.
@@ -330,13 +337,19 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             if !covered { items.append((label.frame, label)) }
         }
         for (index, area) in hits.enumerated() {
-            let element = ChatHitElement(accessibilityContainer: self)
+            // Hit frames are in the content view's space (offset by the margin, as the labels are).
+            let element = ChatHitElement(accessibilityContainer: contentView)
             element.accessibilityFrameInContainerSpace = area.frame
             var label = area.label
             if let file = area.file, actions.viewed.contains(file) { label += ", viewed" }
             element.accessibilityLabel = label
             element.accessibilityTraits = .button
-            if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            // A drawn disclosure is always a closed one; open, its row is SwiftUI, which says "Expanded".
+            if area.isDisclosure {
+                element.accessibilityHint = "Shows details"
+                element.accessibilityValue = "Collapsed"
+            }
+            element.accessibilityIdentifier = area.identifier
             element.activate = { [weak self] in
                 guard let self, index < self.hits.count else { return }
                 self.perform(self.hits[index].hit)
@@ -402,6 +415,9 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let layout else { return nil }
+        // A long-press on a link leads with Open Link and Copy Link (Leo, 2026-11-09: "feel like this
+        // should have a copy link button"), above the block's or message's own rows.
+        let linkRows = link(at: location).map { url in Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) } } ?? []
         var items: [UIMenuElement] = []
         switch layout.content {
         case .code(let code):
@@ -417,13 +433,38 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             items = [UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText }]
         case .drawn:
             if let menu = actions.menu {
-                guard let built = menu(pressedFile(at: location)) else { return nil }
-                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
+                let built = menu(pressedFile(at: location))
+                if built == nil && linkRows.isEmpty { return nil }
+                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: built) }
             }
             guard let message = actions.message else { return nil }
             items = Self.messageMenu(message)
         }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: items) }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: UIMenu(children: items)) }
+    }
+
+    /// `menu` with `linkRows` as its first group: the menu's own rows stay at its top level, never
+    /// folded into a submenu. `menu` itself when there are no link rows.
+    static func leading(_ linkRows: [UIMenuElement], in menu: UIMenu?) -> UIMenu {
+        guard !linkRows.isEmpty else { return menu ?? UIMenu(children: []) }
+        let links = UIMenu(options: .displayInline, children: linkRows)
+        guard let menu else { return UIMenu(children: [links]) }
+        return menu.replacingChildren([links] + menu.children)
+    }
+
+    /// A link's long-press rows: Open Link, then Copy Link, which copies its address.
+    static func linkMenu(_ url: URL, open: @escaping (URL) -> Void) -> [UIMenuElement] {
+        [
+            UIAction(title: String(localized: "mobile.agentChat.menu.openLink", defaultValue: "Open Link", bundle: .module),
+                     image: UIImage(systemName: "arrow.up.right.square")) { _ in open(url) },
+            UIAction(title: String(localized: "mobile.agentChat.menu.copyLink", defaultValue: "Copy Link", bundle: .module),
+                     image: UIImage(systemName: "link")) { _ in copyLink(url) },
+        ]
+    }
+
+    /// Puts `url` on `pasteboard` as a URL and as its address.
+    static func copyLink(_ url: URL, to pasteboard: UIPasteboard = .general) {
+        pasteboard.items = [[UTType.url.identifier: url, UTType.plainText.identifier: url.absoluteString]]
     }
 
     /// An answer block's long-press menu: the whole message, copied, selected from or shared

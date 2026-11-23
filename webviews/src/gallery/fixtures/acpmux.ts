@@ -270,7 +270,8 @@ export function fleetPeers(): Pick<AcpmuxSnapshot, "peers" | "peerKinds" | "peer
   return {
     peers: names,
     peerKinds: by((name) => (name === "Cloud machine" ? "cloud" : "ssh")),
-    peerConnected: by((name) => state(name) === "connected" || state(name) === "degraded"),
+    // acpmux says connected only once the handshake finished: a degraded link is not (peer_link.rs).
+    peerConnected: by((name) => state(name) === "connected"),
     peerStates: by(state),
   };
 }

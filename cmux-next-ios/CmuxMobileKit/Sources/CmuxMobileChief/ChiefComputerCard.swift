@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileBrowserStream
+import CmuxSpinner
 import SwiftUI
 
 /// Chief info's Computer card, in Messages' Find My slot: a "Computer"
@@ -65,7 +66,7 @@ private struct ChiefComputerScreen: View {
                     .accessibilityIdentifier("chief.settings.computer.asleep")
             case .waking:
                 VStack(spacing: 8) {
-                    ProgressView().tint(.white)
+                    CmuxSpinner(tint: .white)
                     Text(String(localized: "Waking up…"))
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.8))
@@ -121,7 +122,7 @@ private struct ChiefComputerLiveScreen: View {
                                     identifier: "chief.settings.computer.screen")
                 .allowsHitTesting(false)
             if stream.phase != .live, stream.meter.frames == 0 {
-                ProgressView().tint(.white)
+                CmuxSpinner(tint: .white)
             }
         }
         .onAppear {

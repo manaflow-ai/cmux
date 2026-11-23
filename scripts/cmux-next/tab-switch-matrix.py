@@ -20,11 +20,13 @@ Kinds: terminal, chromium, webkit, markdown, file (code editor page), chat (New 
 Usage: tab-switch-matrix.py --tag <tag> --app PATH [--kinds terminal,chromium,...] [--counts 2,10,30,60]
        [--switches 60] [--interval 0.12] [--idle 5] [--json PATH] [--out DIR] [--budget-ms 16.7]
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import classify, usage  # noqa: E402
 from bench_launch import launch_app, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--matrix", action="store_true", help="(accepted for the tab-switch-stages.py entry)")
@@ -189,7 +191,7 @@ def footprint():
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
-    time.sleep(opts.idle)  # test harness: the measurement window itself
+    time.sleep(opts.idle)  # sleep-ok: --idle, the CPU and memory measurement window itself
     wall = time.monotonic() - t0
     cpu = mem = 0.0
     by_kind = {}
@@ -254,8 +256,19 @@ def time_switches(label, step, count, profile=None):
     recorder = None
     if profile:
         recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
-                                     "--output", profile, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(4)  # test harness: the recorder attaches
+                                     "--output", profile, "--no-prompt"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, bufsize=1)
+        # The recorder attached: xctrace says it is recording ("... Ctrl-C to stop the recording"); its output drained.
+        attached = threading.Event()
+
+        def drain(stream):
+            for line in stream:
+                if "ctrl-c" in line.lower() or "starting recording" in line.lower():
+                    attached.set()
+            attached.set()  # it exited: nothing more to wait for
+        threading.Thread(target=drain, args=(recorder.stdout,), daemon=True).start()
+        if not attached.wait(30):
+            safe_print(f"note: {label}: xctrace did not say it was recording in 30 s", flush=True)
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
@@ -264,7 +277,12 @@ def time_switches(label, step, count, profile=None):
         sends.append(time.time() * 1000)
         step(index)
         time.sleep(opts.interval)  # test harness pacing: one switch per interval
-    time.sleep(0.8)  # test harness: the last commit lands
+    # The last commit landed: every switch reported (some may go untimed), then the report still.
+    if not wait_until(lambda: len((rpc("debug.tab_switch") or {}).get("switches") or []) >= count,
+                      f"{label}: {count} switches reported", timeout=5, raise_on_timeout=False):
+        safe_print(f"note: {label}: fewer than {count} switches reported after 5 s", flush=True)
+    wait_stable(lambda: rpc("debug.tab_switch") or {}, f"{label}: the switch report", timeout=10, interval=0.1,
+                raise_on_timeout=False)
     wall = time.monotonic() - t0
     profiled = None
     if recorder:
@@ -276,7 +294,7 @@ def time_switches(label, step, count, profile=None):
         try:
             profiled = profile_summary(profile, label)
         except Exception as error:  # a failed export must not lose the timings
-            print(f"profile export failed: {error!r}", flush=True)
+            safe_print(f"profile export failed: {error!r}", flush=True)
     cpu = sum(100.0 * (usage(p)[0] - start[p][0]) / (wall * 1e9) for p in kinds if start.get(p) and usage(p))
     own = rpc("debug.tab_switch", {"action": "stop"}) or {}
     rpc("debug.frames", {"action": "stop"})
@@ -298,17 +316,17 @@ def time_switches(label, step, count, profile=None):
         line["late_max"] = max(late) if late else 0
         table[kind] = line
         cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        safe_print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
-        print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
+        safe_print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
     frames = content_frames(PAGE_TABS, sends) if PAGE_TABS else []
     got = [f for f in frames if f is not None]
     content = None
     if frames:
         content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
-        print(f"  {label:<14} page content frame: {content}", flush=True)
+        safe_print(f"  {label:<14} page content frame: {content}", flush=True)
     return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
 
@@ -344,7 +362,14 @@ def scenario(kind, count, baseline):
     for _ in range(total):  # warm: every tab once
         rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
         time.sleep(0.35 if kind != "terminal" else 0.15)  # test harness: slow warm-up visit
-    time.sleep(2.0)  # test harness: pages settle
+    # The pages settled: each page tab loaded, and the strip the clicks read stays the same.
+    def loaded():
+        return all((rpc("browser.page.eval", {"tab": tab, "script": "document.readyState"}, timeout=5) or {}).get("value")
+                   == "complete" for tab in PAGE_TABS)
+    if not wait_until(loaded, f"{name}: the pages loaded", timeout=30, raise_on_timeout=False):
+        safe_print(f"note: {name}: not every page readyState complete in 30 s", flush=True)
+    wait_stable(strip_tabs, f"{name}: the tab strip after the warm-up", timeout=15, interval=0.1, reads=5,
+                raise_on_timeout=False)
     idle = footprint()
     per_tab = {"footprint_mb": round((idle["footprint_mb"] - baseline["footprint_mb"]) / count, 2),
                "cpu_percent": round((idle["cpu_percent"] - baseline["cpu_percent"]) / count, 3)}
@@ -371,7 +396,9 @@ def scenario(kind, count, baseline):
         if e2e is not None:
             row(f"{name}: {input_kind} e2e p90", f"<= {opts.budget_ms} ms", f"{e2e}", e2e <= opts.budget_ms)
     run("workspace", ws, "close")
-    time.sleep(2.0)  # test harness: the workspace's content goes
+    if not wait_until(lambda: ws not in run("workspace", "list").stdout, f"{name}: the workspace closed", timeout=15,
+                      raise_on_timeout=False):
+        safe_print(f"note: {name}: {ws} still listed 15 s after the close", flush=True)
     return result
 
 

@@ -20,10 +20,15 @@ public final class MessagesLabHomeView: NSView {
         get { projection.approvals }
         set { projection.approvals = newValue }
     }
+    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
+    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
+    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
+    /// The strings bundle this view's text was last drawn with (useStrings).
+    private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -33,7 +38,8 @@ public final class MessagesLabHomeView: NSView {
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil,
+                replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -50,6 +56,7 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         HomeApprovalRowProvider.install()
+        HomeTurnFailureRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -63,6 +70,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -121,8 +130,13 @@ public final class MessagesLabHomeView: NSView {
     /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
     private func applyZoomBounds() {
         let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
-        if bounds.size != size { setBoundsSize(size) }
-        if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        guard bounds.size != size || bounds.origin != .zero else { return }
+        // A new scale realigns the transcript's clip view to the new pixels: the model's move, not the reader's
+        // scroll (TranscriptScrollView.placing; first-run audit row 8).
+        controller.host.scrollView.placing {
+            if bounds.size != size { setBoundsSize(size) }
+            if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        }
     }
 
     public override func layout() {
@@ -174,6 +188,16 @@ public final class MessagesLabHomeView: NSView {
     public var turnProgressStyle: () -> HomeTurnProgressStyle {
         get { projection.liveLine.style }
         set { projection.liveLine.style = newValue }
+    }
+
+    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
+    /// (a channel, a DM, a Chief whose host runs elsewhere).
+    public var slashSkillCatalog: SlashSkillCatalog? {
+        get { controller.slashSkills?.catalog }
+        set {
+            guard newValue != controller.slashSkills?.catalog else { return }
+            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
+        }
     }
 
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
@@ -239,15 +263,18 @@ public final class MessagesLabHomeView: NSView {
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         let box = PaletteScope.box(for: theme)
+        // The new palette first: the appearance change below redraws every row, and in the old palette it drew each
+        // row once more in the old colours, a bitmap that could land after the new one (the light welcome in dark).
+        controller.demo?.setPalette(box)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
         if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
-        controller.demo?.setPalette(box)
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                                    fill: theme.active.fieldFill)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).
@@ -261,6 +288,34 @@ public final class MessagesLabHomeView: NSView {
         controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
 
+    /// This package's own strings bundle (every MessagesLab catalog: Localizable, AppKitNative, CmuxHome).
+    /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
+    /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
+    public static var packageStrings: Bundle { .module }
+
+    /// Every MessagesLab string (the composer's placeholder, receipts, day separators, menus, Home's
+    /// own rows) from `bundle` from now on, and this view's drawn text again in it: a host's language
+    /// switch, live. The strings bundle is one for the process; each view redraws once per bundle.
+    public func useStrings(_ bundle: Bundle) {
+        let id = ObjectIdentifier(bundle)
+        guard id != appliedStrings else { return }
+        appliedStrings = id
+        if MessagesLabLocalization.bundle !== bundle {
+            MessagesLabLocalization.bundle = bundle
+            RowBitmaps.shared.removeAll()  // row bitmaps hold the old language's words (receipts, separators)
+        }
+        guard let demo = controller.demo else { return }
+        demo.scope {
+            demo.compose.stringsChanged()
+            demo.chrome.setNeedsDisplay()
+            demo.chrome.subviews.forEach { $0.setNeedsDisplay() }
+            demo.refreshVisibleCells()
+        }
+    }
+
+    /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
+    var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
+
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
@@ -268,11 +323,24 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
-    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
-    /// id, `a12`). Nil: a click on the row opens and closes its messages.
-    public var onAgentPill: ((String) -> Void)? {
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
+    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
+    /// closes its messages.
+    public var onAgentPill: ((String, CGRect) -> Void)? {
         get { controller.onAgentPill }
         set { controller.onAgentPill = newValue }
+    }
+
+    #if DEBUG
+    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
+    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
+    #endif
+
+    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
+    /// on a queued one. None or nil: the message's own menu.
+    public var agentPillMenu: ((String) -> [NSMenuItem])? {
+        get { controller.agentPillMenu }
+        set { controller.agentPillMenu = newValue }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
@@ -347,6 +415,20 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: how far the rows are scrolled from the top of their range, in this view's points; 0 at the oldest row.
+    public var scrolledFromTop: CGFloat {
+        controller.demo.map { max(0, $0.collection.contentOffset.y - $0.minOffset) * zoom } ?? 0
+    }
+
+    /// cmux: runs when the rows' scroll position changes (what scrolls with them, Home's Set Up cmux card).
+    public var onScrolled: (() -> Void)? {
+        get { controller.onScrolled }
+        set { controller.onScrolled = newValue }
+    }
+
+    /// cmux: a wheel event over something that scrolls with the rows scrolls the rows.
+    public func scrollRows(with event: NSEvent) { controller.host.scrollView.scrollWheel(with: event) }
+
     /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
     /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
     /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
@@ -370,13 +452,6 @@ public final class MessagesLabHomeView: NSView {
             // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
             controller.host.needsLayout = true
         }
-    }
-
-    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
-    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
-    public var headerPillAccessory: NSView? {
-        get { controller.host.paneHeader.pillAccessory }
-        set { controller.host.paneHeader.pillAccessory = newValue }
     }
 
     /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
@@ -444,6 +519,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
 
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
@@ -561,6 +640,21 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
+
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
 
@@ -614,6 +708,12 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
+    /// chip added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
+    }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
         get { projection.onCancelSend }
@@ -637,9 +737,13 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
+    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
+    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
     public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
+    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
@@ -764,8 +868,9 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
     /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
-    /// Before and After; `mark` draws a box, an arrow and a word on it. False when no table has a loaded picture.
-    public func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool) -> Bool {
+    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
+    /// or `after`) set the comparison. False when no table has a loaded picture.
+    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
         guard let store = controller.store else { return false }
         for m in store.state.conversation.messages.reversed() {
             for part in m.parts {
@@ -781,6 +886,8 @@ public final class MessagesLabHomeView: NSView {
                     guard let viewer else { return }
                     await viewer.loaded()
                     if compare { viewer.handle(.compare) }
+                    if let style { viewer.showCompareStyle(style) }
+                    if let show { viewer.handle(show) }
                     if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
                         viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
                         viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))

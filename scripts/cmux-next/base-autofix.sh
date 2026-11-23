@@ -50,7 +50,17 @@
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
-#     (Native/OptChat; unless --no-fmt).
+#     (Native/OptChat; unless --no-fmt);
+#   - Cargo locks: every tracked Cargo.lock that no longer matches its
+#     workspace's manifests is rewritten with `cargo update --workspace` (only
+#     what the manifests now need; scripts/cmux-next/cargo-locks.py fix; with
+#     --locks). A manifest change in one workspace leaves another workspace's
+#     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
+#     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
+#     request until #40883. Only Cargo.lock files are written.
+#   - undeclared pull request jobs: each job no router declares its inputs to is
+#     recorded as runs-always in scripts/ci/job-inputs-always.json
+#     (scripts/ci/job_inputs.py fix; with --job-inputs). Only that file is written.
 # Dependency order: the docs shortcuts and app-host files are rewritten from
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
@@ -68,10 +78,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 job_inputs=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -87,11 +97,13 @@ while (( $# > 1 )); do
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
+    --locks) locks=1; shift ;;
+    --job-inputs) job_inputs=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -117,6 +129,43 @@ if [[ -n "$generated" && -d "$generated" ]]; then
     cp "$file" "$repo/$rel"
     echo "fixed: regenerated $rel"
   done < <(find "$generated" -type f -print0 | sort -z)
+fi
+
+# 1a. Re-pin markers the regenerated action exports settled. A marker under the action catalog's
+# tests/awaiting-repin/ says the pinned app FFI does not match the crate yet (swift_parity.rs); once the
+# re-pin lands, the regenerated exports carry the change and swift_parity fails until the marker goes.
+# The re-pin rarely deletes it, so the exports could never land and every base autofix run failed in its
+# test step for hours on 11-21 (debug.envSecretsPlayground): an actions/<id> marker goes when both
+# exports have the id, a removal/<id> marker when neither does. Only with both exports regenerated here.
+markers=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+if [[ -n "$generated" && -f "$generated/plans/cmux-next/action-surfaces.json" && -f "$generated/plans/cmux-next/action-catalog.json" && -d "$repo/$markers" ]]; then
+  while IFS= read -r stale; do
+    [[ -n "$stale" ]] || continue
+    if frozen "$stale"; then echo "skipped (frozen): $stale"; continue; fi
+    rm -f "$repo/$stale"
+    echo "fixed: deleted $stale (the regenerated exports carry the re-pin)"
+  done < <(python3 -I - "$repo" "$markers" <<'PY'
+import json, os, sys
+repo, markers = sys.argv[1], sys.argv[2]
+ids = []
+for name in ("action-surfaces.json", "action-catalog.json"):
+    try:
+        with open(os.path.join(repo, "plans/cmux-next", name)) as f:
+            rows = json.load(f)["actions"]
+        ids.append({row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)})
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(0)  # an export that is not the real shape: settle nothing
+def marked(kind):
+    d = os.path.join(repo, markers, kind)
+    return sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []
+for id in marked("actions"):
+    if all(id in s for s in ids):
+        print(f"{markers}/actions/{id}")
+for id in marked("removal"):
+    if not any(id in s for s in ids):
+        print(f"{markers}/removal/{id}")
+PY
+  )
 fi
 
 # 1b. The CI target graph, from the checkout's own generator.
@@ -214,6 +263,33 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; the
   fi
 fi
 
+# 1e1'. The settings reference follows the settings schema alone, so it is made on every run whose
+# settings exports are current, like the defaults snapshot (1e3), and not only with --docs-shortcuts:
+# a settings-only change (971deafbe988, #41212) had its schema regenerated by 53139ac8c0cc while
+# web/data/next-docs/settings-reference.generated.json stayed stale and web tests went red on
+# feat-cmux-next. It reads only the committed (or just copied) schema, so a run is cheap and a
+# current reference is left as it is. The run has bun when this run regenerated exports
+# (cmux-next-base-autofix.yml's Setup Bun step).
+settings_reference=web/data/next-docs/settings-reference.generated.json
+if (( !docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" && -f "$repo/schemas/settings/settings-schema.json" ]]; then
+  if (( unverified_settings )); then
+    echo "left: $settings_reference (waits for the settings exports; their Mac job did not regenerate them)"
+  elif ! command -v bun >/dev/null 2>&1; then
+    echo "left: $settings_reference (no bun on this runner; bun web/scripts/export-next-docs.ts --settings)"
+  else
+    before="$(cksum < "$repo/$settings_reference" 2>/dev/null || true)"
+    (cd "$repo" && bun web/scripts/export-next-docs.ts --settings >/dev/null)
+    if [[ "$before" != "$(cksum < "$repo/$settings_reference")" ]]; then
+      if frozen "$settings_reference"; then
+        git -C "$repo" checkout --quiet -- "$settings_reference" 2>/dev/null || rm -f "$repo/$settings_reference"
+        echo "skipped (frozen): $settings_reference (stale; bun web/scripts/export-next-docs.ts --settings)"
+      else
+        echo "fixed: regenerated $settings_reference"
+      fi
+    fi
+  fi
+fi
+
 # 1e2. The app-host generated files, from the same export and the operation catalogs.
 app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
 if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
@@ -270,6 +346,11 @@ elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
   fi
 fi
 
+# 1e4. (The display suite list: derived from the suites' display skip traits wherever it is read
+# (scripts/ci/display_suites.py), never committed, so there is nothing to regenerate. A committed copy
+# went stale on every pull request that added a display test, since generated_files_guard.py refuses a
+# new committed generated file, and on base until this step ran: 8d01c87e13c, #38773, #39410, #41801.)
+
 # 1f. Stale namespace ratchet rows. The update only drops fixed or gone
 # entries, never adds one; the lint's other findings are left to their PRs.
 ratchet=scripts/lint-namespace-types-ratchet.txt
@@ -289,6 +370,8 @@ fi
 # token, so one that lands with a new finding turns package-conventions-lint red
 # on every later base push (#28989, #28136). The fixer only rewrites reported
 # findings, never a baselined or ratcheted type; a frozen file is put back.
+# The rewrites never land on the base from the push: base-autofix-land.sh sends them to a pull
+# request, whose CI compiles them (8f33d7030473 broke the Release compile by landing one).
 if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
   # Swift files an earlier step already changed keep their contents from before the fixer, so a
   # frozen one is put back to them and a rewrite in the rest is still reported.
@@ -402,5 +485,26 @@ if (( fmt )); then
     after="$(git -C "$repo" status --porcelain -- "$crate")"
     [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in $crate"
   done
+fi
+
+# 5. Cargo locks (scripts/cmux-next/cargo-locks.py): a lock is never frozen, and the fixer writes only Cargo.lock files.
+if (( locks )); then
+  if command -v cargo >/dev/null 2>&1; then
+    python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
+  else
+    echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 6. Undeclared pull request jobs (scripts/ci/job_inputs.py fix): a job no router declares is recorded in
+# scripts/ci/job-inputs-always.json as running on every pull request, with the paths its steps read, never refused.
+# The fixer writes only that file. Leo, 2026-11-21: "we have auto fixers and we have the fucking like proper fucking
+# routers ourselves."
+if (( job_inputs )) && [[ -f "$script_dir/../ci/job_inputs.py" ]]; then
+  if out="$(python3 -I "$script_dir/../ci/job_inputs.py" --root "$repo" fix 2>&1)"; then
+    sed -n 's/^added: \(.*\)/fixed: recorded \1 as runs-always in scripts\/ci\/job-inputs-always.json/p; s/^dropped: \(.*\)/fixed: dropped \1 from scripts\/ci\/job-inputs-always.json/p' <<<"$out"
+  else
+    echo "left: job_inputs.py fix failed: $(tail -n 1 <<<"$out")"
+  fi
 fi
 exit 0

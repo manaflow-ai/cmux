@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -23,6 +23,9 @@ use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
+// The daemon's deadlines (resume lease, pending link groups) are tokio's, as the timers that
+// end them are, so they hold on a paused or test clock too.
+use tokio::time::Instant;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
@@ -38,7 +41,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
 use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
@@ -154,6 +157,12 @@ pub struct ServerConnection {
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
+    /// When the connection opened; [`Self::input_at_ms`] counts from it.
+    opened: Instant,
+    /// Milliseconds after [`Self::opened`] of the last client frame
+    /// [`Self::receive`] delivered (not connection control): the snapshot's
+    /// `input_idle_ms`. One relaxed store per frame.
+    input_at_ms: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -328,6 +337,8 @@ impl ServerConnection {
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
+            opened: Instant::now(),
+            input_at_ms: AtomicU64::new(0),
         })
     }
 
@@ -354,7 +365,14 @@ impl ServerConnection {
             resume_lease_remaining_ms,
             lane_bindings: diagnostics.lane_bindings.clone(),
             physical_link_count: diagnostics.lane_bindings.len(),
+            input_idle_ms: Some(
+                self.opened_ms().saturating_sub(self.input_at_ms.load(Ordering::Relaxed)),
+            ),
         }
+    }
+
+    fn opened_ms(&self) -> u64 {
+        self.opened.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub async fn send(
@@ -412,9 +430,13 @@ impl ServerConnection {
                     if let Some(expected) = expected_generation {
                         return Err(DaemonError::Generation { expected, actual });
                     }
-                    // The failed send retained this reliable frame. Reconnect
-                    // replayed it with the original application sequence.
-                    return Ok(sequence);
+                    // A failed send the old session took (its sequence was used) was retained,
+                    // and reconnect replayed it with the original sequence. A send that found
+                    // the old session already closed took nothing: send it on the replacement,
+                    // or it is lost and the next frame takes its sequence.
+                    if self.session.read().await.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -430,7 +452,10 @@ impl ServerConnection {
             let generation = session.generation();
             match session.receive().await {
                 Ok(Some(frame)) => match self.handle_connection_control(&frame).await? {
-                    ConnectionControlAction::Deliver => return Ok(Some(frame)),
+                    ConnectionControlAction::Deliver => {
+                        self.input_at_ms.store(self.opened_ms(), Ordering::Relaxed);
+                        return Ok(Some(frame));
+                    }
                     ConnectionControlAction::Continue => continue,
                     ConnectionControlAction::Close => return Ok(None),
                 },
@@ -990,6 +1015,14 @@ impl RemoteDaemon {
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
         drop(state);
+        // Every lane is in: the grant that formed this group admits nothing
+        // more, also once this session closes.
+        self.auth.seal_grant_link_group(
+            &key.device_id,
+            key.session,
+            accepted.generation,
+            accepted.connection_attempt,
+        );
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
         lane_bindings
@@ -1146,7 +1179,7 @@ impl RemoteDaemon {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until(deadline.into()).await;
+            tokio::time::sleep_until(deadline).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
@@ -1165,7 +1198,7 @@ impl RemoteDaemon {
     ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
+            tokio::time::sleep_until(created_at + PENDING_LINK_TTL).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
             };
@@ -1593,7 +1626,7 @@ pub async fn serve_unix_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1609,7 +1642,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

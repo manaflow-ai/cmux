@@ -44,6 +44,24 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// Where the CLI with home `dir` dials its daemon, for a fixture that stands in for it: the
+/// CLI's own rule (`cmux_agent_pane_policy::environment::socket_path`), which moves a socket
+/// whose path would be 96 bytes or longer to `/tmp/acpmux-<uid>/`. Bound at `dir/acpmux.sock`
+/// instead, a fixture whose scratch path was long (a long test tag, a host's long `TMPDIR`) was
+/// never dialed: the CLI started a daemon of its own in `dir`, which knew no session.
+fn fixture_socket(dir: &Path) -> PathBuf {
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let socket = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(None, dir, uid));
+    if let Some(parent) = socket.parent().filter(|p| *p != dir) {
+        // The CLI trusts only a private alias folder (`config.rs` `socket_path_for`).
+        fs::create_dir_all(parent).unwrap();
+        fs::set_permissions(parent, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+        let _ = fs::remove_file(&socket);
+    }
+    socket
+}
+
 fn cli_command(dir: &Path, args: &[&str]) -> std::process::Command {
     let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(args).env("ACPMUX_HOME", dir).env("ACPMUX_LOGIN_ENV", "0").current_dir(dir.join("p"));
@@ -505,7 +523,7 @@ fn a_thought_after_the_reply_does_not_print_the_reply_twice() {
 fn no_wait_lost_acceptance_keeps_the_generated_recovery_identity() {
     let dir = scratch("outbox-close");
     std::os::unix::fs::symlink(dir.join("outside"), dir.join("daemon.log")).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -652,7 +670,7 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
     };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let dir = scratch(&format!("deadline-{phase}-{mode}"));
-    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = tokio::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let cancels = Arc::new(AtomicUsize::new(0));
     let observed_cancels = cancels.clone();
     let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -829,7 +847,7 @@ async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, 
     };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let dir = scratch(&format!("wire-{phase}-{quiet}"));
-    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = tokio::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let prompts = Arc::new(AtomicUsize::new(0));
     let count = prompts.clone();
     let server = tokio::spawn(async move {

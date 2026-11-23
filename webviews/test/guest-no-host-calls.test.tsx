@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/g/c2hhcmUtMTIzNDU2Nzg",
@@ -112,7 +113,9 @@ win.cmuxAcpmuxActions = new Proxy({}, { get: (_, name) => spy(`actions.${String(
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { GuestPage } = await import("../src/agent-session/guest/GuestPage");
+const { GuestPage, loadGuestTranscript } = await import("../src/agent-session/guest/GuestPage");
+// The transcript is its own chunk (GuestTranscript.tsx); load it once so the room's frames draw at once.
+await loadGuestTranscript();
 const { installGuestHost } = await import("../src/agent-session/guest/guestHost");
 const { setChipHost, callChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { setNativeHost, postNative } = await import("../src/agent-session/acpmux/native");
@@ -120,19 +123,19 @@ const { setMessageMenuSource, installMessageMenuReporter } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/ShellRow");
+const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/shellRowModel");
 const { SubagentNavContext, SubagentPaneContext, SubagentStopContext } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+  await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
 const { RunInBackgroundContext } = await import("../src/agent-session/acpmux/conversation/runInBackground");
 const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
-const { StartedMentionsContext } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
+const { StartedMentionsContext } = await import("../src/agent-session/acpmux/started/startedSessionCardModel");
 const { AvatarContext } = await import("../src/pages/home-channels/avatars");
 const { askingRecords, fakeRoom, joinFrames, memoryStorage } =
   await import("../src/agent-session/guest/fixtures/liveChat");
 
-afterAll(() => {
+afterAll(async () => {
   // Bun shares modules across test files: put every host and transport back as the pane has them.
   removeReporter();
   setNativeHost(undefined);
@@ -140,11 +143,7 @@ afterAll(() => {
   setBookmarkTransport(undefined);
   setMessageMenuSource(undefined);
   timers.clear();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test("the guest host routes nothing to the app: native, chip and action calls all refuse", async () => {
@@ -412,6 +411,8 @@ test("the guest page itself, joined and live, reaches no host and no owner actio
         <GuestPage
           shareId="c2hhcmUtMTIzNDU2Nzg"
           guestId="g1"
+          // A talk guest (a plain `role` prop reads as an ARIA role to the linter).
+          {...{ role: "talk" as const }}
           storage={memoryStorage()}
           redeem={() => new Promise(() => undefined)}
           attempt={() => "0".repeat(32)}

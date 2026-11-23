@@ -6,6 +6,7 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { Freestyle } from "freestyle";
+import { installCapacityRetry } from "./capacity";
 import { guestShellProblems } from "./shell-check";
 
 export const BUILD_ENV = {
@@ -33,10 +34,11 @@ export function freestyleApiKey(env: Record<string, string | undefined> = proces
   throw new Error("set FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE");
 }
 
+/** The image scripts' client; a capacity answer to any of its calls is retried (capacity.ts). */
 export function freestyleClient(): Freestyle {
   const apiKey = freestyleApiKey();
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  return new Freestyle({ apiKey, baseUrl });
+  return installCapacityRetry(new Freestyle({ apiKey, baseUrl }));
 }
 
 export type Vm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];
@@ -133,12 +135,29 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
   return { vm, vmId, createMs, t0 };
 }
 
-export async function deleteVm(vm: Vm, vmId: string, name: string, ledger: Ledger): Promise<void> {
-  try {
-    await vm.delete();
-  } catch (error) {
-    // A prior delete may have succeeded before its response was lost.
-    if ((error as { status?: unknown } | null)?.status !== 404) {
+/** Waits before each retry of a delete the provider answered 5xx: 4 tries over 35 s. */
+export const DELETE_RETRY_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000];
+
+// A provider 5xx on delete (run 44112930938: 503 INTERNAL_ERROR after a smoke whose checks all passed) is
+// retried: a delete is idempotent, and 404 below already reads a lost success as gone. Any other error, and a
+// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before.
+export async function deleteVm(
+  vm: Vm, vmId: string, name: string, ledger: Ledger,
+  deps: { sleep?: (ms: number) => Promise<unknown>; delaysMs?: readonly number[] } = {},
+): Promise<void> {
+  const delays = deps.delaysMs ?? DELETE_RETRY_DELAYS_MS;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await vm.delete();
+      break;
+    } catch (error) {
+      const status = (error as { status?: unknown } | null)?.status;
+      // A prior delete may have succeeded before its response was lost.
+      if (status === 404) break;
+      if (typeof status === "number" && status >= 500 && attempt < delays.length) {
+        await (deps.sleep ?? sleep)(delays[attempt]);
+        continue;
+      }
       ledger.record(vmId, "vm", name, `delete-failed ${String(error).slice(0, 80)}`);
       throw error;
     }

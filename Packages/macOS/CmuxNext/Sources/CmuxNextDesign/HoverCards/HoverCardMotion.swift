@@ -62,11 +62,12 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     ///   - panel: The card window.
     ///   - placement: Where the card sits relative to its target.
     ///   - leading: The card sits left of its target (see ``entryVector(for:leading:)``).
+    ///   - slides: false fades the card in where it rests (a tab card's `.fade` and `.morph` entrances).
     @MainActor
-    public func enter(_ panel: NSWindow, placement: HoverCardPlacement, leading: Bool = false) {
+    public func enter(_ panel: NSWindow, placement: HoverCardPlacement, leading: Bool = false, slides: Bool = true) {
         Motion.withoutAnimation { panel.animator().alphaValue = 0 }
         panel.orderFront(nil)
-        if let layer = panel.contentView?.layer {
+        if slides, let layer = panel.contentView?.layer {
             let offset = entryVector(for: placement, leading: leading)
             Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
                        from: NSValue(caTransform3D: CATransform3DMakeTranslation(offset.dx, offset.dy, 0)))

@@ -7,7 +7,14 @@
 // one. Add account (Codex and Claude) signs in a new login in a folder of its own (for Codex a shadow
 // home that shares settings and chats with the CLI's), or adds an API key by its secret reference.
 // An account whose plan usage was read when Settings opened shows its 5-hour and weekly limits under
-// it, in the composer ring's plan usage card (PlanUsageCardBody).
+// it, in the composer ring's plan usage card (PlanUsageCardBody); a signed-out one shows none, since
+// usage read before a sign-out no longer belongs to anyone signed in. Remove runs on the click: it
+// takes the account out of cmux's list, and its login folder (or its key) and the CLI's own sign-in
+// stay where they are.
+// Sign In and a new login's Add account use the in-place sign-in card (`signIn`, from the harness
+// row, on a host that signs in in place; logins done right, Leo 2026-11-22: "this is simply logins,
+// done righr."): the code and the provider's page instead of a terminal tab. Without it, or with a
+// daemon that has no `_acpmux/account/sign_in`, the same gestures open the terminal tab as before.
 import { useId, useState } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
@@ -16,8 +23,10 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
-import type { HarnessesRun, ProviderAccount } from "../ops";
+import { SETTINGS_SENTENCES, type HarnessesRun, type ProviderAccount } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { t } from "../strings";
+import type { SettingsSignIn } from "./useSettingsSignIn";
 
 /** The families whose accounts Settings can add (a login folder per account, or an API key). */
 const ADDABLE: Record<string, string> = { codex: "ChatGPT", claude: "Claude" };
@@ -54,11 +63,14 @@ function AccountRow({
   all,
   run,
   busy,
+  signIn,
 }: {
   account: ProviderAccount;
   all: ProviderAccount[];
   run(gesture: HarnessesRun): void;
   busy: boolean;
+  /** The row's in-place sign-in (the card under the harness row); none: the terminal tab. */
+  signIn?: SettingsSignIn;
 }) {
   const nameId = useId();
   const switchId = useId();
@@ -151,7 +163,11 @@ function AccountRow({
               data-account-action="signIn"
               aria-describedby={nameId}
               disabled={busy}
-              onClick={() => run({ action: "accountSignIn", account: account.id })}
+              onClick={() => {
+                const inTerminal = () => run({ action: "accountSignIn", account: account.id });
+                if (signIn && cardFamily(account.family)) signIn.begin(account.family, account.id, inTerminal);
+                else inTerminal();
+              }}
             >
               {t("settingsWindow.harnesses.signIn")}
             </Button>
@@ -182,7 +198,7 @@ function AccountRow({
             </Button>
           )}
         </div>
-        {account.usage && (
+        {account.usage && account.signedIn && (
           <div className="harness-account-usage" data-account-usage="">
             {/* No family: the card's usage-page link opens through the agent pane's browser, which
                 Settings does not have. */}
@@ -205,18 +221,21 @@ function AccountRow({
   );
 }
 
-/** Add account: a new login in a folder of its own (its sign-in opens in a terminal tab), or an API key
+/** Add account: a new login in a folder of its own (its sign-in shows in the card, else a terminal tab), or an API key
  * by its secret reference (`keychain:NAME`, `env:VAR`, `file:/path`; acpmux refuses a pasted key). */
 function AddAccountForm({
   family,
   busy,
   run,
   onDone,
+  signIn,
 }: {
   family: string;
   busy: boolean;
   run(gesture: HarnessesRun): Promise<boolean>;
   onDone(): void;
+  /** A new login signs in in the card (the daemon makes its folder and lists it once signed in). */
+  signIn?: SettingsSignIn;
 }) {
   const wayId = useId();
   const nameId = useId();
@@ -231,6 +250,11 @@ function AddAccountForm({
     const gesture: HarnessesRun = { action: "accountAdd", family, way };
     if (name.trim()) gesture.name = name.trim();
     if (way === "key") gesture.secret = secret.trim();
+    if (way === "new" && signIn && cardFamily(family)) {
+      signIn.begin(family, null, () => void run(gesture), name);
+      onDone();
+      return;
+    }
     if (await run(gesture)) onDone();
   };
   return (
@@ -292,8 +316,22 @@ function AddAccountForm({
   );
 }
 
+/** Whether the in-place card signs `family`'s accounts in (Codex and Claude here). */
+function cardFamily(family: string): family is "codex" | "claude" {
+  return family === "codex" || family === "claude";
+}
+
 /** A provider's accounts, under its harness row; Codex and Claude also offer Add account. */
-export function ProviderAccounts({ family, accounts }: { family: string; accounts: ProviderAccount[] }) {
+export function ProviderAccounts({
+  family,
+  accounts,
+  signIn,
+}: {
+  family: string;
+  accounts: ProviderAccount[];
+  /** The harness row's in-place sign-in, on a host that has it. */
+  signIn?: SettingsSignIn;
+}) {
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -307,7 +345,7 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
       .then(
         () => true,
         (failure: unknown) => {
-          setError(failure instanceof Error ? failure.message : String(failure));
+          setError(userMessage(failure, SETTINGS_SENTENCES));
           return false;
         },
       )
@@ -318,7 +356,14 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
     <div className="accounts-body harness-accounts" data-harness-accounts={family}>
       <div className="row-help">{t("settingsWindow.harnesses.accounts.help")}</div>
       {accounts.map((account) => (
-        <AccountRow key={account.id} account={account} all={accounts} run={run} busy={busy} />
+        <AccountRow
+          key={account.id}
+          account={account}
+          all={accounts}
+          run={run}
+          busy={busy}
+          {...(signIn ? { signIn } : {})}
+        />
       ))}
       {family in ADDABLE && !adding && (
         <div className="accounts-buttons">
@@ -333,7 +378,15 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
           </Button>
         </div>
       )}
-      {adding && <AddAccountForm family={family} busy={busy} run={send} onDone={() => setAdding(false)} />}
+      {adding && (
+        <AddAccountForm
+          family={family}
+          busy={busy}
+          run={send}
+          onDone={() => setAdding(false)}
+          {...(signIn ? { signIn } : {})}
+        />
+      )}
       {error && (
         <div className="row-error" data-account-error="">
           {error}

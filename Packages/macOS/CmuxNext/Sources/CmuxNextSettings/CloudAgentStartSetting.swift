@@ -15,29 +15,12 @@
 /// chat for `cmux cloud start-session`). Only the person sets it (``SettingsSchema/agentRefusedKeys``): an
 /// agent's write is refused, and a managed preference (docs/mdm) may still turn it off.
 public nonisolated struct CloudAgentStartSetting: Sendable {
-    public static let path = ["cloud", "agentsStartWithoutAsking"]
-    public static var key: String { path.joined(separator: ".") }
-
-    /// Agents use Cloud without asking unless the person turned it off.
-    public static let defaultValue = true
+    public static var key: String { configPath.joined(separator: ".") }
 
     public init() {}
 
     /// Whether agents' Cloud creates, moves and starts run without asking; a missing or non-boolean value is the default, on.
     public func delegated(in root: JSONValue) -> Bool {
-        root.value(at: Self.path)?.boolValue ?? Self.defaultValue
-    }
-
-    static var descriptors: [SettingDescriptor] {
-        [
-            SettingDescriptor(
-                path, section: .machines, group: SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces"),
-                title: SettingsText.keyed("settings.cloud.agentsStartWithoutAsking", "Let Agents Use Cloud Without Asking"),
-                help: SettingsText.keyed("settings.cloud.agentsStartWithoutAsking.help",
-                                         "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this."),
-                kind: .toggle, default: .bool(Self.defaultValue),
-                keywords: ["cloud", "vm", "machine", "agent", "start", "session", "create", "new machine", "move", "ask", "approve", "permission", "bypass", "without asking", "delegate"]
-            ),
-        ]
+        root.value(at: Self.configPath)?.boolValue ?? Self.fallback
     }
 }

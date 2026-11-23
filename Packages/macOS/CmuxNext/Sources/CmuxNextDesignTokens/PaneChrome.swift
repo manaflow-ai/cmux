@@ -26,8 +26,9 @@ public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable 
 
     /// What `overrides` resolve to: an explicit separation, else the legacy
     /// `layout.paneBorder` (none) and padding (0 means edge to edge), else
-    /// borders when any bordered-pane key is set (padding, corner radius,
-    /// border color or width), else `unset` (`Metrics.defaultPaneSeparation`).
+    /// borders when any bordered-pane key is set (a padding above 0, border
+    /// color or width), else `unset` (`Metrics.defaultPaneSeparation`: the
+    /// `appearance.chromeStyle` one).
     public static func resolve(_ overrides: PaneChromeOverrides, unset: PaneSeparation = .borders) -> PaneSeparation {
         if let separation = overrides.separation { return separation }
         switch overrides.border {
@@ -85,12 +86,15 @@ public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
         self.borderWidth = borderWidth
     }
 
-    /// A padding, border color or border width is set: keys that only mean
-    /// something for padded, outlined panes. The corner radius is not one: it
+    /// A padding above 0, a border color or a border width is set: keys that
+    /// only mean something for padded, outlined panes. The corner radius is not one: it
     /// also rounds the curved main pane and the tabs, so setting it keeps the
     /// separation (2026-11-04, one radius for panes and tabs).
     package var describesBorderedPanes: Bool {
-        padding != nil || borderColor != nil || borderWidth != nil
+        // Zero padding is edge to edge, not a bordered pane: it leaves the separation to the
+        // chrome style (`flat` keeps its line between panes,
+        // https://github.com/manaflow-ai/cmux/issues/37425).
+        (padding ?? 0) > 0 || borderColor != nil || borderWidth != nil
     }
 
     public static let paddingRange: ClosedRange<CGFloat> = 0...16

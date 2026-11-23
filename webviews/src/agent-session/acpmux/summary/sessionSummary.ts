@@ -6,6 +6,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpIsObservational, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
+import { PrefixFlatCache, type PrefixFlat } from "../conversation/prefixFlatMap";
 import {
   pullRequestSourceCommand,
   transcriptPullRequests,
@@ -111,40 +112,49 @@ const SCHEDULING = /^(ScheduleWakeup|CronCreate)\b/;
 /// wakeup, when it is due; a cron job a later CronDelete named carries when it was removed. A
 /// failed call is kept, marked, so it reads as failed rather than ahead (session-info/scheduled.ts).
 function scheduled(all: readonly Tool[]): SummaryWakeup[] {
+  return scheduledFrom(
+    all.filter((tool) => SCHEDULING.test(tool.title)),
+    all.filter((tool) => CRON_DELETE.test(tool.title)),
+  );
+}
+
+const CRON_DELETE = /^CronDelete\b/;
+
+/// `scheduled` over the calls already picked out: the scheduling calls and the CronDelete calls, in
+/// transcript order.
+function scheduledFrom(scheduling: readonly Tool[], cronDeletes: readonly Tool[]): SummaryWakeup[] {
   // CronDelete names the job by the id its CronCreate's result printed.
-  const deletes = all.flatMap((tool) => {
-    if (!/^CronDelete\b/.test(tool.title) || tool.status === "failed") return [];
+  const deletes = cronDeletes.flatMap((tool) => {
+    if (tool.status === "failed") return [];
     const id = field(input(tool).id);
     return id ? [{ id, at: tool.startedAt }] : [];
   });
-  return all
-    .filter((tool) => SCHEDULING.test(tool.title))
-    .map((tool): SummaryWakeup => {
-      const fields = input(tool);
-      const kind = tool.title.startsWith("ScheduleWakeup") ? "wakeup" : "cron";
-      const delay = typeof fields.delaySeconds === "number" ? fields.delaySeconds : undefined;
-      const startedAt = tool.startedAt;
-      const dueAt =
-        kind === "wakeup" && startedAt !== undefined && delay !== undefined && Number.isFinite(delay)
-          ? startedAt + Math.min(WAKEUP_DELAY_SECONDS.max, Math.max(WAKEUP_DELAY_SECONDS.min, delay)) * 1000
-          : undefined;
-      const output = tool.output ?? "";
-      const deleted =
-        kind === "cron" && output
-          ? deletes.find((entry) => new RegExp(`(^|[^\\w-])${escapeRegExp(entry.id)}($|[^\\w-])`).test(output))
-          : undefined;
-      return {
-        id: tool.id,
-        text: field(fields.reason) ?? field(fields.prompt) ?? tool.title,
-        kind,
-        ...(field(fields.cron) ? { cron: field(fields.cron) } : {}),
-        ...(startedAt !== undefined ? { startedAt } : {}),
-        ...(dueAt !== undefined ? { dueAt } : {}),
-        ...(typeof fields.recurring === "boolean" ? { recurring: fields.recurring } : {}),
-        ...(deleted ? { cancelledAt: deleted.at ?? startedAt ?? 0 } : {}),
-        ...(tool.status === "failed" ? { failed: true as const } : {}),
-      };
-    });
+  return scheduling.map((tool): SummaryWakeup => {
+    const fields = input(tool);
+    const kind = tool.title.startsWith("ScheduleWakeup") ? "wakeup" : "cron";
+    const delay = typeof fields.delaySeconds === "number" ? fields.delaySeconds : undefined;
+    const startedAt = tool.startedAt;
+    const dueAt =
+      kind === "wakeup" && startedAt !== undefined && delay !== undefined && Number.isFinite(delay)
+        ? startedAt + Math.min(WAKEUP_DELAY_SECONDS.max, Math.max(WAKEUP_DELAY_SECONDS.min, delay)) * 1000
+        : undefined;
+    const output = tool.output ?? "";
+    const deleted =
+      kind === "cron" && output
+        ? deletes.find((entry) => new RegExp(`(^|[^\\w-])${escapeRegExp(entry.id)}($|[^\\w-])`).test(output))
+        : undefined;
+    return {
+      id: tool.id,
+      text: field(fields.reason) ?? field(fields.prompt) ?? tool.title,
+      kind,
+      ...(field(fields.cron) ? { cron: field(fields.cron) } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      ...(dueAt !== undefined ? { dueAt } : {}),
+      ...(typeof fields.recurring === "boolean" ? { recurring: fields.recurring } : {}),
+      ...(deleted ? { cancelledAt: deleted.at ?? startedAt ?? 0 } : {}),
+      ...(tool.status === "failed" ? { failed: true as const } : {}),
+    };
+  });
 }
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -330,18 +340,25 @@ const backgroundEnds = (
 /// Shells the agent ran in the background (Claude's Bash `run_in_background`, or a call it moved
 /// there, cx-ncc.84): running until their call or a background task row says how they ended.
 function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
-  const ends = rows.flatMap(backgroundEnds);
+  return backgroundTasksFrom(all.filter(backgroundShell), rows.flatMap(backgroundEnds));
+}
+
+/// Shell calls only: a subagent's Agent call can run in the background too.
+const backgroundShell = (tool: Tool) =>
+  tool.kind === "execute" && (input(tool).run_in_background === true || !!tool.background);
+
+type BackgroundEnd = ReturnType<typeof backgroundEnds>[number];
+
+/// `backgroundTasks` over the background shells and the ends already picked out, in transcript order.
+function backgroundTasksFrom(shells: readonly Tool[], ends: readonly BackgroundEnd[]): SummaryBackgroundTask[] {
   const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
-  const launched = all
-    // Shell calls only: a subagent's Agent call can run in the background too.
-    .filter((tool) => tool.kind === "execute" && (input(tool).run_in_background === true || !!tool.background))
-    .map((tool): SummaryBackgroundTask => ({
-      id: tool.id,
-      command: field(input(tool).command) ?? tool.title,
-      ...(field(input(tool).description) ? { description: field(input(tool).description) } : {}),
-      state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
-      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
-    }));
+  const launched = shells.map((tool): SummaryBackgroundTask => ({
+    id: tool.id,
+    command: field(input(tool).command) ?? tool.title,
+    ...(field(input(tool).description) ? { description: field(input(tool).description) } : {}),
+    state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+    ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
+  }));
   // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
   // itself) is known from its end.
   const seen = new Set(launched.map((task) => task.id));
@@ -356,14 +373,46 @@ export const transcriptBackgroundTasks = (rows: readonly AcpmuxRow[]) => backgro
 
 /// The background shells and the count of scheduled wakeups in `rows`, from one pass: what Session
 /// Info's Background tasks lists from a transcript (the palette's Show Background Tasks, App.tsx).
-export function transcriptBackground(rows: readonly AcpmuxRow[]): {
-  tasks: SummaryBackgroundTask[];
-  scheduled: number;
-} {
-  const all = tools(rows);
+export function transcriptBackground(rows: readonly AcpmuxRow[]): TranscriptBackground {
+  // The pane calls this on every snapshot: only the rows after the last kept one are read again
+  // (conversation/prefixFlatMap.ts), and the same rows give the same answer back.
+  const read = backgroundReads.read(rows);
+  const kept = backgroundResults.get(read);
+  if (kept) return kept;
+  const calls = (kind: "shell" | "scheduling" | "cronDelete") =>
+    read.items.flatMap((part) => (part.kind === kind && "tool" in part ? [part.tool] : []));
+  const shells = calls("shell");
+  const ends = read.items.flatMap((part) => ("end" in part ? [part.end] : []));
+  const wakeups = scheduledFrom(calls("scheduling"), calls("cronDelete"));
   // The failed calls scheduled nothing; the ended ones still list, under "N finished".
-  return { tasks: backgroundTasks(rows, all), scheduled: scheduled(all).filter((item) => !item.failed).length };
+  const result = { tasks: backgroundTasksFrom(shells, ends), scheduled: wakeups.filter((item) => !item.failed).length };
+  backgroundResults.set(read, result);
+  return result;
 }
+
+type TranscriptBackground = { tasks: SummaryBackgroundTask[]; scheduled: number };
+
+/// What one row gives `transcriptBackground`, in its order: its background shells, its scheduling
+/// and CronDelete calls, and how a background shell ended.
+type BackgroundPart = { kind: "shell" | "scheduling" | "cronDelete"; tool: Tool } | { kind: "end"; end: BackgroundEnd };
+
+const backgroundParts = (row: AcpmuxRow): BackgroundPart[] => {
+  const parts: BackgroundPart[] = [];
+  if (row.kind === "activity")
+    for (const item of row.items ?? []) {
+      const tool = item.tool;
+      if (!tool) continue;
+      if (backgroundShell(tool)) parts.push({ kind: "shell", tool });
+      if (SCHEDULING.test(tool.title)) parts.push({ kind: "scheduling", tool });
+      if (CRON_DELETE.test(tool.title)) parts.push({ kind: "cronDelete", tool });
+    }
+  for (const end of backgroundEnds(row)) parts.push({ kind: "end", end });
+  return parts;
+};
+
+/// The last `transcriptBackground` passes (each pane reads it per snapshot) and their answers.
+const backgroundReads = new PrefixFlatCache<AcpmuxRow, BackgroundPart>((row) => backgroundParts(row));
+const backgroundResults = new WeakMap<PrefixFlat<AcpmuxRow, BackgroundPart>, TranscriptBackground>();
 
 /// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
 export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>

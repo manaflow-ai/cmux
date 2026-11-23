@@ -50,12 +50,15 @@ import Testing
                 PaneTabRowMenuItem(id: "codex", label: "Codex"),
             ]),
         ])
-        view.show(more: true, lit: false, nativeItems: [tool])
+        view.show(nativeItems: [tool])
         var invoked: (String, String?)?
         view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
+        view.layoutSubtreeIfNeeded()
+        let button = try #require(view.nativeButtons.first)
+        #expect(!button.isHidden)
         var shown: NSMenu?
-        view.moreButton.presentMenu = { menu, _ in shown = menu }
-        #expect(view.moreButton.accessibilityPerformPress())
+        button.presentMenu = { menu, _ in shown = menu }
+        #expect(button.sendAction(button.action, to: button.target))
         #expect(shown?.items.map(\.title) == ["Rename", "Continue In"])
 
         let row = try #require(shown?.items.first)
@@ -68,8 +71,8 @@ import Testing
         #expect(shown?.items.map(\.title) == ["Codex"])
     }
 
+    /// The chat's menu, last in the row (the page sends it last), keeps the tools a narrow pane hid.
     @Test func nativeChatMenuKeepsHiddenToolsReachable() throws {
-        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let chatMenu = PaneTabRowTool(id: "chat-menu", symbol: "action.more.vertical", label: "Chat menu", menu: [
             PaneTabRowMenuItem(id: "rename", label: "Rename"),
             PaneTabRowMenuItem(id: "continue", label: "Continue In", children: [
@@ -77,13 +80,18 @@ import Testing
             ]),
         ])
         let summary = PaneTabRowTool(id: "summary", symbol: "list.bullet", label: "Summary", toggled: true)
-        view.show(more: true, lit: false, nativeItems: [chatMenu, summary])
+        // Room for one button: the chat's menu, in the trailing slot.
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: PaneToolbarView.trailingGap + TitlebarBandButton.side + 2, height: 30))
+        view.show(nativeItems: [summary, chatMenu])
         var invoked: [String] = []
         view.onNativeTool = { id, _ in invoked.append(id) }
-        var shown: NSMenu?
-        view.moreButton.presentMenu = { menu, _ in shown = menu }
-        #expect(view.moreButton.accessibilityPerformPress())
+        view.layoutSubtreeIfNeeded()
         #expect(view.nativeButtons.first?.isHidden == true)
+        let button = try #require(view.nativeButtons.last)
+        #expect(!button.isHidden)
+        var shown: NSMenu?
+        button.presentMenu = { menu, _ in shown = menu }
+        #expect(button.sendAction(button.action, to: button.target))
         let menu = try #require(shown)
         #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == ["Rename", "Continue In", "Summary"])
         let row = try #require(menu.items.last)
@@ -98,8 +106,9 @@ import Testing
 
         view.setFrameSize(NSSize(width: 400, height: 30))
         view.needsLayout = true
-        #expect(view.moreButton.accessibilityPerformPress())
+        view.layoutSubtreeIfNeeded()
         #expect(view.nativeButtons.first?.isHidden == false)
+        #expect(button.sendAction(button.action, to: button.target))
         #expect(shown?.items.map(\.title) == ["Rename", "Continue In"], "visible tools are not duplicated")
     }
 
@@ -298,7 +307,7 @@ import Testing
     /// Bar: every one a standard macOS row.
     @Test func everyRowOfTheMenuIsNative() throws {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "tab0", kind: .terminal)
         let menu = try #require(toolbar.view.moreMenu?())
         let rows = menu.items.filter { !$0.isSeparatorItem }

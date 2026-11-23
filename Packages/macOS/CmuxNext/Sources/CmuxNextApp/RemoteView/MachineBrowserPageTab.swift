@@ -18,7 +18,7 @@ final class MachineBrowserPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage.icon(.browser, size: 16)
+    let favicon: NSImage? = NSImage.icon(.tabBrowser, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
@@ -171,50 +171,50 @@ final class MachineBrowserStateView: NSView {
 /// Strings of machine browser tabs (Resources/Remote.xcstrings).
 nonisolated enum MachineBrowserStrings {
     static var notReadyTitle: String {
-        String(localized: "remote.machineBrowser.notReady", defaultValue: "Not Ready", table: "Remote", bundle: .module)
+        String(localized: "remote.machineBrowser.notReady", defaultValue: "Not Ready", table: "Remote", bundle: .module.inAppLanguage)
     }
     static func notInstalled(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.notInstalled",
                               defaultValue: "The browser is not installed on %@ yet, so this tab cannot run there.",
-                              table: "Remote", bundle: .module), machine)
+                              table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func unavailable(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.unavailable",
-                              defaultValue: "Browser tabs that run on %@ are not available yet.", table: "Remote", bundle: .module), machine)
+                              defaultValue: "Browser tabs that run on %@ are not available yet.", table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.notConnected",
-                              defaultValue: "%@ is not connected.", table: "Remote", bundle: .module), machine)
+                              defaultValue: "%@ is not connected.", table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func tooOld(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.tooOld",
                               defaultValue: "cmux on %@ is too old for browser tabs. Update it, then try again.",
-                              table: "Remote", bundle: .module), machine)
+                              table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func starting(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.starting",
-                              defaultValue: "Starting the browser on %@…", table: "Remote", bundle: .module), machine)
+                              defaultValue: "Starting the browser on %@…", table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func failed(_ machine: String, _ reason: String) -> String {
         String(format: String(localized: "remote.machineBrowser.failed",
-                              defaultValue: "The browser on %1$@ did not start: %2$@", table: "Remote", bundle: .module), machine, reason)
+                              defaultValue: "The browser on %1$@ did not start: %2$@", table: "Remote", bundle: .module.inAppLanguage), machine, reason)
     }
     static func waiting(_ address: String) -> String {
         String(format: String(localized: "remote.machineBrowser.waiting",
-                              defaultValue: "%@ opens when the browser is ready.", table: "Remote", bundle: .module), address)
+                              defaultValue: "%@ opens when the browser is ready.", table: "Remote", bundle: .module.inAppLanguage), address)
     }
     static var openLocally: String {
-        String(localized: "remote.machineBrowser.openLocally", defaultValue: "Open Locally Instead", table: "Remote", bundle: .module)
+        String(localized: "remote.machineBrowser.openLocally", defaultValue: "Open Locally Instead", table: "Remote", bundle: .module.inAppLanguage)
     }
     /// The omnibar chip of a tab of another machine that runs on this Mac.
     static var thisMac: String {
-        String(localized: "remote.machineBrowser.thisMac", defaultValue: "This Mac", table: "Remote", bundle: .module)
+        String(localized: "remote.machineBrowser.thisMac", defaultValue: "This Mac", table: "Remote", bundle: .module.inAppLanguage)
     }
     /// The This Mac chip's menu item.
     static func openOn(_ machine: String) -> String {
-        String(format: String(localized: "remote.machineBrowser.openOn", defaultValue: "Open on %@", table: "Remote", bundle: .module), machine)
+        String(format: String(localized: "remote.machineBrowser.openOn", defaultValue: "Open on %@", table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static var retry: String {
-        String(localized: "remote.machineBrowser.retry", defaultValue: "Retry", table: "Remote", bundle: .module)
+        String(localized: "remote.machineBrowser.retry", defaultValue: "Retry", table: "Remote", bundle: .module.inAppLanguage)
     }
 }

@@ -5,8 +5,6 @@ public import CmuxNextDesign
 /// "#9ccfd8"}`. Tokens are `ThemeEdits.tokens`. The edits derive "Rose Pine (custom)" and never change
 /// the theme itself; removing an entry resets that token.
 public nonisolated struct ThemeEditsSetting: Sendable {
-    public let configPath = ["appearance", "themeEdits"]
-
     public init() {}
 
     /// The key of one edit.
@@ -14,8 +12,8 @@ public nonisolated struct ThemeEditsSetting: Sendable {
 
     /// A bad entry is dropped with a diagnostic at its key; the others still apply.
     func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> ThemeEdits {
-        guard let value = root.value(at: configPath) else { return .none }
-        let path = configPath.joined(separator: ".")
+        guard let value = root.value(at: Self.configPath) else { return .none }
+        let path = Self.configPath.joined(separator: ".")
         guard case .object(let entries) = value else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an object"))
             return .none

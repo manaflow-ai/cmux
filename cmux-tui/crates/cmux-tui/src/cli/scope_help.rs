@@ -45,17 +45,32 @@ USAGE
   cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
     --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
+  cmux notification banners
+  cmux notification open <banner-id>
 
 clear without a scope clears every notification of the session;
 --workspace clears that workspace's rows and those of its terminals;
 --notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
+
+banners and open ask the cmux app, not the session. banners lists the macOS
+banners the app asked for, newest last, as JSON {banners: [{id, title,
+subtitle, body, reply, approval, category, ...}], authorization}, each with
+the app's number for the tab it opens; it moves no focus. open shows one
+banner's tab, as a click on it does, and moves the app's focus there, then
+answers {opened, ...} with that tab's number. An id banners does not list is
+not_found and opens nothing. Only a tab's banner opens, and a web page's
+banner runs none of the page's click handler: a passkey, pairing, attention
+or Run banner acts on the person's own click, so opening one is
+person_required.
 ";
 
 pub(super) const ATTENTION_HELP: &str = "\
 USAGE
   cmux attention request --tab <tab_…> --reason <text>
   cmux attention clear --tab <tab_…>
+  cmux attention next [--after <tab_…>] [--focus]
+  cmux attention list
 
 request marks the tab where the person must act (confirm, log in, approve,
 pick): the tab and its workspace show as needing them in every cmux client.
@@ -64,6 +79,18 @@ to take the person there when they ask, run `cmux tab <tab_…> focus`. The mark
 when you clear it, when a browser tab goes to another page, or when the tab
 closes. Name the workspace and tab by their titles when you talk to the person,
 never by a ws_ or tab_ id.
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs where they must act first (a request, a blocked
+agent or program), then unread error and warning notifications, then
+finished agent turns nobody viewed (kind done), then other unread ones (a
+bell), each oldest first. target is the first entry, the most urgent one; with
+--after it is the entry after that tab, wrapping to the first, so a loop that
+passes the last target visits each entry once. null when nothing needs the
+person. It moves focus only with --focus. A blocked entry's reason is the
+agent's own message (the permission it asks for). list answers the whole
+queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the same
+order from the tab the person looks at; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\
@@ -177,9 +204,11 @@ USAGE
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
-  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
+  cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
+    [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+  cmux git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -200,6 +229,12 @@ USAGE
   cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
+  cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git worktree setup run [TARGET] [--approve <fingerprint>]
+  cmux git comments list [--root <path>]
+  cmux git comments save [--root <path>] --comment <json-object>
+  cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+  cmux git comments send [--root <path>] <comment-id>... --acp-session <id> --text <prompt> --versions-json <json-object>
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -217,6 +252,9 @@ SCOPES
   committed    HEAD against its first parent
   branch       The working tree against the merge base with the base branch,
                with untracked files
+  commits      --head against its merge base with --base (a pull request's
+               change), both full commit ids already in the repository;
+               nothing is fetched
 
 status prints the branch, upstream, how far it is ahead and behind, the base
 branch (the one a worktree create recorded for the branch, else origin's
@@ -229,6 +267,10 @@ With --patch and one file path, --patch-offset reads that file's whole patch
 in pages from a byte offset (start at 0); pass the first page's revision as
 --patch-revision to read the later pages. Paths are relative to the repository
 root and taken literally.
+
+fingerprint prints 64 hex digits that stay equal while the diff of --scope
+(uncommitted by default) stays equal. It makes no patch: it lists the changed
+and untracked files and hashes only those whose stat entry moved.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it
@@ -278,7 +320,23 @@ work does not apply cleanly there.
 worktree remove, run in such a worktree, removes it (with its ignored files) and
 the cmux/<name> branch worktree create made. It is refused while the worktree has
 uncommitted changes or commits on no other branch or remote, unless --discard.
-The main checkout is never removed.
+The main checkout is never removed. Before it goes, the project's teardown runs.
+
+worktree setup shows the project's worktree recipe (.worktreeinclude,
+.cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
+its setup: state, port and output (from byte --since). A setup or teardown
+command from the repository's own files waits (awaiting_approval) until you
+approve the recipe you read: worktree setup run --approve with its
+recipe.approval.fingerprint. worktree setup run also runs a failed, timed-out
+or interrupted setup again; it never starts one while one runs.
+
+comments are the diff page's review comments, kept by the session host for a
+worktree root (--root, the current directory by default; give the worktree's
+top folder, as the diff page does). list prints them. save adds the comment
+object (filePath, side, startLine, endLine, message, ...), or replaces the
+saved one whose id it names; the session host sets createdAt and updatedAt.
+delete removes the named comments; --versions-json maps an id to the updatedAt
+you read, so a comment edited since then is kept.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

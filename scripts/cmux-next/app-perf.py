@@ -9,9 +9,7 @@ scenario's gesture is timed from the press until the window rests (--settle seco
   split-right                Cmd-D in the bench workspace (`debug.key`, the real key path; --input action
                              runs splitRight instead), then the new pane closes (untimed)
   split-down                 Cmd-Shift-D (splitDown), then its close
-  right-sidebar-open/-close  Cmd-Opt-B (toggleRightSidebar, the side pane) twice; which press opened it is read
-                             from the main pane's width
-  sidebar-hide/-show         Cmd-B (toggleSidebar) twice, read the same way
+  sidebar-hide/-show         Cmd-B (toggleSidebar) twice; which press hid it is read from the main pane's width
   new-top                    New Workspace at Top above the existing ones, then it closes (untimed)
   switch                     goToWorkspace between the bench workspace and the last one, both ways
 
@@ -52,8 +50,9 @@ from bench_launch import LaunchError, launch_app  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402  (process lookups for --open)
+from state_wait import wait_stable  # noqa: E402
 
-SCENARIOS = ["split-right", "split-down", "right-sidebar", "sidebar", "new-top", "switch"]
+SCENARIOS = ["split-right", "split-down", "sidebar", "new-top", "switch"]
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -112,7 +111,10 @@ def action(name, args=None, settle=0.0):
     # A socket caller may name only a headless origin (ControlOrigin: `user` is in-process only).
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=60)
     if settle:
-        time.sleep(settle)  # test harness: the app settles before the next step
+        # Until the focused terminal's text stops changing (the sent command's output landed).
+        wait_stable(lambda: json.dumps((rpc("debug.surfaces", {"text": True}) or {}).get("windows"), sort_keys=True),
+                    f"the terminal text after {name}", timeout=max(10.0, settle * 10), interval=0.1, reads=5,
+                    raise_on_timeout=False)
     return reply
 
 
@@ -158,10 +160,17 @@ def geometry():
     return windows[0] if isinstance(windows, list) and windows else {}
 
 
+def at_rest():
+    """What a gesture starts from: the topology, the window's geometry and the sidebar rows."""
+    return json.dumps([topology(), geometry(), sidebar_workspace_keys()], sort_keys=True)
+
+
 def go(workspace, settle=0.6):
     action("goToWorkspace", {"workspace": workspace})
     wait(lambda: shown_workspace() == workspace, 10)
-    time.sleep(settle)  # test harness: the switch lands before the next gesture
+    # Until the switch landed: topology, geometry and sidebar rows read the same several times in a row.
+    wait_stable(at_rest, f"the app after showing {workspace}", timeout=max(10.0, settle * 10), interval=0.1,
+                reads=3 if settle < 1 else 5, raise_on_timeout=False)
 
 
 def counters():
@@ -195,11 +204,11 @@ def measure(label, gesture, timer=None):
     before = counters()
     start_error = error_of(rpc(timer, {"action": "start"})) if timer else None
     start_error = error_of(rpc("debug.frames", {"action": "start"})) or start_error
-    time.sleep(0.1)  # test harness: a few frames at rest before the press
+    time.sleep(0.1)  # sleep-ok: a fixed window of frames at rest recorded before the press (part of the measurement)
     started = time.monotonic()
     error = gesture()
     reply_ms = (time.monotonic() - started) * 1000
-    time.sleep(opts.settle)  # test harness: the gesture's motion lands and the window rests
+    time.sleep(opts.settle)  # sleep-ok: --settle is the measured window after each press (frames are recorded through it)
     frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     timed = (rpc(timer, {"action": "stop"}) or {}) if timer else {}
     hangs = rpc("debug.hangs") or {}
@@ -362,8 +371,6 @@ def fill(count, bench):
 
 def expected_rows(scenario):
     """The rows each round of a scenario must keep, by row label: both halves of a toggle, both switches."""
-    if scenario == "right-sidebar":
-        return {"right-sidebar-open": 1, "right-sidebar-close": 1}
     if scenario == "sidebar":
         return {"sidebar-show": 1, "sidebar-hide": 1}
     return {scenario: 2 if scenario == "switch" else 1}
@@ -513,8 +520,6 @@ def measure_count(count, wanted, bench):
             split(count, scenario, ["command"], "splitRight")
         elif scenario == "split-down":
             split(count, scenario, ["command", "shift"], "splitDown")
-        elif scenario == "right-sidebar":
-            toggle(count, scenario, "b", ["option", "command"], "toggleRightSidebar", ("open", "close"))
         elif scenario == "sidebar":
             toggle(count, scenario, "b", ["command"], "toggleSidebar", ("show", "hide"))
         elif scenario == "new-top":
@@ -558,8 +563,9 @@ def main():
         print(f"the tagged app did not come up (socket {os.path.exists(SOCKET)})\n"
               + open(log_path, errors="replace").read()[-6000:], flush=True)
         return False
-    time.sleep(5)  # test harness: launch work settles
     bench = wait(shown_workspace, 30)
+    # Launch work settles: the topology, geometry and sidebar rows stop changing.
+    wait_stable(at_rest, "the app after launch", timeout=30, interval=0.2, reads=5, raise_on_timeout=False)
     wanted = [s for s in opts.scenarios.split(",") if s]
     failures = REPORT.setdefault("failures", [])
     if not bench or not reset(bench):

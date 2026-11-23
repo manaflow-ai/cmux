@@ -1,10 +1,11 @@
-import type { OutboxFailure, OwnerEngine } from "@cmux/ownership"
+import { OUTBOX_IN_FLIGHT_MAX_MS, type OutboxFailure, type OwnerEngine } from "@cmux/ownership"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import type { Env } from "./env.ts"
 import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
 import { warmBrain } from "./mux-wake-delivery.ts"
 import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
+import { soloOutboxItem } from "./domains/feed-approvals.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 export const DEAD_REPLAY_MS = 24 * 3600_000
@@ -17,12 +18,38 @@ export const DEAD_REPLAY_MS = 24 * 3600_000
  */
 export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
   if (channel === "") return isTransientError(e) ? "transient" : "poison"
+  if ((e as { inFlight?: unknown } | null)?.inFlight === true) return "in_flight"
   if (channel.startsWith(`${SECURITY_MAIL_CLASS}:`)) return "poison"
   const flags = e as { retryable?: unknown; overloaded?: unknown } | null
   if (flags?.retryable === true || flags?.overloaded === true) return "transient"
   // A missing binding is a deploy error, not an outage: counted (dead letter after
   // OUTBOX_MAX_ATTEMPTS, replayed a day later), never retried forever.
   return "poison"
+}
+
+/** One send per outbox channel at a time within an object: each `run` for a channel starts after the one before it ends. */
+export class ChannelLocks {
+  private readonly tails = new Map<string, Promise<void>>()
+  private ended: () => void = () => {}
+  private sendEnd = new Promise<void>((r) => (this.ended = r))
+  /** Resolves when the next send of any channel ends (either path): a caller waiting on its own item looks again then. */
+  nextSendEnd(): Promise<void> {
+    return this.sendEnd
+  }
+  async run(channel: string, fn: () => Promise<void>): Promise<void> {
+    const before = this.tails.get(channel) ?? Promise.resolve()
+    const mine = before.then(fn, fn)
+    const tail = mine.catch(() => undefined)
+    this.tails.set(channel, tail)
+    try {
+      await mine
+    } finally {
+      if (this.tails.get(channel) === tail) this.tails.delete(channel)
+      const wake = this.ended
+      this.sendEnd = new Promise<void>((r) => (this.ended = r))
+      wake()
+    }
+  }
 }
 
 /** The class name of a Chief wake queue target (home-core conversation outbox `mux.wake`). */
@@ -45,7 +72,14 @@ export const drainOutboxChannels = async <S>(
   /** Only these channels (the commit-time wake path); no prune or replay then. */
   only?: (channel: string) => boolean,
   /** At most this many channels (the commit-time path: a change that touches thousands of objects is the alarm's). */
-  maxChannels = Infinity
+  maxChannels = Infinity,
+  /**
+   * The object's per-channel send lock, shared by the commit-time path and the alarm (OwnerDO.channelLocks): one send
+   * per channel at a time, its rows read inside the lock. Without it the alarm sent the row a commit-time send still
+   * held, a target acknowledged that duplicate ("already running"), the row left the queue, and a later retryable
+   * failure of the first send had nothing left to redeliver (review of #40370).
+   */
+  locks: ChannelLocks = new ChannelLocks()
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -61,8 +95,14 @@ export const drainOutboxChannels = async <S>(
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       if (only && !only(channel)) continue
       if (++sent > maxChannels) break
-      const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
-      if (rows.length === 0) continue
+      await locks.run(channel, async () => {
+      // Read under the lock: a send that ran meanwhile has marked its rows, or failed and backed the channel off.
+      if (!outbox.channelDue(channel, Date.now())) return
+      const read = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
+      // A Cloud approval answer goes alone, and the batch before one stops at it (feed-approvals.ts soloOutboxItem).
+      const solo = channel === "" ? -1 : read.findIndex(soloOutboxItem)
+      const rows = solo === 0 ? read.slice(0, 1) : solo > 0 ? read.slice(0, solo) : read
+      if (rows.length === 0) return
       try {
         if (channel === "") {
           const res = await project(env, engine.stream, rows)
@@ -83,7 +123,7 @@ export const drainOutboxChannels = async <S>(
             outbox.markSent([...res.done, ...res.dead], Date.now())
             if (res.dead.length > 0) console.error(JSON.stringify({ msg: "security mail dropped", stream: engine.stream, count: res.dead.length, reason: res.reason ?? "mail.refused" }))
             outbox.succeeded(channel)
-            continue
+            return
           }
           const ns = targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
@@ -93,13 +133,25 @@ export const drainOutboxChannels = async <S>(
           if (only && isWakeChannel(channel)) for (const c of new Set(batch.items.filter((i) => i.op === "mux.wake").map((i) => (i.params as { conversation?: unknown } | null)?.conversation))) void warmBrain(env, batch.name, c)
           const res = await stub.systemDeliver(batch.name, engine.stream, batch.items)
           outbox.markSent(res.done, Date.now())
-          if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
+          if (res.done.length < batch.items.length) {
+            const done = new Set(res.done)
+            const inFlight = new Set(res.in_flight ?? [])
+            const missing = batch.items.filter((i) => !done.has(i.id))
+            const err = new Error(`${missing.length} items not delivered`)
+            // Every item not done is still running in the target: retried soon, not counted, until the bound.
+            if (missing.every((i) => inFlight.has(i.id))) {
+              const since = outbox.inFlightSince(channel)
+              if (since === null || Date.now() - since < OUTBOX_IN_FLIGHT_MAX_MS) throw Object.assign(err, { inFlight: true })
+            }
+            throw err
+          }
         }
         outbox.succeeded(channel)
       } catch (e) {
         const dead = outbox.failed(channel, Date.now(), outboxFailure(channel, e))
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
+      })
     }
   if (only) return
   // Rows an older build marked sent instead of deleting go away a batch per alarm.

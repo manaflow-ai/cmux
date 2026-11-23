@@ -1,6 +1,6 @@
 // A shell call's leading `cd <folder> &&` is setup, not what it ran (Leo 2026-10-13, transcript row
-// design, #20456): the row reads "Ran git fetch …" without it (its first step, shortCommand.ts: Leo
-// 2026-10-20, "a short human label, not the raw command"), the opened Shell block names the folder
+// design, #20456): the row reads "Ran git fetch …" without it (a multi-step line reads whole since
+// 2026-11-14), the opened Shell block names the folder
 // by its last part beside its label and draws the rest whole, and Find counts the command as the
 // rows draw it. A cd that names no plain folder (`cd ..`, `cd ~`, `cd "$(…)"`) keeps its prefix in
 // the Shell block, and one that could run code stays in the row, so nothing the call ran is hidden.
@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -28,12 +29,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(items: object[]) {
@@ -48,7 +46,6 @@ async function render(items: object[]) {
 
 const FETCH = "cd ~/wt/lanes/cg-next-reds && git fetch -q origin feat-cmux-next && git diff HEAD~1 --stat";
 const REST = "git fetch -q origin feat-cmux-next && git diff HEAD~1 --stat";
-const SHORT = "git fetch -q origin feat-cmux-next …";
 const shell = (id: string, command: string) => ({
   kind: "tool",
   text: "Run",
@@ -58,16 +55,22 @@ const shell = (id: string, command: string) => ({
 test("a shell call reads without its leading cd, and opens to its folder and command", async () => {
   await render([shell("t1", FETCH)]);
   const row = host.querySelector<HTMLButtonElement>(".cv-tool")!;
-  expect(row.querySelector(".cv-tool__text")?.textContent).toBe(`Ran ${SHORT}`);
+  // A multi-step line reads whole, without its cd and with no " …" (2026-11-14 change).
+  expect(row.querySelector(".cv-tool__text")?.textContent).toBe(`Ran ${REST}`);
   await act(async () => row.click());
   expect(host.querySelector(".cv-shell__folder")?.textContent).toBe("cg-next-reds");
   expect(host.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${REST}`);
 });
 
 test("a group's command rows drop the leading cd too", async () => {
-  await render([shell("t1", FETCH), shell("t2", "cd ~/wt/lanes/x && ls build")]);
+  // Commands the table does not know (commandActions.ts) draw their line.
+  await render([
+    shell("t1", "cd ~/wt/lanes/cg-next-reds && make -j8 && make test"),
+    shell("t2", "cd ~/wt/lanes/x && ./run.sh build"),
+  ]);
   const lines = [...host.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
-  expect(lines).toEqual([SHORT, "ls build"]);
+  // A multi-step line draws every step after the cd (2026-11-14 change).
+  expect(lines).toEqual(["make -j8 && make test", "run.sh build"]);
 });
 
 test("a cd that names no plain folder, or could run code, keeps its prefix", async () => {

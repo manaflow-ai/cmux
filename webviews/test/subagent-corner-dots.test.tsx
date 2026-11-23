@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { AgentLine } from "../src/agent-session/acpmux/subagents/AgentLine";
 import { SubagentListRow } from "../src/agent-session/acpmux/subagents/SubagentGroup";
-import type { SubagentStatus } from "../src/agent-session/acpmux/summary/SubagentStatusList";
+import type { SubagentStatus } from "../src/agent-session/acpmux/summary/subagentStatusListModel";
 
 const src = path.resolve(import.meta.dir, "../src");
 

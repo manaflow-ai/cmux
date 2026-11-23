@@ -4,6 +4,7 @@
 // size, a real file name shows as itself, and an image that cannot be drawn says so.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -114,7 +115,11 @@ try {
     await load(img, 2458, 2324);
     const button = host.querySelector(".cv-user__images button")!;
     expect(button.getAttribute("title")).toBe("Screenshot · 2458×2324");
-    expect(host.innerHTML).not.toContain("image.png");
+    // Nothing drawn or read names it image.png. The image's id, which the send's move uses to find
+    // its thumbnail (data-send-key, conversation/sendMorph.ts), is neither.
+    const shown = host.cloneNode(true) as HTMLElement;
+    for (const keyed of shown.querySelectorAll("[data-send-key]")) keyed.removeAttribute("data-send-key");
+    expect(shown.innerHTML).not.toContain("image.png");
     await act(async () => (button as HTMLElement).click());
     expect(opened.at(-1)?.alt).toBe("Screenshot · 2458×2324");
   });
@@ -169,12 +174,8 @@ try {
     expect(host.querySelector(".acpmux-attachment-image-failed")).not.toBeNull();
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

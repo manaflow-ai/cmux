@@ -190,6 +190,8 @@ public struct SessionArtifacts: Sendable {
                         guard let agent = subagents.first(where: { $0.id == id }) else { continue }
                         scan(agent.items, subagents: subagents, owner: agent.name)
                     }
+                case .steer(let message):
+                    scanText(message.text, detail: "In a message" + suffix, weight: .mentioned)
                 case .thought, .question:
                     break
                 }

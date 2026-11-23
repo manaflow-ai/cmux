@@ -1,0 +1,10 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit'
+current-version: 1
+compatibility-version: 1
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [ '_IOObjectRelease', '_IORegistryEntryCreateCFProperty', '_IOServiceGetMatchingService', '_IOServiceMatching', '_kIOMainPortDefault', '_kIOMasterPortDefault' ]
+...

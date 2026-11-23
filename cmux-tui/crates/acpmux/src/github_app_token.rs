@@ -210,9 +210,13 @@ pub fn while_lent<T>(
 pub fn not_connected() -> RpcError {
     RpcError::new(
         -32044,
-        "GitHub is not connected on this Mac: connect GitHub in cmux Settings (or sign in with `gh auth login`)",
+        format!(
+            "GitHub is not connected on this Mac: {} (or sign in with `gh auth login`), then try again",
+            cmux_host::github_connect::CONNECT_GITHUB
+        ),
     )
-    .with_data(json!({"reason": "github.not_connected"}))
+    .with_data(json!({"reason": "github.not_connected", "retryable": true,
+        "connect": {"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"}}))
 }
 
 /// The login this action runs with (module docs), and the name of the one it tried (`app`
@@ -269,13 +273,13 @@ fn app_error(code: &str) -> RpcError {
             "integration.not_found",
             -32044,
             "github.not_connected",
-            "GitHub is not connected for this team: connect GitHub in cmux Settings",
+            "GitHub is not connected for this team: connect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
         "needs_reauth" => (
             "needs_reauth",
             -32044,
             "github.not_connected",
-            "GitHub needs to be connected again: reconnect GitHub in cmux Settings",
+            "GitHub needs to be connected again: reconnect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
         "policy.denied" => (
             "policy.denied",
@@ -301,9 +305,25 @@ fn app_error(code: &str) -> RpcError {
             "github.app_token",
             "cmux could not get a GitHub token: the token cmux Cloud sent is not for this repository",
         ),
+        "build_space" => (
+            "build_space",
+            -32045,
+            "github.app_token",
+            "cmux could not get a GitHub token: this dev build was started without its build space (CMUX_BUILD_SPACE), so it asks cmux Cloud nothing",
+        ),
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
-    RpcError::new(number, message).with_data(json!({"reason": reason, "code": code}))
+    let mut data = json!({"reason": reason, "code": code});
+    if reason == "github.not_connected"
+        && let Some(fields) = data.as_object_mut()
+    {
+        fields.insert("retryable".into(), json!(true));
+        fields.insert(
+            "connect".into(),
+            json!({"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"}),
+        );
+    }
+    RpcError::new(number, message).with_data(data)
 }
 
 /// Whether the permissions a token says it has (`got`, GitHub's own list) are no more than
@@ -341,8 +361,23 @@ async fn bounded_json(mut res: reqwest::Response) -> Value {
 /// A token for `r.repo` alone, with `permissions(r.action)`; checked to be an App installation
 /// token for that repository before anything uses it.
 async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
+    mint_in(lent, r, cmux_build_space::process().map(|space| space.cloned())).await
+}
+
+/// [`mint`] in `space`: the lent sign-in is an install token of the app's build space, which
+/// Cloud refuses (401) without that space's `x-cmux-build-space`.
+async fn mint_in(
+    lent: &Lent,
+    r: &GithubActionParams,
+    space: cmux_build_space::Resolved,
+) -> Result<String, RpcError> {
+    let space = space.map_err(|e| {
+        tracing::warn!("github app token: {e}");
+        app_error("build_space")
+    })?;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers_for(space.as_ref()))
         .redirect(reqwest::redirect::Policy::none())
         .timeout(MINT_TIMEOUT)
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -383,6 +418,43 @@ async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The heads of one mint against a loopback Cloud, in `space`.
+    async fn mint_heads(
+        space: cmux_build_space::Resolved,
+    ) -> (Vec<Option<String>>, Result<String, RpcError>) {
+        let heads = cmux_build_space::testing::Heads::start().await.unwrap();
+        let lent = Lent {
+            origin: heads.base_url.clone(),
+            bearer: "install".into(),
+            team: "team_0123".into(),
+            expires_at_ms: u64::MAX,
+        };
+        let r: GithubActionParams = serde_json::from_value(
+            json!({"action": "comment", "repo": "o/r", "issue": 1, "body": "b"}),
+        )
+        .unwrap();
+        let minted = mint_in(&lent, &r, space).await;
+        heads.wait_for(1).await;
+        (heads.spaces(), minted)
+    }
+
+    /// The Mac's lent sign-in is a dev build's install token (`bsp` claim): its mint carries the
+    /// build space, or Cloud answers 401 and the app re-mints the install identity in a loop.
+    #[tokio::test]
+    async fn a_dev_builds_lent_sign_in_mints_in_its_build_space() {
+        let (spaces, _) = mint_heads(Ok(Some(cmux_build_space::testing::space("my-tag-2")))).await;
+        assert_eq!(spaces, vec![Some("dev:my-tag-2".to_owned())]);
+        let (spaces, _) = mint_heads(Ok(None)).await;
+        assert_eq!(spaces, vec![None], "nightly sends no build space");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_build_space_mints_nothing() {
+        let (spaces, minted) = mint_heads(cmux_build_space::testing::refused()).await;
+        assert!(spaces.is_empty(), "nothing reached Cloud: {spaces:?}");
+        assert!(minted.is_err());
+    }
 
     #[test]
     fn a_lease_takes_only_a_cmux_origin_and_sign_in_and_never_answers_it() {

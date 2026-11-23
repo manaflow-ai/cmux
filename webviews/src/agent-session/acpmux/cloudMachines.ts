@@ -8,16 +8,71 @@
 import { useSyncExternalStore } from "react";
 import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
+import { activeTeamFromReply, type ActiveTeamTag } from "./TeamTag";
+import { cloudPlanFromReply, type CloudPlanView } from "./cloudPlans";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
-/// `requesting`, `creating`, `booting`, `connecting`, `failed`).
-export type CloudMachine = { id: string; name: string; stage: string };
+/// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
+/// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
+export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number; size?: CloudMachineSize };
+/// A machine's size as its record says it (`cloudMachine.list` `size`): vCPUs, memory and disk, each
+/// absent when the record does not say. The composer's machine card names it (MachineCard.tsx).
+export type CloudMachineSize = { cpu?: number; memoryMb?: number; diskMb?: number };
+
+/// The `size` of a list row: only the positive whole numbers it carries; none when it has none.
+export function cloudMachineSize(raw: unknown): CloudMachineSize | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const size: CloudMachineSize = {};
+  for (const key of ["cpu", "memoryMb", "diskMb"] as const) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) size[key] = value;
+  }
+  return Object.keys(size).length > 0 ? size : undefined;
+}
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
 /// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
-/// explicit account state (for example, a fresh home where Cloud is not available yet); the
-/// picker treats that the same as signed out until a reply says `true`.
+/// explicit account state (for example, a fresh home where Cloud is not available yet). The
+/// picker's Cloud row reads Sign in for Cloud only on an explicit `false` (EnvironmentPicker).
+///
+/// Whether the last answer said signed in is kept in this origin's localStorage (every agent page
+/// shares one website data store, newtab/settledCache.ts) and read when the page loads, so a menu
+/// opened before this page's own `cloudMachine.list` reply draws its settled Cloud row on its first
+/// frame. Leo, 2026-11-07, of "Sign in for Cloud" showing and then vanishing as the machine menu
+/// opened: "ideally this never happens ... The thing becomes just one state instead of rapidly
+/// switching to another." Only the yes or no is kept, never the account's machines (names or ids):
+/// a page after an account switch must never show or act on the previous account's machines, which
+/// come from this page's own reply alone. A reply replaces it; a refused read clears it.
+const ACCOUNT_KEY = "cmux.acpmux.cloud.signedIn";
+
+function accountStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readKeptSignedIn(): boolean | undefined {
+  try {
+    const raw = accountStorage()?.getItem(ACCOUNT_KEY);
+    return raw === "true" ? true : raw === "false" ? false : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function keepSignedIn(signedIn: boolean | undefined): void {
+  try {
+    const store = accountStorage();
+    if (signedIn === undefined) store?.removeItem(ACCOUNT_KEY);
+    else store?.setItem(ACCOUNT_KEY, String(signedIn));
+  } catch {
+    // A blocked or full store only leaves the next page to wait for its own reply.
+  }
+}
+
 let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -32,9 +87,16 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt, size: rawSize } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
-    machines.push({ id, name, stage });
+    const size = cloudMachineSize(rawSize);
+    machines.push({
+      id,
+      name,
+      stage,
+      ...(typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0 ? { evictAt } : {}),
+      ...(size ? { size } : {}),
+    });
   }
   return machines;
 }
@@ -151,6 +213,8 @@ export function cloudMachineAction(machine: CloudMachine): "resume" | "open" {
 // The page's copy of the app's list: every composer reads it, and an open machine list reads it
 // again (useMachineRefresh), one request at a time.
 let machines: readonly CloudMachine[] = [];
+// The page starts from the last signed-in answer kept, never from nothing; its machines are its own.
+accountSignedIn = readKeptSignedIn();
 const listeners = new Set<() => void>();
 let inFlight: Promise<void> | undefined;
 /// Bumped by a reset: a reply to a read asked before it is dropped.
@@ -159,6 +223,28 @@ let generation = 0;
 function publish(next: readonly CloudMachine[]): void {
   if (JSON.stringify(next) === JSON.stringify(machines)) return;
   machines = next;
+  for (const listener of listeners) listener();
+}
+
+/// The team the account works in (the reply's `team`); the Cloud row and face no longer name it
+/// (https://github.com/manaflow-ai/cmux/issues/45695), it stays for diagnostics. Kept only
+/// in memory, from this page's own reply: an account switch never shows the previous team.
+let activeTeam: ActiveTeamTag | undefined;
+
+function publishTeam(next: ActiveTeamTag | undefined): void {
+  if (next?.name === activeTeam?.name && next?.personal === activeTeam?.personal) return;
+  activeTeam = next;
+  for (const listener of listeners) listener();
+}
+
+/// The account's Cloud plan as the reply's `plan` says it (cloudPlans.ts): `unknown` until a reply names one, after
+/// a refused read, and for an older app's reply. Kept only in memory, from this page's own reply.
+const UNKNOWN_PLAN: CloudPlanView = { state: "unknown", id: null, maxSize: null };
+let cloudPlan: CloudPlanView = UNKNOWN_PLAN;
+
+function publishPlan(next: CloudPlanView): void {
+  if (next.state === cloudPlan.state && next.id === cloudPlan.id && next.maxSize === cloudPlan.maxSize) return;
+  cloudPlan = next;
   for (const listener of listeners) listener();
 }
 
@@ -172,26 +258,86 @@ function publishAccount(next: boolean | undefined): void {
 /// account's machines and signed-in state cannot be trusted after it. With no app to ask (outside
 /// the app, or while its bridge reconnects: `native.not_connected`) the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
+  return inFlight ?? track(readList(call, false));
+}
+
+/// The plan as the server says it now (`cloudMachine.list {fresh: true}`: the app reads the plan again, past the
+/// minute it keeps an active one), published as any list read is. A Send the last plan would hold, and the pricing
+/// card's read back from checkout, ask this. A refused read, or no app to ask, is `unknown`: it never holds a send.
+export function readCloudPlanFresh(call: Call = postNative): Promise<CloudPlanView> {
+  const read = readList(call, true);
+  void track(read);
+  return read;
+}
+
+/// Each list read's turn, and the latest fresh read's: a plain read asked before a fresh one publishes nothing after it.
+let readTurn = 0;
+let freshTurn = 0;
+
+/// One `cloudMachine.list` read: publishes its answer (unless a reset or a later fresh read superseded it) and
+/// resolves to the plan it read, `unknown` when it failed.
+function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
   const asked = generation;
-  inFlight ??= call("cloudMachine.list", {})
-    .then((reply) => {
-      if (asked === generation) {
-        publishAccount(cloudSignedInFromReply(reply));
-        publish(cloudMachinesFromReply(reply));
+  const turn = ++readTurn;
+  if (fresh) freshTurn = turn;
+  const current = () => asked === generation && turn >= freshTurn;
+  return call("cloudMachine.list", fresh ? { fresh: true } : {}).then(
+    (reply) => {
+      const signedIn = cloudSignedInFromReply(reply);
+      const plan = signedIn ? cloudPlanFromReply(reply) : UNKNOWN_PLAN;
+      if (current()) {
+        const list = cloudMachinesFromReply(reply);
+        keepSignedIn(signedIn);
+        publishAccount(signedIn);
+        const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
+        publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
+        publishPlan(plan);
+        publish(list);
       }
-    })
-    .catch((error: unknown) => {
-      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
-      if (asked === generation) {
+      return plan;
+    },
+    (error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return UNKNOWN_PLAN;
+      if (current()) {
+        keepSignedIn(undefined);
         publishAccount(undefined);
+        publishTeam(undefined);
+        publishPlan(UNKNOWN_PLAN);
         publish([]);
       }
-    })
-    .finally(() => {
-      if (asked === generation) inFlight = undefined;
-    });
-  return inFlight;
+      return UNKNOWN_PLAN;
+    },
+  );
 }
+
+/// The read the page's other reads wait on (`inFlight`), until it lands.
+function track(read: Promise<CloudPlanView>): Promise<void> {
+  const asked = generation;
+  const done: Promise<void> = read
+    .then(() => undefined)
+    .finally(() => {
+      if (asked === generation && inFlight === done) inFlight = undefined;
+    });
+  inFlight = done;
+  return done;
+}
+
+/// The app's word that the account's active team changed (`AgentPaneCloudMachines.teamChangeScript`).
+export const CLOUD_TEAM_CHANGE_EVENT = "cmux-cloud-team-change";
+
+/// Reads the list again on each team change, so the Cloud row and face name the new team at once.
+/// A read already in flight may carry the old team: it is dropped for a fresh one.
+export function followCloudTeamChange(call: Call = postNative, target: EventTarget = window): () => void {
+  const changed = () => {
+    generation += 1;
+    inFlight = undefined;
+    void refreshCloudMachines(call);
+  };
+  target.addEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
+  return () => target.removeEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
+}
+
+if (typeof window !== "undefined") followCloudTeamChange();
 
 /// Resumes or opens the machine (one click: the app checks the gesture and the machine), then
 /// reads the list again so its new stage shows; a resume shows as starting at once.
@@ -266,6 +412,7 @@ const snapshot = () => machines;
 export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   generation += 1;
   inFlight = undefined;
+  keepSignedIn(undefined);
   publishAccount(undefined);
   publish(next);
 }
@@ -276,3 +423,28 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+const teamSnapshot = () => activeTeam;
+/// The team as last read (tests and capture diagnostics).
+export const currentCloudTeam = teamSnapshot;
+
+const planSnapshot = () => cloudPlan;
+/// The plan as last read: a Send reads it at once (App `sendToCloud`), the pricing card's wait after a read.
+export const currentCloudPlan = planSnapshot;
+
+/// Tests: the plan as if the app's reply named it.
+export function setCloudPlanForTest(next: CloudPlanView = UNKNOWN_PLAN): void {
+  publishPlan(next);
+}
+
+/// Tests: the team as if the app's reply named it.
+export function setCloudTeamForTest(next: ActiveTeamTag | undefined): void {
+  publishTeam(next);
+}
+
+/// Tests: the page loading again, starting from what localStorage kept (as at module load).
+export function reloadKeptCloudAccountForTest(): void {
+  generation += 1;
+  inFlight = undefined;
+  publishAccount(readKeptSignedIn());
+  publish([]);
+}

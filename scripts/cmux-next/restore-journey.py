@@ -40,7 +40,7 @@ Variants:
           shown terminal connected, restoring or reconnecting), and the turn must finish;
   daemon-stop  the daemon is frozen (SIGSTOP) instead, as a wedged owner: the app must notice
           (its heartbeat), offer Restart cmux-tui, and Restart (`debug.daemon {action: restart}`,
-          the button's path after its confirm) must bring a new daemon and every view back. The
+          the button's path) must bring a new daemon and every view back. The
           stopped process is ended at the end if it is still there;
   reboot  the quit path, then every process the app's bundle started is killed with all its
           children (daemon, terminal hosts and their programs, acpmux, agent hosts), as a
@@ -114,6 +114,14 @@ import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh 
 import rj_rows  # noqa: E402  (next to this script, copied the same way)
 import rj_update  # noqa: E402  (next to this script, copied the same way)
 import launch_shift  # noqa: E402  (next to this script, copied the same way)
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script without its folder (a test, scp): the same helper as safe_log.py
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -1923,10 +1931,14 @@ def snapshot(label):
     # `top` (a full-screen program) keeps running and drawing: its screen changes in the daemon
     # and the view shows it.
     if TOP.get("terminal"):
+        def screen_text(read):
+            return read.get("text", "") if isinstance(read, dict) else ""
         first = cli("terminal", TOP["terminal"], "screen", "read", quiet=True)
-        time.sleep(2.5)
-        second = cli("terminal", TOP["terminal"], "screen", "read", quiet=True)
-        texts = [x.get("text", "") if isinstance(x, dict) else "" for x in (first, second)]
+        # Wait for top's next redraw: a later read whose text differs (the check below fails if none came).
+        second = wait(lambda: (lambda r: r if screen_text(r) != screen_text(first) else None)(
+            cli("terminal", TOP["terminal"], "screen", "read", quiet=True)), 10, 0.25) \
+            or cli("terminal", TOP["terminal"], "screen", "read", quiet=True)
+        texts = [screen_text(x) for x in (first, second)]
         items["top.running"] = all("Load Avg" in t for t in texts) and texts[0] != texts[1]
         top_pane = next((pid_ for ws in rj_workspaces(topo) for s_ in ws.get("screens", []) for pid_ in
                          [p_.get("id") for p_ in s_.get("panes", []) if any(t.get("terminal") == TOP["terminal"] for t in p_.get("tabs", []))]), None)
@@ -2862,14 +2874,14 @@ def main():
         restore_engine_config()
         server.shutdown()
     width = max((len(r[0]) for r in RESULTS), default=10)
-    print("\n" + "-" * (width + 40))
+    safe_print("\n" + "-" * (width + 40))
     for item, ok, detail, area in RESULTS:
-        print(f"{'N/A ' if ok is NA else 'PASS' if ok else 'FAIL'}  {item:<{width}}  [{area}] {detail}")
+        safe_print(f"{'N/A ' if ok is NA else 'PASS' if ok else 'FAIL'}  {item:<{width}}  [{area}] {detail}")
     # A row with ok NA does not apply on this host (one display): neither passed nor failed.
     counted = [r for r in RESULTS if r[1] is not NA]
     failed = [r for r in counted if not r[1]]
-    print(f"RESULT {'PASS' if not failed else 'FAIL'}: {len(counted) - len(failed)}/{len(counted)} rows pass"
-          f"{f', {len(RESULTS) - len(counted)} n/a' if len(counted) < len(RESULTS) else ''}; out {opts.out}")
+    safe_print(f"RESULT {'PASS' if not failed else 'FAIL'}: {len(counted) - len(failed)}/{len(counted)} rows pass"
+               f"{f', {len(RESULTS) - len(counted)} n/a' if len(counted) < len(RESULTS) else ''}; out {opts.out}")
     dump("report.json", [{"item": r[0], "ok": r[1], "detail": r[2], "area": r[3]} for r in RESULTS])
     sys.exit(1 if failed else 0)
 

@@ -9,6 +9,8 @@ declare module "virtual:cmux-gallery/web-theme" {
   export default script;
 }
 declare module "virtual:cmux-gallery/agent-pane.css";
+/** The guest page's rest of the pane sheet (vite.config.guest-page.mjs). */
+declare module "virtual:cmux-guest/transcript.css";
 declare module "virtual:cmux-gallery/fixtures" {
   /** Every shared fixture JSON (schemas/gallery/fixtures.json roots), by repo-relative path. */
   const fixtures: Record<string, unknown>;
@@ -28,4 +30,10 @@ declare module "virtual:cmux-gallery/entry-index" {
   /** Each entry id and its file under webviews (`src/.../X.gallery.ts`). */
   const index: Record<string, string>;
   export default index;
+}
+declare module "virtual:cmux-gallery/looks" {
+  /** The golden screen's looks (golden/looks.json resolved, dev-server/goldenLooks.ts), and the ones
+   *  this checkout lacks the files of. */
+  const looks: { looks: import("./golden/look").GoldenLook[]; skipped: { id: string; reason: string }[] };
+  export default looks;
 }

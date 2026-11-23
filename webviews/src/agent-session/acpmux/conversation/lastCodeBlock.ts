@@ -1,7 +1,7 @@
 // Copy Last Code Block (cx-ncc.72): the app reads it from the page (`chat.lastCodeBlock`) and writes
 // the pasteboard. Its own module: the markdown parser pulls in the diff renderer's web components.
 import type { AcpmuxRow } from "../model";
-import { type MdBlock, parseMarkdown } from "./Markdown";
+import { type MdBlock, parseMarkdown } from "./markdownModel";
 
 /// The last fenced block of the latest answer that has one,
 /// including one inside a quote or a list; undefined when no answer has code.

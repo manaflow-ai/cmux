@@ -56,7 +56,8 @@ public nonisolated enum DockStripGeometry {
     /// other column marked for that edge scrolls. S2. A screen whose columns
     /// would all be docks shows them all in the strip; a lone one (Home's
     /// pinned dock with nothing beside it, `pinned-dock-alone-v1`) fills the
-    /// screen, and keeps its own width for when a column opens beside it.
+    /// screen; the daemon makes it half the screen when a column opens beside
+    /// it, so a link from Home is an even split (cmux-tui `LONE_DOCK_WIDTH`).
     public static func partition(_ columns: [LayoutColumn]) -> (left: LayoutColumn?, right: LayoutColumn?, scrolling: [LayoutColumn]) {
         let parts = docks(columns)
         return (parts.left, parts.right, parts.scrolling)

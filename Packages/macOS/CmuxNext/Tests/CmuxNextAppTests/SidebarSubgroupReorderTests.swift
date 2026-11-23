@@ -65,26 +65,15 @@ import Testing
         #expect(Self.keyMove("e", .up) == SidebarDocTarget(section: Self.docSection, before: Self.h.rawValue))
     }
 
-    @Test func movingUpFromBelowAGroupEntersItsEnd() throws {
+    // The slot rules themselves (a subgroup's gap is inside its parent, a hidden subgroup has none) are the shared
+    // Rust rules' tests (cmux-layout-reducer `sidebar_edits::tests`); these check the document move they lead to.
+    @Test func movingUpFromBelowAGroupEntersItsEnd() {
         #expect(Self.keyMove("z", .up) == SidebarDocTarget(section: Self.docSection, parent: Self.h.rawValue, after: "itm_e"))
-        // From the top-level gap above `h`, one step up is the end of `s`, the last gap drawn inside `g`.
-        let section = Self.model().sections[0]
-        let slots = KeyboardReorder.slots(in: section)
-        let above = try #require(slots.firstIndex(of: DropPosition(section: section.id, index: 3)))
-        #expect(slots[above - 1] == DropPosition(section: section.id, group: Self.s, index: 1))
-    }
-
-    @Test func noSlotNamesASubgroupAsATopLevelRow() {
-        let section = Self.model().sections[0]
-        #expect(!KeyboardReorder.slots(in: section).contains(DropPosition(section: section.id, index: 2)),
-                "the gap before subgroup s is inside g, not a top-level slot")
     }
 
     @Test func aSubgroupUnderACollapsedGroupIsSteppedOver() {
         // Before: loose `a` moving down named hidden subgroup `s` as a top-level row (refused), then entered it.
         #expect(Self.keyMove("a", .down, gCollapsed: true) == SidebarDocTarget(section: Self.docSection, before: Self.h.rawValue))
-        let section = Self.model(gCollapsed: true).sections[0]
-        #expect(!KeyboardReorder.slots(in: section).contains { $0.group == Self.s }, "a hidden subgroup offers slots")
     }
 
     @Test func aTopLevelSlotBeforeASubgroupAnchorsAtTheNextTopLevelRow() throws {

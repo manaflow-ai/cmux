@@ -2,17 +2,21 @@
 // timeline, composer) on the other, with the thread sheet over the timeline. A view over the Home
 // owners (HomeChannelsStore); no business rules live here. View state only: the palette, the
 // create popover, the inline editor, the keyboard's current message and a short notice.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { ChiefTaskHat } from "./ChiefTaskHat";
+import { ScheduledStrip } from "./ScheduledStrip";
+import { useScheduled } from "./scheduled";
+import type { SendLaterStyle } from "./SendLater";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
-import { ConversationList, useStamp } from "./ConversationList";
+import { ConversationList, useStamp, type CloudEntryLook } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
   activityAt,
@@ -33,15 +37,16 @@ import {
   withChiefNames,
   withDraft,
 } from "./model";
-import { Palette, type PaletteItem } from "./Palette";
+import type { PaletteItem } from "./Palette";
+import { lazySheets, preloadSheets } from "./lazySheets";
+
+const { ChiefRoutePage, ChiefWorkPane, Palette, RouteSheets, RunSheet } = lazySheets;
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
-import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
 import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
 import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
-import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
@@ -51,21 +56,36 @@ import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import { PresentationToggle, usePresentation } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
-import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
+
+/** The page op that runs one of this page's allowed app actions (HomeChannelsPage.swift). */
+export const APP_ACTION_RUN = "cmux.app.action.run";
+/** The app's New Cloud Machine action (CloudActionCatalog): its sheet makes the machine. */
+export const NEW_CLOUD_MACHINE = "newCloudMachine";
+/** The app's Restart cmux-tui… (its own confirm first): the daemon gate's fix for a refused page listener. */
+export const RESTART_SERVER = "palette.restartServer";
 
 export function HomeChannelsPage({
   store,
   strings,
   pane: fixedPane,
+  cloudEntry,
+  sendLaterStyle = "clock",
 }: {
   store: HomeChannelsStore;
   strings: Strings;
   /** The pane a narrow page shows, instead of the hash's (the gallery, whose hash is its own). */
   pane?: Pane;
+  /** Where the list shows New Cloud Machine (default: a row under the search field). */
+  cloudEntry?: CloudEntryLook;
+  /** Where the composer puts Send Later (the gallery shows both). */
+  sendLaterStyle?: SendLaterStyle;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // The sheets and the palette are not in the startup JS (lazySheets.tsx): fetch them once the
+  // first frame is in, so the first open finds them loaded.
+  useEffect(preloadSheets, []);
   const presentation = usePresentation(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
@@ -80,6 +100,7 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  const scheduled = useScheduled(store.scheduled, snap.selected);
   // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
   const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
@@ -208,6 +229,20 @@ export function HomeChannelsPage({
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
+  // New Cloud Machine runs the app's own action, which shows its sheet; only the app host has it.
+  const host = store.host;
+  const newCloudMachine = host
+    ? () =>
+        void host.call<{ ran?: boolean }>(APP_ACTION_RUN, { action: NEW_CLOUD_MACHINE }).then(
+          // An action the app did not run (turned off, unavailable) answers `ran: false`; one that
+          // ran and then stopped (sign-in declined) says so in the app.
+          (reply) => {
+            if (reply?.ran === false) say(t("notice.cloudNotRun"));
+          },
+          // A refusal shows as the page's own short notice; the host's words stay in its log.
+          () => say(t("notice.cloudNotRun")),
+        )
+    : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
     if (!conversation || !navigator.clipboard) return;
     // The notice only when the copy happened.
@@ -541,15 +576,20 @@ export function HomeChannelsPage({
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
                 onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
+                onNewCloudMachine={newCloudMachine}
+                cloudEntry={cloudEntry}
                 actions={rowActions}
                 chiefs={sheetState.chiefs}
+                cloudError={snap.cloudError}
               />
               <section
                 className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}
                 aria-label={chiefPage ? undefined : place || t("page.title")}
               >
                 {chiefPage ? (
-                  <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                  <Suspense fallback={null}>
+                    <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                  </Suspense>
                 ) : snap.loading ? null : empty || !open ? (
                   <EmptyState
                     strings={strings}
@@ -703,7 +743,14 @@ export function HomeChannelsPage({
                           strings={strings}
                           onOpen={runs.onOpen}
                         />
+                        <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
+                          <ScheduledStrip
+                            entries={scheduled}
+                            book={store.scheduled}
+                            strings={strings}
+                            disabled={!online}
+                          />
                           <Composer
                             key={open.id}
                             strings={strings}
@@ -722,6 +769,14 @@ export function HomeChannelsPage({
                             attachments={uploads}
                             dropZone={column}
                             onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                            sendLater={
+                              caps.sendLater && open.owner === "local"
+                                ? {
+                                    style: sendLaterStyle,
+                                    onSchedule: (text, files, at) => store.scheduled.create(open.id, text, at, files),
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                         {snap.thread && (
@@ -759,40 +814,57 @@ export function HomeChannelsPage({
                           />
                         )}
                         {runSheet && runSheet.run.conversation === snap.selected && (
-                          <RunSheet
-                            key={`${runSheet.run.author}:${runSheet.run.id}`}
-                            entry={runSheet}
-                            people={people}
-                            strings={strings}
-                            place={place}
-                            asked={askedLine(runSheet.run.answers[0], threadSource)}
-                            onClose={() => setOpenRun(undefined)}
-                            onLoad={runs.onLoad}
-                          />
+                          <Suspense fallback={null}>
+                            <RunSheet
+                              key={`${runSheet.run.author}:${runSheet.run.id}`}
+                              entry={runSheet}
+                              people={people}
+                              strings={strings}
+                              place={place}
+                              asked={askedLine(runSheet.run.answers[0], threadSource)}
+                              onClose={() => setOpenRun(undefined)}
+                              onLoad={runs.onLoad}
+                            />
+                          </Suspense>
                         )}
                         {workOpen && caps.chiefWork && openChief && open.owner === "local" && (
-                          <ChiefWorkPane
-                            key={openChief.id}
-                            book={store.chiefWork}
-                            chief={openChief.id}
-                            online={online}
-                            strings={strings}
-                            onClose={() => setWorkConversation(undefined)}
-                          />
+                          <Suspense fallback={null}>
+                            <ChiefWorkPane
+                              key={openChief.id}
+                              book={store.chiefWork}
+                              chief={openChief.id}
+                              online={online}
+                              strings={strings}
+                              onClose={() => setWorkConversation(undefined)}
+                            />
+                          </Suspense>
                         )}
                       </div>
                     </RunsContext.Provider>
                   </>
                 )}
               </section>
-              <RouteSheets
-                sheets={store.sheets}
-                state={sheetState}
-                strings={strings}
-                conversations={conversations}
-                me={me}
-              />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {sheetState.route && sheetState.ready && !chiefPage && (
+                <Suspense fallback={null}>
+                  <RouteSheets
+                    sheets={store.sheets}
+                    state={sheetState}
+                    strings={strings}
+                    conversations={conversations}
+                    me={me}
+                  />
+                </Suspense>
+              )}
+              {palette && (
+                <Suspense fallback={null}>
+                  <Palette
+                    items={paletteItems}
+                    rank={store.rankPalette}
+                    strings={strings}
+                    onClose={() => setPalette(false)}
+                  />
+                </Suspense>
+              )}
             </div>
           </div>
         </PicturesContext.Provider>

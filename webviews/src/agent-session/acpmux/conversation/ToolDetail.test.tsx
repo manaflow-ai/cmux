@@ -11,7 +11,8 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { exactPretty, inputFields, rawMembers } from "./toolInputFields";
 import { ToolRow } from "./ToolRow";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -32,6 +33,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -43,7 +45,7 @@ afterEach(async () => {
 
 async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

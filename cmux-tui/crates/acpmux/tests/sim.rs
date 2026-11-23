@@ -26,6 +26,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "SIM_SEED_BASE",
     "SIM_FAULTS",
     "SIM_RESEND",
+    "SIM_KNOWN_GAPS",
 ]);
 
 #[path = "sim/agent.rs"]
@@ -43,6 +44,7 @@ mod store;
 #[path = "sim/world.rs"]
 mod world;
 
+use std::collections::BTreeMap;
 use world::{Faults, Options};
 
 fn env_u64(name: &str) -> Option<u64> {
@@ -57,7 +59,7 @@ fn options() -> Options {
     // The app's retry carries `_meta.acpmux.resend`, as the Mac's prompt journal sends it. Off,
     // the retry is a bare resend of the same id, as the web pane sends it.
     let resend = !matches!(std::env::var("SIM_RESEND").as_deref(), Ok("0"));
-    Options { faults, resend }
+    Options { faults, resend, power_drops_unflushed: true }
 }
 
 fn replay_command(seed: u64, opts: &Options) -> String {
@@ -102,7 +104,13 @@ fn seeds_hold_the_delivery_invariants() {
             }
         }
         if let Err(failure) = invariants::check(&run) {
-            panic!("seed {seed}: {failure}\nreplay: {}", replay_command(seed, &opts));
+            let known = invariants::known_gaps_of(seed, &opts);
+            let known = if known.is_empty() {
+                String::new()
+            } else {
+                format!("\nknown gap (it holds without it): {}", known.join(" + "))
+            };
+            panic!("seed {seed}: {failure}{known}\nreplay: {}", replay_command(seed, &opts));
         }
         eprintln!(
             "seed {seed}: every invariant holds ({} simulated, {} faults, {} daemon restarts)",
@@ -117,12 +125,26 @@ fn seeds_hold_the_delivery_invariants() {
     let started = std::time::Instant::now();
     let mut simulated = std::time::Duration::ZERO;
     let mut failures = Vec::new();
+    // A known-gap leg (SIM_KNOWN_GAPS=1, acpmux-sim-sweep.yml) counts the seeds that fail only
+    // by a known gap (they hold once its cause is taken away) instead of failing on them. Every
+    // other run fails on them, whatever SIM_FAULTS and SIM_RESEND pick.
+    let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
+    // Seeds that fail only by a known gap: they hold once its cause is taken away.
+    let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         simulated += run.simulated;
         if let Err(failure) = invariants::check(&run) {
-            failures
-                .push(format!("seed {seed}: {failure}\n  replay: {}", replay_command(seed, &opts)));
+            let known =
+                if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
+            if known.is_empty() {
+                failures.push(format!(
+                    "seed {seed}: {failure}\n  replay: {}",
+                    replay_command(seed, &opts)
+                ));
+            } else {
+                shown.entry(known.join(" + ")).or_default().push(seed);
+            }
         }
     }
     let wall = started.elapsed();
@@ -134,20 +156,44 @@ fn seeds_hold_the_delivery_invariants() {
         simulated.as_secs_f64() / wall.as_secs_f64().max(1e-9),
     );
     eprintln!("sim: not checked yet: {}", invariants::NOT_CHECKED.join("; "));
-    let gaps = if opts.faults != Faults::standard() || !opts.resend {
-        format!(
-            "\nknown gaps these options can show (sim/invariants.rs): {}",
-            invariants::KNOWN_GAPS.join("; ")
-        )
-    } else {
-        String::new()
-    };
+    for (gap, hit) in &shown {
+        eprintln!(
+            "sim: known gap, not a failure (sim/invariants.rs KNOWN_GAPS): {gap}: {} of {seeds} \
+             seeds, each holds without it; first: {}",
+            hit.len(),
+            replay_command(hit[0], &opts)
+        );
+    }
     assert!(
         failures.is_empty(),
-        "{} of {seeds} seeds failed:\n{}{gaps}",
+        "{} of {seeds} seeds failed:\n{}",
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Seeds a sweep found failing under the standard faults, kept once fixed: what each broke,
+/// and why.
+const FOUND: &[u64] = &[
+    // Sweeps 266 and 300: a resumed chat ended with a turn still open. A partition cut the app's
+    // connection, so it missed the daemon's next crash, read the quiet as settled and left
+    // while the restart's continuation still ran (app.rs, `chat_settled`).
+    2663130, 3000166,
+];
+
+/// Every seed in [`FOUND`] holds.
+#[test]
+fn seeds_the_sweep_found_hold() {
+    let opts = Options { faults: Faults::standard(), resend: true, power_drops_unflushed: true };
+    let failed: Vec<String> = FOUND
+        .iter()
+        .filter_map(|&seed| {
+            invariants::check(&world::run(seed, &opts))
+                .err()
+                .map(|e| format!("seed {seed}: {e}\n  replay: {}", replay_command(seed, &opts)))
+        })
+        .collect();
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
 
 /// What a seed decides, which a replay must repeat: the verdict, the faults as they were

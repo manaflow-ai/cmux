@@ -1,9 +1,16 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
+import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
+import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import type { SenderReference } from "../senderIdentity";
+import { SUBAGENTS } from "../subagents/subagentFold";
+import type { RailShow } from "./railShow";
+import { SUBAGENT_DONE, SUBAGENT_ROW, SUBAGENT_STARTED } from "../subagents/subagentRows";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -15,6 +22,10 @@ export type MinimapTurnMetadata = {
   links: string[];
   failed?: boolean;
   failure?: string;
+  /// The turn started a subagent (a group, a subagent's line, or where one ended).
+  subagents?: true;
+  /** A received agent message keeps its identity; it is not labelled as the person's prompt. */
+  sender?: SenderReference;
 };
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
@@ -32,6 +43,12 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// The turn's first reply row, where an agent tick lands (railEntries): its index in the rows and its id.
+  replyAt?: { index: number; id: string };
+  /// What this rail entry stands for: the prompt (absent) or the agent's reply to it (railEntries).
+  side?: "reply";
+  /// A reply entry's prompt turn.
+  turn?: MinimapTurn;
   /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
   /// (pendingTurn): it draws a resting tick in its final row so the rail is full length on its
   /// first frame. Its jump loads history and its card stays blank until the prompt is known.
@@ -61,8 +78,13 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
+  /// The `inset-first` arm (restTick.experiment.ts): the inset follows the text's own gutter too, so it
+  /// shrinks before the hit width where the text comes near (and moves the rail when Session Info pushes).
+  insetFirst = false,
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const paneInset = transcriptColumn(paneWidth).inset;
+  const paneInset = insetFirst
+    ? Math.min(transcriptColumn(paneWidth).inset, textInset)
+    : transcriptColumn(paneWidth).inset;
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
@@ -91,7 +113,11 @@ export function railPlacement(
 /// density"). A `fit` arm keeps that maximum as a slot and draws the ticks at the 10 px pitch in a rail
 /// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
 /// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
-/// thing shifts"). `fit-480` ships; the gallery compares the arms.
+/// thing shifts"). `fit-480` shipped that, but a chat short of 48 prompts then drew its rail above the
+/// view's middle. `fit-480-center` ships: the rail's middle is
+/// always the view's middle (Lucas, 2026-11-17: "the timeline ... is always vertically aligned, and is
+/// on the vertical center of the screen"); each new prompt grows it half a row at each end. The
+/// gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
@@ -116,7 +142,7 @@ export const RAIL_HEIGHTS = {
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480-center";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -136,6 +162,7 @@ export const STEP_MS = MOTION_MS.standard;
 /// responsive"). The rail is a deliberate target at the pane's edge, and the card is the point of
 /// hovering it; it was Codex's 250 ms `delayOpen`. The app's other hover cards keep their dwell
 /// (ui/hoverIntent.ts).
+// hover-timing: the minimap is a scrubber, its card the point of hovering it (Leo 2026-10-29)
 export const CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
@@ -144,9 +171,13 @@ export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.
 export const HIGHLIGHT_MS = 1400;
 export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-/// Blocks of a reply the preview keeps (the card clamps to four lines).
-const PREVIEW_BLOCKS = 4;
-const PREVIEW_CHARS = 360;
+/// What of a reply the preview keeps: enough to fill the card's few lines at its widest (it clamps
+/// them, threadMinimap.css), held for every turn, so a short bounded excerpt.
+export type PreviewLimits = { blocks: number; chars: number };
+const PREVIEW: PreviewLimits = { blocks: 6, chars: 480 };
+/// What the card shows once the pointer moves into it (PreviewCard `more`): read only for the card
+/// that opens it, from its reply's row, and still bounded, so its cost is the same in any chat.
+const PREVIEW_MORE: PreviewLimits = { blocks: 24, chars: 2400 };
 const METADATA_TEXT_LIMIT = 1024;
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g;
 
@@ -184,8 +215,9 @@ export function waveProgress(shape: WaveShape, index: number, focus: number, amp
 /// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
 /// smooth wave and a flick never jumps.
 export const WAVE_FOLLOW_MS = 30;
-/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
-/// of progress over its duration: the wave grows in on it when the pointer arrives.
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`) as points of progress over its
+/// duration: the wave grows in on it when the pointer arrives. It reaches full size at 58.75% and
+/// stays there: no point is over 1 (Lawrence: no bounce in any motion).
 const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
   [0.1, 0.398],
@@ -193,9 +225,7 @@ const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0.3, 0.843],
   [0.4, 0.925],
   [0.5, 0.972],
-  [0.6, 1.004],
-  [0.7, 1.008],
-  [0.8, 1.003],
+  [0.5875, 1],
   [1, 1],
 ];
 export const WAVE_IN_MS = MOTION_MS.micro;
@@ -303,12 +333,12 @@ export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
-/// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
-/// while Jump to latest shows: that control keeps its own glass and does not widen the transcript mask.
+/// (the bottom stack's top) while more lies below. The composer edge has no band: rows keep full ink
+/// down to the stack's top, as the Codex app's do (Lucas, 2026-11-17), Jump to latest or not.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
 export const TRANSCRIPT_FADE_TOP = 18;
-export const TRANSCRIPT_FADE_BOTTOM = 18;
+export const TRANSCRIPT_FADE_BOTTOM = 0;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
 /// above `viewportHeight` (a composer grown while the view follows the latest row).
@@ -363,19 +393,21 @@ export function railSlot(config: RailHeightConfig, viewportHeight: number, foot 
     : config.initial;
 }
 
-/// The top of a rail `height` tall: a `fit` arm's rail sits in its slot, placed as the slot of its
-/// full height would be (railTop), so the rows it adds never move it; every other rail is its box.
+/// The top of a rail `height` tall: a `top` or `bottom` fit arm's rail sits at that end of its slot,
+/// placed as the slot of its full height would be (railTop), so the rows it adds never move that end.
+/// A `center` one, and every other rail, is centered on the view itself (railTop): its middle stays
+/// the view's middle, and it moves off it only as little as it takes to stay in the room.
 export function railFitTop(
   height: number,
   viewportHeight: number,
   foot = viewportHeight,
   config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
 ): number {
-  if (!config.fixed || !config.fit) return railTop(height, viewportHeight, foot);
+  if (!config.fixed || !config.fit || config.fit === "center") return railTop(height, viewportHeight, foot);
   const slot = railSlot(config, viewportHeight, foot);
   const top = railTop(slot, viewportHeight, foot);
   const spare = Math.max(0, slot - height);
-  return config.fit === "top" ? top : config.fit === "bottom" ? top + spare : top + Math.round(spare / 2);
+  return config.fit === "top" ? top : top + spare;
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
@@ -432,6 +464,24 @@ export function railFades(
   };
 }
 
+/// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
+/// with how far the list has scrolled from that end until it is full RAIL_FADE_RAMP fades on, so the
+/// rows roll under the edge like a wheel turning (Leo, 2026-11-07: "if you scroll to the very top, there
+/// should be no fade. But then as you scroll down, like gradually, there's more and more of a fade on
+/// the top edges" and, from the bottom, "the bottom should gradually have that same kind of fade").
+export const RAIL_FADE_RAMP = 2;
+export function railFadeReach(count: number, height: number, top: number, pitch = ROW_PITCH) {
+  const ramp = Math.max(1, railFade(height) * RAIL_FADE_RAMP);
+  const reach = (distance: number) => Math.max(0, Math.min(1, distance / ramp));
+  return { top: reach(top), bottom: reach(count * pitch - top - height) };
+}
+
+/// The transcript's edge fades (conversation.css `--acpmux-fade-*-reach`) the same way: none at either
+/// end of the chat, full once the view is TRANSCRIPT_FADE_RAMP px from it.
+export const TRANSCRIPT_FADE_RAMP = 96;
+export const transcriptFadeReach = (distance: number) =>
+  Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
+
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
@@ -482,18 +532,43 @@ export function jumpDuration(distance: number): number {
 export const JUMP_GLIDE_VIEWPORTS = 1;
 
 /// Where Jump to latest's glide starts: from `from` when the end is within JUMP_GLIDE_VIEWPORTS,
-/// else that far above `target`. Gliding the whole way through a long chat mounted every row in
+/// else that far above `target` (below it for a glide up, Jump up's). Gliding the whole way through a long chat mounted every row in
 /// between for a frame or two, drawn blank while they measured (Leo, 2026-10-28: "when I click the
 /// jump to bottom button, it should be, like, on the in-between. It shouldn't need to be doing that
 /// thing"). Skipping the middle draws only rows near the end.
 export function jumpGlideStart(from: number, target: number, viewport: number): number {
   const span = Math.max(0, viewport) * JUMP_GLIDE_VIEWPORTS;
-  return target - from > span ? target - span : from;
+  if (target - from > span) return target - span;
+  return from - target > span ? target + span : from;
 }
 
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
+
+/// Each turn's reply row, for the longer excerpt the card reads only when the pointer moves into it
+/// (`replyMore`). Weak by the turn, so a turn that goes takes its entry with it.
+const replyRows = new WeakMap<MinimapTurn, AcpmuxRow>();
+/// The longer excerpt of a reply row's text, kept while the row's text is the same.
+const moreOf = new WeakMap<AcpmuxRow, { text: string; blocks: readonly ReplyBlock[] }>();
+
+/// The longer excerpt of `turn`'s reply that the card shows expanded: bounded (PREVIEW_MORE), read
+/// once per reply text, and only for the turn whose card the pointer moved into. A turn with no reply
+/// row (an earlier prompt the index names) keeps its own preview.
+export function replyMore(turn: MinimapTurn): readonly ReplyBlock[] {
+  const row = replyRows.get(turn);
+  const text = row?.text;
+  if (!row || !text) return turn.reply;
+  const held = moreOf.get(row);
+  if (held?.text === text) return held.blocks;
+  const blocks = replyPreview(text, PREVIEW_MORE);
+  moreOf.set(row, { text, blocks });
+  return blocks;
+}
+
+/// A row that shows a subagent the turn started.
+const isSubagentRow = (row: AcpmuxRow) =>
+  row.kind === SUBAGENTS || row.kind === SUBAGENT_ROW || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE;
 
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
 type CardContribution = {
@@ -519,7 +594,26 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
   if (cached && cached.before === before) return cached.state;
-  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let state = before ?? {
+    metadata: {
+      at: row.at,
+      links: [],
+      // An app or persona label (`[from Muse]`), a Chief or a person names its own sender; the
+      // session it came through never replaces that name, so such a card keeps its "From <name>"
+      // line (IncomingMessageCard.tsx looks no chat up for these either).
+      ...(prompt.incoming?.kind === "message" &&
+        !prompt.incoming.message.app &&
+        !prompt.incoming.message.chief &&
+        !prompt.incoming.message.fromPerson && {
+          sender: {
+            name: prompt.incoming.message.name,
+            sessionId: prompt.incoming.message.sessionId,
+            relation: prompt.incoming.message.relation,
+          },
+        }),
+    },
+    files: noFiles,
+  };
   let metadata = state.metadata;
   let files = state.files;
   // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix
@@ -539,6 +633,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
       metadata = { ...metadata, fileCount: files.size };
     }
   }
+  if (!metadata.subagents && isSubagentRow(row)) metadata = { ...metadata, subagents: true };
   const failure = row.error || row.delivery?.error || row.delivery?.reason;
   const failed =
     row.failed ||
@@ -559,7 +654,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members" | "side">;
 
 /// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
 /// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
@@ -568,9 +663,16 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "
 /// sort of thing?").
 export function promptSender(row: AcpmuxRow): string | undefined {
   const incoming = row.incoming;
-  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "message") return senderName(incoming.message.name) || undefined;
   if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
   return undefined;
+}
+
+/// A turn's prompt as its tick shows it: another agent's message without the broker's label around
+/// it (conversation/relayEnvelope.ts), the person's as written.
+function promptText(row: AcpmuxRow): string {
+  const text = (row.text ?? "").trim();
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
@@ -579,14 +681,18 @@ export type MinimapTurns = {
   sessionId: string;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
-  /// Prompts indexed by the rail but not materialized in the transcript yet.
-  earlierRows?: readonly AcpmuxRow[];
-  /// The loaded portion is kept separately so prepending indexed prompts never changes the
-  /// incremental O(changed rows) work for a streamed reply.
+  /// The prompts the chat's index names that the rows do not hold yet (older than them). They are not in `turns`
+  /// or `ticks`: the rail reads each from here only when it draws or looks one up (railRows.ts), so a long chat's
+  /// index costs no object a prompt.
+  earlier?: PromptHeads;
+  /// The held turns and ticks: `turns` and `ticks` themselves (ScrollMap reads these).
   loadedTurns?: readonly MinimapTurn[];
   loadedTicks?: readonly MinimapTick[];
+  /// The rail row of the first held turn, past the indexed prompts (the count-only ones come before both).
   loadedStart?: number;
-  earlierTurns?: readonly MinimapTurn[];
+  /// The prompts newer than the rows (the snapshot's `laterPrompts`, a window of the chat the reader scrolled far up
+  /// holds): rail rows after the held ones (railRows.ts), read as `earlier` is.
+  later?: PromptHeads;
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -600,7 +706,6 @@ const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[
 /// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
 /// rows before `from` in `rows` are the rows of `base`.
 export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
-const EMPTY_EARLIER_ROWS: readonly AcpmuxRow[] = [];
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
@@ -623,17 +728,12 @@ export function minimapTurns(
   sessionId = "",
   previous?: MinimapTurns,
   change?: RowsChange,
-  earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  earlier: PromptHeads = PromptHeads.EMPTY,
   promptCount = 0,
+  later: PromptHeads = PromptHeads.EMPTY,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
-  const reuse = prior
-    ? {
-        ...prior,
-        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.index >= 0),
-        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.index >= 0),
-      }
-    : undefined;
+  const reuse = prior;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -656,6 +756,7 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
+  let replyIndex = 0;
   let details: CardState | undefined;
   const close = () => {
     if (!user) return;
@@ -666,10 +767,16 @@ export function minimapTurns(
       same &&
       (kept.reply === reply ||
         (reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))));
-    if (sameReply && kept.turn.metadata === nextMetadata) {
+    if (
+      sameReply &&
+      kept.turn.metadata === nextMetadata &&
+      kept.turn.replyAt?.id === reply?.id &&
+      kept.turn.replyAt?.index === (reply ? replyIndex : undefined)
+    ) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
+      if (reply) replyRows.set(kept.turn, reply);
       tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
@@ -678,12 +785,14 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
-        prompt: (user.text ?? "").trim(),
+        prompt: promptText(user),
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
+        ...(reply && { replyAt: { index: replyIndex, id: reply.id } }),
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
+      if (reply) replyRows.set(turn, reply);
       tail.push(turn);
     }
     user = undefined;
@@ -693,18 +802,24 @@ export function minimapTurns(
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
+    // A "Worked for" that folds its turn's prompt (other agents' messages, conversation/turns.ts
+    // `shapedTurn`) starts the turn in the prompt's place, open or closed; the prompt's copy the
+    // open fold draws under it starts none. The turn keeps its tick, its key and its prompt.
+    const folded = row.foldedPrompt;
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
-    if (opensTurn(row)) {
+    if (folded || (opensTurn(row) && !(user && isFoldedPrompt(row, user, userIndex, rows)))) {
       close();
-      user = row;
+      user = folded ?? row;
       userIndex = index;
-      details = cardState(row, row);
+      details = cardState(user, user);
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
+        replyIndex = index;
         details = cardState(user, row, details);
       }
-      if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(user, row, details);
+      if (row.kind === "activity" || row.kind === "turnSummary" || isSubagentRow(row))
+        details = cardState(user, row, details);
     }
   }
   close();
@@ -730,46 +845,31 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
-  // rail lays out every turn from the first frame. The combined list is a new array whenever the
-  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
-  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
+  // The indexed prompts older than the held rows (`earlier`) are not turns here: the rail reads them as rows of its
+  // own before the held ones (railRows.ts), so it lays out every turn from the first frame without an object a
+  // prompt. The loaded turns' lists are the result's own.
   const withEarlier = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
   ): MinimapTurns => {
-    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
     // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
-    if (!earlierRows.length)
-      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
-    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
-    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base, pendingCount: pending };
-    const earlier = sameEarlier
-      ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
-          ...withSender(row),
-          reply: [],
-        }));
-    const turns = [...earlier, ...loadedTurns];
+    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length - later.length);
     return {
-      ...base,
-      turns,
-      // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
-      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
-      earlierRows,
-      earlierTurns: earlier,
-      pendingCount: pending,
+      rows,
+      sessionId,
+      turns: loadedTurns,
+      ticks: loadedTicks,
+      loadedTurns,
+      loadedTicks,
+      ...(spare ? { spare } : {}),
+      ...(earlier.length ? { earlier } : {}),
+      ...(later.length ? { later } : {}),
       loadedStart: earlier.length,
+      pendingCount: pending,
     };
   };
   if (!old) {
@@ -787,6 +887,11 @@ export function minimapTurns(
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
 }
+
+/// Whether `row` is the open fold's copy of `user`, the prompt the "Worked for" at `rows[at]` folds:
+/// the prompt itself, or a delivery its inbox notice draws as (laneNoticeBatches.ts).
+const isFoldedPrompt = (row: AcpmuxRow, user: AcpmuxRow, at: number, rows: readonly AcpmuxRow[]) =>
+  rows[at]?.foldedPrompt === user && (row.id === user.id || row.inboxSource === user.id);
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
 function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {
@@ -884,7 +989,10 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
+    // A turn newer than the rows (railRows.ts `later`, index -1) has no top: it is below every held one. A held turn
+    // whose top is not placed yet reads as above, as before.
+    const turn = turns.at(middle)!;
+    if ((tops(turn.index) ?? (turn.index < 0 ? Infinity : 0)) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -920,14 +1028,15 @@ export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
-export function replyPreview(markdown: string): ReplyBlock[] {
+export function replyPreview(markdown: string, limits: PreviewLimits = PREVIEW): ReplyBlock[] {
+  const { blocks: maxBlocks, chars: maxChars } = limits;
   const blocks: ReplyBlock[] = [];
   let chars = 0;
   let fenced = false;
   let paragraph: string[] = [];
   const push = (kind: ReplyBlock["kind"], text: string) => {
-    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) return;
-    const spans = inlineSpans(text.slice(0, PREVIEW_CHARS - chars));
+    if (blocks.length >= maxBlocks || chars >= maxChars) return;
+    const spans = inlineSpans(text.slice(0, maxChars - chars));
     if (!spans.length) return;
     chars += spans.reduce((sum, span) => sum + span.text.length, 0);
     blocks.push({ kind, spans });
@@ -939,7 +1048,7 @@ export function replyPreview(markdown: string): ReplyBlock[] {
   // A streaming reply previews again on every token: stop reading once the preview is full, and
   // read line by line instead of splitting the whole reply.
   for (let start = 0; start <= markdown.length;) {
-    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) break;
+    if (blocks.length >= maxBlocks || chars >= maxChars) break;
     const newline = markdown.indexOf("\n", start);
     const end = newline < 0 ? markdown.length : newline;
     const line = markdown.slice(start, end).trim();
@@ -1025,6 +1134,135 @@ export function foldIncoming(
   return { turns: folded, ticks: runs.ticks };
 }
 
+/// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
+/// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
+/// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
+/// own, or only other agents' messages (a tick with a sender, promptSender).
+export type RailFilter = "all" | "mine" | "agents";
+
+/// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
+/// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
+/// yet, so a filtered rail draws none (ThreadMinimap).
+export function filterTurns(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  filter: RailFilter,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (filter === "all") return { turns, ticks, loadedStart };
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < ticks.length; at += 1) {
+    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (at < loadedStart) start += 1;
+    keptTurns.push(turns[at]!);
+    keptTicks.push(ticks[at]!);
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
+}
+
+/// Whether a turn has what a kind's choice keeps (`errors` and on).
+function turnHas(turn: MinimapTurn, show: RailShow): boolean {
+  const metadata = turn.metadata;
+  if (show === "errors") return metadata?.failed === true;
+  if (show === "edits") return (metadata?.fileCount ?? 0) > 0;
+  if (show === "tools") return (metadata?.toolCount ?? 0) > 0;
+  if (show === "subagents") return metadata?.subagents === true;
+  return false;
+}
+
+/// A turn's reply as a rail entry of its own: it lands on the reply row and keeps the turn's card.
+const replyEntries = new WeakMap<MinimapTurn, MinimapTurn>();
+export function replyEntry(turn: MinimapTurn): MinimapTurn | undefined {
+  const at = turn.replyAt;
+  if (!at) return undefined;
+  const kept = replyEntries.get(turn);
+  if (kept) return kept;
+  const entry: MinimapTurn = {
+    ...turn,
+    index: at.index,
+    id: at.id,
+    key: `${turn.key}#reply`,
+    side: "reply",
+    turn,
+    members: undefined,
+  };
+  replyEntries.set(turn, entry);
+  return entry;
+}
+
+/// A reply entry's tick, kept per prompt tick while the reply row stays: a streamed token makes a new
+/// turn (the card reads it) but leaves the ticks alone, so the tick list renders nothing.
+const replyTicks = new WeakMap<MinimapTick, MinimapTick>();
+function replyTick(tick: MinimapTick, at: { id: string }): MinimapTick {
+  const kept = replyTicks.get(tick);
+  if (kept && kept.id === at.id) return kept;
+  const entry: MinimapTick = {
+    ...tick,
+    id: at.id,
+    key: `${tick.key}#reply`,
+    side: "reply",
+    from: undefined,
+    members: undefined,
+  };
+  replyTicks.set(tick, entry);
+  return entry;
+}
+
+/// The entries `show` keeps, in transcript order, and where the loaded ones start (`loadedStart`, as
+/// filterTurns). A reply entry stands in both lists (a turn is a tick). Whether the earlier, indexed
+/// prompts stay is `keepsIndexed`: they are the person's prompts with no reply known.
+export function railEntries(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  show: RailShow,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (show === "prompts") return { turns, ticks, loadedStart };
+  if (show === "mine" || show === "received")
+    return filterTurns(turns, ticks, loadedStart, show === "mine" ? "mine" : "agents");
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < turns.length; at += 1) {
+    const turn = turns[at]!;
+    const reply = replyEntry(turn);
+    const before = keptTurns.length;
+    const tick = ticks[at]!;
+    const replyRow = reply && turn.replyAt ? replyTick(tick, turn.replyAt) : undefined;
+    if (show === "everything") {
+      keptTurns.push(turn);
+      keptTicks.push(tick);
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
+    } else if (show === "replies") {
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
+    } else if (turnHas(turn, show)) {
+      keptTurns.push(reply ?? turn);
+      keptTicks.push(replyRow ?? tick);
+    }
+    if (at < loadedStart) start += keptTurns.length - before;
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
+}
+
+/// Whether `show` keeps the chat's indexed prompts (older than the held rows; railRows.ts).
+export const keepsIndexed = (show: RailShow) => show === "prompts" || show === "mine" || show === "everything";
+
+/// `next`, or `previous` when it holds the same entries: a streamed token that leaves every entry alone
+/// keeps the list, so the rail's ticks render nothing.
+export function sameEntries<T>(previous: readonly T[] | undefined, next: readonly T[]): readonly T[] {
+  if (!previous || previous.length !== next.length) return next;
+  for (let at = 0; at < next.length; at += 1) if (previous[at] !== next[at]) return next;
+  return previous;
+}
+
 const runsByTicks = new WeakMap<
   readonly MinimapTick[],
   { loadedStart: number; ranges: [number, number][]; ticks: readonly MinimapTick[] }
@@ -1074,8 +1312,13 @@ const foldedTurns = new WeakMap<MinimapTurn, { run: readonly MinimapTurn[]; turn
 function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
   const first = run[0]!;
   const held = foldedTurns.get(first);
-  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) return held.turn;
   const last = run.at(-1)!;
+  // The run's card expands to its last message's reply (`replyMore`), which streams on in place.
+  const lastReply = replyRows.get(last);
+  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) {
+    if (lastReply) replyRows.set(held.turn, lastReply);
+    return held.turn;
+  }
   const turn: MinimapTurn = {
     ...first,
     from: senders(run),
@@ -1083,6 +1326,19 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
     metadata: last.metadata,
     members: run.map((member) => member.id),
   };
+  if (lastReply) replyRows.set(turn, lastReply);
   foldedTurns.set(first, { run, turn });
   return turn;
+}
+
+/// The choices that keep something in this chat (the rest are offered disabled): every prompt always.
+export function railShowsOffered(turns: readonly MinimapTurn[], ticks: readonly MinimapTick[]): ReadonlySet<RailShow> {
+  const offered = new Set<RailShow>(["prompts"]);
+  for (let at = 0; at < turns.length; at += 1) {
+    const turn = turns[at]!;
+    offered.add(ticks[at]?.from === undefined ? "mine" : "received");
+    if (turn.replyAt) offered.add("replies").add("everything");
+    for (const kind of ["errors", "edits", "tools", "subagents"] as const) if (turnHas(turn, kind)) offered.add(kind);
+  }
+  return offered;
 }

@@ -1,15 +1,17 @@
 import AppKit
 import CmuxNextDesign
 
-/// Sizes and type for the onboarding window: one calm size, system font.
+/// Type for the native onboarding panels (the helper drag panel): system font.
 enum OnboardingMetrics {
-    static let windowSize = NSSize(width: 640, height: 520)
-    /// Margin around everything.
-    static let margin: CGFloat = 40
-    /// The type scale's steps, so every screen follows Interface Size.
-    static var titleFont: NSFont { Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis) }
+    /// The type scale's steps, so every panel follows Interface Size.
     static var bodyFont: NSFont { Typography.system(size: TypeScale.body) }
-    static var captionFont: NSFont { Typography.system(size: TypeScale.caption) }
+}
+
+extension OnboardingModel.Step {
+    /// The tool window's fixed content size: one calm size, a smaller one for Computer Use.
+    var windowSize: NSSize {
+        self == .computerUse ? NSSize(width: 520, height: 480) : NSSize(width: 640, height: 520)
+    }
 }
 
 /// Label factory: non-editable, theme colors, wraps when `lines` is not 1.

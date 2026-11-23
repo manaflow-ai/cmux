@@ -27,7 +27,8 @@ public struct TerminalScreen: View {
             .background(Color.black)
             .overlay {
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, retry: model.reconnect).transition(.opacity)
+                    TerminalConnectingView(lastFrame: model.coldFrame, showsPlaceholder: !model.connectionState.keepsWarmFrame)
+                        .transition(.opacity)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

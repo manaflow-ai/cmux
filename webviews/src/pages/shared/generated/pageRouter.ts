@@ -24,20 +24,48 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "gesture": [
       "apps.grant.revoke",
-      "apps.hidden.set"
+      "apps.hidden.set",
+      "apps.install"
     ],
     "confirm": [
       "apps.grant.set",
-      "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
     ]
+  },
+  "bookmarks": {
+    "read": [
+      "bookmarks.list",
+      "bookmarks.search"
+    ],
+    "gesture": [
+      "bookmarks.apply"
+    ],
+    "confirm": []
+  },
+  "feed": {
+    "read": [
+      "feed.github.find_work",
+      "feed.item.get",
+      "feed.items.list",
+      "feed.reports.read",
+      "feed.view.read"
+    ],
+    "gesture": [
+      "feed.github.refresh",
+      "feed.intent",
+      "feed.reports.reply"
+    ],
+    "confirm": []
   },
   "history": {
     "read": [
@@ -59,6 +87,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.history",
       "chief.profile.list",
       "chief.profile.update",
+      "palette.rank",
       "participant.avatar.get"
     ],
     "gesture": [
@@ -66,6 +95,28 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.delete",
       "chief.profile.undo",
       "workspace.open_url"
+    ],
+    "confirm": []
+  },
+  "stash": {
+    "read": [
+      "stash.list"
+    ],
+    "gesture": [
+      "stash.import"
+    ],
+    "confirm": []
+  },
+  "tasks": {
+    "read": [
+      "tasks.snapshot"
+    ],
+    "gesture": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
     ],
     "confirm": []
   }
@@ -93,9 +144,11 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "mutation": [
       "apps.grant.revoke",
@@ -103,7 +156,55 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.hidden.set",
       "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
+    ]
+  },
+  "bookmarks": {
+    "owner": "bookmarks.tree",
+    "read": [
+      "bookmarks.children",
+      "bookmarks.export",
+      "bookmarks.list",
+      "bookmarks.rank",
+      "bookmarks.search"
+    ],
+    "mutation": [
+      "bookmarks.apply",
+      "bookmarks.import_html",
+      "bookmarks.import_source"
+    ]
+  },
+  "feed": {
+    "owner": "feed",
+    "read": [
+      "feed.github.find_work",
+      "feed.item.get",
+      "feed.items.list",
+      "feed.reports.read",
+      "feed.view.read"
+    ],
+    "mutation": [
+      "feed.github.configure",
+      "feed.github.refresh",
+      "feed.intent",
+      "feed.post",
+      "feed.presence.set",
+      "feed.reports.reply",
+      "feed.withdraw"
+    ]
+  },
+  "tasks": {
+    "owner": "tasks.local",
+    "read": [
+      "tasks.snapshot"
+    ],
+    "mutation": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
     ]
   }
 };

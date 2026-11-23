@@ -1,0 +1,32 @@
+[package]
+name = "cmux-cookie-sync"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Keeps the cmux browser's imported cookies in step with a Chromium-family browser on the same Mac (the macOS app asks over the app FFI): watches each profile's Cookies database, fingerprints it per host without decrypting anything, and tells the app which cookie domains changed since its last import"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Reads a private copy of the profile's Cookies database (the app already links it through cmux-imessage).
+rusqlite.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The scan thread's CPU time (clock_gettime CLOCK_THREAD_CPUTIME_ID), reported
+# with each scan; on macOS also the kqueue file watch (src/watch.rs).
+libc.workspace = true
+
+# The file watch off macOS (inotify on Linux). Not on macOS: its FSEvents
+# backend needs CoreServices linked into every app target, and its kqueue
+# backend is a feature that would move every other cmux-tui crate's
+# recursive watches off FSEvents.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

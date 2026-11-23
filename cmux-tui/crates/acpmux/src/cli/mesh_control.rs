@@ -15,7 +15,7 @@ pub struct StartArgs {
     #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: String,
     /// HARNESS[/MODEL], for example codex/gpt-6-astra.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     /// Absolute folder on the destination machine.
     #[arg(long)]
@@ -85,7 +85,7 @@ fn request(command: SessionCmd) -> Result<Value> {
             }
             ("start", json!({"host": args.host}), params, args.idempotency_key)
         }
-        SessionCmd::Resume { session, mesh } if mesh.mesh => {
+        SessionCmd::Resume { session, mesh, .. } if mesh.mesh => {
             ("resume", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
         }
         SessionCmd::Stop { session, purge, mesh, condition } if mesh.mesh => {
@@ -214,7 +214,7 @@ mod tests {
             }
         }
         match local(&["acpmux", "session", "resume", "--id", id]) {
-            Command::ResumeQueue { session } => assert_eq!(session, id),
+            Command::ResumeQueue { session, .. } => assert_eq!(session, id),
             _ => panic!("resume --id did not run the local resume"),
         }
         // `--idempotency-key` is still a mesh-only flag.

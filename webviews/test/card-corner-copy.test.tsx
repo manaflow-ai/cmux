@@ -4,6 +4,7 @@
 // first in its panel, with Raw still at the end.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -53,8 +54,9 @@ dom.window.clearTimeout = (() => {}) as never;
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { CardCopy, CardCopyLookContext } = await import("../src/agent-session/acpmux/conversation/CardCopy");
-const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/CopyButton");
+const { CardCopy } = await import("../src/agent-session/acpmux/conversation/CardCopy");
+const { CardCopyLookContext } = await import("../src/agent-session/acpmux/conversation/cardCopyModel");
+const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/copyButtonModel");
 const { SubsessionCallCard } = await import("../src/agent-session/acpmux/conversation/SubsessionCallCard");
 const { subsessionCall } = await import("../src/agent-session/acpmux/conversation/subsessionCalls");
 const { TranscriptDisclosureProvider } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
@@ -62,13 +64,9 @@ const { TranscriptDisclosureProvider } = await import("../src/agent-session/acpm
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 beforeEach(() => {

@@ -22,6 +22,21 @@ pub(super) fn restart_daemon_in_place(cli: &Path, socket: &Path) -> String {
     format!("{} daemon restart --socket {}", quote(cli), quote(socket))
 }
 
+/// Swaps the daemon this environment routes to for this CLI's build, keeping
+/// its terminals: for an error path that does not know its socket (`cmux ext`,
+/// unix only).
+#[cfg(unix)]
+pub(super) fn restart_routed_daemon() -> String {
+    format!("{} daemon restart", quote(&this_cli()))
+}
+
+/// A stop this daemon refuses (another build): `text` and the one command
+/// that restarts the daemon at `socket` with `cli`'s build
+/// (plans/cmux-next/version-skew.md).
+pub(super) fn refused_with_fix(text: &str, cli: &Path, socket: &Path) -> String {
+    format!("{text} {}", restart_daemon(cli, socket))
+}
+
 /// Stops the daemon at `socket` and starts it again with `cli`'s build.
 pub(super) fn restart_daemon(cli: &Path, socket: &Path) -> String {
     format!(
@@ -61,18 +76,5 @@ pub(super) fn quote_arg(arg: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_daemon_cli_fix_quotes_only_what_needs_it() {
-        let text = run_with_daemon_cli(
-            Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux"),
-            ["--socket", "/tmp/a b.sock", "tab", "list", "it's"],
-        );
-        assert_eq!(
-            text,
-            "'/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux' --socket '/tmp/a b.sock' tab list 'it'\\''s'"
-        );
-    }
-}
+#[path = "fix_command_tests.rs"]
+mod tests;

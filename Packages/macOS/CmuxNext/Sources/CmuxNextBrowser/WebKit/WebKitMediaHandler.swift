@@ -16,6 +16,8 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
         controller.addUserScript(WKUserScript(source: observer, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
         controller.addUserScript(WKUserScript(source: BrowserMediaState.actionsScript, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: .page))
+        controller.addUserScript(WKUserScript(source: BrowserMediaState.hiddenSoundScript, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: false, in: .page))
         controller.addUserScript(WKUserScript(source: BrowserPageBusy.recorderScript, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: .page))
         controller.add(WebKitMediaHandler(tab: tab), contentWorld: world, name: BrowserMediaState.channel)
@@ -31,6 +33,7 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
 extension WebKitTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         apply(.audioMutedChanged(muted))
+        applyAudioMute()
         Task { await media(.muteTab(state.isAudioMuted)) }
     }
 }

@@ -29,8 +29,7 @@ extension SidebarBridge {
             groupFlow.move(ids, into: group, intent)
         case .createGroup(let group, let name, let color, let ids, _, let collapsed, let index):
             // `index` is the group's place among the personal groups (nil, or `Int.max`: last, the daemon's default).
-            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID,
-                             index: index.flatMap { $0 == .max ? nil : $0 }, intent)
+            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, index: index, intent)
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)))
         case .renameGroup(let group, let name):
@@ -41,11 +40,7 @@ extension SidebarBridge {
             // Each click flips what the sidebar shows now; the fold holds
             // until the store has it, so no echo undoes a click (cx-qno.17).
             guard let shown = model.group(group)?.isCollapsed else { return true }
-            let collapsed = !shown, v2 = statePersonal
-            rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(intent)) {
-                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
-                try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
-            }
+            saveFold(group, collapsed: !shown)
         case .ungroup(let group):
             // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
             // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
@@ -101,8 +96,10 @@ extension SidebarBridge {
                   let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
             // `sections` retains this intent's neighbors. The planner now reads
             // personal order containing every successful preceding write.
-            let regroup = statePersonal ? plan.regroup : []
-            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life, writes = life.personal.writes
+            // A moving step joins the drop's group (or goes loose), the rest keep theirs (`SidebarBridgeRules.placements`).
+            let rules = SidebarBridgeRules(), commands = rules.placements(plan.steps.map { ($0.moves, $0.index) }, group: group?.rawValue, statePersonal: statePersonal,
+                                                                            regroup: plan.regroup.map(\.rawValue), first: plan.first)
+            let moving = rules.pick(commands?.moving, from: plan.steps).map(\.workspace), life = self.life, writes = life.personal.writes
             let ending = life.emptied(by: moving, into: group)
             let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 var finished = false
@@ -113,13 +110,13 @@ extension SidebarBridge {
                 }
                 life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim,
                             unanswered: { await queue.releaseHeld(on: home) }, failed: report, completed: { finish($0) }) { sending in
-                    for step in plan.steps { // a step a later move took is that move's to send (last write wins)
-                        guard await writes.isCurrent(claim, workspace: step.workspace.session, step.workspace.key.rawValue) else { continue }; do {
+                    for place in commands?.places ?? [] { // a step a later move took is that move's to send (last write wins)
+                        guard let step = plan.steps.dropFirst(place.step).first,
+                              await writes.isCurrent(claim, workspace: step.workspace.session, step.workspace.key.rawValue) else { continue }; do {
                             try await SidebarFoldPersist.resending(owner: "sidebar.placementSave", mayHaveApplied: DaemonError.missedDeadline) {
                                 try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                                   resource: step.workspace.resource,
-                                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                                  index: step.index)
+                                                                                  group: place.group.update, index: place.index)
                             }
                         } catch let error as DaemonError where error.isWorkspaceNotFound {
                             // The workspace ended after the plan read it (an agent open under load whose half-made workspace
@@ -127,8 +124,7 @@ extension SidebarBridge {
                             logger.info("personal placement: workspace \(step.workspace.key.rawValue, privacy: .public) is gone; its step is dropped")
                         }
                     }
-                    guard let first = plan.first else { return }
-                    for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+                    for regroup in commands?.regroups ?? [] { try await sending.state.updateWorkspaceGroup(regroup.group, topIndex: .set(regroup.topIndex)) }
                 }
             }
             guard sent else { return .failed } // claimed at the move; unanswered or unconnected, `commit` sends it again
@@ -152,8 +148,28 @@ extension SidebarBridge {
 
     /// Sends one personal-state command for `intent` to the home daemon; a failure
     /// re-syncs the sidebar and says why; a pending `edit` settles (SidebarRows.send).
+    /// Folds `group` to `collapsed` now and saves it to the home session (a set, never a toggle of what shows then).
+    func saveFold(_ group: GroupID, collapsed: Bool) {
+        let v2 = statePersonal
+        rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(.toggleCollapse(.group(group)))) {
+            if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
+            try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
+        }
+    }
+
     private func personal(_ label: String, _ intent: SidebarIntent, edit: SidebarPendingEdits.Token? = nil,
                           until claim: PersonalWriteLedger.Claim? = nil, _ body: @escaping DaemonCommandBody) {
         rows.send(label, edit: edit, on: services.machines.local, until: claim, failed: saveFailed(intent), body)
+    }
+}
+
+private extension SidebarBridgeRules.GroupChange {
+    /// The `workspace.place` group field.
+    var update: FieldUpdate<WorkspaceGroupID> {
+        switch self {
+        case .unchanged: .unchanged
+        case .clear: .clear
+        case .set(let id): .set(WorkspaceGroupID(rawValue: id))
+        }
     }
 }

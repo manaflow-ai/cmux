@@ -1,0 +1,53 @@
+{
+ "_doc": "DaemonRequestLatency (Connection/DaemonRequestLatency.swift, DaemonRequestLatencyTests): the bounds, and a recorded scenario read back through the C ABI. outcome: 0 reply, 1 error, 2 timed out.",
+ "first_bounds_us": [
+  64,
+  80,
+  96,
+  112,
+  128,
+  160,
+  192,
+  224,
+  256
+ ],
+ "bucket_count": 82,
+ "records": [
+  {
+   "ns": 1000000,
+   "outcome": 0,
+   "times": 98
+  },
+  {
+   "ns": 40000000,
+   "outcome": 1,
+   "times": 1
+  },
+  {
+   "ns": 2000000000,
+   "outcome": 2,
+   "times": 1
+  }
+ ],
+ "expect": {
+  "count": 100,
+  "errors": 1,
+  "timeouts": 1,
+  "max_us": 2000000,
+  "bucket_of_1ms_count": 98,
+  "percentiles": [
+   [
+    50,
+    1024
+   ],
+   [
+    99,
+    40960
+   ],
+   [
+    100,
+    2097152
+   ]
+  ]
+ }
+}

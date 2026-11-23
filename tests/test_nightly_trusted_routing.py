@@ -2,10 +2,12 @@
 """Execute nightly runner selectors for pooled native work and Linux control work.
 
 Nightlies never run on Blacksmith (Lawrence, 2026-10-30). Every nightly.yml route ends on our own runners:
-a job holding a signing or publication secret on GitHub-hosted Ubuntu (the ephemeral runner the signing-secret
-rules allow), the light placed controls and decide on hosted Ubuntu, the early native jobs on the owned nightly
+a job holding a signing or publication secret on the owned one-job JIT VM label cmux-gcp-nightly-jit-x64 on every
+attempt (the ephemeral runner the signing-secret rules allow; GitHub-hosted Ubuntu starts nothing in manaflow-ai, so
+only a fork's branch names it), the light placed controls and decide on our own runners, the early native jobs on the owned nightly
 slot, build-nightly-app and every other job on the nightly-only Mac pool.
 """
+import copy
 import json
 import os
 import re
@@ -13,31 +15,34 @@ import subprocess
 import tempfile
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+import workflow_jobs  # noqa: E402
+from workflow_jobs import holds_secret  # noqa: E402
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from test_ci_fork_runner_routing import parse_expression
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
-DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
-# The nightly signer jobs: GitHub-hosted Ubuntu on every attempt, never Blacksmith.
+DOC = workflow_jobs.document(nightly_expand(WORKFLOW_FILE.read_text()))
+# The nightly signer jobs: the JIT nightly label on every attempt (a fork: hosted Ubuntu), never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 # They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
 # have their own routes, outside the 16/32 rule.
-# sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg',
-                                   'sentry-dsyms-nightly')
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'report-nightly-failure', 'close-nightly-failure-issue',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
-# owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and GitHub-hosted Ubuntu.
+# owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
 NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
@@ -45,12 +50,129 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
-# Secret jobs that stay on GitHub-hosted Ubuntu until glaeda gives them the whole mini (its SIGNING_JOBS; the
-# glaeda signing-jobs patch), never Blacksmith. Every other nightly job runs on our own minis
-# (test_nightly_owned_minis_only.py).
-HOSTED_SECRET_JOBS = ('promote-nightly-next-acked', 'keep-published-dsyms', 'sentry-dsyms-nightly',
-                      'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'republish-nightly-deltas')
+# The light jobs that hold no routing key run on our Linux pool, one label for every own-branch Linux job.
+CMUX_LINUX = 'cmux-linux'
+CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
+                   'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker')
+# The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
+# (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
+# publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
+# override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
+# jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
+HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
+                      'publish-nightly-next-github')
+# Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
+# jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
+# 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
+# ingress, deleted after the job) that only cmuxterm-hq gha-runners serve and no PR job may name
+# (tests/test_ci_nightly_labels_reserved.py). Ephemeral like the hosted VM, so each secret stays off persistent
+# runners. Leo, 2026-11-21 00:14Z: "the ci must flow": GitHub-hosted runners start nothing in manaflow-ai, so every
+# attempt (re-runs too) takes the JIT label, and publish-nightly-reel with them; only a fork's branch names hosted.
+JIT_LABEL = 'cmux-gcp-nightly-jit-x64'
+# The retired attempt-1-only arm (re-runs went back to hosted Ubuntu): no nightly route may name it now.
+JIT_ARM = f"github.run_attempt == 1 && '{JIT_LABEL}' || "
+JIT_ARM_JOBS = frozenset({'sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes',
+                          'publish-nightly-next-github', 'publish-nightly-reel'})
+
+
+def hosted_route(name: str, attempt: object) -> str:
+    """The label a hosted tail or loop job resolves to on a manaflow-ai run at `attempt`: the JIT label on every
+    attempt (GitHub-hosted Ubuntu starts nothing in manaflow-ai)."""
+    return JIT_LABEL
+
+
+# No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
+# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
+HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
+# On our minis for nightly-next only; classic and RC take the ephemeral JIT nightly label, as their release uploads may wait out
+# the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
+NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
+# Every other nightly.yml job that holds a secret (holds_secret) runs on our own runners. HOSTED_SECRET_JOBS is a
+# route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
+# must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
+OWNED_SECRET_JOBS = {
+    'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
+    'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
+    'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
+    'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
+    'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
+    'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
+    'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
+    'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
+    'promote-nightly-next': 'a main dispatch the signer refuses; ends on the nightly slot (test_no_signing_job_reads_an_owned_runner_variable)',
+    'promote-nightly-next-acked': "retired (if: false) twin of promote-nightly-next, same route",
+    'refresh-compilation-cache': 'cache-writer credentials on main only; a nightly-only Mac build',
+    'refresh-test-compilation-cache': 'cache-writer credentials on main only; its matrix pool is the nightly-only Mac pool',
+    'build-nightly-app': 'cache, CEF and Sentry credentials for the build itself; the nightly-only Mac pool',
+    'build-sign-notarize-nightly': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
+    'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
+    'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
+    'publish-nightly': "release and feed credentials in the push run; the signer's label",
+    'keep-published-dsyms': "release credentials, short; the signer's label",
+    'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
+}
+# Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
+SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
+CONTROL_ANCHORS = {'decide', 'route-visual-gate-nightly', 'attest-nightly-remote-daemon', 'published-in'}
+
+
+def runs_on_text(job, name=''):
+    """A job's runs-on as written, one line per matrix cell (workflow_jobs.runs_on_cells; '' when it has none). A
+    matrix runner nothing resolves fails the caller: it is never read as the raw string."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        raise AssertionError(f'{name or job}: runs-on has a matrix value nothing resolves')
+    return '\n'.join(cells)
+
+
+def holds_credential(job):
+    """A secret, or a token that can write: id-token, attestations, pull requests, issues, actions or contents."""
+    permissions = job.get('permissions')
+    writes = permissions == 'write-all' or (
+        isinstance(permissions, dict) and any(value == 'write' for value in permissions.values()))
+    return holds_secret(job) or writes
+
+
+def secret_jobs(doc):
+    return {name for name, job in workflow_jobs.jobs(doc).items() if holds_secret(job)}
+
+
+def unclassified_secret_jobs(doc):
+    """Secret jobs neither HOSTED_SECRET_JOBS nor OWNED_SECRET_JOBS names."""
+    return secret_jobs(doc) - set(HOSTED_SECRET_JOBS) - set(OWNED_SECRET_JOBS)
+
+
+def linux_routes(doc):
+    """(job, its body, one matrix cell's runs-on) for each cell whose route can name Ubuntu and no macOS label
+    (workflow_jobs.runs_on_cells). A job whose matrix runner nothing resolves fails here: it may be either."""
+    for name, job in workflow_jobs.jobs(doc).items():
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            raise AssertionError(f'{name}: runs-on has a matrix value nothing resolves')
+        for cell in cells:
+            if 'ubuntu' in cell and 'macos' not in cell:
+                yield name, job, cell
+
+
+def credentialed_control_jobs(doc):
+    """Every Linux control that holds a credential, outside the hosted secret jobs and the signer route (whose
+    jobs end on the signer's label, test_nightly_sign_runner.py and the publish tests): derived, not kept by hand."""
+    found = set()
+    for name, job in workflow_jobs.jobs(doc).items():
+        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells): `${{ matrix.runner }}` is the labels the
+        # matrix gives it, and a runner nothing resolves counts as a control, so control_route_failures names it.
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is not None:
+            cells = [cell for cell in cells if 'ubuntu' in cell and 'macos' not in cell]
+            if not cells or all(cell.rstrip().endswith(f"|| '{SIGNING_SLOT}' }}}}") for cell in cells):
+                continue
+        # The hosted preflight's one credential is its own GITHUB_TOKEN's issues: write, for the failure notice
+        # (test_nightly_owned_minis_only pins it to that and no secret); it stays on hosted Ubuntu by design.
+        if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS:
+            continue
+        if holds_credential(job):
+            found.add(name)
+    return found
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -116,6 +238,15 @@ def evaluate(node, context):
                 return {}
         if node[1].lower() == 'contains':
             return str(args[1]).lower() in str(args[0]).lower()
+        # Status functions read the run's state from the context (`job.status`: success, failure or cancelled).
+        if node[1].lower() == 'cancelled':
+            return context.get('job.status', 'success') == 'cancelled'
+        if node[1].lower() == 'success':
+            return context.get('job.status', 'success') == 'success'
+        if node[1].lower() == 'failure':
+            return context.get('job.status', 'success') == 'failure'
+        if node[1].lower() == 'always':
+            return True
     if kind == 'prop':
         value = evaluate(node[1], context)
         return value.get(node[2], DEFAULT_POOL_MEMBERS.get(node[2], '')) if isinstance(value, dict) else DEFAULT_POOL_MEMBERS.get(node[2], '')
@@ -143,7 +274,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_tail_controls_ignore_stale_prebuild_placement(self):
         prefix = 'needs.pick-nightly-build-runner.outputs.'
         for name in TAIL_CONTROL_JOBS:
-            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            source = runs_on_text(DOC['jobs'][name], name).removeprefix('${{').removesuffix('}}')
             expr = parse_expression(source)
             for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
                            'blacksmith-6vcpu-macos-26'):
@@ -168,7 +299,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         for name in TAIL_CONTROL_JOBS:
             job = DOC['jobs'][name]
             self.assertIn('decide', job['needs'])
-            expr = parse_expression(job['runs-on'].removeprefix('${{').removesuffix('}}'))
+            expr = parse_expression(runs_on_text(job, name).removeprefix('${{').removesuffix('}}'))
             for owner, repository in (('manaflow-ai', 'manaflow-ai/cmux'),
                                       ('manaflow-ai', 'manaflow-ai/other'), ('fork', 'fork/cmux')):
                 for track in ('nightly-next', 'nightly', ''):
@@ -208,7 +339,9 @@ class NightlyTrustedRouting(unittest.TestCase):
         changes = {'github.ref': 'refs/heads/main'}
         self.assertEqual(select(**changes), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
-        self.assertEqual(select('environment'), '')
+        # nightly-next enters artifacts for the App Store signing key (CMUX_STORE_SIGNING_KEY); any other ref none.
+        self.assertEqual(select('environment'), 'artifacts')
+        self.assertEqual(select('environment', **{'github.ref': 'refs/heads/feat-cmux-next'}), '')
 
     def test_next_build_never_waits_on_one_label_with_no_fallback(self):
         # Row 3 of the 2026-10-27 nightly path audit: the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
@@ -246,7 +379,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_decide_bootstraps_on_the_nightly_only_pool_without_phantom_fleet(self):
         # No preceding job can give decide a live runner receipt, so it takes the plain nightly-only pool on
         # every attempt, never hosted Ubuntu or Blacksmith, whatever LINUX_RUNNER holds.
-        route = DOC['jobs']['decide']['runs-on'].removeprefix('${{').removesuffix('}}')
+        route = runs_on_text(DOC['jobs']['decide'], 'decide').removeprefix('${{').removesuffix('}}')
         for attempt in (1, 2, 3):
             for configured in ('', 'unregistered-fleet', 'blacksmith-16vcpu-ubuntu-2404'):
                 context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
@@ -256,21 +389,54 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(evaluate(parse_expression(route), context), NIGHTLY_ONLY)
                 self.assertEqual(evaluate(parse_expression(route), {**context, 'github.repository_owner': 'fork'}),
                                  'ubuntu-24.04')
-        self.assertEqual(DOC['jobs']['decide']['environment'], 'ci-routing-agent')
+        self.assertEqual(workflow_jobs.resolve(DOC['jobs']['decide']).environment,
+                         {"name": "ci-routing-agent", "deployment": False})
+
+    def test_no_signing_job_reads_an_owned_runner_variable(self):
+        # main's "CI repository variables" check (scripts/ci/signing_runner_variables.py on main) reads this
+        # branch's workflows and holds every variable a signing job's runs-on reads to blacksmith-*/ubuntu-*.
+        # These variables name owned Macs, so a signing job that reads one turns that check red on main
+        # (#26450: promote-nightly-next fell back to vars.CI_NIGHTLY_NEXT_BUILD_RUNNER). Such a job ends on
+        # the owned label as a literal instead. Signing job: main's rule, a signing secret or a release environment.
+        signing_secret = re.compile(
+            r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
+            r"|CONTENT_SIGNING_)", re.IGNORECASE)
+        release_environment = re.compile(
+            r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
+        owned = re.compile(r"vars(?:\.|\[\s*['\"])(CI_NIGHTLY_NEXT_BUILD_RUNNER|CI_SIDE_LANE_RUNNER)\b", re.IGNORECASE)
+        found = []
+        for path in sorted((ROOT / '.github/workflows').glob('*.y*ml')):
+            for name, job in workflow_jobs.jobs(workflow_jobs.document(path)).items():
+                # The job and the env its steps start from (the workflow's, then its own); every environment name
+                # it can take, casefolded, and one nothing resolves counts as a release environment.
+                resolved = workflow_jobs.resolve(job, name, path.name)
+                signing = (signing_secret.search(json.dumps([job, resolved.env], default=str))
+                           or resolved.environments_unresolved
+                           or any(release_environment.search(env) for env in resolved.environments))
+                if not signing:
+                    continue
+                if resolved.runs_on_cells is None:
+                    if resolved.matrix_audit is None:
+                        found.append(f'{path.name}:{name}: runs-on has a matrix value nothing resolves')
+                    continue
+                if owned.search('\n'.join(resolved.runs_on_cells)):
+                    found.append(f'{path.name}:{name}')
+        self.assertEqual(found, [])
 
     def test_only_the_nightly_routes_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
                          if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
-        uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
+        uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in runs_on_text(job, name))
         # The owned-only Mac signing and verify jobs end on the owned nightly slot, then the side lane, then
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
         # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
-        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses).
-        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'promote-nightly-next', 'verify-final-dmg-nightly',
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses) but ends on the
+        # nightly slot's label as a literal, and its retired (if: false) acked twin shares it
+        # (test_no_signing_job_reads_an_owned_runner_variable).
+        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
@@ -288,7 +454,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # and falls back to the owned nightly slot: never macOS 15, never a hosted Mac, never Blacksmith.
         def helper(**changes):
             return evaluate(parse_expression(
-                DOC['jobs']['build-nightly-ghostty-cli-helper']['runs-on'].removeprefix('${{').removesuffix('}}')),
+                runs_on_text(DOC['jobs']['build-nightly-ghostty-cli-helper'], 'build-nightly-ghostty-cli-helper').removeprefix('${{').removesuffix('}}')),
                 {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                  'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                  'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
@@ -339,7 +505,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_next_build_and_prepare_never_name_a_hosted_mac_past_the_fork_branch(self):
         for name in ('build-nightly-app',):
             with self.subTest(job=name):
-                source = DOC['jobs'][name]['runs-on'].replace("github.repository_owner != 'manaflow-ai' && 'macos-26'", '')
+                source = runs_on_text(DOC['jobs'][name], name).replace("github.repository_owner != 'manaflow-ai' && 'macos-26'", '')
                 self.assertIsNone(re.search(r"'macos-[0-9]+'", source))
 
     def test_missing_owned_pool_uses_the_nightly_only_builder(self):
@@ -351,24 +517,24 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'github.run_attempt': 2}), NIGHTLY_ONLY)
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), NIGHTLY_ONLY)
 
-    def test_prepare_takes_our_nightly_pool_on_every_attempt(self):
+    def test_prepare_takes_our_linux_pool_on_every_attempt(self):
         def prepare(**changes):
-            source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
+            source = runs_on_text(DOC['jobs']['prepare-nightly-variant-primary'], 'prepare-nightly-variant-primary').removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                        'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                        'vars.CI_PR_POOL_OWNED': '1', **changes}
             return evaluate(parse_expression(source), context)
-        # Unplaced, every attempt takes the nightly-only Mac pool, never Blacksmith.
-        self.assertEqual(prepare(), NIGHTLY_ONLY)
-        self.assertEqual(prepare(**{'github.run_attempt': 2}), NIGHTLY_ONLY)
-        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), NIGHTLY_ONLY)
+        # Every attempt takes our Linux pool, never Blacksmith.
+        self.assertEqual(prepare(), CMUX_LINUX)
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), CMUX_LINUX)
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), CMUX_LINUX)
         self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
-    def test_prepare_fallback_follows_the_primary_then_retries_on_our_pool(self):
-        # After a primary success the fallback is a no-op on the primary's (healthy) label; a retry after a
-        # failed primary takes the nightly-only pool (several minis, never one host), never Blacksmith.
+    def test_prepare_fallback_follows_the_primary_then_retries_on_our_linux_pool(self):
+        # After a primary success the fallback is a no-op on the primary's label; a retry after a failed
+        # primary takes our Linux pool (many runners, never one host), never Blacksmith.
         def label(job, runner, primary_result=''):
-            source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
+            source = runs_on_text(DOC['jobs'][job], job).removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
                                'github.run_attempt': 1,
                                'needs.decide.outputs.track': 'nightly-next',
@@ -378,14 +544,14 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(runner=runner):
                 primary = label('prepare-nightly-variant-primary', runner)
                 self.assertEqual(label('prepare-nightly-variant', runner, 'success'), primary)
-                self.assertEqual(label('prepare-nightly-variant', runner, 'failure'), NIGHTLY_ONLY)
+                self.assertEqual(label('prepare-nightly-variant', runner, 'failure'), CMUX_LINUX)
         # Whatever LINUX_RUNNER holds, the retry never reads it.
         for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404'):
             with self.subTest(runner=runner):
-                self.assertEqual(label('prepare-nightly-variant', runner, 'failure'), NIGHTLY_ONLY)
+                self.assertEqual(label('prepare-nightly-variant', runner, 'failure'), CMUX_LINUX)
         for job in ('prepare-nightly-variant-primary', 'prepare-nightly-variant'):
-            self.assertNotIn('LINUX_RUNNER', DOC['jobs'][job]['runs-on'])
-            self.assertNotIn('RUNNER_POOLS', DOC['jobs'][job]['runs-on'])
+            self.assertNotIn('LINUX_RUNNER', runs_on_text(DOC['jobs'][job], job))
+            self.assertNotIn('RUNNER_POOLS', runs_on_text(DOC['jobs'][job], job))
 
 
 
@@ -404,8 +570,8 @@ class NightlyTrustedRouting(unittest.TestCase):
             "needs.pick-nightly-sign-runner.outputs.attempt": "1",
             "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
         }
-        for name in ("publish-nightly", "publish-nightly-next-github"):
-            source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+        for name in ("publish-nightly",):
+            source = runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}")
             expr = parse_expression(source)
             with self.subTest(job=name):
                 self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
@@ -425,19 +591,20 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_every_linux_nightly_job_takes_one_of_our_runners(self):
         # Nightlies never use Blacksmith (Lawrence, 2026-10-30). Every job whose route can name Ubuntu (a
-        # Linux control, or a fork's fallback) resolves, with no placement or pick, to GitHub-hosted Ubuntu,
-        # the owned nightly slot or the nightly-only Mac pool, whatever LINUX_RUNNER or RUNNER_POOLS hold.
-        # Only a secret job glaeda does not give the whole mini yet takes hosted Ubuntu.
+        # Linux control, or a fork's fallback) resolves, with no placement or pick, to the owned nightly slot,
+        # the nightly-only Mac pool, our Linux pool (cmux-linux) or (a secret job glaeda does not give the whole mini yet) the ephemeral JIT
+        # nightly label on every attempt, whatever LINUX_RUNNER or RUNNER_POOLS hold. Never GitHub-hosted Ubuntu:
+        # it starts nothing in manaflow-ai.
         checked = 0
-        for name, job in DOC['jobs'].items():
-            runs_on = job.get('runs-on', '')
-            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
-                continue
+        for name, job, runs_on in linux_routes(DOC):
             checked += 1
-            source = runs_on.removeprefix('${{').removesuffix('}}')
+            source = runs_on.strip().removeprefix('${{').removesuffix('}}') if runs_on.strip().startswith('${{') \
+                else repr(runs_on.strip())
             self.assertNotIn('blacksmith', source, name)
             self.assertNotIn('RUNNER_POOLS', source, name)
             self.assertNotIn('LINUX_RUNNER', source, name)
+            # The retired attempt-1-only JIT arm sent re-runs back to hosted Ubuntu.
+            self.assertNotIn(JIT_ARM.strip(), ' '.join(source.split()), name)
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                            'blacksmith-32vcpu-ubuntu-2404'):
                 for attempt in (1, 2, 3):
@@ -446,12 +613,72 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'vars.LINUX_RUNNER': runner, 'github.run_attempt': attempt,
                                    'vars.RUNNER_POOLS': json.dumps({'linux': runner or 'blacksmith-4vcpu-ubuntu-2404'}),
                                    'needs.decide.outputs.track': 'nightly-next',
+                                   'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = ({hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS
+                                   else {CMUX_LINUX} if name in CMUX_LINUX_JOBS else OUR_LABELS - {HOSTED})
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
+                        if name in NIGHTLY_NEXT_ONLY_OWNED:
+                            # Classic (main) and RC runs: the JIT nightly label, so their rate-limit waits never
+                            # hold the signer.
+                            for ref in ('refs/heads/main', 'refs/heads/rc/1.2'):
+                                with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary, ref=ref):
+                                    self.assertEqual(evaluate(parse_expression(source), {
+                                        **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), JIT_LABEL)
         self.assertGreater(checked, 20)
+
+    def test_every_secret_job_is_hosted_or_named_owned(self):
+        # HOSTED_SECRET_JOBS is a route choice, so a new secret job must be named in it or in OWNED_SECRET_JOBS
+        # (with its reason): one on a route this test's Ubuntu filter skips (a matrix pool, a reusable workflow)
+        # or a hosted one nobody listed must not pass unseen.
+        found = secret_jobs(DOC)
+        self.assertLessEqual(SECRET_ANCHORS, found)
+        self.assertEqual(unclassified_secret_jobs(DOC), set(),
+                         'a nightly.yml job holds a secret but neither HOSTED_SECRET_JOBS nor OWNED_SECRET_JOBS names '
+                         'it: give it our runners and add it to OWNED_SECRET_JOBS with the reason, or (Leo\'s call) '
+                         'hosted Ubuntu with a reason in test_nightly_owned_minis_only.py')
+        self.assertEqual(set(HOSTED_SECRET_JOBS) & set(OWNED_SECRET_JOBS), set())
+        # No stale entry: each one still names a secret job.
+        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found, set())
+        for name, reason in OWNED_SECRET_JOBS.items():
+            with self.subTest(job=name):
+                self.assertTrue(reason.strip())
+        # The hosted half keeps its reasons in one place.
+        from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
+        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS))
+
+    def test_a_new_secret_job_is_named_until_classified(self):
+        """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
+        hosted = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
+        matrix = '${{ matrix.pool }}'
+        for name, runs_on, extra in (
+            ('upload-fixture-nightly', hosted,
+             {'steps': [{'run': 'gh release upload', 'env': {'KEY': '${{ secrets.CMUX_RELEASE_APP_KEY }}'}}]}),
+            ('env-fixture-nightly', hosted, {'environment': 'release-next', 'steps': [{'run': 'true'}]}),
+            ('matrix-fixture-nightly', matrix, {'strategy': {'matrix': {'pool': [NIGHTLY_ONLY]}},
+                                                'steps': [{'run': 'true', 'env': {'T': '${{ secrets.SENTRY_AUTH_TOKEN }}'}}]}),
+            ('inherit-fixture-nightly', None, {'uses': './.github/workflows/x.yml', 'secrets': 'inherit'}),
+            # Read only by bracket: no `secrets.` anywhere in the job (Codex, #40754 review).
+            ('bracket-fixture-nightly', hosted,
+             {'steps': [{'run': 'sentry-cli upload', 'env': {'T': "${{ secrets['SENTRY_AUTH_TOKEN'] }}"}}]}),
+        ):
+            with self.subTest(job=name):
+                doc = copy.deepcopy(DOC)
+                doc['jobs'][name] = {**({'runs-on': runs_on} if runs_on else {}), **extra}
+                self.assertIn(name, secret_jobs(doc))
+                self.assertEqual(unclassified_secret_jobs(doc), {name})
+
+    def test_a_new_secret_job_named_owned_stays_green(self):
+        """The positive half: the same bracket-secret job, once OWNED_SECRET_JOBS names it, is classified."""
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['bracket-fixture-nightly'] = {
+            'runs-on': f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{NIGHTLY_ONLY}' }}}}",
+            'steps': [{'run': 'sentry-cli upload', 'env': {'T': "${{ secrets['SENTRY_AUTH_TOKEN'] }}"}}]}
+        self.assertIn('bracket-fixture-nightly', secret_jobs(doc))
+        with mock.patch.dict(OWNED_SECRET_JOBS, {'bracket-fixture-nightly': 'fixture'}):
+            self.assertEqual(unclassified_secret_jobs(doc), set())
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_the_nightly_only_builder(self):
         cases = [
@@ -488,10 +715,15 @@ class NightlyTrustedRouting(unittest.TestCase):
         group = DOC["concurrency"]["group"]
         self.assertIn(
             "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
-            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && "
+            "(vars.NIGHTLY_NEXT_ONE_JOB != 'on' || vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED == '1' || "
+            "vars.NIGHTLY_NEXT_NOTARY_PAUSED == '1') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )
+        # A loop run's dispatched tail (nightly_next_post_publish) is run-scoped: it never holds the push group.
+        self.assertNotIn("nightly_next_post_publish", group)
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
 
     def test_owned_next_and_main_have_independent_pending_slots(self):
@@ -502,8 +734,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'github.event_name': 'push',
                 'github.run_id': run_id,
             }
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
         # Every nightly-next push shares one group: a waiting push run is replaced by a newer one, so only the
@@ -526,8 +757,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
             }
             context.update(changes)
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
@@ -551,7 +781,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn('superseded', resolver['outputs'])
         context = {'needs.decide.outputs.should_build': 'true', 'github.event_name': 'push',
                    'needs.resolve-nightly-cmux-tui-client.outputs.already_published': 'false',
-                   'needs.decide.outputs.continue_only': 'false'}
+                   'needs.decide.outputs.continue_only': 'false',
+                   # The builds gate on their needs' success, not on the continue-on-error pick's (2026-11-12).
+                   'needs.decide.result': 'success', 'needs.resolve-nightly-cmux-tui-client.result': 'success',
+                   'needs.resolve-nightly-ghostty-cli-helper.result': 'success'}
         for job in ('build-nightly-app', 'build-nightly-ghostty-cli-helper'):
             build_if = parse_expression(DOC['jobs'][job]['if'])
             with self.subTest(job=job):
@@ -587,7 +820,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             workflows = fixture / '.github/workflows'
             workflows.mkdir(parents=True)
             nightly = workflows / 'nightly.yml'
-            nightly.write_text('runs-on: ' + DOC['jobs']['build-nightly-app']['runs-on'] + '\n')
+            nightly.write_text('runs-on: ' + runs_on_text(DOC['jobs']['build-nightly-app'], 'build-nightly-app') + '\n')
             script = 'ROOT_DIR="$1"\n' + function + '\ncheck_no_self_hosted_fleet_runners'
             def check():
                 return subprocess.run(['bash', '-c', script, 'guard', str(fixture)], capture_output=True, text=True)
@@ -612,8 +845,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                 return result.returncode
             for name in TAIL_CONTROL_JOBS:
                 with self.subTest(job=name):
-                    self.assertEqual(check(DOC['jobs'][name]['runs-on']), 0)
-            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+                    self.assertEqual(check(runs_on_text(DOC['jobs'][name], name)), 0)
+            route = workflow_jobs.single_runs_on(DOC['jobs'][TAIL_CONTROL_JOBS[0]])
             for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
                              ("track == 'nightly-next'", "track == 'nightly'"),
                              ("github.run_attempt == 1", "github.run_attempt >= 1"),
@@ -627,153 +860,46 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_unsigned_resume_stays_on_our_runners(self):
         # A resume restores the original inputs on the plain nightly-only pool (no Blacksmith Linux leg).
         self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), NIGHTLY_ONLY)
-        self.assertNotIn('nightly_next_unsigned_run', DOC['jobs']['build-nightly-app']['runs-on'])
+        self.assertNotIn('nightly_next_unsigned_run', runs_on_text(DOC['jobs']['build-nightly-app'], 'build-nightly-app'))
 
 
 
-class LightJobsOnAFreeMini(unittest.TestCase):
-    """The nightly's light jobs take a mini idle when build-nightly-app finished, else the nightly-only pool.
+class LightJobsOnCmuxLinux(unittest.TestCase):
+    """The nightly's light jobs take cmux-linux, forks GitHub-hosted Ubuntu.
 
-    Leo, 2026-10-31: "i mean the linux things cant our minis just run them" and "we just need the
-    nightlies bro". await-nightly-tree-marker (bash, curl, python3) and the preparation jobs
-    have no environment and no secret; build-nightly-app's last step places them
-    (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only those three jobs read its outputs, and no job
-    that holds a signing or publishing environment ever does."""
+    await-nightly-tree-marker (bash, curl, python3) and the preparation jobs have no environment and no
+    secret. No job reads a placement output and build-nightly-app places nothing."""
 
     LIGHT = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker')
-    MINI = 'glaeda-side-std-xcode-26.6'
 
     def runs_on(self, job, **changes):
-        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-                   'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
-                   'needs.build-nightly-app.outputs.light_attempt': '1',
-                   'needs.build-nightly-app.outputs.light_mini_runner': self.MINI,
-                   'needs.build-nightly-app.outputs.light_mini_jobs': f' {" ".join(self.LIGHT)} ', **changes}
-        source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
+        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1, **changes}
+        source = runs_on_text(DOC['jobs'][job], job).removeprefix('${{').removesuffix('}}')
         return evaluate(parse_expression(source), context)
 
-    def test_a_placed_light_job_takes_the_free_mini(self):
+    def test_a_light_job_takes_cmux_linux(self):
         for job in self.LIGHT:
-            with self.subTest(job=job):
-                self.assertEqual(self.runs_on(job), self.MINI)
-                # Placed only the other job: this one takes the nightly-only pool, never Blacksmith.
-                other = next(name for name in self.LIGHT if name != job)
-                self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': f' {other} '}),
-                                 NIGHTLY_ONLY)
-
-    def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
-        for job in self.LIGHT:
-            for changes, expected in (
-                    ({'needs.build-nightly-app.outputs.light_mini_jobs': ''}, None),
-                    ({'needs.build-nightly-app.outputs.light_attempt': ''}, None),
-                    # A re-run of failed jobs keeps attempt 1's outputs: the mini may be busy by now.
-                    ({'github.run_attempt': 2}, None),
-                    ({'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404', 'github.run_attempt': 2},
-                     None),
-                    ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
+            for changes, expected in (({}, 'cmux-linux'), ({'github.run_attempt': 2}, 'cmux-linux'),
+                                      ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
                 with self.subTest(job=job, changes=changes):
-                    if expected is None:
-                        # The nightly-only pool whatever LINUX_RUNNER holds, never Blacksmith.
-                        expected = NIGHTLY_ONLY
                     self.assertEqual(self.runs_on(job, **changes), expected)
+            with self.subTest(job=job, reads='vars'):
+                self.assertNotIn('vars.', runs_on_text(DOC['jobs'][job], job))
 
     def test_light_jobs_hold_no_environment_and_no_secret(self):
         for job in self.LIGHT:
             with self.subTest(job=job):
                 self.assertNotIn('environment', DOC['jobs'][job])
-                self.assertNotIn('secrets.', json.dumps(DOC['jobs'][job]))
+                self.assertEqual(workflow_jobs.secret_names(DOC['jobs'][job]), set())
                 self.assertNotIn('id-token', DOC['jobs'][job].get('permissions', {}))
 
-    def test_only_the_light_jobs_read_the_placement(self):
-        readers = sorted(name for name, job in DOC['jobs'].items() if 'light_mini' in str(job.get('runs-on', '')))
-        self.assertEqual(readers, sorted(self.LIGHT))
-        step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light-start')
-        self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
-        self.assertEqual(step['env']['NIGHTLY'], '1')
-        self.assertEqual(step['env']['NIGHTLY_WAIT_FOR_FLEET'], '1')
-        self.assertEqual(step['timeout-minutes'], 5)
-        # No fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-        self.assertEqual(step['env']['FLEET_LINUX'], '')
-        self.assertTrue(step['continue-on-error'])
-        # Only after the token the nightly-next-only mint step makes.
-        self.assertIn("steps.light-route-token.outputs.token != ''", step['if'])
-
-    def test_the_placement_waits_beside_the_uploads_and_is_collected_last(self):
-        steps = DOC['jobs']['build-nightly-app']['steps']
-        ids = [step.get('id') for step in steps]
-        names = [step.get('name') for step in steps]
-        start, collect = steps[ids.index('place-light-start')], steps[ids.index('place-light')]
-        self.assertEqual(start['run'], 'bash scripts/ci/nightly-steps/light-placement.sh start')
-        self.assertEqual(collect['run'], 'bash scripts/ci/nightly-steps/light-placement.sh finish')
-        # Started before the archive and the uploads, so its wait for an idle runner overlaps them.
-        self.assertLess(ids.index('light-route-token'), ids.index('place-light-start'))
-        self.assertLess(ids.index('place-light-start'), names.index('Archive unsigned nightly app'))
-        self.assertLess(names.index('Upload unsigned nightly app'), ids.index('place-light'))
-        # Collected only when started, and still the last step before the always() cleanup that ends it.
-        self.assertIn("steps.place-light-start.outcome == 'success'", collect['if'])
-        self.assertTrue(collect['continue-on-error'])
-        # Only the helper cleanup follows it (the fleet Linux offer is gone: nightlies run only on our minis).
-        self.assertEqual(names[ids.index('place-light') + 1:], ['Stop the helper builds still running'])
-        self.assertTrue(steps[-1]['if'].startswith('always()'))
-        # The job's outputs read the collecting step.
-        outputs = DOC['jobs']['build-nightly-app']['outputs']
-        for key in ('light_mini_runner', 'light_mini_jobs', 'light_attempt'):
-            with self.subTest(output=key):
-                self.assertIn('steps.place-light.', outputs[key])
-                self.assertNotIn('place-light-start', outputs[key])
-
-    def test_the_build_job_mints_only_the_routing_token_for_the_placement(self):
-        steps = DOC['jobs']['build-nightly-app']['steps']
-        mint = next(step for step in steps if step.get('id') == 'light-route-token')
-        self.assertIn("github.ref == 'refs/heads/nightly-next'", mint['if'])
-        self.assertIn("inputs.nightly_next_unsigned_run == ''", mint['if'])
-        self.assertEqual(mint['with']['private-key'], '${{ secrets.GLAEDA_ROUTE_APP_KEY }}')
-        self.assertEqual(sorted(key for key in mint['with'] if key.startswith('permission-')),
-                         ['permission-administration', 'permission-organization-self-hosted-runners'])
-        self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
-
-
-    def test_light_placement_runs_in_the_background_and_hands_its_outputs_to_the_collecting_step(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tree = Path(tmp) / 'tree'
-            (tree / 'scripts/ci/nightly-steps').mkdir(parents=True)
-            for name in ('scripts/ci/background_build.py', 'scripts/ci/nightly-steps/light-placement.sh'):
-                (tree / name).write_bytes((ROOT / name).read_bytes())
-            # A stand-in placement: it writes the outputs and summary the real one writes, after
-            # the start step has already returned.
-            (tree / 'scripts/ci/portable_job_placement.py').write_text(
-                'import os, time\n'
-                'time.sleep(1)\n'
-                'open(os.environ["GITHUB_OUTPUT"], "a").write("mini_runner=glaeda-nightly-only-m4pro\\n'
-                'mini_jobs= prepare-nightly-variant \\n")\n'
-                'open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("placed\\n")\n'
-                'print("portable placement: placed")\n')
-            runner_temp = Path(tmp) / 'runner'
-            runner_temp.mkdir()
-            start_out, finish_out, summary = (Path(tmp) / n for n in ('start.out', 'finish.out', 'summary'))
-            for path in (start_out, finish_out, summary):
-                path.write_text('')
-            base = {**os.environ, 'RUNNER_TEMP': str(runner_temp)}
-            script = ['bash', 'scripts/ci/nightly-steps/light-placement.sh']
-            subprocess.run([*script, 'start'], cwd=tree, check=True, capture_output=True,
-                           env={**base, 'GITHUB_OUTPUT': str(start_out), 'GITHUB_STEP_SUMMARY': str(summary)})
-            finished = subprocess.run([*script, 'finish'], cwd=tree, capture_output=True, text=True,
-                                      env={**base, 'GITHUB_OUTPUT': str(finish_out), 'GITHUB_STEP_SUMMARY': str(summary)})
-            self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
-            self.assertIn('portable placement: placed', finished.stdout)
-            self.assertEqual(start_out.read_text(), '')
-            self.assertEqual(finish_out.read_text(),
-                             'mini_runner=glaeda-nightly-only-m4pro\nmini_jobs= prepare-nightly-variant \n')
-            self.assertEqual(summary.read_text(), 'placed\n')
-            # A placement that fails fails the collecting step (continue-on-error), so the light jobs take the
-            # nightly-only pool.
-            (tree / 'scripts/ci/portable_job_placement.py').write_text('raise SystemExit(3)\n')
-            subprocess.run(['rm', '-rf', str(runner_temp / 'nightly-helper-builds')], check=True)
-            subprocess.run([*script, 'start'], cwd=tree, check=True, capture_output=True,
-                           env={**base, 'GITHUB_OUTPUT': str(start_out), 'GITHUB_STEP_SUMMARY': str(summary)})
-            failed = subprocess.run([*script, 'finish'], cwd=tree, capture_output=True, text=True,
-                                    env={**base, 'GITHUB_OUTPUT': str(finish_out), 'GITHUB_STEP_SUMMARY': str(summary)})
-            self.assertNotEqual(failed.returncode, 0)
+    def test_the_build_job_places_nothing(self):
+        build = DOC['jobs']['build-nightly-app']
+        self.assertFalse([key for key in build['outputs'] if key.startswith('light_')])
+        ids = {step.get('id') for step in build['steps']}
+        self.assertFalse(ids & {'light-route-token', 'place-light-start', 'place-light'})
+        self.assertFalse(any('light_mini' in runs_on_text(job, name) for name, job in DOC['jobs'].items()))
+        self.assertFalse((ROOT / 'scripts/ci/nightly-steps/light-placement.sh').exists())
 
 
 class CmuxTuiClientPrefetch(unittest.TestCase):
@@ -811,29 +937,12 @@ class CmuxTuiClientPrefetch(unittest.TestCase):
 
 
 class PrimaryPreparationOnFleetLinux(unittest.TestCase):
-    """prepare-nightly-variant-primary takes fleet Linux first: median 45 s on Linux against 202 s on a
-    dedicated nightly Mac (download 49 s and upload 85 s on the Mac network). build-nightly-app's place-fleet
-    names the label only while an idle runner waits there, so the job starts at once; otherwise the light
-    placement's mini, then the nightly-only pool, never Blacksmith (#31636 reverted a Blacksmith-only route that
-    queued 5-14 min)."""
+    """prepare-nightly-variant-primary runs on Linux: median 45 s on Linux against 202 s on a dedicated
+    nightly Mac (download 49 s and upload 85 s on the Mac network)."""
 
-    FLEET = 'cmux-fleet-linux-x64'
-    MINI = 'glaeda-nightly-only-m4pro'
-
-    def runs_on(self, **changes):
-        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-                   'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
-                   'needs.build-nightly-app.outputs.light_attempt': '1',
-                   'needs.build-nightly-app.outputs.light_linux_runner': self.FLEET,
-                   'needs.build-nightly-app.outputs.light_mini_runner': self.MINI,
-                   'needs.build-nightly-app.outputs.light_mini_jobs': ' prepare-nightly-variant-primary ', **changes}
-        source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
-        return evaluate(parse_expression(source), context)
-
-
-    def test_the_fallback_leg_keeps_its_mini_and_pool_route(self):
+    def test_the_fallback_leg_follows_the_primary(self):
         fallback = DOC['jobs']['prepare-nightly-variant']
-        self.assertNotIn('light_linux_runner', fallback['runs-on'])
+        self.assertNotIn('light_linux_runner', runs_on_text(fallback, 'prepare-nightly-variant'))
         self.assertIn('prepare-nightly-variant-primary', fallback['needs'])
 
 
@@ -877,7 +986,7 @@ class DaemonBesideTheApp(unittest.TestCase):
         # Nightlies never run on Blacksmith (user, Oct 30): run 41683652930 built the daemon on
         # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty. With no helper, NEXT's first
         # attempt takes the all-nightly reservation, and every other case our nightly-only pool.
-        source = DOC['jobs']['build-nightly-remote-daemon']['runs-on'].removeprefix('${{').removesuffix('}}')
+        source = runs_on_text(DOC['jobs']['build-nightly-remote-daemon'], 'build-nightly-remote-daemon').removeprefix('${{').removesuffix('}}')
         mini = 'glaeda-side-std-xcode-26.6'
         base = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
@@ -901,7 +1010,7 @@ class DaemonBesideTheApp(unittest.TestCase):
 
     def test_the_daemon_attestation_takes_the_owned_nightly_pool_first(self):
         job = DOC['jobs']['attest-nightly-remote-daemon']
-        source = job['runs-on'].removeprefix('${{').removesuffix('}}')
+        source = runs_on_text(job, 'attest-nightly-remote-daemon').removeprefix('${{').removesuffix('}}')
         context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                    'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                    'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro'}
@@ -910,7 +1019,7 @@ class DaemonBesideTheApp(unittest.TestCase):
         self.assertEqual(job['permissions'], {'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
 
     def test_the_daemon_is_a_peer_the_app_build_stops_for(self):
-        peers = DOC['jobs']['build-nightly-app']['env']['NIGHTLY_PUBLISH_PEERS'].split()
+        peers = workflow_jobs.resolve(DOC['jobs']['build-nightly-app']).env['NIGHTLY_PUBLISH_PEERS'].split()
         self.assertIn('build-nightly-remote-daemon', peers)
 
 
@@ -943,52 +1052,136 @@ class PickerReRun(unittest.TestCase):
                 self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
 
 
-CREDENTIALED_CONTROL_JOBS = ('attest-nightly-remote-daemon', 'route-visual-gate-nightly', 'published-in')
+# Derived from nightly.yml (credentialed_control_jobs), not kept by hand: the hand list named three of the
+# credentialed Linux controls, so a new one (a dispatcher with actions: write, a reporter with issues: write) took
+# no route check. Each one's credential scope is pinned by name below.
+CREDENTIALED_CONTROL_JOBS = tuple(sorted(credentialed_control_jobs(DOC)))
+# Credentialed Linux-forked jobs whose route is a choice of its own, not the nightly-only pool. job -> why.
+CONTROL_ROUTE_EXEMPT = {
+    'promote-nightly-next': 'a main dispatch the signer refuses; ends on the owned nightly slot '
+                            '(test_no_signing_job_reads_an_owned_runner_variable pins it)',
+    'promote-nightly-next-acked': 'retired (if: false) twin of promote-nightly-next, same route',
+}
+CONTROL_SCOPES = {
+    'attest-nightly-remote-daemon': ('permissions', {'contents': 'read', 'attestations': 'write', 'id-token': 'write'}),
+    'route-visual-gate-nightly': ('environment', {'name': 'ci-routing-agent', 'deployment': False}),
+    'published-in': ('permissions', {'contents': 'read', 'pull-requests': 'write'}),
+}
 
 
-class CredentialedControls(unittest.TestCase):
-    """The visual-gate router and the published-in comment never read RUNNER_POOLS or another Blacksmith route
-    (nightlies never use Blacksmith). published-in takes hosted Ubuntu; the router, which holds the
-    routing App key, takes the reservation on attempt 1 when it is enabled, else hosted Ubuntu."""
+def control_select(doc, job, pool='', attempt=1, owner='manaflow-ai', variable='', runs_on=None):
+    runs_on = runs_on_text(doc['jobs'][job], job) if runs_on is None else runs_on
+    if not runs_on.strip().startswith('${{'):
+        return runs_on.strip()
+    source = runs_on.strip().removeprefix('${{').removesuffix('}}')
+    return evaluate(parse_expression(source), {
+        'github.repository_owner': owner, 'github.repository': f'{owner}/cmux',
+        'github.ref': 'refs/heads/nightly-next', 'needs.decide.outputs.track': 'nightly-next',
+        'github.run_attempt': attempt, 'vars.RUNNER_POOLS': pool, 'vars.CI_NIGHTLY_ONLY_RUNNER': variable,
+    })
 
-    def select(self, job, pool='', attempt=1, owner='manaflow-ai', variable=''):
-        source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
-        return evaluate(parse_expression(source), {
-            'github.repository_owner': owner, 'github.repository': f'{owner}/cmux',
-            'github.ref': 'refs/heads/nightly-next', 'needs.decide.outputs.track': 'nightly-next',
-            'github.run_attempt': attempt, 'vars.RUNNER_POOLS': pool, 'vars.CI_NIGHTLY_ONLY_RUNNER': variable,
-        })
 
-    def test_the_pool_variable_is_never_read(self):
-        for job in CREDENTIALED_CONTROL_JOBS:
-            with self.subTest(job=job):
-                runs_on = DOC['jobs'][job]['runs-on']
-                self.assertNotIn('RUNNER_POOLS', runs_on)
-                self.assertNotIn('blacksmith', runs_on)
-                self.assertNotIn('LINUX_RUNNER', runs_on)
-
-    def test_every_attempt_takes_our_nightly_pool(self):
-        # Every attempt takes the nightly-only pool: its minis run only nightly.yml from nightly-next or main
-        # (glaeda-nightly-only-admit), so a credentialed control never shares a mini with PR code.
-        for job in CREDENTIALED_CONTROL_JOBS:
+def control_route_failures(doc):
+    """Each credentialed control whose route can leave the nightly-only pool, with the reason."""
+    failures = {}
+    for job in sorted(credentialed_control_jobs(doc) - set(CONTROL_ROUTE_EXEMPT)):
+        cells = workflow_jobs.runs_on_cells(doc['jobs'][job])
+        if not cells:
+            failures[job] = 'runs-on has a matrix value nothing resolves' if cells is None else 'no runs-on'
+            continue
+        for runs_on in cells:
+            for needle in ('RUNNER_POOLS', 'blacksmith', 'LINUX_RUNNER'):
+                if needle in runs_on and job not in failures:
+                    failures[job] = f'runs-on reads {needle}'
+            if job in failures:
+                break
+            # Every attempt takes the nightly-only pool: its minis run only nightly.yml from nightly-next or main
+            # (glaeda-nightly-only-admit), so a credentialed control never shares a mini with PR code.
             for pool in ('', '{}', '{"linux":"blacksmith-16vcpu-ubuntu-2404"}', '{"linux":"cmux-fleet-linux-x64"}'):
                 for attempt in (1, 2, 3):
                     for variable in ('', NIGHTLY_ONLY):
-                        with self.subTest(job=job, pool=pool, attempt=attempt, variable=variable):
-                            expected = NIGHTLY_ONLY
-                            self.assertEqual(self.select(job, pool, attempt, variable=variable), expected)
+                        got = control_select(doc, job, pool, attempt, variable=variable, runs_on=runs_on)
+                        if got != NIGHTLY_ONLY and job not in failures:
+                            failures[job] = f'attempt {attempt} with RUNNER_POOLS={pool!r} takes {got!r}'
+            got = control_select(doc, job, 'not json', owner='someone', runs_on=runs_on)
+            if got != HOSTED and job not in failures:
+                failures[job] = f'a fork takes {got!r}, not {HOSTED!r}'
+    return failures
 
-    def test_forks_short_circuit_pool_parsing(self):
-        for job in CREDENTIALED_CONTROL_JOBS:
-            self.assertEqual(self.select(job, 'not json', owner='someone'), 'ubuntu-24.04')
+
+class CredentialedControls(unittest.TestCase):
+    """Every credentialed Linux control (credentialed_control_jobs: a secret, an environment or a write token, outside
+    the hosted secret jobs and the signer route) never reads RUNNER_POOLS or another Blacksmith route (nightlies never
+    use Blacksmith): every attempt takes the nightly-only pool, and a fork takes hosted Ubuntu."""
+
+    def test_the_derived_set_holds_its_anchors(self):
+        self.assertLessEqual(CONTROL_ANCHORS, set(CREDENTIALED_CONTROL_JOBS))
+        # No stale exemption: each one is still a credentialed control, and still off the nightly-only pool.
+        for job, reason in CONTROL_ROUTE_EXEMPT.items():
+            with self.subTest(job=job):
+                self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
+                self.assertTrue(reason.strip())
+                self.assertTrue(runs_on_text(DOC['jobs'][job], job).endswith(f"|| '{NIGHTLY_SLOT}' }}}}"))
+
+    def test_every_control_takes_our_nightly_pool_and_forks_take_hosted(self):
+        self.assertEqual(control_route_failures(DOC), {})
+
+    def test_a_new_credentialed_control_on_a_pool_route_fails(self):
+        """A control split out with a write token on the pool route, which nobody lists."""
+        pool = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "fromJSON(vars.RUNNER_POOLS).linux || 'ubuntu-24.04' }}")
+        hosted_fallback = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                           "github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER || 'ubuntu-24.04' }}")
+        for name, runs_on, extra in (
+            ('comment-fixture-nightly', pool, {'permissions': {'contents': 'read', 'pull-requests': 'write'}}),
+            ('dispatch-fixture-nightly', hosted_fallback, {'permissions': {'actions': 'write'}}),
+            ('routing-fixture-nightly', hosted_fallback, {'environment': {'name': 'ci-routing-agent'}}),
+            ('bracket-fixture-nightly', hosted_fallback,
+             {'env': {'K': "${{ secrets[\"GLAEDA_ROUTE_APP_KEY\"] }}"}}),
+        ):
+            with self.subTest(job=name):
+                doc = copy.deepcopy(DOC)
+                doc['jobs'][name] = {'runs-on': runs_on, 'steps': [{'run': 'true'}], **extra}
+                self.assertIn(name, credentialed_control_jobs(doc))
+                self.assertEqual(set(control_route_failures(doc)), {name})
+
+    def test_a_credentialed_control_whose_runner_comes_from_its_matrix_fails(self):
+        """Codex: `runs-on: ${{ matrix.runner }}` hid a Linux job with issues: write from the raw-string read. Each
+        matrix cell is a route; a matrix nothing resolves counts as a control and fails."""
+        for name, strategy in (
+            ('matrix-control-fixture-nightly', {'matrix': {'runner': ['ubuntu-24.04']}}),
+            ('matrix-include-control-fixture-nightly', {'matrix': {'include': [{'runner': 'blacksmith-4vcpu-ubuntu-2404'}]}}),
+            ('matrix-json-control-fixture-nightly', {'matrix': '${{ fromJSON(needs.decide.outputs.matrix) }}'}),
+        ):
+            with self.subTest(job=name):
+                doc = copy.deepcopy(DOC)
+                doc['jobs'][name] = {'runs-on': '${{ matrix.runner }}', 'strategy': strategy,
+                                     'permissions': {'issues': 'write'}, 'steps': [{'run': 'true'}]}
+                self.assertIn(name, credentialed_control_jobs(doc))
+                self.assertEqual(set(control_route_failures(doc)), {name})
+
+    def test_a_matrix_control_on_the_nightly_pool_stays_green(self):
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['matrix-pool-control-fixture-nightly'] = {
+            'runs-on': '${{ matrix.runner }}', 'strategy': {'matrix': {'runner': [runs_on_text(DOC['jobs']['published-in'], 'published-in')]}},
+            'permissions': {'issues': 'write'}, 'steps': [{'run': 'true'}]}
+        self.assertIn('matrix-pool-control-fixture-nightly', credentialed_control_jobs(doc))
+        self.assertEqual(control_route_failures(doc), {})
+
+    def test_a_new_credentialed_control_on_the_nightly_pool_stays_green(self):
+        """The positive half: a bracket-secret control on published-in's route takes no failure."""
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['bracket-control-fixture-nightly'] = {
+            'runs-on': runs_on_text(DOC['jobs']['published-in'], 'published-in'), 'steps': [{'run': 'true'}],
+            'env': {'K': "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}}
+        self.assertIn('bracket-control-fixture-nightly', credentialed_control_jobs(doc))
+        self.assertEqual(control_route_failures(doc), {})
 
     def test_credential_permissions_remain_scoped_to_each_control(self):
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[0]]['permissions'], {
-            'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['environment'], 'ci-routing-agent')
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[2]]['permissions'], {
-            'contents': 'read', 'pull-requests': 'write'})
-
+        for job, (field, expected) in CONTROL_SCOPES.items():
+            with self.subTest(job=job):
+                self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
+                self.assertEqual(DOC['jobs'][job][field], expected)
 
 
 if __name__ == '__main__':

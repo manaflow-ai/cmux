@@ -22,14 +22,14 @@ extension SidebarPriorityFeed {
                                toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) },
                                openedSessions: { [weak services] in
                                    guard let tabs = services?.agentTabs else { return [] }
-                                   return Set(tabs.listTabs().compactMap { tabs.sessions[$0.key] ?? $0.record.session })
+                                   return Set(tabs.listTabsScoped().compactMap { tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session })
                                }),
                   chats: .app)
     }
 
     /// Opens a row's chat: the tab that shows it here, else the tab of the other machine's tree
     /// the row came from (its chat runs there), else a new tab here (the `cmux://session/<id>` path).
-    private static func open(_ lane: AgentActivityLane, services: AppServices) {
+    static func open(_ lane: AgentActivityLane, services: AppServices) {
         if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
            services.revealTab(tab) { return }
         services.agentActivityPage.jump(to: lane)

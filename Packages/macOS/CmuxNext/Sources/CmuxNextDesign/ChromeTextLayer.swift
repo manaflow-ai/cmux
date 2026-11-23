@@ -145,6 +145,12 @@ nonisolated public final class ChromeTextLayer: CALayer {
         }
     }
 
+    /// ``ProcessFontSmoothing/chrome`` changed: the glyphs show the new smoothing's image, kept or
+    /// drawn (``ChromeTextRefresh``). Its stem weight names the smoothing, so this is a color check.
+    func smoothingDidChange() {
+        applyColor()
+    }
+
     private func invalidate() {
         cachedLine = nil
         redraw()
@@ -154,14 +160,10 @@ nonisolated public final class ChromeTextLayer: CALayer {
         if let cachedLine { return cachedLine }
         // Color is applied at draw time from the context, so a color change
         // does not rebuild the line.
-        var attributes: [NSAttributedString.Key: Any] = [
+        let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
-        // The UI font's tracking at this size (`BundledFonts.kern`); other faces keep their own
-        // kerning (an explicit 0 would turn it off).
-        let kern = BundledFonts.kern(for: font)
-        if kern != 0 { attributes[.kern] = kern }
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes))
         cachedLine = line
         return line

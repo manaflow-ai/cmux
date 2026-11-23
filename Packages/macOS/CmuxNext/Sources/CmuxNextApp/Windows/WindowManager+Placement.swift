@@ -28,6 +28,24 @@ struct PendingPlacement {
 // personal order in the home session, else `move-workspace-to-group` on the
 // owning daemon.
 extension WindowManager {
+    /// A drop of a row still being created (`SidebarRowState.creating`; Leo 2026-11-06: "I can only drag them after a
+    /// super long time") at `position` of window `window`'s `sections`: its create's slot now (`PendingWorkspaceRow.dropped`),
+    /// drawn at once and placed once the daemon lists the workspace. False off its machine section.
+    func reslotCreates(_ ids: [String], at position: DropPosition, in window: String, sections: [SidebarRowSection]) -> Bool {
+        let rows = PendingWorkspaceRows.shared
+        let slots = ids.compactMap { id in rows.rows.first { $0.id == id }?.dropped(at: position, in: sections).map { (id, $0) } }
+        guard slots.count == ids.count else { return false }
+        for (id, slot) in slots {
+            rows.reslot(id, to: slot)
+            if pendingPlacements[id] == nil { pendingPlacementOrder.append(id) }
+            var pending = pendingPlacements[id] ?? PendingPlacement(window: window, slot: nil, byDefault: nil, then: nil)
+            (pending.slot, pending.byDefault, pending.anchorWaitSince) = (slot, nil, nil) // its `then` and run stay
+            pendingPlacements[id] = pending
+        }
+        applyPendingPlacements(live: Set(ids.filter { services.machines.workspace(id: $0) != nil }))
+        return true
+    }
+
     func forgetCreate(_ id: String) { pendingPlacements[id] = nil; pendingPlacementOrder.removeAll { $0 == id }; PendingWorkspaceRows.shared.remove(id) } // a create ended without its workspace
     /// Retries the placements a cold or updated layout deferred (`awaitsCurrentAnchor`), once a
     /// sidebar rows pass has realized the fresh rows; nothing to do while none waits.
@@ -58,7 +76,7 @@ extension WindowManager {
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         // A placement waiting on its current row keeps its entry and its place in the order.
         defer { pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil } }
-        var refreshed: Set<String> = []
+        var refreshed: Set<String> = [], placed: Set<String> = []
         for id in ready {
             guard let pending = pendingPlacements[id] else { continue }
             // A rows-pass retry can run before membership names the owner: keep the entry for that pass.
@@ -68,16 +86,16 @@ extension WindowManager {
                 if registry.value.window(window) == nil { pendingPlacements[id] = nil }
                 continue
             }
-            // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot); each
-            // following placement reads the model with the preceding optimistic moves applied.
-            let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
+            // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot), and another
+            // for one whose current row was placed in this pass (rapid Cmd-N): that row's own row lists only from then.
+            let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted || pending.byDefault?.current.map(placed.contains) == true)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             let catchingUp = bridge.rows.layoutCatchingUp
-            // Waits for a current row this window's cold rows omit. One closed or pinned since the press (it shows in
-            // the band, not the list), or one this window does not list (another window's, another space's), has no
-            // row to wait for: the rule resolves as if it never had one. So does a wait past its limit.
             var byDefault = pending.byDefault
+            // A current row still being made (rapid Cmd-N) is placed first; this one then resolves below its slot.
+            if pending.slot == nil, let current = byDefault?.current, current != id, pendingPlacements[current] != nil { continue }
+            // Waits for a current row cold rows omit (not one closed, pinned or not listed here; nor past the limit).
             if pending.slot == nil, byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
                 let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
@@ -91,7 +109,7 @@ extension WindowManager {
                 }
                 byDefault?.currentMachine = nil
             }
-            pendingPlacements[id] = nil // its move goes to the sidebar now: the next rows pass lists its own row
+            pendingPlacements[id] = nil; placed.insert(id) // its move goes to the sidebar now: the next rows pass lists its own row
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
             let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)

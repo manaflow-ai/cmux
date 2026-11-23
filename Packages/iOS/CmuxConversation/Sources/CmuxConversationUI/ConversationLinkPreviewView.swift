@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxSpinner
 import UIKit
 
 /// Rich link balloon, drawn like Messages' RichLinkView: page image on top
@@ -20,7 +21,7 @@ final class ConversationLinkPreviewView: UIView {
     private let thumbnailView = UIImageView()
     private let glyphView = UIImageView(image: UIImage(systemName: "safari.fill"))
     private let chevronView = UIImageView(image: UIImage(systemName: "chevron.right"))
-    private let spinner = UIActivityIndicatorView(style: .large)
+    private let spinner = CmuxSpinnerView(side: 37)
 
     private(set) var preview: ConversationLinkPreview?
     private var cardLayout: ConversationLinkCardLayout?
@@ -193,6 +194,7 @@ final class ConversationLinkPreviewView: UIView {
         let color = UIColor(red: caption.r, green: caption.g, blue: caption.b, alpha: 1)
         Self.tintCache[url] = color
         tint = color
+        // motion: allow crossfade, the Reduce Motion form
         UIView.transition(with: self, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) {
             self.applyColors()
         }

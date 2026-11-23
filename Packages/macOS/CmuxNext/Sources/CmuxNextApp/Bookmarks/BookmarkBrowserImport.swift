@@ -95,7 +95,7 @@ struct BookmarkBrowserImport {
         var buttons: [CmuxDialogButton] = [.cancel(), CmuxDialogButton(id: "file", title: BookmarkAppStrings.importChooseFile)]
         if !blocked.isEmpty { buttons.append(CmuxDialogButton(id: "privacy", title: BookmarkAppStrings.importOpenPrivacy)) }
         if !readable.isEmpty { buttons.append(CmuxDialogButton(id: "import", title: BookmarkAppStrings.importConfirm, role: .default)) }
-        let spec = CmuxDialogSpec(title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
+        let spec = CmuxDialogSpec(usesTransientMaterial: true, title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
                                   identifier: "cmux.dialog.bookmarks.importBrowser")
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
             switch answer.button {
@@ -146,19 +146,23 @@ struct BookmarkBrowserImport {
     /// one undo step on `target`'s bookmarks.
     func run(_ profiles: [BrowserSourceProfile], target: String) async -> Outcome {
         var outcome = Outcome()
+        let reader = services.browserDataReader
         for profile in profiles {
-            let read = await Task.detached { () -> [ImportedBookmark]? in try? BrowserImporter.readBookmarks(profile) }.value
+            let read = try? await reader.bookmarks(profile)
             guard let bookmarks = read else {
                 outcome.failed.append(Self.pickerTitle(profile))
                 continue
             }
             let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
             do {
-                let undo = try services.bookmarks.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id, profile: target)
-                outcome.added += undo.result.added
-                outcome.duplicates += undo.result.duplicates
+                // The folder as the daemon stores it now, before this import replaces it.
+                let undo = Undo(profile: target, sourceKey: profile.id, previous: try await services.bookmarks.routed.sourceDraft(profile.id, profile: target))
+                let counts = try await services.bookmarks.routed.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id,
+                                                                       profile: target)
+                outcome.added += counts.added
+                outcome.duplicates += counts.duplicates
                 outcome.sources.append(Self.pickerTitle(profile))
-                outcome.undo.append(undo.undo)
+                outcome.undo.append(undo)
             } catch {
                 outcome.failed.append(Self.pickerTitle(profile))
             }
@@ -186,15 +190,6 @@ struct BookmarkBrowserImport {
 }
 
 extension BookmarkService {
-    /// Applies one source's import and returns how to undo it.
-    func importSource(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) throws
-        -> (result: BookmarkImportPlan.SourceImport, undo: BookmarkBrowserImport.Undo) {
-        let previous = tree(profile).folder(sourceKey: sourceKey).flatMap { tree(profile).draft(of: $0.id) }
-        let result = BookmarkImportPlan.sourceImport(title: title, sourceKey: sourceKey, items: items)
-        try apply(result.operation, profile: profile)
-        return (result, BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: previous))
-    }
-
     /// Puts each source's folder back as it was before the import, newest first.
     func undoImport(_ steps: [BookmarkBrowserImport.Undo]) {
         for step in steps.reversed() {
@@ -202,8 +197,8 @@ extension BookmarkService {
                 if let previous = step.previous {
                     try apply(.importDrafts(parent: BookmarkRoot.bar.rawValue, index: nil, sourceKey: step.sourceKey, replace: true,
                                             drafts: [previous]), profile: step.profile)
-                } else if let folder = tree(step.profile).folder(sourceKey: step.sourceKey) {
-                    try apply(.delete(id: folder.id), profile: step.profile)
+                } else {
+                    routed.removeSource(step.sourceKey, profile: step.profile)
                 }
             } catch {
                 logger.error("undo bookmarks import \(step.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")

@@ -154,8 +154,8 @@ Rules:
    `terminal-snapshot-v1` (local socket, or the link socket for a remote
    host). Lane 12's `terminal_bytes` channel carries the same frames. Swift
    `TerminalIO` stays as the in-process seam; its production
-   implementation is the session-host viewer client. `LocalPTYTerminalIO`
-   and `ScriptedTerminalIO` stay debug and test only.
+   implementation is the session-host viewer client. `ScriptedTerminalIO`
+   stays test only.
 2. No backend code runs in the app process or touches Ghostty. App code runs
    in the app host (its server), behind the session host.
 3. A backend never sees other terminals and never decides the grid. The

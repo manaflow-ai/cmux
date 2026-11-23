@@ -51,7 +51,7 @@ SKIP = (
     "Packages/Shared/CmuxMessagesLab/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityMockSource.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchemaSamples.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Samples.generated.swift",
     "webviews/src/theme/",
     "webviews/src/syntax-colors.ts",
     "webviews/src/appearance.ts",
@@ -63,7 +63,6 @@ SKIP = (
     # Language and framework brand colors for the project picker's glyphs.
     "webviews/src/agent-session/acpmux/projectGlyphs.tsx",
     "webviews/src/agent-session/acpmux-preview/",
-    "webviews/src/agent-session/acpmux/prototype/",
     "webviews/src/pages/settings/mockThemes.ts",
 )
 

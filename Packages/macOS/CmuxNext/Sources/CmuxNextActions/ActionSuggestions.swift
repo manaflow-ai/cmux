@@ -29,15 +29,25 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// Every density: the built-ins, then the user's custom ones (the App lists them).
     public static let densities = "densities"
+    /// The sidebar toggle's glyphs (`debug.sidebarToggleIcon`, the Debug Settings choice).
+    public static let debugSidebarToggleIcons = "debugSidebarToggleIcons"
+    /// The status indicators' icon sets (`debug.statusIconSet`, the Debug Settings choice).
+    public static let debugStatusIconSets = "debugStatusIconSets"
     /// The Home conversations a message can go to (Send Message To…, Send To…; Chiefs first).
     public static let homeRecipients = "homeRecipients"
     /// The people and Chiefs a new group can have (New Group Chat's `members`), by participant id:
     /// the user's Chiefs (main first), the team, then the people of their DMs.
     public static let homeMembers = "homeMembers"
+    /// The user's Chiefs (Archive Chief, Make Primary Chief, Delete Chief…'s `chief`), by agent id, the
+    /// primary first: the palette's pick of which Chief, where the CLI takes its id.
+    public static let homeChiefs = "homeChiefs"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
     public static let paneBackgrounds = "paneBackgrounds"
+    /// The window's recent backgrounds (Recent Backgrounds…'s `background`, appearance.backgroundRecents),
+    /// newest first, by background value.
+    public static let backgroundRecents = "backgroundRecents"
     /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
     public static let paneTints = "paneTints"
     /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.

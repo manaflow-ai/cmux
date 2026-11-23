@@ -34,6 +34,33 @@ public nonisolated struct AgentPriorityRanking: Sendable {
         }
     }
 
+    /// The menu bar's Unread list: of `unread` (lanes the caller read from its unread index), the
+    /// ones with a result the person has not read, not running a turn (those are Running), and
+    /// neither archived nor snoozed; pinned first, then the newest change.
+    public static func unread(_ unread: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [AgentActivityLane] {
+        listed(unread.filter { lane in
+            lane.unread && lane.state != .working && marks.read[lane.id] != AgentPriorityMarks.stamp(lane)
+        }, marks: marks, now: now)
+    }
+
+    /// The menu bar's Running list: of `working` (lanes the caller read from its working index),
+    /// the ones still running a turn and neither archived nor snoozed; pinned first, then the newest.
+    public static func running(_ working: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [AgentActivityLane] {
+        listed(working.filter { $0.state == .working }, marks: marks, now: now)
+    }
+
+    private static func listed(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [AgentActivityLane] {
+        lanes.filter { lane in
+            !marks.archived.contains(lane.id) && !marks.isSnoozed(lane.id, stamp: AgentPriorityMarks.stamp(lane), now: now)
+        }.sorted { a, b in
+            let pinnedA = marks.pinned.contains(a.id), pinnedB = marks.pinned.contains(b.id)
+            if pinnedA != pinnedB { return pinnedA }
+            let sinceA = a.since ?? .distantPast, sinceB = b.since ?? .distantPast
+            if sinceA != sinceB { return sinceA > sinceB }
+            return a.id < b.id
+        }
+    }
+
     /// The chat after `previous` in `ids` (``needingInput(_:marks:now:)``'s order), wrapping; the
     /// first when `previous` is nil or no longer waits; nil when none waits.
     public static func next(after previous: String?, in ids: [String]) -> String? {

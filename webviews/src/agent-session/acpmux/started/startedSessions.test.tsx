@@ -2,16 +2,17 @@
 // started draw as one card of rows at the end of that turn, after its reply, each row the chat's
 // title over its status (Claude Code's Changes card), and their names in a reply draw as chips
 // that open them.
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
-import { renderInline } from "../conversation/Markdown";
+import { renderInline } from "../conversation/inlineMarkdown";
 import { turnView } from "../conversation/turns";
 import { StartedSessionCards } from "./StartedSessionCard";
 import { AgentMark } from "../../shared/AgentMark";
 import { rowIconSize } from "../icons/iconSize";
 import { agentTone } from "../subagents/agentTones";
+import { configureSenderIconLook, SENDER_ICON_BADGE_KEY } from "../subagents/senderIconLook";
 import {
   STARTED_SESSIONS,
   type StartedSession,
@@ -168,29 +169,21 @@ describe("withStartedSessions", () => {
     expect([...cache.keys()]).toEqual([`${STARTED_SESSIONS}-y`]);
   });
 
-  test("a card no row follows yet leaves the running turn's latest step live", () => {
-    const activity: AcpmuxRow = { ...row("act", 20, "activity"), items: [] };
-    const rows = withStartedSessions([row("u1", 10, "user"), activity], [started("x", 30)]);
-    const shown = turnView(rows, new Set(), { working: true });
-    expect(shown.find((r) => r.id === "act")?.live).toBe(true);
-    expect(shown.at(-1)?.kind).toBe(STARTED_SESSIONS);
-  });
-
-  test("a running turn with only its card so far draws the thinking line and the card", () => {
+  test("a running turn with only its card so far draws the card and the thinking line under it", () => {
     const rows = withStartedSessions([row("u1", 10, "user")], [started("x", 20)]);
     const shown = turnView(rows, new Set(), { working: true });
-    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", "thinking", STARTED_SESSIONS]);
+    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", STARTED_SESSIONS, "thinking"]);
   });
 
-  test("with Codex runs, a card after the running call leaves that call the live line's", () => {
+  test("a card after the running call leaves that call the live line's", () => {
     const activity: AcpmuxRow = {
       ...row("act", 20, "activity"),
       items: [{ kind: "tool", text: "", tool: { id: "t", title: "bun test", kind: "execute", status: "in_progress" } }],
     };
     const rows = withStartedSessions([row("u1", 10, "user"), activity], [started("x", 30)]);
-    const shown = turnView(rows, new Set(), { working: true, liveRuns: true });
+    const shown = turnView(rows, new Set(), { working: true });
     expect(shown.find((r) => r.id === "act")).toBeUndefined();
-    expect(shown.find((r) => r.kind === "working")?.doing).toBe("bun test");
+    expect(shown.find((r) => r.kind === "thinking")?.doing).toBe("bun test");
   });
 
   test("returns the rows as they are with no started chats", () => {
@@ -295,6 +288,10 @@ describe("name chips", () => {
 });
 
 describe("StartedSessionCards", () => {
+  // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
+  // tests pin that look.
+  beforeAll(() => configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" }));
+  afterAll(() => configureSenderIconLook({}));
   const draw = (...started: StartedSession[]) =>
     renderToStaticMarkup(<StartedSessionCards started={started} onOpen={() => undefined} />);
 

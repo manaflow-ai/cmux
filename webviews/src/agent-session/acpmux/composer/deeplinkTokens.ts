@@ -4,21 +4,22 @@ import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { deeplinks } from "./deeplinks";
 
 // cmux deeplinks in the draft (Leo, 2026-11-03: "hm i wonder if those should be rendered the
-// deeplinks within the composer too..."): a cmux app link (`cmux://workspace/ws_…`,
-// `cmux-nightly://agent/…`, in any build's scheme) or a web deeplink (`https://cmux.com/deeplink/…`)
-// draws as a link, as the sent prompt draws it (conversation/PromptText.tsx). The look is a
-// decoration, so the draft's text stays the URL: send, copy and undo see exactly what was typed.
-// An edit reads again only the textblocks it changed, never the whole prompt per key.
+// deeplinks within the composer too..."): finds each cmux app link (`cmux://workspace/ws_…`,
+// `cmux-nightly://agent/…`, in any build's scheme) or web deeplink (`https://cmux.com/deeplink/…`)
+// as a decoration with no look of its own. The titles plugin (deeplinkTitles.ts) draws a known one
+// as its chip; one nothing names stays plain text (Leo, 2026-11-08, of the chip with the
+// workspace's title and a plain text fallback: "Yeah sure"). The draft's text stays the URL: send,
+// copy and undo see exactly what was typed. An edit reads again only the textblocks it changed,
+// never the whole prompt per key.
 
-/// The class a deeplink draws with (markdownField.css).
-export const DEEPLINK_CLASS = "acpmux-deeplink";
+/// The class a web deeplink's text draws with inside markdown's autolink (markdownField.css).
+export const WEB_DEEPLINK_CLASS = "acpmux-web-deeplink";
 
-export type DeeplinkLook = "link" | "chip" | "plain";
-
-const key = new PluginKey<DecorationSet>("acpmuxDeeplinks");
+export const deeplinksKey = new PluginKey<DecorationSet>("acpmuxDeeplinks");
+const key = deeplinksKey;
 
 /// The decorations of the deeplinks in the textblock at `pos`, the old ones there taken out first.
-function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: number, look: DeeplinkLook) {
+function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: number) {
   const start = pos + 1;
   const end = start + block.content.size;
   const old = set.find(start, end);
@@ -30,10 +31,15 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
   return next.add(
     doc,
     found.map((link) =>
-      Decoration.inline(start + link.start, start + link.end, {
-        class: `${DEEPLINK_CLASS} is-${look}`,
-        "data-deeplink": link.href,
-      }),
+      Decoration.inline(
+        start + link.start,
+        start + link.end,
+        // A web deeplink is also markdown's autolink: the class lets markdownField.css take the link's
+        // underline off, so one nothing names reads as plain text like an app link (which no autolink takes).
+        link.href.startsWith("https:") ? { class: WEB_DEEPLINK_CLASS } : {},
+        // Read by the titles plugin (deeplinkTitles.ts), which draws a known link as what it names.
+        { deeplink: link.href },
+      ),
     ),
   );
 }
@@ -48,15 +54,13 @@ function eachTextblock(doc: ProseNode, from: number, to: number, visit: (block: 
   });
 }
 
-/// Draws each cmux deeplink in the draft with `look` (composer/deeplinkLook.experiment.ts); `plain`
-/// draws nothing.
-export function deeplinkTokensPlugin(look: DeeplinkLook): Plugin {
+/// Marks each cmux deeplink in the draft, drawing nothing itself.
+export function deeplinkTokensPlugin(): Plugin {
   const decorateAll = (doc: ProseNode) => {
     let set = DecorationSet.empty;
-    if (look === "plain") return set;
     doc.descendants((node, pos) => {
       if (!node.isTextblock) return true;
-      if (!node.type.spec.code) set = redecorate(set, doc, node, pos, look);
+      if (!node.type.spec.code) set = redecorate(set, doc, node, pos);
       return false;
     });
     return set;
@@ -66,14 +70,14 @@ export function deeplinkTokensPlugin(look: DeeplinkLook): Plugin {
     state: {
       init: (_config, state) => decorateAll(state.doc),
       apply: (tr, value, _old, state) => {
-        if (!tr.docChanged || look === "plain") return value;
+        if (!tr.docChanged) return value;
         const { doc } = state;
         let set = value.map(tr.mapping, doc);
         tr.mapping.maps.forEach((map, index) => {
           const later = tr.mapping.slice(index + 1);
           map.forEach((_oldFrom, _oldTo, newFrom, newTo) => {
             eachTextblock(doc, later.map(newFrom, -1), later.map(newTo, 1), (block, pos) => {
-              set = redecorate(set, doc, block, pos, look);
+              set = redecorate(set, doc, block, pos);
             });
           });
         });

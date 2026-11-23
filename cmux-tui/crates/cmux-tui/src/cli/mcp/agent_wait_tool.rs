@@ -27,8 +27,8 @@ const DESCRIPTION: &str = "Wait for other agents in cmux instead of polling agen
     pending, target's when given (agents_dialog_list shows them). until text: text appears on \
     the screen of target (a terminal or terminal tab); regex true reads text as a regular \
     expression. It answers at once when the condition already holds, and answers {until, \
-    matched, waited_seconds, match, state} with a fresh agents_snapshot-shaped state; a timeout \
-    is matched false, not an error. timeout_seconds defaults to 30 and is at most 120. It reads \
+    matched, timed_out, waited_seconds, match, state} with a fresh agents_snapshot-shaped \
+    state; a timeout is matched false and timed_out true, not an error. timeout_seconds defaults to 30 and is at most 120. It reads \
     other agents' state and dialogs, as agents_snapshot and agents_dialog_list do, and a \
     terminal's screen, as terminal_wait does. Changes nothing. With a progressToken it reports \
     progress every 5 s.";

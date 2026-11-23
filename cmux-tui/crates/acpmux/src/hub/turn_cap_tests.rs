@@ -450,10 +450,9 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
         message_sender: None,
     });
     let (hub, session) = (f.hub.clone(), f.session.clone());
-    let steered =
-        tokio::spawn(
-            async move { hub.steer_queued(&session, run, "test", "inbox-digest-x").await },
-        );
+    let steered = tokio::spawn(async move {
+        hub.steer_queued(&session, run, "test", "inbox-digest-x", false).await
+    });
     let deadline = tokio::time::Instant::now() + WAIT;
     while !f.session.queue().iter().any(|q| q.prompt_id == "inbox-digest-x") {
         assert!(!steered.is_finished(), "it ran: {:?}", steered.await);
@@ -492,7 +491,8 @@ async fn an_adopted_turns_timer_counts_from_the_turns_start() {
 
 /// Another agent's message the inbox holds under the cap (`inbox.rs`: the person's prompt waits,
 /// so no inbox notice steers in, and past the cap none does) waits for the turn too: the timer
-/// sends the notice at the cap.
+/// sends the notice at the cap. It names its class: an unclassified one is an FYI (#48040), which
+/// asks for no notice (`past_the_cap_an_fyi_waits_and_asks_for_no_notice`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
     let mut f = fixture().await;
@@ -502,11 +502,15 @@ async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
     let turn_id = f.session.turn().unwrap().turn_id;
     let (person, _next) = f.send("next from the person", None, false, false).await;
     assert_eq!(person.unwrap()["queued"], true);
-    let opts =
-        PromptOptions { agent: Some("lane-a".into()), inbox: true, ..PromptOptions::default() };
+    let opts = PromptOptions {
+        agent: Some("lane-a".into()),
+        inbox: true,
+        class: Some(crate::prompt_class::PromptClass::Result),
+        ..PromptOptions::default()
+    };
     let (held, _held) = f.send_with("from lane a", false, opts).await;
     held.unwrap();
-    let in_inbox = |f: &Fixture| f.session.inbox.lock().unwrap().items.iter().any(|i| !i.noticed);
+    let in_inbox = |f: &Fixture| f.session.inbox().items.iter().any(|i| !i.noticed);
     assert!(in_inbox(&f), "held in the inbox, no notice carries it");
     f.heard(&format!("steer: {}", notice_text(cap))).await;
     assert_eq!(f.notices(), [turn_id]);
@@ -526,7 +530,7 @@ async fn an_inbox_notice_refused_past_the_cap_leaves_its_message_waiting_and_sen
     let turn_id = f.session.turn().unwrap().turn_id;
     let ids = vec!["m-1".to_owned()];
     {
-        let mut inbox = f.session.inbox.lock().unwrap();
+        let mut inbox = f.session.inbox();
         inbox.items.push(super::inbox::Item::carried("m-1", "lane-a", "from lane a"));
         inbox.in_flight = Some(("n-1".into(), ids.clone()));
     }
@@ -534,6 +538,35 @@ async fn an_inbox_notice_refused_past_the_cap_leaves_its_message_waiting_and_sen
     f.hub.inbox_notice_refused(&f.session, "n-1", &ids);
     f.heard(&format!("steer: {}", notice_text(cap))).await;
     assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+/// Past the cap an FYI waits for the next turn like any agent's message, but asks for no cap
+/// notice: it would end no turn sooner (`inbox.rs` module docs). The next message that is no FYI
+/// still gets the turn its notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn past_the_cap_an_fyi_waits_and_asks_for_no_notice() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    f.age_turn(cap);
+    let fyi = PromptOptions {
+        agent: Some("ci".into()),
+        class: Some(crate::prompt_class::PromptClass::Fyi),
+        ..PromptOptions::default()
+    };
+    let (held, _held) = f.send_with("CI is slow", true, fyi).await;
+    let held = held.unwrap();
+    assert_eq!(held["queued"], true, "held for the next turn: {held}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(f.logged_notices().is_empty(), "no notice for an FYI");
+    let (first, _) = f.send("from lane a", Some("lane-a"), true, false).await;
+    assert_eq!(first.unwrap()["queued"], true);
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id], "the result's notice, once");
     f.open("g").await;
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
 }

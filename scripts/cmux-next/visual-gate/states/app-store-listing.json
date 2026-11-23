@@ -22,7 +22,7 @@
         "manaflow-ai/hello-deploy"
       ],
       "wait": 4,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/app_store.rs"
     }
   ]
 }

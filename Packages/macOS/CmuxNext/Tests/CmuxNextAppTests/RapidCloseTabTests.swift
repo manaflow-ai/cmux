@@ -9,7 +9,11 @@ import Testing
 /// Leo 2026-10-12 (cx-ag5.11): Cmd-W hammered closes exactly one tab per
 /// press, each the tab selected after the last close, while the daemon has
 /// not confirmed any of them yet; the pane keeps a selected tab and the focus.
-/// Runs the app's Close Tab against a same-tree cmux-tui daemon.
+/// The presses start at the last of four tabs with no opener, and the last
+/// tab's close selects the tab before it (the one close-selection rule,
+/// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was "always the
+/// tab before", #38316, #38328), so they walk left. Runs the app's Close Tab against a
+/// same-tree cmux-tui daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct RapidCloseTabTests {
     @Test func cmdWHammeredClosesOneTabPerPress() async throws {
@@ -41,13 +45,13 @@ struct RapidCloseTabTests {
         let pane = try #require(services.paneController(for: paneModel))
         let wanted = Set(ids)
         try await PinnedPageTests.until({ wanted.isSubset(of: pane.orderedIDs.map(\.rawValue)) })
-        let closing = Set(ids.prefix(3))
+        let closing = Set(ids.suffix(3))
         let expected: [String] = pane.orderedIDs.map(\.rawValue).filter { !closing.contains($0) }
-        pane.select(TabID(ids[0]))
-        try #require(pane.stripModel.selectedID?.rawValue == ids[0])
+        pane.select(TabID(ids[3]))
+        try #require(pane.stripModel.selectedID?.rawValue == ids[3])
         if terminals {
             // The close warning applies: live terminals in a window, with the setting on.
-            let tabs = ids.prefix(3).compactMap { store.tab(id: $0) }
+            let tabs = ids.suffix(3).compactMap { store.tab(id: $0) }
             try #require(TabCloseGuard.asks(tabs, services: services), "the terminal close warning does not apply")
         }
 
@@ -58,19 +62,19 @@ struct RapidCloseTabTests {
         }
         // A terminal's close waits for the daemon's read first; the presses during it close the next tabs.
         if terminals {
-            #expect(Set(ids.prefix(3)).isSubset(of: TabCloseGuard.reading), "the closes did not wait for the read")
+            #expect(closing.isSubset(of: TabCloseGuard.reading), "the closes did not wait for the read")
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue) == expected })
         }
         let after: [String] = pane.orderedIDs.map(\.rawValue)
         #expect(after == expected, "each press closed the tab selected after the last")
         let selected: String? = pane.stripModel.selectedID?.rawValue
-        #expect(selected == ids[3])
+        #expect(selected == ids[0])
 
-        let closed = Array(surfaces.prefix(3))
+        let closed = Array(surfaces.suffix(3))
         try await PinnedPageTests.until({ closed.allSatisfy { store.tab(surface: $0) == nil } })
-        #expect(store.tab(surface: surfaces[3]) != nil, "a fourth tab closed")
+        #expect(store.tab(surface: surfaces[0]) != nil, "a fourth tab closed")
         let settled: String? = pane.stripModel.selectedID?.rawValue
-        #expect(settled == ids[3], "the selection moved off the last tab left")
+        #expect(settled == ids[0], "the selection moved off the last tab left")
         let focused = services.windows.active?.workspaceContent?.focusedPane
         #expect(focused === pane, "the pane lost the focus")
     }

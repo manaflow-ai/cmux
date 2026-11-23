@@ -3,7 +3,7 @@
 // thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
-import { memo, useContext, useState, type ReactNode } from "react";
+import { memo, useContext, useState, type ReactElement, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
 import { MessageAttachments } from "./AttachmentViews";
@@ -11,7 +11,7 @@ import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
-import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe, partText } from "./model";
 import { MessageRuns, RunsContext } from "./RunCard";
 import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
@@ -83,7 +83,14 @@ export const MessageRow = memo(function MessageRow({
   const body = (
     <>
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {/* The row's label already says the time: the hover copy is only for the eye (CMUX-326). */}
+        {head ? (
+          <Avatar participant={author} size={20} />
+        ) : (
+          <time className="hc-msg-hover-time" aria-hidden="true">
+            {time}
+          </time>
+        )}
       </div>
       <div className="hc-msg-main">
         {parent && depth > MAX_THREAD_INDENT && (
@@ -114,7 +121,7 @@ export const MessageRow = memo(function MessageRow({
         ) : (
           <>
             {message.parts.map((part, index) => (
-              <Part key={index} part={part} strings={strings} />
+              <Part key={index} part={part} strings={strings} messageAt={message.createdAt} />
             ))}
             {message.parts.some((part) => part.type === "attachment") && (
               <MessageAttachments
@@ -237,10 +244,24 @@ function Head({
   );
 }
 
-function Part({ part, strings }: { part: HomePart; strings: Strings }) {
+/** One part's view. The return type leaves out `undefined`, so a part type with no case is a type
+ * error, not a part that silently draws nothing. */
+function Part({
+  part,
+  strings,
+  messageAt,
+}: {
+  part: HomePart;
+  strings: Strings;
+  messageAt: number;
+}): ReactElement | null {
   switch (part.type) {
     case "text":
-      return <Markdown className="hc-md">{part.text}</Markdown>;
+      return (
+        <Markdown className="hc-md" messageAt={messageAt}>
+          {part.text}
+        </Markdown>
+      );
     case "work":
       return (
         <div className={`hc-chip work ${part.status}`}>
@@ -254,6 +275,11 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
       return null;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
+    case "question":
+    case "link_preview":
+    case "location":
+    case "widget":
+      return <p className="hc-msg-other">{partText(part)}</p>;
   }
 }
 

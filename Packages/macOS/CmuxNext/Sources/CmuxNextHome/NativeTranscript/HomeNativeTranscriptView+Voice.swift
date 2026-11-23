@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeModel
 import MessagesLabHome
 import Observation
 

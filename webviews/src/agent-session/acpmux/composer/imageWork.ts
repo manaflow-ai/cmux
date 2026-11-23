@@ -170,13 +170,19 @@ async function fit(bitmap: ImageBitmap, type: string): Promise<Omit<PreparedImag
   return smallest && { mimeType: "image/jpeg", data: base64(new Uint8Array(await smallest.arrayBuffer())) };
 }
 
+/// The width-to-height ratio of a `width` x `height` image's thumbnail (drawThumb): its own shape,
+/// held between 0.7:1 and 2:1.
+export function thumbRatio(width: number, height: number): number {
+  return Math.min(2, Math.max(0.7, width / height));
+}
+
 /// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
 /// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
 export async function drawThumb(bitmap: ImageBitmap, height = 160): Promise<Thumb | undefined> {
   if (!bitmap.width || !bitmap.height) return undefined;
-  const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
+  const ratio = thumbRatio(bitmap.width, bitmap.height);
   const [sourceWidth, sourceHeight] =
     bitmap.width / bitmap.height > ratio
       ? [bitmap.height * ratio, bitmap.height]

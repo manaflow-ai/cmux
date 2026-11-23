@@ -29,8 +29,8 @@ enum ServerHandlers {
                 }
             })
         })
-        registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
-        registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
+        registry.bind("server.showPanel", run: { _ in menuBar.open(.panel) })
+        registry.bind("server.showHealth", run: { _ in menuBar.open(.health) })
         registry.bind("server.pairAnotherMachine", run: { invocation in
             // Minting an invite lets a machine ask to join the account: a person's run only. The
             // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run first.
@@ -42,7 +42,7 @@ enum ServerHandlers {
         registry.bind("server.addServer", run: { invocation in
             // No code: the sheet. A code may come only from an in-process person action; the
             // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run.
-            guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.open(.approver) }
+            guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.openAddServer() }
             guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
                 throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
             }
@@ -61,6 +61,9 @@ enum ServerHandlers {
         switch failure {
         case .notInBuild:
             ActionFailure(message: RefusalStrings.text("refusal.server.notInBuild", "This build does not include the server software yet."))
+        case .devBuild:
+            ActionFailure(message: RefusalStrings.text("refusal.server.devBuild",
+                                                       "A dev build does not keep a server running after it quits: the server's state is shared by every build."))
         case .notReady:
             ActionFailure(message: RefusalStrings.text("refusal.server.notReady", "The server software is not ready in this build yet."))
         case .requiresApproval:

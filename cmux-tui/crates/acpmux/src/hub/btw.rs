@@ -215,6 +215,7 @@ impl Hub {
         session: &Arc<Session>,
         question: &str,
         model: Option<&str>,
+        target_harness: Option<&str>,
         client: &str,
         inline: bool,
         opts: PromptOptions,
@@ -232,7 +233,20 @@ impl Hub {
         } else {
             Box::pin(self.harness_env(&meta)).await
         };
-        let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+        let target_harness =
+            target_harness.map(str::trim).filter(|h| !h.is_empty()).map(str::to_owned);
+        let (family, harness_env) = if let Some(target) = target_harness.as_deref() {
+            let cfg = self.config.read().await;
+            let profile = cfg.resolve_harness(target).map_err(RpcError::invalid_params)?;
+            let family = cfg
+                .harnesses
+                .get(&profile)
+                .map(|p| crate::config::derive_family(&profile, p))
+                .unwrap_or_else(|| profile.clone());
+            (family, std::collections::BTreeMap::new())
+        } else {
+            (meta.family.clone().unwrap_or_else(|| meta.harness.clone()), harness_env)
+        };
         // Claude Code owns a transcript-free side-question callback on its
         // running stream-json process. It never creates a session or sends an
         // ACP prompt, so the main turn and its queue stay untouched.
@@ -241,7 +255,7 @@ impl Hub {
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
             // including when it lives in a separate agent-host process.
-            if is_claude && session.turn().is_some() {
+            if target_harness.is_none() && is_claude && session.turn().is_some() {
                 match with_inline_deadline(
                     inline_deadline,
                     Box::pin(self.btw_inline_claude(session, question)),
@@ -274,6 +288,7 @@ impl Hub {
             inline_deadline,
             family,
             harness_env,
+            target_harness,
         ))
         .await
     }
@@ -288,20 +303,27 @@ impl Hub {
         inline_deadline: Option<tokio::time::Instant>,
         family: String,
         harness_env: std::collections::BTreeMap<String, String>,
+        target_harness: Option<String>,
     ) -> Result<Value, RpcError> {
         let inline = inline_deadline.is_some();
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let meta = session.meta();
-        // Refused before anything is created when no mode would hold it.
-        let (mode, read_only) =
-            with_inline_deadline(inline_deadline, Box::pin(self.read_only_mode(&meta))).await??;
+        // Refused before anything is created when no mode would hold it. A cross-harness guest
+        // must check the target profile after creation because the source's mode says nothing
+        // about the target's read-only contract.
+        let (mut mode, mut read_only) = if target_harness.is_some() {
+            (String::new(), "policy")
+        } else {
+            with_inline_deadline(inline_deadline, Box::pin(self.read_only_mode(&meta))).await??
+        };
         // Inline emulation uses the chat's current model and folder exactly;
         // the legacy side-session path keeps its cheap default behavior.
-        let mut model = if inline {
+        let mut model = if inline && target_harness.is_none() {
             crate::hub::model_options::current_model(&meta)
         } else {
             match explicit.clone() {
                 Some(m) => Some(m),
+                None if target_harness.is_some() => None,
                 None => self.btw_default_model(&meta).await,
             }
         };
@@ -314,7 +336,13 @@ impl Hub {
         let _owned = inline.then(|| InlineOwned::new(self, &name, &family, &harness_env));
         let (side, context) = match with_inline_deadline(
             inline_deadline,
-            Box::pin(self.btw_fork_point(session, &meta)),
+            Box::pin(async {
+                if target_harness.is_some() {
+                    Ok(None)
+                } else {
+                    self.btw_fork_point(session, &meta).await
+                }
+            }),
         )
         .await??
         {
@@ -348,8 +376,8 @@ impl Hub {
             ),
             None => {
                 let req = NewRequest {
-                    harness: Some(meta.harness.clone()),
-                    preset: meta.preset.clone(),
+                    harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
+                    preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
@@ -358,7 +386,8 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     vm_boundary: meta.vm_boundary,
-                    env: Default::default(),
+                    // The answer of the Mac that started its chat (`cmux_tools_answer.rs`).
+                    env: super::cmux_tools_answer::inherited(Default::default(), &meta.session_env),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
@@ -367,13 +396,23 @@ impl Hub {
                     route: None,
                     subsession: None,
                     lineage: None,
+                    created_by: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                     // It sees what its chat sees.
                     additional_directories: meta.additional_directories.clone(),
+                    // A side chat answers and stops: never its chat's stop condition.
+                    stop_condition: None,
+                    // A restricted chat's side chat runs restricted too (`restricted.rs`):
+                    // the same folder's config stays off.
+                    restricted: meta.restricted,
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,
+                    throwaway: false,
+                    require_asking: false,
+                    // A side chat never runs on its chat's Cloud credential.
+                    credential: None,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
@@ -417,6 +456,21 @@ impl Hub {
             }
         };
         let forked = context.is_none();
+        if target_harness.is_some() {
+            let target_mode = match with_inline_deadline(
+                inline_deadline,
+                Box::pin(self.read_only_mode(&side.meta())),
+            )
+            .await
+            {
+                Ok(Ok(mode)) => mode,
+                Ok(Err(e)) | Err(e) => {
+                    Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                    return Err(e);
+                }
+            };
+            (mode, read_only) = target_mode;
+        }
         let settled = match with_inline_deadline(
             inline_deadline,
             Box::pin(self.btw_settle(session, &side, question, &mode, read_only, inline)),
@@ -733,6 +787,34 @@ impl Hub {
         }
     }
 
+    /// `_acpmux/side`: tags `side` the side chat of `chat` (only the `side` tag). `side` must be
+    /// a fork of `chat` (its recorded parent, `hub/fork.rs`), or a session with no parent that
+    /// the calling connection itself created with `session/new` (`own`: the repo tour's task).
+    /// Tagging hides a chat from the lists and files it under `chat`, so a session someone else
+    /// made, or a fork of another chat, is refused, as is the chat itself.
+    pub(crate) fn mark_side(
+        &self,
+        side: &Session,
+        chat: &Session,
+        own: bool,
+    ) -> Result<(), RpcError> {
+        if chat.id == side.id {
+            return Err(RpcError::invalid_params("a chat is not its own side chat"));
+        }
+        let parent = side.meta().parent_id.clone();
+        let fork = parent.as_deref() == Some(chat.id.as_str());
+        if !(fork || own && parent.is_none()) {
+            return Err(RpcError::invalid_params(
+                "side.not_fork: a side chat is a fork of its chat",
+            )
+            .with_data(json!({"reason": "side.not_fork"})));
+        }
+        let mut tag = serde_json::Map::new();
+        tag.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
+        self.set_tags(side, Some(&tag), &[], None);
+        Ok(())
+    }
+
     /// Tag, title, policy, rules and `mode` of a new side session, the mode
     /// confirmed in what the session reports. Returns `read_only`. An error
     /// leaves the caller to discard the side session.
@@ -847,14 +929,14 @@ fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
         // Inline fallbacks have no pane to answer a permission card. Read-only
         // questions must therefore allow reads automatically, while DenyAll
         // remains a deliberate refusal from the parent chat.
-        return if chat == PermissionPolicy::DenyAll {
+        return if matches!(chat, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
             chat
         } else {
             PermissionPolicy::ApproveReads
         };
     }
     match chat {
-        PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
+        PermissionPolicy::Ask | PermissionPolicy::DenyAll | PermissionPolicy::Review => chat,
         _ => PermissionPolicy::ApproveReads,
     }
 }
@@ -996,6 +1078,46 @@ mod tests {
             "updatedAt": 1,
         }))
         .unwrap()
+    }
+
+    /// `_acpmux/side` tags only a fork of the chat it names: an unrelated session, a fork of
+    /// another chat and the chat itself are refused and stay untagged.
+    #[tokio::test]
+    async fn only_a_fork_of_the_chat_is_marked_its_side_chat() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let publish = |id: &str, parent: Option<&str>| {
+            let mut meta = side_meta("claude", &std::env::temp_dir());
+            meta.id = id.to_owned();
+            meta.name = id.to_owned();
+            meta.parent_id = parent.map(str::to_owned);
+            let session = hub.make_session(meta);
+            hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+            session
+        };
+        let chat = publish("chat", None);
+        let fork = publish("fork", Some("chat"));
+        let unrelated = publish("unrelated", None);
+        let other_fork = publish("other-fork", Some("another-chat"));
+        let side_of = |session: &Session| session.meta().tags.get(SIDE_TAG).cloned();
+        for refused in [&unrelated, &other_fork, &chat] {
+            let error = hub.mark_side(refused, &chat, false).expect_err("refused");
+            assert!(side_of(refused).is_none(), "{}: {error:?}", refused.id);
+        }
+        let error = hub.mark_side(&unrelated, &chat, false).expect_err("refused");
+        assert_eq!(error.data.as_ref().and_then(|d| d["reason"].as_str()), Some("side.not_fork"));
+        // The caller's own new session never makes a fork of another chat, or the chat, its side.
+        for refused in [&other_fork, &chat] {
+            hub.mark_side(refused, &chat, true).expect_err("refused");
+            assert!(side_of(refused).is_none(), "{}", refused.id);
+        }
+        // A session with no parent that the caller itself created (the repo tour's task).
+        let task = publish("task", None);
+        hub.mark_side(&task, &chat, true).expect("the caller's own new session");
+        assert_eq!(hub.session_summary(&task)["tags"][SIDE_TAG], json!("chat"));
+        hub.mark_side(&fork, &chat, false).expect("a fork of the chat");
+        assert!(side_of(&fork).is_some(), "the fork is tagged");
+        assert_eq!(hub.session_summary(&fork)["tags"][SIDE_TAG], json!("chat"));
+        hub.shutdown_all().await;
     }
 
     /// A profile's `${home}` store is expanded as at spawn; the parent's raw env

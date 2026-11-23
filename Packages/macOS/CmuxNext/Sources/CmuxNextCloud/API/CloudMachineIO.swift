@@ -95,6 +95,12 @@ public struct CloudMachineIO: Sendable {
         return Answer(status: status, code: object["code"] as? String, body: body ?? Data(), route: route)
     }
 
+    /// One `cmux cloud api` call (cmux-tui `cli/cloud_api.rs`): `input` (the request JSON) on the child's stdin,
+    /// its stdout back (one answer line). Throws ``NoAnswer`` as ``run(_:arguments:stdin:timeout:work:)`` does.
+    @concurrent func cloudAPI(_ input: Data, timeout: Duration) async throws -> Data {
+        try await Self.run(binary, arguments: ["cloud", "api"], stdin: input, timeout: timeout, work: work)
+    }
+
     /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
     /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
     /// (path and modification date, so an app update asks again); a probe that itself fails is not kept. A build
@@ -170,6 +176,7 @@ public struct CloudMachineIO: Sendable {
                 // while it is written, and the write blocks only that thread. It ends when the child has read it all
                 // or closed its stdin (EPIPE, never SIGPIPE), which a kill at the deadline or a cancel also does.
                 let feeder = Thread {
+                    // concurrency-allow: on its own feeder thread after launch; a kill at the deadline or a cancel ends it (EPIPE)
                     try? writer.write(contentsOf: stdin)
                     try? writer.close()
                 }

@@ -1,0 +1,9 @@
+{
+  "source": "schemas/settings/source/sessions.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Sessions.generated.swift",
+  "type": "SessionSettingsSchema",
+  "lists": {
+    "sessions": ["descriptors", "SessionSettings"],
+    "phone": ["phoneDescriptors", "SessionSettings"]
+  }
+}

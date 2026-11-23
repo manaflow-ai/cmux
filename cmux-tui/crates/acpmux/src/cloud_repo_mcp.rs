@@ -285,17 +285,22 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
     } else {
         return;
     };
-    if error.get("code").and_then(Value::as_str) != Some("repo.needs_github") {
+    let code = error.get("code").and_then(Value::as_str);
+    if code != Some("repo.needs_github") && code != Some("repo.no_access") {
         return;
     }
     let mut args = json!({"session": session, "repo": repo});
     if let Some(reference) = reference.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
         args.set("ref", json!(reference));
     }
-    error.set(
-        "retry",
-        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION}),
-    );
+    // No access is granted on GitHub (an install on the organization, its owner's yes), never by a
+    // connect to wait on: its retry is the same add, with no wait.
+    let retry = if code == Some("repo.needs_github") {
+        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION})
+    } else {
+        json!({"action": REPO_ADD_ACTION, "args": args})
+    };
+    error.set("retry", retry);
 }
 
 #[cfg(test)]
@@ -360,6 +365,15 @@ mod tests {
         assert_eq!(
             result["retry"]["args"],
             json!({"session":"chat-1","repo":"cmux-platform","ref":"main"})
+        );
+    }
+    #[test]
+    fn no_access_retries_the_add_with_no_wait() {
+        let mut result = json!({"code":"repo.no_access","org":"acme"});
+        enrich_retry(&mut result, "chat-1", "acme/tool", None);
+        assert_eq!(
+            result["retry"],
+            json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
     #[test]

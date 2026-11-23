@@ -13,6 +13,20 @@ import { collectInventory } from "./bake";
 import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm } from "./guest";
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
+/** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
+ * exec after 49 s) is retried, a step that ran and failed (StepLog's "step X failed") is not. */
+export const INVENTORY_TRIES = 3;
+
+export function retriesInventory(error: unknown, attempt: number): boolean {
+  if (attempt >= INVENTORY_TRIES) return false;
+  const text = String(error);
+  if (/\bstep \S+ failed\b/.test(text)) return false;
+  // freestyle's FreestyleApiError carries the HTTP status apart from its prose message (cleanup.ts notFound).
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 502 || status === 503 || status === 504) return true;
+  return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
+}
+
 export async function main(argv = process.argv): Promise<number> {
   const outDir = path.resolve(argValue("--out-dir", argv) ?? "");
   const bakeJson = readdirSync(outDir).find((f) => /^bake-.*\.json$/.test(f));
@@ -32,7 +46,17 @@ export async function main(argv = process.argv): Promise<number> {
   const inventory: Record<string, unknown> = {};
   const t0 = Date.now();
   try {
-    await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`);
+        delete inventory.error;
+        break;
+      } catch (error) {
+        inventory.error = String(error);
+        if (!retriesInventory(error, attempt)) throw error;
+        L.log(`INVENTORY RETRY ${attempt}/${INVENTORY_TRIES - 1}: ${inventory.error}`);
+      }
+    }
   } catch (error) {
     inventory.error = String(error);
     L.log(`INVENTORY FAILED: ${inventory.error}`);

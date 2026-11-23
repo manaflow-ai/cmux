@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Optional `mux-control` open metadata key: the line codecs a client can read,
+/// comma separated. A client that lists [`MUX_LINE_CODEC_ZLIB`] reads a
+/// daemon-to-client line of [`MUX_LINE_ZLIB_MIN_BYTES`] or more as one zlib
+/// stream (packets tagged `CMXZ` instead of `CMXL`) once the daemon's `opened`
+/// answer lists [`MUX_LINE_ZLIB_V1_FEATURE`]. A daemon that never heard of the
+/// key ignores it and a client that never sends it gets plain lines, so mixed
+/// builds keep working.
+pub const MUX_CONTROL_LINE_CODECS: &str = "line_codecs";
+pub const MUX_LINE_CODEC_ZLIB: &str = "zlib";
+/// The `opened` feature of a daemon that compresses large lines for this stream.
+pub const MUX_LINE_ZLIB_V1_FEATURE: &str = "mux-line-zlib-v1";
+/// Lines shorter than this stay plain: compressing them saves little.
+pub const MUX_LINE_ZLIB_MIN_BYTES: usize = 16 << 10;
+
 /// Optional `terminal-bytes-v1` open metadata key. With the value
 /// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
 /// negotiates terminal-host viewer-size priority when the host supports it.
@@ -137,6 +151,11 @@ pub enum Service {
     /// every open. Only a session whose carrier grant marks the machine's
     /// owner holds this service (the Cloud desktop, `/run/cmux-rd/desktop.sock`).
     LocalSocket,
+    /// acpmux's JSON-RPC, one message per line, bridged by the daemon to
+    /// acpmux's carrier socket. Only a session whose carrier grant names
+    /// `acpmux` holds it; the daemon tells acpmux who the person is from that
+    /// grant, never from the stream.
+    Acpmux,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +191,9 @@ pub enum RemoteCapability {
     ComputerUseV1,
     /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
     TerminalViewerSizePriorityV1,
+    /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
+    /// key and writes them (`replace-machine-secrets`).
+    SecretsV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -403,6 +425,39 @@ pub enum WorkspaceRequest {
     CancelComputerUse {
         invocation: ComputerUseInvocationId,
     },
+    /// `secrets-v1`: replace `~/.config/cmux/machine-secrets.env` with exactly
+    /// these items (an empty list clears it). Purpose `secret`.
+    ReplaceMachineSecrets {
+        items: Vec<SealedSecret>,
+    },
+}
+
+/// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
+/// mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305). The
+/// `info` binds the machine id, the purpose, `name` and `nonce`; the AAD is
+/// `name`. The plaintext is the time it was sealed (Unix seconds, a
+/// big-endian u64) and then the value. Only the daemon holding the key can
+/// open it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedSecret {
+    pub name: String,
+    /// 32 lowercase hex digits, fresh per item: the daemon refuses one it has
+    /// already opened.
+    pub nonce: String,
+    /// The HPKE encapsulated key (32 bytes).
+    pub enc: ByteString,
+    /// The AEAD ciphertext with its tag.
+    pub ciphertext: ByteString,
+}
+
+impl std::fmt::Debug for SealedSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SealedSecret")
+            .field("name", &self.name)
+            .field("nonce", &self.nonce)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -537,6 +592,9 @@ pub enum WorkspaceResponse {
     ComputerUseCanceled {
         invocation: ComputerUseInvocationId,
         accepted: bool,
+    },
+    MachineSecretsReplaced {
+        count: u32,
     },
 }
 

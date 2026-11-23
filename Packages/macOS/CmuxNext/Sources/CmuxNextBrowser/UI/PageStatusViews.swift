@@ -30,6 +30,13 @@ final class PageStatusViews {
             .filter { !$0.isHidden && $0.superview != nil }
     }
 
+    /// The color of the status page that covers the whole page area now (the error page or the sad tab, opaque in
+    /// `Palette.pageBackground`); nil when the page shows. A closing pane shows it (`BrowserChromeView.paneGround`).
+    var coveringGround: CGColor? {
+        ([goneViewIfMade, errorViewIfMade] as [NSView?]).lazy.compactMap { $0 }
+            .first { !$0.isHidden && $0.superview != nil }?.layer?.backgroundColor
+    }
+
     /// Where the views go when they first show: in `parent`, over `content`;
     /// their buttons act on the current tab.
     func install(in parent: NSView, over content: NSView, tab: @escaping () -> (any BrowserTab)?) {

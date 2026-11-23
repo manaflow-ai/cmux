@@ -113,6 +113,10 @@ impl Params {
         Self::default()
     }
 
+    pub(crate) fn from_map(map: Map<String, Value>) -> Self {
+        Self(map)
+    }
+
     pub(crate) fn into_value(self) -> Value {
         Value::Object(self.0)
     }

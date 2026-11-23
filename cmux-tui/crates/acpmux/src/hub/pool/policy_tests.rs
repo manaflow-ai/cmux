@@ -15,6 +15,11 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         auth: String::new(),
         account: None,
         machine: None,
+        prompt_suggestions: None,
+        tool_servers: String::new(),
+        settings_file: PathBuf::new(),
+        model: None,
+        effort: None,
     }
 }
 
@@ -137,4 +142,19 @@ fn a_spare_outlives_a_last_used_role_moving_away_in_its_folder() {
     let view = pool.view();
     let kept = view.iter().find(|v| v.key == a).expect("the spare stays");
     assert!(kept.spare && !kept.last_used, "{kept:?}");
+}
+
+/// A credentialed start (cmux#45953) misses an entry of its slot under another key and leaves it:
+/// the folder's uncredentialed spare outlives a Cloud chat's start, which a plain start still takes.
+#[test]
+fn a_start_that_keeps_other_keys_leaves_the_slots_entry_for_its_own_start() {
+    let mut pool: Pool<&'static str> = Pool::new(IDLE);
+    let plain = key("/w", "claude");
+    let now = Duration::from_secs(1);
+    let generation = pool.want(Role::Spare, plain.clone(), now).start.expect("a start");
+    assert!(pool.complete(&plain, generation, "spare", now).is_none());
+    let credentialed = PoolKey { auth: "credentialed".into(), ..plain.clone() };
+    assert!(matches!(pool.take_or_keep(&credentialed, false), Take::Miss));
+    assert_eq!(cwds(&pool), vec!["/w".to_owned()]);
+    assert!(matches!(pool.take(&plain), Take::Ready("spare")));
 }

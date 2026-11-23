@@ -43,12 +43,27 @@ extension MobileCoreRPCSession {
             case .granted(let lease):
                 connectLease = lease
             case .busy:
+                // The registry hop suspends this actor, so a concurrent caller
+                // may have started this session's own connect meanwhile and
+                // hold the route's lease: join it instead of refusing.
+                if isTearingDown || transport != nil || connectionTask != nil {
+                    return try await ensureConnected(timeoutNanoseconds: timeoutNanoseconds)
+                }
                 // A gate refusal is instantaneous and never touched the
                 // network; reporting it as a timeout fabricated sub-30ms
                 // "timedOut" failures that poisoned lastFailureEvent.
                 throw MobileShellConnectionError.connectAttemptGated
             case .cleanupBlocked:
                 throw MobileShellConnectionError.routeCleanupBlocked
+            }
+            // State read before the registry hop is stale: a concurrent caller
+            // may have installed a connect or a transport, or teardown may have
+            // begun, while this actor was suspended. Starting a second connect
+            // would dial twice and orphan the first attempt's waiters, so give
+            // the unused lease back and re-enter to join what is there.
+            if isTearingDown || transport != nil || connectionTask != nil {
+                await connectAttemptRegistry.finishConnect(lease: connectLease)
+                return try await ensureConnected(timeoutNanoseconds: timeoutNanoseconds)
             }
             let connectAttemptID = Int.random(in: 1...Int.max)
             let connectStartedAt = ContinuousClock.now

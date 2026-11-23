@@ -1,29 +1,6 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-/// How much a notice above the composer matters (hq#2569 #12): an error beats what is happening
-/// now, which beats a hint, which beats an update the person started, which beats standing
-/// information that is always there (the agent rules card). Higher wins.
-export const NOTICE_TIER = { error: 40, status: 30, hint: 20, update: 10, info: 5 } as const;
-export type NoticeTier = keyof typeof NOTICE_TIER;
-
-type Entry = { tier: number; order: number };
-type Slot = {
-  shown: string | undefined;
-  claim(id: string, tier: number): void;
-  release(id: string): void;
-};
-
-const SlotContext = createContext<Slot | undefined>(undefined);
-
+import { memo, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type NoticeTier, type Entry, SlotContext, topNotice, useNoticeTurn } from "./noticeSlotModel";
+import { useCountedRender } from "./perfRender";
 /// The one place above the composer where notices show: of every notice that wants to show, only
 /// the highest tier draws (the first to ask, on a tie); the rest wait, mounted with their state,
 /// and show once it clears. Notices outside a slot (a gallery, a test) always draw.
@@ -52,46 +29,31 @@ export function NoticeSlot({ children }: { children: ReactNode }) {
   return <SlotContext.Provider value={slot}>{children}</SlotContext.Provider>;
 }
 
-/// The notice that draws: the highest tier, then the one that asked first.
-export function topNotice(entries: ReadonlyMap<string, Entry>): string | undefined {
-  let best: [string, Entry] | undefined;
-  for (const entry of entries) {
-    const [, value] = entry;
-    if (!best || value.tier > best[1].tier || (value.tier === best[1].tier && value.order < best[1].order))
-      best = entry;
-  }
-  return best?.[0];
-}
-
-/// A notice's turn in the slot: `wants` says it has something to show; `shown` is whether it
-/// draws now. The claim lands in a layout effect, so a lower notice never paints under a higher one.
-export function useNoticeTurn(id: string, tier: NoticeTier, wants: boolean): { shown: boolean } {
-  const slot = useContext(SlotContext);
-  const rank = NOTICE_TIER[tier];
-  const claim = slot?.claim;
-  const release = slot?.release;
-  useLayoutEffect(() => {
-    if (!claim || !release) return;
-    if (wants) claim(id, rank);
-    else release(id);
-  }, [claim, release, id, rank, wants]);
-  useLayoutEffect(() => () => release?.(id), [release, id]);
-  if (!slot) return { shown: wants };
-  return { shown: wants && slot.shown === id };
-}
-
-/// A notice the pane draws itself (`when`): its children show only on its turn in the slot.
-export function Notice({
-  id,
-  tier,
-  when,
-  children,
-}: {
+type NoticeProps = {
   id: string;
   tier: NoticeTier;
   when: unknown;
   children: ReactNode;
-}) {
-  const { shown } = useNoticeTurn(id, tier, Boolean(when));
-  return shown ? <>{children}</> : null;
-}
+};
+
+/// A notice the pane draws itself (`when`): its children show only on its turn in the slot.
+///
+/// While it wants to show nothing, its children are not compared: it draws none of them, and the pane hands it new
+/// ones on every render (inline elements, new callbacks). The pane renders on every snapshot that is not a streamed
+/// chunk (a tool call, its result, a new row), so each of its ~18 notices rendered on each such event, though
+/// nearly all of them show nothing (Leo, 2026-11-19: "why stuff redraw often?"). One that comes to show renders
+/// then (`when` changed), with its newest children; one that shows renders for each new child, as before. Its turn
+/// in the slot is context, so a change there renders it whatever its props.
+export const Notice = memo(
+  function Notice({ id, tier, when, children }: NoticeProps) {
+    // Debug measurement (acpmuxPerf): its committed renders (NoticeSlot.test.tsx).
+    useCountedRender(`notice:${id}`);
+    const { shown } = useNoticeTurn(id, tier, Boolean(when));
+    return shown ? <>{children}</> : null;
+  },
+  (previous: NoticeProps, next: NoticeProps) =>
+    previous.id === next.id &&
+    previous.tier === next.tier &&
+    Boolean(previous.when) === Boolean(next.when) &&
+    (!next.when || previous.children === next.children),
+);

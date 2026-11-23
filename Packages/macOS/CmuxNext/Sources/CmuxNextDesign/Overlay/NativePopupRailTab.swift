@@ -17,6 +17,9 @@ final class NativePopupRailTab: NSView {
     var onHover: (() -> Void)?
     /// The keyboard's highlight (Add harness reached with Left and Right).
     var isHighlighted = false { didSet { if oldValue != isHighlighted { restyle() } } }
+    /// The symbols row's accent bar under the checked mark. A column's rail and the search row's
+    /// accessory draw only the wash.
+    var showsAccentBar = true { didSet { needsDisplay = true } }
     var isEnabled: Bool { row.disabled != true }
     var isSelected: Bool { row.checked == true }
 
@@ -42,8 +45,9 @@ final class NativePopupRailTab: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: PopupStyle.standard.rowHeight, height: PopupStyle.standard.rowHeight))
         for view in [markView, nameLabel].compactMap(\.self) { addSubview(view) }
         // The name is the tab's title on hover and its accessible name (never dropped, even when
-        // the symbols row shows only the mark).
-        themedToolTip = row.description.map { "\(row.label) · \($0)" } ?? row.label
+        // the symbols row shows only the mark); its description is VoiceOver's (a tooltip is a name).
+        themedToolTip = row.label
+        setAccessibilityHelp(row.description)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(row.label)
@@ -190,7 +194,7 @@ final class NativePopupRailTab: NSView {
             Palette.hoverFill.setFill()
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
             // The symbols row's accent bar under the checked mark: half the tab wide, half a grid step tall.
-            guard placement == .symbols, isSelected else { return }
+            guard placement == .symbols, showsAccentBar, isSelected else { return }
             let bar = NSRect(x: bounds.width / 4, y: bounds.maxY - Metrics.space1 / 2, width: bounds.width / 2, height: Metrics.space1 / 2)
             Palette.accentFill.setFill()
             NSBezierPath(roundedRect: bar, xRadius: Metrics.capsuleRadius(bar.size), yRadius: Metrics.capsuleRadius(bar.size)).fill()

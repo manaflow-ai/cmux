@@ -238,6 +238,20 @@ pub(super) fn restore_resource_state(
             })?]
             .id,
         );
+        // `floating-panes-v1`: an entry of a pane the store no longer has is dropped, not an error.
+        let floating = screen
+            .floating
+            .iter()
+            .filter_map(|entry| entry.clone().renamed(|pane| pane_slots.get(&pane).copied()))
+            .collect::<Vec<_>>();
+        // `quick-terminal-v1`: a hidden quick terminal never has the focus, so the one that has it shows.
+        let floating = Screen::settled_floating_panes_with_focus(
+            &root,
+            &layout_columns,
+            &floating,
+            active_pane,
+        );
+        let zoomed_pane = Screen::zoom_beside_floating_panes(zoomed_pane, &floating);
         let restored_screen = Screen {
             id,
             public_id: screen.public_id.clone(),
@@ -250,6 +264,7 @@ pub(super) fn restore_resource_state(
             viewport_base_width,
             layout_columns,
             layout_revision: 0,
+            floating,
             layout_undo: Default::default(),
         };
         anyhow::ensure!(
@@ -281,6 +296,8 @@ pub(super) fn restore_resource_state(
         "active-screen metadata does not exactly cover the live workspaces"
     );
     for workspace in &mut workspaces {
+        // `quick-terminal-v1`: a workspace has one quick terminal, also in a store that has 2 marks.
+        workspace.settle_quick_terminals();
         workspace.active_screen = match active_screens[&workspace.public_id].as_ref() {
             Some(active) => {
                 workspace.screens.iter().position(|screen| &screen.public_id == active).ok_or_else(
@@ -316,6 +333,8 @@ pub(super) fn restore_resource_state(
         workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
     let workspace_id_by_key =
         workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
+    // One set of route generations for the four routing tables of this session state (`crate::route_table`).
+    let route_generations = crate::route_table::RouteGenerations::default();
     Ok(RestoredResourceState {
         state: State {
             workspaces,
@@ -327,12 +346,19 @@ pub(super) fn restore_resource_state(
             focus_sequence: 0,
             active_workspace,
             panes,
-            surfaces: Default::default(),
-            terminal_catalog: Default::default(),
-            terminal_catalog_by_runtime: Default::default(),
-            terminal_catalog_by_host: Default::default(),
+            surfaces: crate::route_table::RouteTable::with_generations(route_generations.clone()),
+            terminal_catalog: crate::route_table::RouteTable::with_generations(
+                route_generations.clone(),
+            ),
+            terminal_catalog_by_runtime: crate::route_table::RouteTable::with_generations(
+                route_generations.clone(),
+            ),
+            terminal_catalog_by_host: crate::route_table::RouteTable::with_generations(
+                route_generations,
+            ),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
+            tab_places: Default::default(),
         },
         next_id,
         contents,
@@ -349,7 +375,7 @@ pub(super) fn restore_layout_node(
         RegistryLayoutNode::Leaf { pane } => Node::Leaf(
             *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
         ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, divider_hidden } => {
             anyhow::ensure!(!splits.contains_key(split), "split {split} appears more than once");
             let id = allocate()?;
             splits.insert(split.clone(), id);
@@ -364,6 +390,7 @@ pub(super) fn restore_layout_node(
                 ratio: *ratio,
                 a: Box::new(restore_layout_node(first, panes, splits, allocate)?),
                 b: Box::new(restore_layout_node(second, panes, splits, allocate)?),
+                divider_hidden: *divider_hidden,
             }
         }
         RegistryLayoutNode::Stack { panes: members, expanded } => {
@@ -394,7 +421,7 @@ pub(super) fn restore_layout_node_from_known_splits(
         RegistryLayoutNode::Leaf { pane } => Node::Leaf(
             *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
         ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, divider_hidden } => {
             let id = *splits
                 .get(split)
                 .ok_or_else(|| anyhow::anyhow!("layout has unknown split {split}"))?;
@@ -409,6 +436,7 @@ pub(super) fn restore_layout_node_from_known_splits(
                 ratio: *ratio,
                 a: Box::new(restore_layout_node_from_known_splits(first, panes, splits)?),
                 b: Box::new(restore_layout_node_from_known_splits(second, panes, splits)?),
+                divider_hidden: *divider_hidden,
             }
         }
         RegistryLayoutNode::Stack { panes: members, expanded } => {

@@ -374,6 +374,9 @@ pub use level::{LOAD_RELEASE_FRACTION, LOAD_WARN_FRACTION, Level, Reading, Track
 mod rejudge;
 pub use rejudge::with_pressure;
 
+// Where new work runs: here, or spilled to a machine with room (RFD 0032 "Place").
+pub mod place;
+
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;
 pub use shadow::{
@@ -381,6 +384,10 @@ pub use shadow::{
     SHADOW_FORMULA_VERSION, SessionCost, SessionLoad, ShadowInputs, ShadowState, ShadowVerdict,
     SignalState, Track, canonical_inputs, inputs_digest, shadow_verdict,
 };
+// The digest of only the readings that decide that verdict, and the short host
+// name both placers log, so their shadow lines join.
+mod pressure_digest;
+pub use pressure_digest::{canonical_pressure, host_short, pressure_digest};
 
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
 pub mod ffi;

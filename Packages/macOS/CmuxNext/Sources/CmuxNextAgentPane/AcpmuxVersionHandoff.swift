@@ -143,18 +143,57 @@ nonisolated enum AcpmuxVersionHandoff {
             return false
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
+        let trigger = isReplaced ? "replaced executable" : policy ? "agent launch policy differs" : "another build"
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+            try await handOffShutdown(environment, pid: pid,
+                                      reason: "version handoff: \(trigger) (build \(status.build ?? "?") -> \(bundled ?? "?"))")
             AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
-            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            daemons.mark(home: environment.home, restarting: false)
+            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public); the next lookup tries again")
+            // A request that never reached the daemon used nothing up: the socket's one handoff
+            // stays for the next lookup. Kept used, it left the replaced daemon running for the
+            // whole launch, and every chat's person proof with it ("Unverified sender", 2026-11-10).
+            handedOff.withLock { keys in
+                keys.remove(key)
+                daemons.mark(home: environment.home, restarting: false)
+            }
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
+    }
+
+    /// Stops `environment`'s daemon `pid` for a handoff: `_acpmux/shutdown` (agents kept), and when
+    /// that ask misses its `deadline` (a busy daemon's request path waits behind a slow chat), SIGTERM,
+    /// which acpmux takes as the same restart handoff (``AcpmuxDaemonStop/finishHandOff(_:pid:)``).
+    /// Without it the old build's daemon ran on until it answered (over a minute at Leo's 08:05Z
+    /// restart) while the new app waited for it. Throws the ask's failure when nothing was sent.
+    /// `reason` is logged by the daemon with its stop (every stop names why).
+    @concurrent static func handOffShutdown(
+        _ environment: AcpmuxEnvironment, pid: Int32, reason: String, deadline: Duration = .seconds(2),
+        shutdown: @Sendable (AcpmuxEnvironment, String, Duration) async throws -> Void = AcpmuxVersionHandoff.askShutdown,
+        finish: @Sendable (AcpmuxEnvironment, Int32) async -> Bool = AcpmuxVersionHandoff.finishBySignal
+    ) async throws {
+        do {
+            try await shutdown(environment, reason, deadline)
+        } catch let missed as AgentPaneDeadlineExceeded {
+            guard await finish(environment, pid) else { throw missed }
+            logger.notice("acpmux \(pid): \(missed.description, privacy: .public); stopped by SIGTERM instead")
+        }
+    }
+
+    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue).
+    /// `_acpmux/shutdown` to `environment`'s daemon within `deadline` (``handOffShutdown``'s ask).
+    @Sendable static func askShutdown(_ environment: AcpmuxEnvironment, reason: String, deadline: Duration) async throws {
+        try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, reason: reason,
+                                              deadline: deadline)
+    }
+
+    /// SIGTERM to `environment`'s daemon `pid` (``handOffShutdown``'s fallback).
+    @Sendable static func finishBySignal(_ environment: AcpmuxEnvironment, pid: Int32) async -> Bool {
+        await AcpmuxDaemonStop().finishHandOff(environment, pid: pid)
     }
 
     /// What a lookup would do with the daemon `status` describes (Settings' daemon line,

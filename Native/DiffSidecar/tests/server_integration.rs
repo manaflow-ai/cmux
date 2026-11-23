@@ -6,6 +6,9 @@ use std::process::{Command, Output, Stdio};
 
 use futures_util::{SinkExt, StreamExt};
 
+#[path = "support/generated_attributes.rs"]
+mod generated_attributes;
+
 #[test]
 fn rpc_uses_stdio_without_server_state() {
     let output = run_stdio_rpc(br#"{"id":"probe","version":1,"method":"protocolHandshake"}"#);

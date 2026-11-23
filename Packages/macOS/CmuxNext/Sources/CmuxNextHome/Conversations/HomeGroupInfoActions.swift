@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 
 /// What the group info sheet's controls do: closures over the app's one path
 /// (`HomeGroupActions`, and the registry for Leave so it asks first), so the sheet holds no store.

@@ -1,6 +1,7 @@
 /** Recovery is confined to an intent's exact unique slug, authorized by its retained create proof. */
-import { Effect, Option, Redacted, Schema } from "effect";
+import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
+import { timedPhase } from "../lib/timing.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -9,6 +10,7 @@ import { resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, typ
 import type { UpstreamConfig } from "./live.ts";
 import { pendingVmCreationEvidenceOf, cancellingVmCreationEvidenceOf, type VmCreationEvidence } from "../proofs/vm-creation.ts";
 import { upstreamName } from "./naming.ts";
+import { vaultTenantMetadata } from "./vault-tenant.ts";
 
 const Receipt = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields, slug: Schema.String, metadata: Schema.Record({ key: Schema.String, value: Schema.String }), snapshotId: Schema.optional(Schema.NullOr(Schema.String)) });
 const digest = (text: string) => Effect.promise(async () => {
@@ -30,12 +32,49 @@ const sameIdleTimeout = (reported: number | null | undefined, requested: number)
 
 const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 
+const field = (value: unknown, key: string): unknown => (typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined);
+const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/u;
+
+/**
+ * The VM's address on `networkId`, read leniently from a provider VM answer (`vpcs`, or `networks` for old readers):
+ * only when the answer lists exactly that one network, under one consistent id, with an IPv4 address. Anything else
+ * is null, which claims nothing: a later attach sets the network declaratively.
+ */
+const joinedOn = (answer: unknown, networkId: string): { readonly ipv4: string } | null => {
+  const vpcs = field(answer, "vpcs"), networks = field(answer, "networks");
+  // Both names present must say the same thing, as readVmAddress requires (live-mesh.ts): an answer whose two lists
+  // disagree is not "on exactly that network".
+  if (vpcs != null && networks != null && JSON.stringify(vpcs) !== JSON.stringify(networks)) return null;
+  const listed = vpcs ?? networks;
+  if (!Array.isArray(listed) || listed.length !== 1) return null;
+  const vpc = field(listed[0], "vpc"), vpcId = field(listed[0], "vpcId"), ipv4 = field(listed[0], "ipv4");
+  if (vpc !== networkId || (vpcId !== undefined && vpcId !== null && vpcId !== networkId)) return null;
+  return typeof ipv4 === "string" && IPV4.test(ipv4) ? { ipv4 } : null;
+};
+
+/** The provider's own phase timings on a create answer (`debug.totalMs`, `debug.timingsMs`): numbers only, bounded. */
+const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; readonly providerTimingsMs?: Record<string, number> } => {
+  const debug = field(answer, "debug"), total = field(debug, "totalMs"), timings = field(debug, "timingsMs");
+  const phases = typeof timings !== "object" || timings === null ? [] : Object.entries(timings)
+    .filter((entry): entry is [string, number] => /^[A-Za-z0-9_.-]{1,64}$/u.test(entry[0]) && typeof entry[1] === "number" && Number.isFinite(entry[1]))
+    .slice(0, 40);
+  return {
+    ...(typeof total === "number" && Number.isFinite(total) ? { providerTotalMs: total } : {}),
+    ...(phases.length === 0 ? {} : { providerTimingsMs: Object.fromEntries(phases) }),
+  };
+};
+
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
   const decode = (body: unknown) => Schema.decodeUnknown(Receipt)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createVm", status: null })));
-  return (caller, spec, { source, image, network }) => Effect.gen(function* () {
+  return (caller, spec, { source, image, network, mesh }) => Effect.gen(function* () {
     const journal = spec.journal;
     if (!journal) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: null }));
+    const phases = spec.phases;
+    const networkId = mesh === undefined ? null : upstreamIdOf(mesh.owns);
+    /** The provider's latest answer describing this creation's VM: the create's own, or an exact-slug read's. */
+    let answer: unknown = null;
+    const keep = (body: unknown) => Effect.sync(() => { answer = body; });
     const sourceId = source === undefined ? null : upstreamIdOf(source.owns);
     const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;
     if (sourceId !== null && imageId !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
@@ -57,7 +96,16 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // The tenant is the provider's customer (abuse protection tells tenants apart by it). It is sent outside the
     // digests above: it follows from the tenant id the name and metadata already carry, and a create journaled
     // before this field existed must still match its retained request and context.
-    const sent = CUSTOMER_ID.test(caller.value.tenantId) ? { ...body, customer: { customerId: caller.value.tenantId } } : body;
+    const customer = CUSTOMER_ID.test(caller.value.tenantId) ? { ...body, customer: { customerId: caller.value.tenantId } } : body;
+    // The vault's VM tenant key (vault-tenant.ts) is outside the digests and the receipt check for the same reason: a
+    // create journaled before it existed still matches, and a recovered VM without it is still this creation's.
+    const vault = vaultTenantMetadata(spec.environment, caller.value);
+    const tagged = vault === null ? customer : { ...customer, metadata: { ...metadata, [vault[0]]: vault[1] } };
+    // The mesh network to join at create is outside the digests and the receipt check too: a create journaled before
+    // the field existed still matches, and a recovered VM is this creation's whatever network it is on. The handler's
+    // idempotency fingerprint carries the mesh (a key cannot be replayed with another), and whether the VM is on the
+    // network is read from the provider's answer (`joined` below), never assumed from what was sent.
+    const sent = networkId === null ? tagged : { ...tagged, networks: [{ vpc: networkId }] };
     if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
     yield* journal.beforeSend(context, {
       provider: yield* providerContext(config),
@@ -81,26 +129,39 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     const checked = (vm: typeof Receipt.Type) => matches(vm) ? Effect.succeed(vm) : Effect.fail(receiptError());
     const checkedSent = (vm: typeof Receipt.Type) => matches(vm) ? Effect.succeed(vm) : discardMismatched(vm).pipe(Effect.zipRight(Effect.fail(receiptError())));
     const recover = http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
-      Effect.flatMap(decode), Effect.flatMap(checked), Effect.map(Option.some),
+      Effect.tap(keep), Effect.flatMap(decode), Effect.flatMap(checked), Effect.map(Option.some),
       Effect.catchAll((error) => error.status === 404 ? Effect.succeed(Option.none<typeof Receipt.Type>()) : Effect.fail(error)),
     );
-    const existing = yield* recover;
+    const verifyImage = (id: string) => http.json("verifyBootImage", "GET", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(
+      Effect.flatMap(Schema.decodeUnknown(Schema.Struct({ id: UpstreamId }))),
+      Effect.mapError(() => new UpstreamError({ operation: "verifyBootImage", status: null })),
+      Effect.flatMap((snapshot) => snapshot.id === id ? Effect.void : Effect.fail(new UpstreamError({ operation: "verifyBootImage", status: null }))),
+    );
+    // The exact-slug recovery read and the boot image read do not depend on each other, so they are in flight together
+    // (each is a provider round trip of 0.45 to 1.9 s). The outcome is the one the serial order gave: a failed recovery
+    // read fails the create with its own error, a recovered VM is the answer whatever the image read said, and only
+    // when nothing was recovered does a failed image read fail the create, before anything is sent. The image read's
+    // verdict is held as a value so that it cannot fail the pair.
+    const [existing, imageVerdict] = yield* Effect.all([
+      timedPhase(phases, "recoverMs", recover),
+      imageId === null ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
+    ], { concurrency: "unbounded" });
+    if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
-      if (imageId !== null) {
-        const snapshot = yield* http.json("verifyBootImage", "GET", `/v5/snapshots/${encodeURIComponent(imageId)}`).pipe(
-          Effect.flatMap(Schema.decodeUnknown(Schema.Struct({ id: UpstreamId }))),
-          Effect.mapError(() => new UpstreamError({ operation: "verifyBootImage", status: null })),
-        );
-        if (snapshot.id !== imageId) return yield* Effect.fail(new UpstreamError({ operation: "verifyBootImage", status: null }));
-      }
+      if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
       const token = yield* journal.beginSend();
-      return yield* http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
+      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
+        Effect.tap(keep),
+        Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
+      )).pipe(
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
-        Effect.catchAll((error) => recover.pipe(Effect.flatMap((found) => Option.isSome(found) ? Effect.succeed(found.value)
+        Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
+          ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })
           : definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error)))),
       );
     });
+    const joined = networkId === null ? null : joinedOn(answer, networkId);
     const path = `/v5/vms/${encodeURIComponent(created.id)}`;
     const discard = http.json("discardVm", "DELETE", path).pipe(Effect.ignore);
     const grow = (size: SizeRequest) => {
@@ -108,16 +169,16 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       if (size.vcpus !== undefined && size.vcpus > created.resources.cpu) growth["cpu"] = size.vcpus;
       if (size.memoryMib !== undefined && size.memoryMib > created.resources.memory) growth["memory"] = size.memoryMib;
       if (size.diskMib !== undefined && size.diskMib > created.resources.storage) growth["storage"] = size.diskMib;
-      return journal.active.pipe(Effect.zipRight(Object.keys(growth).length === 0 ? Effect.succeed(created) : http.json("resizeVm", "POST", `${path}/resize`, growth, { timeoutMs: 120_000 }).pipe(
+      return journal.active.pipe(Effect.zipRight(Object.keys(growth).length === 0 ? Effect.succeed(created) : timedPhase(phases, "resizeMs", http.json("resizeVm", "POST", `${path}/resize`, growth, { timeoutMs: 120_000 }).pipe(
         Effect.flatMap(Schema.decodeUnknown(UpstreamVm)), Effect.mapError(() => new UpstreamError({ operation: "resizeVm", status: null })),
         Effect.flatMap((vm) => resourceFloorsReached(vm, size) ? Effect.succeed(vm) : Effect.fail(new UpstreamError({ operation: "resizeVm", status: null }))),
         Effect.catchAll((error) => http.json("resizeVm", "GET", path).pipe(
           Effect.flatMap(Schema.decodeUnknown(UpstreamVm)), Effect.mapError(() => error),
           Effect.flatMap((vm) => resourceFloorsReached(vm, size) ? Effect.succeed(vm) : Effect.fail(error)),
         )),
-      )));
+      ))));
     };
-    return { upstreamId: created.id, vm: created, discard, grow };
+    return { upstreamId: created.id, vm: created, discard, grow, joined };
   });
 };
 

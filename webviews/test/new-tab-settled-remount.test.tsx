@@ -7,6 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -48,10 +49,7 @@ afterAll(async () => {
   globalThis.localStorage?.clear();
   const { resetSettledChatsForTests } = await import("../src/agent-session/acpmux/newtab/settledCache");
   resetSettledChatsForTests();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const row = (key: string, updatedAt: number) => ({ key, harness: "claude", title: key, cwd: "/tmp/cmux", updatedAt });

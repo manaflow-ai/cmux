@@ -57,6 +57,32 @@ impl Hub {
         self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// The gateway fallback (`agent_login::GATEWAY_FALLBACK_ENV`) for `session`, whose Claude has
+    /// no credential on a machine whose team cmux's gateway serves: records the gateway as
+    /// Claude's way in here (`cr use team claude`) and restarts the chat's agent on it, after the
+    /// turn under way when there is one. Whether the choice was recorded.
+    pub(crate) fn use_gateway_now(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+        let machine = crate::agent_login::Machine {
+            root: self.vm_marker_root(),
+            home: dirs::home_dir().unwrap_or_default(),
+        };
+        match machine.choose_team(crate::agent_login::Agent::Claude) {
+            Ok(true) => {}
+            Ok(false) => return false,
+            Err(e) => {
+                tracing::warn!(session = %session.id, error = %e, "gateway fallback: record the choice");
+                return false;
+            }
+        }
+        let hub = Arc::clone(self);
+        let ids = std::collections::BTreeSet::from([session.id.clone()]);
+        // task-owner: one restart of one chat's agent; it ends with the restart.
+        drop(tokio::spawn(async move {
+            let _ = hub.restart_harnesses(None, Some(&ids)).await;
+        }));
+        true
+    }
+
     /// Whether the creation marker says cmux created this machine as one
     /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {

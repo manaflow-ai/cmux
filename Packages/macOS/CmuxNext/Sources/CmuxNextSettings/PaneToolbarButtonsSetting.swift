@@ -12,11 +12,6 @@
 /// diagnostic. The app reads the effective root (``current(_:)``), so the snapshot type does not
 /// grow. Replaces `tabs.hiddenButtons` (``SettingsController/migrateLegacyPaneToolbarButtons()``).
 public nonisolated struct PaneToolbarButtonsSetting: Sendable, Hashable {
-    public static let configPath = ["tabs", "toolbarButtons"]
-    /// Every action the list may name, in tab bar order (catalog action ids).
-    public static let buttonIDs = ["splitRight", "splitDown", "openDiffViewer", "file.open", "agentPane.searchChats", "toggleSplitZoom"]
-    public static let fallback = PaneToolbarButtonsSetting(pinned: [])
-
     /// The pinned actions' ids, in the order the user wrote them.
     public var pinned: [String]
 
@@ -31,15 +26,15 @@ public nonisolated struct PaneToolbarButtonsSetting: Sendable, Hashable {
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> PaneToolbarButtonsSetting {
-        guard let value = root.value(at: configPath) else { return fallback }
+        guard let value = root.value(at: configPath) else { return PaneToolbarButtonsSetting(pinned: fallback) }
         let id = configPath.joined(separator: ".")
         guard case .array(let items) = value else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: id, message: "expected an array of action ids"))
-            return fallback
+            return PaneToolbarButtonsSetting(pinned: fallback)
         }
-        let known = items.compactMap(\.stringValue).filter(buttonIDs.contains)
+        let known = items.compactMap(\.stringValue).filter(values.contains)
         if known.count != items.count {
-            let list = buttonIDs.map { "\"\($0)\"" }.joined(separator: ", ")
+            let list = values.map { "\"\($0)\"" }.joined(separator: ", ")
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: id, message: "expected action ids: \(list)"))
         }
         // The user's order; a repeated id keeps its first place.
@@ -58,33 +53,7 @@ public nonisolated struct PaneToolbarButtonsSetting: Sendable, Hashable {
 
     /// The value to write: nil (remove the key) when it is the default.
     public var configValue: JSONValue? {
-        self == Self.fallback ? nil : .array(pinned.map(JSONValue.string))
-    }
-
-    static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.toolbarButtons", "Tab Bar Buttons"),
-            help: SettingsText.keyed("settings.tabs.toolbarButtons.help",
-                                     "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."),
-            kind: .orderedChoices(choices), default: .array([]), keywords: ["toolbar", "split", "buttons", "pin", "more"]
-        )
-        // Raw action ids mean nothing on the page; "…"'s Show in Tab Bar items toggle them.
-        .hiddenFromSettingsPage("action ids; toggled from the tab bar's More menu (Show in Tab Bar)")
-    }
-
-    /// The allowed ids with their titles: the export carries them to the shared schema
-    /// (schemas/settings/settings-schema.json), so every platform validates the same list.
-    static var choices: [SettingChoice] {
-        let titles = [
-            SettingsText.keyed("settings.tabs.toolbarButtons.splitRight", "Split Right"),
-            SettingsText.keyed("settings.tabs.toolbarButtons.splitDown", "Split Down"),
-            SettingsText.keyed("settings.tabs.toolbarButtons.diffViewer", "Diff Viewer"),
-            SettingsText.keyed("settings.tabs.toolbarButtons.openFile", "Open File"),
-            SettingsText.keyed("settings.tabs.toolbarButtons.searchChats", "Search Agent Chats"),
-            SettingsText.keyed("settings.tabs.toolbarButtons.paneZoom", "Pane Zoom"),
-        ]
-        return zip(buttonIDs, titles).map { SettingChoice($0, $1) }
+        pinned == Self.fallback ? nil : .array(pinned.map(JSONValue.string))
     }
 
     // MARK: tabs.hiddenButtons

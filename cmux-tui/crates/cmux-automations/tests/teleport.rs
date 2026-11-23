@@ -32,6 +32,7 @@ fn spec(name: &str, catch_up: CatchUp) -> AutomationSpec {
         catch_up,
         timeout_seconds: 60,
         enabled: true,
+        gate: Default::default(),
     }
 }
 
@@ -247,13 +248,31 @@ fn teleport_destination_grammar_is_the_chief_teleports_plus_cloud() {
     );
     assert_eq!(parse_destination("local:/tmp/x"), Ok(Destination::Local { dir: "/tmp/x".into() }));
     assert_eq!(
+        parse_destination("exec:importer routines import - --json"),
+        Ok(Destination::Exec { program: "importer routines import - --json".into() })
+    );
+    assert_eq!(
+        parse_destination("exec: mover -").unwrap().to_string(),
+        "exec:mover -",
+        "the program is kept trimmed, so a re-run names the same pending move"
+    );
+    assert_eq!(
         parse_destination("ssh:me@mini.local:/w").unwrap().to_string(),
         "ssh:me@mini.local:/w"
     );
     let long = format!("ssh:{}", "a".repeat(260));
-    for bad in
-        ["", "mars", "ssh:", "ssh:-oProxyCommand=x", "ssh:mini:", "local:rel", "ssh:mi\nni", &long]
-    {
+    for bad in [
+        "",
+        "mars",
+        "ssh:",
+        "ssh:-oProxyCommand=x",
+        "ssh:mini:",
+        "local:rel",
+        "ssh:mi\nni",
+        "exec:",
+        "exec:  ",
+        &long,
+    ] {
         assert!(parse_destination(bad).is_err(), "{bad:?}");
     }
 }

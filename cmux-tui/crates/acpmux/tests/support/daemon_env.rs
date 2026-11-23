@@ -122,6 +122,7 @@ pub const PASS: &[&str] = &[
     "CARGO_TARGET_TMPDIR",
     // `peer_transport` asks for a non-loopback address only on CI.
     "CI",
+    KEEP_SCRATCH,
 ];
 
 /// Set in the hermetic process, so it does not start itself again.
@@ -169,12 +170,20 @@ const _: Process = super::HERMETIC;
 #[cfg(unix)]
 pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     use std::os::unix::process::CommandExt;
+    // The daemon refuses a state folder that group or others may write (`config.rs`), so a test's
+    // folders are private whatever umask its caller has (a lane VM's shell has 002). Before the
+    // check below: a test this process starts again inherits the mark, and its caller's umask.
+    // SAFETY: `umask` only swaps this process's file mode mask; no thread has started yet.
+    unsafe { libc::umask(0o077) };
     if std::env::var_os(ENTERED).is_some() {
-        remove_moved_scratch_at_exit();
+        remove_own_scratch_at_exit();
         return;
     }
-    // A folder an earlier process with this pid left is not this one's.
-    let scratch = scratch_base().join(format!("amx-proc-{}", std::process::id()));
+    // A folder an earlier process with this pid left is not this one's, and a folder of a process
+    // that is gone (killed or aborted before its exit could remove it) is no one's.
+    let base = scratch_base();
+    sweep_dead(&base, "amx-proc-");
+    let scratch = base.join(format!("amx-proc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(home(&scratch)).unwrap();
     let mut env = vars(&scratch, process.agents, &[]);
@@ -256,28 +265,130 @@ fn own_private_dir(dir: &Path) {
     let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
 }
 
-/// In the hermetic process: when its scratch folder was moved out of Cargo's target tmp
-/// ([`scratch_base`]), removes it at exit, so a fleet host's disk does not fill with one folder
-/// per test process. Only this process's own folder, `amx-proc-<its pid>` (the start again keeps
-/// the pid): a process the test starts from this binary has the same HOME and another pid, and
-/// its exit must not remove its parent's HOME. A process that aborts leaves its folder; the next
-/// process with its pid removes it.
+/// In the hermetic process: removes its scratch folder at exit, in Cargo's target tmp
+/// ([`scratch_base`]) or moved out of it, so a fleet host's disk does not fill with one folder per
+/// test process (a target dir that persists kept every one). Only this process's own folder,
+/// `amx-proc-<its pid>` (the start again keeps the pid): a process the test starts from this
+/// binary has the same HOME and another pid, and its exit must not remove its parent's HOME. A
+/// process that aborts leaves its folder; the next test process removes it ([`sweep_dead`]).
+/// [`KEEP_SCRATCH`]`=1` keeps it.
 #[cfg(unix)]
-fn remove_moved_scratch_at_exit() {
-    fn own_moved_scratch() -> Option<PathBuf> {
+fn remove_own_scratch_at_exit() {
+    fn own_scratch() -> Option<PathBuf> {
         let home = PathBuf::from(std::env::var_os("HOME")?);
-        let own = moved_scratch_base().join(format!("amx-proc-{}", std::process::id()));
-        (home.parent()? == own).then_some(own)
+        let parent = home.parent()?;
+        let name = format!("amx-proc-{}", std::process::id());
+        [PathBuf::from(env!("CARGO_TARGET_TMPDIR")), moved_scratch_base()]
+            .into_iter()
+            .map(|base| base.join(&name))
+            .find(|own| parent == own)
     }
     extern "C" fn remove() {
-        if let Some(scratch) = own_moved_scratch() {
+        if let Some(scratch) = own_scratch() {
             let _ = std::fs::remove_dir_all(scratch);
         }
     }
-    if own_moved_scratch().is_some() {
+    if !keep_requested() && own_scratch().is_some() {
         // SAFETY: `remove` takes no arguments and only reads the environment and removes files.
         unsafe { libc::atexit(remove) };
     }
+}
+
+/// Set to `1` to keep every [`Scratch`] (and the process's own scratch folder) after its test, to
+/// look at a failed run's home and logs; each kept [`Scratch`] prints its path.
+pub const KEEP_SCRATCH: &str = "ACPMUX_KEEP_SCRATCH";
+
+fn keep_requested() -> bool {
+    std::env::var(KEEP_SCRATCH).is_ok_and(|v| v == "1")
+}
+
+/// A test's own scratch folder, `<temp dir>/<tag>-p<pid>-<n>`, removed when it drops: when the test
+/// returns, fails or panics (unwinding drops it). A harness that removed its folder only at its
+/// start left one behind on every run, because each run has another pid: the god bench left 2 GB
+/// (a 1 GB daemon log) per run and filled pool VMs to their disk guard (2026-11-17). At its start
+/// it removes `<tag>-p<pid>…` folders whose process is gone (one killed before its drop ran); the
+/// `p` keeps a tag that ends in digits from reading as another tag's pid. [`KEEP_SCRATCH`]`=1`
+/// keeps it and prints its path. `tests/scratch_guard.rs` holds the test files to this: one more
+/// hand-made `temp_dir().join(` there fails it.
+pub struct Scratch {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl Scratch {
+    pub fn new(tag: &str) -> Self {
+        Self::under(&std::env::temp_dir(), tag, keep_requested())
+    }
+
+    /// In `parent`, kept on drop when `keep` (this guard's own tests).
+    pub fn under(parent: &Path, tag: &str, keep: bool) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        sweep_dead(parent, &format!("{tag}-p"));
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = parent.join(format!("{tag}-p{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path)
+            .unwrap_or_else(|e| panic!("scratch {}: {e}", path.display()));
+        Self { path, keep }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        if self.keep {
+            eprintln!("{KEEP_SCRATCH}: kept scratch {}", self.path.display());
+        } else {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+/// Removes the folders in `parent` named `<prefix><pid>` or `<prefix><pid>-…` whose process is no
+/// longer running: left by a test killed before it could remove its own. A live process's folder,
+/// and this process's, stay.
+pub fn sweep_dead(parent: &Path, prefix: &str) {
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let own = std::process::id();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(prefix)) else { continue };
+        let Ok(pid) = rest.split('-').next().unwrap_or("").parse::<u32>() else { continue };
+        if pid != own && !alive(pid) && entry.file_type().is_ok_and(|t| t.is_dir()) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Whether a process with this pid is running (another user's too: `EPERM` means it is).
+#[cfg(unix)]
+pub fn alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    // SAFETY: signal 0 only checks that the process exists and may be signalled.
+    let signalled = unsafe { libc::kill(pid, 0) } == 0;
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// No sweep where the check is not written: every folder counts as live.
+#[cfg(not(unix))]
+pub fn alive(_pid: u32) -> bool {
+    true
 }
 
 /// The readiness line a `daemon run --ready-fd 1` writes on `stdout`. The daemon's log shares
@@ -306,6 +417,13 @@ pub fn bin() -> &'static Path {
         Some(binary) => Path::new(binary),
         None => panic!("this test target has no acpmux binary"),
     }
+}
+
+/// The background-task runner an in-process hub starts (`Hub::set_bg_runner`): the binary under
+/// test. The runner child inherits this test process's hermetic environment, which [`enter`]
+/// set before `main` (`HERMETIC`), so it never sees the host's PATH or HOME.
+pub fn bg_runner() -> PathBuf {
+    bin().to_path_buf()
 }
 
 /// Whether the daemon may start agent processes.
@@ -450,6 +568,9 @@ pub fn bare_path(tools: &[&str]) -> String {
 pub fn tool_dir(tools: &[&str]) -> PathBuf {
     static LINKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _held = LINKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A process's links stay until it exits (its daemons run from them); a gone process's go.
+    static SWEPT: std::sync::Once = std::sync::Once::new();
+    SWEPT.call_once(|| sweep_dead(&std::env::temp_dir(), "amx-bin-"));
     let mut names = vec!["python3"];
     names.extend(tools.iter().copied().filter(|t| *t != "python3"));
     let dir =

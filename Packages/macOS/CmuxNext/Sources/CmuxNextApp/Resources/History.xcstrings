@@ -4324,137 +4324,6 @@
         }
       }
     },
-    "history.refusal.undoClosesPanes": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التراجع يغلق %lld جزء. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poništavanje zatvara %lld okno(a). Ponovo pokrenite Poništi promjenu rasporeda za potvrdu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fortryd lukker %lld rude(r). Kør Fortryd layoutændring igen for at bekræfte."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widerrufen schließt %lld Bereich(e). Führe „Layoutänderung widerrufen“ zur Bestätigung erneut aus."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deshacer cierra %lld panel(es). Vuelve a ejecutar «Deshacer cambio de disposición» para confirmar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’annulation ferme %lld volet(s). Relancez « Annuler la modification de disposition » pour confirmer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Annullare chiude %lld riquadro/i. Esegui di nuovo «Annulla modifica layout» per confermare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "取り消すと%lld個のペインが閉じます。確定するにはもう一度「レイアウトの変更を取り消す」を実行してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមិនធ្វើវិញនឹងបិទផ្ទាំង %lld ។ ដំណើរការ មិនធ្វើការផ្លាស់ប្ដូរប្លង់វិញ ម្ដងទៀតដើម្បីបញ្ជាក់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실행 취소하면 창 %lld개가 닫힙니다. 확인하려면 레이아웃 변경 실행 취소를 다시 실행하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angre lukker %lld rute(r). Kjør Angre layoutendring igjen for å bekrefte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desfazer fecha %lld painel(is). Execute “Desfazer alteração de layout” novamente para confirmar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเลิกทำจะปิด %lld บานหน้าต่าง เรียกใช้เลิกทำการเปลี่ยนเลย์เอาต์อีกครั้งเพื่อยืนยัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geri alma %lld bölmeyi kapatır. Onaylamak için Düzen değişikliğini geri al'ı yeniden çalıştırın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hoàn tác sẽ đóng %lld ngăn. Chạy lại Hoàn tác thay đổi bố cục để xác nhận."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "撤销将关闭 %lld 个窗格。再次运行“撤销布局更改”以确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "還原會關閉 %lld 個窗格。再次執行「還原佈局變更」以確認。"
-          }
-        }
-      }
-    },
     "history.command.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -5761,6 +5630,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有可前往的上一個位置"
+          }
+        }
+      }
+    },
+    "history.refusal.stillLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل ما زال قيد التحميل. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historija se još učitava. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historikken indlæses stadig. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Verlauf wird noch geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History is still loading. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El historial aún se está cargando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’historique est encore en cours de chargement. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cronologia è ancora in caricamento. Riprova tra un momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "履歴をまだ読み込んでいます。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិកំពុងផ្ទុកនៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기록을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historikken lastes fortsatt inn. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia nadal się wczytuje. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O histórico ainda está carregando. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История ещё загружается. Повторите попытку через некоторое время."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติยังโหลดอยู่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geçmiş hâlâ yükleniyor. Biraz sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія ще завантажується. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử vẫn đang tải. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "历史记录仍在加载。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "歷史記錄仍在載入。請稍後再試。"
           }
         }
       }

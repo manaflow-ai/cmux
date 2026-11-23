@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import CmuxNextSettings
 
 /// What the chat header shows from the chat's tab, read with `pane.tabState` and pushed as the
@@ -11,44 +12,78 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var lit: [String]
     /// The chat folder's branch's pull request, when it has one (cx-tcwj).
     public var pullRequest: AgentPanePullRequest?
+    /// The chat's workspace, for the glass toolbar's title (`experiments.glassToolbarGroups`); nil
+    /// when the store does not list the chat.
+    public var workspace: AgentPaneHeaderWorkspace?
     /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
     public var floatingChat: Bool
     /// The header offers Session Info (Debug Settings `agent.sessionInfo`, cx-ncc.101). The init
     /// reads the toggle unless given, so a watch that builds the state observes it. The page reads it as `inspector` (``json``), a wire name kept so a page and an
     /// app from either side of the rename still agree.
     public var sessionInfo: Bool
-    /// The header's Browser opens the chat's page and Preview is no button of its own (Debug Settings
-    /// `agentChat.browserOpensPreview`, on by default), read like `sessionInfo`.
-    public var browserOpensPreview: Bool
+    /// Which top-right controls show (Debug Settings `agentChat.headerControls`), read like `sessionInfo`;
+    /// the page's header/headerTrio.ts applies it.
+    public var headerControls: AgentPaneHeaderControls
+    /// How the header's icons move (Debug Settings `agentChat.headerMotion`, ``AgentPaneHeaderMotion``), read like `sessionInfo`.
+    public var headerMotion: AgentPaneHeaderMotion
+    /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`), read like
+    /// `sessionInfo`; the page's header/headerRelevance.ts applies it.
+    public var headerIcons: AgentPaneHeaderIcons
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
-                sessionInfo: Bool? = nil, browserOpensPreview: Bool? = nil) {
+                sessionInfo: Bool? = nil, headerControls: AgentPaneHeaderControls? = nil,
+                headerMotion: AgentPaneHeaderMotion? = nil, headerIcons: AgentPaneHeaderIcons? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
         self.floatingChat = floatingChat
         self.sessionInfo = sessionInfo ?? AgentPaneTunables.sessionInfo.value
-        self.browserOpensPreview = browserOpensPreview ?? AgentPaneTunables.browserOpensPreview.value
+        self.headerControls = headerControls ?? AgentPaneTunables.headerControls.value
+        self.headerMotion = headerMotion ?? AgentPaneTunables.headerMotion.value
+        self.headerIcons = headerIcons ?? AgentPaneTunables.headerIcons.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
-            && pullRequest == other.pullRequest && sessionInfo == other.sessionInfo
-            && browserOpensPreview == other.browserOpensPreview
+            && pullRequest == other.pullRequest && workspace == other.workspace && sessionInfo == other.sessionInfo
+            && headerControls == other.headerControls
+            && headerMotion == other.headerMotion
+            && headerIcons == other.headerIcons
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
 
-    /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
-    var json: JSONValue {
-        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "inspector": .bool(sessionInfo), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
-         "pullRequest": pullRequest?.json ?? .null]
+    /// `pullRequest` and `workspace` are always there, `null` when there is none, so the page drops what it kept.
+    var json: CmuxNextSettings.JSONValue {
+        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(CmuxNextSettings.JSONValue.string)), "floatingChat": .bool(floatingChat),
+         "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
+         "headerMotion": .string(headerMotion.rawValue), "headerIcons": .string(headerIcons.rawValue),
+         "version": CmuxNextSettings.JSONValue(version),
+         "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null]
     }
+}
+
+/// The chat's workspace as its header shows it: the workspace's shown name and how many agent chat
+/// tabs it holds (the page's `workspace: {title, chats}`).
+public struct AgentPaneHeaderWorkspace: Equatable, Sendable {
+    public var title: String
+    public var chats: Int
+
+    public init(title: String, chats: Int) {
+        self.title = title
+        self.chats = chats
+    }
+
+    /// `workspace`'s shown name and its agent chat tabs (a walk of that workspace's tabs only).
+    @MainActor public init(_ workspace: WorkspaceModel) {
+        self.init(title: workspace.displayName, chats: workspace.agentChatCount)
+    }
+
+    var json: CmuxNextSettings.JSONValue { ["title": .string(title), "chats": CmuxNextSettings.JSONValue(chats)] }
 }
 
 extension AgentPageEvent {

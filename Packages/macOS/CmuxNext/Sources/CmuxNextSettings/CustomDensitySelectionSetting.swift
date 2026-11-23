@@ -3,8 +3,5 @@
 /// stays a portable built-in choice; picking a built-in removes it
 /// (plans/cmux-next/density-DESIGN.md).
 public nonisolated struct CustomDensitySelectionSetting: Sendable {
-    /// The key's path.
-    public let configPath = ["appearance", "customDensity"]
-
     public init() {}
 }

@@ -1,5 +1,6 @@
-//! `chief.engine.get`, `chief.engine.set`, `chief.stop`, `chief.continue` and
-//! `chief.retry`: the owner's
+//! `chief.engine.get`, `chief.engine.set`, `chief.stop`, `chief.continue`,
+//! `chief.retry` and `chief.automation.list|update` (the Chief's automations,
+//! issue 25573): the owner's
 //! control of the Chief brain on `cmux.protocol/2`. Like `chief-inspect`, the
 //! daemon forwards one line to the brain host's tools socket
 //! (`CMUX_TUI_CHIEF_TOOLS_SOCKET`) and answers its JSON; the brain owns the
@@ -47,6 +48,8 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
         ResourceOperation::ChiefEngineGet
             | ResourceOperation::ChiefEngineSet
             | ResourceOperation::ChiefStop
+            | ResourceOperation::ChiefAutomationList
+            | ResourceOperation::ChiefAutomationUpdate
             | ResourceOperation::ChiefContinue
             | ResourceOperation::ChiefRetry
     )
@@ -298,8 +301,8 @@ pub(super) fn require_owner(mux: &Mux, client: u64) -> Result<(), ResourceError>
     ))
 }
 
-/// The tools-socket line of `operation` (optchat-chief's `engine` and
-/// `stop` tools).
+/// The tools-socket line of `operation` (optchat-chief's `engine`, `stop`
+/// and `automations` lines).
 pub(super) fn tool_line(
     operation: ResourceOperation,
     fields: &serde_json::Map<String, Value>,
@@ -321,7 +324,21 @@ pub(super) fn tool_line(
                 "classifier_model",
                 "classifier_prompt",
                 "reactions_can_wake",
+                // The Cloud machine the Chief does computer use on (optchat-chief engine.rs, cmux issue 36047).
+                "computer",
+                // The Chief turns' permission mode (optchat-chief engine.rs, cmux#37392).
+                "permission_mode",
             ] {
+                if let Some(value) = fields.get(key) {
+                    line.insert(key, value.clone());
+                }
+            }
+            line
+        }
+        ResourceOperation::ChiefAutomationList => json!({"tool": "automations", "action": "list"}),
+        ResourceOperation::ChiefAutomationUpdate => {
+            let mut line = json!({"tool": "automations"});
+            for key in ["automation", "action"] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
                 }
@@ -338,7 +355,8 @@ pub(super) fn tool_line(
         }
         _ => {
             let mut line = json!({"tool": "stop"});
-            for key in ["name", "all", "restart"] {
+            // `start`: Start now on a queued agent in Home (the brain's chief.stop {start}).
+            for key in ["name", "all", "restart", "start"] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
                 }
@@ -365,13 +383,15 @@ pub(super) fn result(
         ));
     }
     let value = match operation {
-        ResourceOperation::ChiefEngineGet => return Ok(answer),
+        ResourceOperation::ChiefEngineGet | ResourceOperation::ChiefAutomationList => {
+            return Ok(answer);
+        }
         ResourceOperation::ChiefStop => {
             let mut value =
                 json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});
             // A named or stop-all stop's subagents and note, a restart's
             // restarted and errors (the brain's own words).
-            for key in ["subagents", "note", "restarted", "errors"] {
+            for key in ["subagents", "note", "restarted", "errors", "started"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
                     value.insert(key, v.clone());
                 }

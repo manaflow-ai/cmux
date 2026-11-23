@@ -39,6 +39,16 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
         inset: getComputedStyle(node).getPropertyValue("--acpmux-tab-row-inset"),
       }));
       expect(rendered).toEqual({ tabRow: true, height: "40px", inset: "12px" });
+      // The page's root carries the mark the tab row's clear background reads (header.css), and drops it with the row.
+      expect(await page.evaluate(() => document.documentElement.hasAttribute("data-acpmux-tab-row"))).toBe(true);
+      await page.evaluate(async () => {
+        const url = "/header/tabRow.ts";
+        const module = (await import(/* @vite-ignore */ url)) as {
+          setTabRow(value: { height: number; trailingInset: number }): void;
+        };
+        module.setTabRow({ height: 0, trailingInset: 0 });
+      });
+      await page.waitForFunction(() => !document.documentElement.hasAttribute("data-acpmux-tab-row"));
     } finally {
       await page.close();
     }
@@ -59,7 +69,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   });
 
   // Every pane header that draws these buttons: the floating chat's header and folded bar, the chat
-  // header's own row, and the chat header sharing the pane's tab row (chrome.tabs.rowTools, on by default).
+  // header's own row, and the chat header sharing the pane's tab row.
   const hosts = {
     "acpmux-floating-header": (button: string) => `<header class="acpmux-floating-header">${button}</header>`,
     "acpmux-floating-bar": (button: string) => `<header class="acpmux-floating-bar">${button}</header>`,
@@ -188,7 +198,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       try {
         // The page's own color is red; its canvas is transparent (omitBackground), as WebKit's and see-through
         // Chromium's are, so a pixel the page leaves alone reads alpha 0.
-        await page.setContent(`<!doctype html><html><head>
+        // The root carries the shell's tab-row mark (header/tabRow.ts useTabRowRoot), as the pane sets it.
+        await page.setContent(`<!doctype html><html data-acpmux-tab-row><head>
           <style id="cmux-theme">html{background:var(--cmux-surface-background) !important}body{background:transparent !important}</style>
           <style>
           ${shellCss}
@@ -245,10 +256,10 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     ].join("\n");
     const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
     try {
-      await page.setContent(`<!doctype html><html><head><style>
+      await page.setContent(`<!doctype html><html data-acpmux-tab-row><head><style>
         ${shellCss}
         :root { --agent-page-bg: rgb(255, 0, 0); }
-        html, html:has(.acpmux-shell[data-tab-row]) { background: rgb(255, 0, 0) !important; }
+        html, :root[data-acpmux-tab-row] { background: rgb(255, 0, 0) !important; }
         body { margin: 0; height: 200px; }
       </style></head><body>
         <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:200px">

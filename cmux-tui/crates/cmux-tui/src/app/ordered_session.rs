@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use cmux_tui_core::sizing_policy::TerminalSizingPolicy;
 use cmux_tui_core::{MuxEvent, SurfaceId};
@@ -167,6 +168,14 @@ impl OrderedSession {
 
     pub(super) fn tick_sidebar_doc(&self) {
         self.inner.tick_sidebar_doc();
+    }
+
+    pub(super) fn sidebar_doc_fallback_at(&self) -> Option<Instant> {
+        self.inner.sidebar_doc_fallback_at()
+    }
+
+    pub(super) fn next_surface_overflow_retry(&self) -> Option<Instant> {
+        self.inner.next_surface_overflow_retry()
     }
 
     pub(super) fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
@@ -477,5 +486,10 @@ impl OrderedSession {
     /// `None` for local sessions and deliberate local disconnects.
     pub(super) fn transport_disconnect_reason(&self) -> Option<String> {
         self.inner.transport_disconnect_reason()
+    }
+
+    /// What the daemon's shutdown notice said, if one came.
+    pub(super) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
+        self.inner.daemon_shutdown_notice()
     }
 }

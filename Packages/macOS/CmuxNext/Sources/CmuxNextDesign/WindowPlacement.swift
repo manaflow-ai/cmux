@@ -99,6 +99,14 @@ public struct WindowPlacement {
 
     // MARK: AppKit
 
+    /// Whether a shell window's frame is constrained to a screen: not while no display is connected.
+    ///
+    /// With no display, AppKit constrains a frame to an empty screen, so a window ordered in or
+    /// resized drops to its minimum size below y 0, and that size is saved to its record. Shell
+    /// windows keep the frame as given then, as ``restoredFrame(_:display:screens:)`` does with
+    /// no screen.
+    public static var constrainsToScreen: Bool { !NSScreen.screens.isEmpty }
+
     /// `frame` kept on the test screen in an agent screenshot launch
     /// (unchanged otherwise). Shell windows apply it to every frame they
     /// are given, so no creation or move path (tear-off, new window,
@@ -117,13 +125,22 @@ public struct WindowPlacement {
         return window
     }
 
-    /// The screen a window opened from `parent` belongs on.
+    /// The screen a window opened from `parent` belongs on: its parent's, else the launch display
+    /// (`LaunchDisplay`, #51115), else the main screen.
     public static func targetScreen(parent: NSWindow?) -> NSScreen? {
         let screens = NSScreen.screens
         let parentScreen = parent?.screen.flatMap { screen in screens.firstIndex { $0 === screen } }
+        let launchScreen = LaunchDisplay.current?.screenIndex(builtIn: screens.map(LaunchDisplay.isBuiltIn))
         let mainScreen = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } }
-        let index = screenIndex(test: testScreen, parent: parentScreen ?? mainScreen ?? 0, count: screens.count)
+        let index = screenIndex(test: testScreen, parent: ownerScreen(parent: parentScreen, launch: launchScreen, main: mainScreen), count: screens.count)
         return index.map { screens[$0] }
+    }
+
+    /// The screen index a window with no test screen belongs on: its parent's, else the launch
+    /// display's (an inactive app has no main window, and `NSScreen.main` is then the person's
+    /// display, #51115), else the main screen's, else the first.
+    public nonisolated static func ownerScreen(parent: Int?, launch: Int?, main: Int?) -> Int {
+        parent ?? launch ?? main ?? 0
     }
 
     /// Lets Auto Layout resize the window to its content first (a window

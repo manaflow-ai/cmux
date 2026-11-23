@@ -6,17 +6,9 @@ public import CmuxNextDesign
 /// `background-blur`. Unset keys keep Ghostty's values, so a window stays
 /// opaque until one of the two configs asks for translucency.
 public nonisolated enum WindowBackgroundSetting {
-    /// `appearance.backgroundOpacity`: the window's opacity, 0...1.
-    public static let opacityPath = ["appearance", "backgroundOpacity"]
-    /// `appearance.backgroundBlur`: the window material (`frosted`,
-    /// `glass`, `glass-clear`, or `none` for no blur).
-    public static let materialPath = ["appearance", "backgroundBlur"]
-    /// The opacity range, as Ghostty's `background-opacity`.
-    public static let opacityRange: ClosedRange<Double> = 0...1
-    /// `appearance.inactiveWindowDim`: how much more of the theme color covers a window that is
-    /// not key, 0...1. 0 (the default): a window looks the same in front and behind.
-    public static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
-    public static let inactiveDimRange: ClosedRange<Double> = 0...1
+    // The paths, the opacity range (as Ghostty's `background-opacity`) and the inactive dim's range
+    // and default (0: a window looks the same in front and behind) are generated from
+    // schemas/settings/source/appearance.json (SettingsSchema+Appearance*.generated.swift).
 
     /// The other window background key a write to `path` changes with it,
     /// so the pair is either Ghostty's or cmux's own: an opacity with
@@ -45,6 +37,23 @@ public nonisolated enum WindowBackgroundSetting {
         }
     }
 
+    /// The material a fresh install's window starts on (Leo, 2026-11-05: "new install should default
+    /// to glass"). Existing installs keep what they have: only the first launch writes it.
+    public static let freshInstallMaterial = WindowMaterialChoice.glass
+
+    /// The edit a fresh install's first launch writes: Material Glass, unless cmux.json already names
+    /// a window background or the Ghostty config's own `background-blur` gives a material.
+    ///
+    /// - Parameter root: The settings document before the write.
+    /// - Parameter ghosttyMaterial: The material the config files' own `background-blur` gives.
+    /// - Returns: The material write, or none.
+    public static func freshInstallEdits(in root: JSONValue,
+                                         ghosttyMaterial: WindowMaterialChoice) -> [(path: [String], value: JSONValue?)] {
+        guard root.value(at: materialPath) == nil, root.value(at: opacityPath) == nil,
+              ghosttyMaterial == .unblurred else { return [] }
+        return [(materialPath, .string(freshInstallMaterial.rawValue))]
+    }
+
     /// A missing key keeps Ghostty's value with no diagnostic; a bad value
     /// keeps it too, plus a diagnostic at the key.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WindowBackgroundOverride {
@@ -70,13 +79,13 @@ public nonisolated enum WindowBackgroundSetting {
         return WindowBackgroundOverride(opacity: opacity, material: material)
     }
 
-    /// `appearance.inactiveWindowDim`; a missing key is 0, a bad value 0 plus a diagnostic.
+    /// `appearance.inactiveWindowDim`; a missing key is the default (0), a bad value the default plus a diagnostic.
     static func parseInactiveDim(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Double {
-        guard let value = root.value(at: inactiveDimPath) else { return 0 }
+        guard let value = root.value(at: inactiveDimPath) else { return inactiveDimDefault }
         guard let number = value.doubleValue, inactiveDimRange.contains(number) else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.inactiveWindowDim",
                                                   message: "expected a number from 0 to 1, such as 0.15"))
-            return 0
+            return inactiveDimDefault
         }
         return number
     }

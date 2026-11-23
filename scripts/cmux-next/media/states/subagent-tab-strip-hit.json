@@ -1,0 +1,131 @@
+{
+ "title": "Subagent panes open beside a chat; every pane's tab strip must take its own hover and right-click, never a Chromium page window over it (Leo 2026-11-07: a subagent tab with no close button whose right-click opened the chat's menu). Each pane's strip_under_page (debug.pane_chrome) must be empty. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagent-tab-strip-hit.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right column",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Start the subagents"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "2 subagents start (debug seed_rows fixture \"subagents\", agents 2)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 2
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Open subagent 1's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 1
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "After subagent 1: no tab strip lies under a Chromium page window outside its holes (debug.pane_chrome strip_under_page)",
+   "rpc": {
+    "method": "debug.pane_chrome",
+    "params": {}
+   },
+   "shot": false,
+   "optional": "records each pane's strip_under_page; a mismatch is the finding, not a broken capture",
+   "expect": {
+    "method": "debug.pane_chrome",
+    "fields": {
+     "windows.0.panes.0.strip_under_page": [],
+     "windows.0.panes.1.strip_under_page": [],
+     "windows.0.panes.2.strip_under_page": [],
+     "windows.0.panes.3.strip_under_page": []
+    }
+   }
+  },
+  {
+   "title": "Open subagent 2's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 2
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Where the two subagents landed",
+   "wait": 2
+  },
+  {
+   "title": "After both subagents: no tab strip lies under a Chromium page window outside its holes (debug.pane_chrome strip_under_page)",
+   "rpc": {
+    "method": "debug.pane_chrome",
+    "params": {}
+   },
+   "shot": false,
+   "optional": "records each pane's strip_under_page; a mismatch is the finding, not a broken capture",
+   "expect": {
+    "method": "debug.pane_chrome",
+    "fields": {
+     "windows.0.panes.0.strip_under_page": [],
+     "windows.0.panes.1.strip_under_page": [],
+     "windows.0.panes.2.strip_under_page": [],
+     "windows.0.panes.3.strip_under_page": []
+    }
+   }
+  }
+ ]
+}

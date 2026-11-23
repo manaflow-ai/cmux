@@ -21,6 +21,8 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -127,7 +129,9 @@ def to_workspace():
     """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    time.sleep(1)  # the workspace's pane comes up
+    # The workspace's pane comes up: a focused pane in the window.
+    wait_for(lambda: any(p.get("focused") for w in rpc("debug.surfaces").get("windows") or [] for p in w.get("panes") or []),
+             "the workspace's focused pane", 20)
 
 
 def downloads():
@@ -186,10 +190,17 @@ try:
         if done:
             kept[name] = done
     secret = f"incognito-{RUN}.bin"
+    def main_windows():
+        return rpc("debug.windows").get("windows") or []
+    windows_before = len(main_windows())
     rpc("action.run", {"action": "newIncognitoWindow", "focus": True})
-    time.sleep(2)  # the incognito window comes up
+    wait_for(lambda: len(main_windows()) > windows_before, "the incognito window comes up", 20)
     rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": f"{ORIGIN}/page-{RUN}.html"}, "focus": True})
-    time.sleep(2)
+    # The new tab's record is there (focused, about:blank or the page's address), and the tab list then holds.
+    wait_for(lambda: any(t.get("focused") and (t.get("url") == "about:blank" or f"/page-{RUN}.html" in (t.get("url") or ""))
+                         for t in rpc("browser.page.tabs", {"all": True}).get("tabs") or []), "the incognito window's tab", 20)
+    wait_stable(lambda: json.dumps(rpc("browser.page.tabs", {"all": True}).get("tabs") or [], sort_keys=True),
+                "the tab list", timeout=10, interval=0.2, reads=5, raise_on_timeout=False)
     # An incognito tab's daemon record never names its page (about:blank);
     # a normal tab's does: so the window is incognito.
     tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
@@ -201,7 +212,7 @@ try:
     end("quit")
     launch()
     after = downloads()
-    print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
+    safe_print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
     for name, before in kept.items():
         found = next((d for d in after if d.get("filename") == name), None)
         check(found is not None and found.get("status") == "finished"

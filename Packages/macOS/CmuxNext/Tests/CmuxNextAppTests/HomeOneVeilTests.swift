@@ -3,6 +3,7 @@ import AppKit
 import CmuxHomeRender
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome

@@ -22,10 +22,10 @@ import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { saveSnapshot } from "../../src/agent-session/acpmux/snapshotCache";
-import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
-import { percentile, round2 } from "../../src/agent-session/acpmux/perf";
+import { acpmuxPerf, percentile, round2 } from "../../src/agent-session/acpmux/perf";
 import { StreamReveal } from "../../src/agent-session/acpmux/streamReveal";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import {
@@ -71,14 +71,9 @@ const stats = (values: number[]): Stats => {
   };
 };
 
-/// The last reveal of the streaming reply: how much of its source the reveal let through.
+/// How much of the streaming reply's source has arrived, and how much of it shows: the reply draws all of
+/// it in the snapshot commit that brings it (revealedMarkdownModel.ts), so both are set there.
 const reveal = { received: 0, shown: 0 };
-const advance = StreamReveal.prototype.advance;
-StreamReveal.prototype.advance = function (this: StreamReveal, text: string, now: number, done: boolean) {
-  const shown = advance.call(this, text, now, done);
-  if (text.startsWith(REPLY.slice(0, 40))) Object.assign(reveal, { received: text.length, shown });
-  return shown;
-};
 
 /// Pierre's highlighting ([start, end]): the dev server serves no highlight worker, so Pierre
 /// highlights on the main thread, which the app's page never does (highlightPool.ts). `highlighting`
@@ -94,6 +89,8 @@ function timedHighlight<A extends unknown[], R>(body: (...args: A) => R, self: u
   if (highlightDepth > 0) return body.apply(self, args);
   highlightDepth = 1;
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
   try {
     return body.apply(self, args);
   } finally {
@@ -114,6 +111,8 @@ renderer.renderFileWithHighlighter = function (this: FileRenderer, ...args: unkn
 const initialize = FileRenderer.prototype.initializeHighlighter;
 FileRenderer.prototype.initializeHighlighter = function (this: FileRenderer) {
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
   return initialize.call(this).finally(() => loading.push([start, performance.now()]));
 };
 /// Time inside [from, to] that `windows` cover.
@@ -158,8 +157,8 @@ const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
 const expanded = new Set<string>();
 let show: (rows: AcpmuxRow[], working: boolean) => void = () => {};
-/// Draw the running turn's live line under the reply (Debug `agentPane.debug.liveLineBelow`, on in
-/// the app), so the end of the turn swaps that line for the turn's footer as the app does.
+/// Draw the running turn's live line under the reply, as the app does, so the end of the turn swaps
+/// that line for the turn's footer. Off, the harness leaves the line out to measure the reply alone.
 let lineBelow = false;
 /// Turn off the followed view's eased steps (followGlide.ts) to measure the view that steps at once.
 let glide = true;
@@ -174,7 +173,7 @@ function Pane() {
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working, lineBelow, liveRuns: lineBelow })}
+            rows={turnView(state.rows, expanded, { working: state.working }).filter((row) => lineBelow || !row.below)}
             sessionId="streaming-text"
             working={state.working}
             jumpButton
@@ -302,7 +301,9 @@ function sampleFrame(t: number, live: boolean): Frame {
 
 export type Shift = { t: number; index: number; tag: string; text: string; top: number; height: number };
 export type Flip = { t: number; index: number; from: string; to: string; fromText: string; text: string };
-export type StreamReport = ReturnType<typeof analyze>;
+/// Committed renders of the reply's closed Markdown blocks while it streamed (Markdown.tsx BlockView):
+/// `closed` all of them, `rerenders` those after a block's first, which a closed block never needs.
+export type StreamReport = ReturnType<typeof analyze> & { markdown: { closed: number; rerenders: number } };
 
 /// A frame's last block, the one being written: where an event happened.
 const tailOf = (frame: Frame) => {
@@ -494,6 +495,9 @@ function analyze(
     work: {
       frames: work.length,
       scriptMs: stats(working.map((frame) => frame.scriptMs)),
+      /// All the script the stream cost, and the frames that ran any (over half a millisecond).
+      scriptTotalMs: round2(working.reduce((sum, frame) => sum + frame.scriptMs, 0)),
+      busyFrames: working.filter((frame) => frame.scriptMs > 0.5).length,
       layoutMs: stats(working.map((frame) => frame.layoutMs)),
       totalMs: stats(work),
       heaviest: heaviest && {
@@ -658,6 +662,7 @@ async function run({
       const snapshot = rows(ended);
       saveSnapshot({ type: "snapshot", rows: snapshot } as unknown as AcpmuxSnapshot);
       show(snapshot, !ended);
+      reveal.received = reveal.shown = text.length;
     });
   };
 
@@ -683,6 +688,8 @@ async function run({
   await frameTime();
 
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
   const calls =
     callEveryMs === undefined
       ? undefined
@@ -725,7 +732,11 @@ async function run({
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  return analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd);
+  const markdown = {
+    closed: acpmuxPerf.renders.get("markdown.closed") ?? 0,
+    rerenders: acpmuxPerf.renders.get("markdown.closed.rerender") ?? 0,
+  };
+  return { ...analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd), markdown };
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };

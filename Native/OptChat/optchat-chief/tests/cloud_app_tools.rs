@@ -114,7 +114,7 @@ const FULL: [&str; 4] = [
     "agents_snapshot",
     "app_show_pane",
     "app_workspace_rename",
-    "workspace_list",
+    "workspace_close",
 ];
 
 #[test]
@@ -181,13 +181,13 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
         "the last known list must stay: {failed:?}"
     );
     assert!(
-        failed.contains(&"mcp__cmux__workspace_list".to_owned()),
+        failed.contains(&"mcp__cmux__workspace_close".to_owned()),
         "{failed:?}"
     );
 
     // The list answers without the app's action tools: the same.
     cli.answer(
-        &["agents_snapshot", "workspace_list"],
+        &["agents_snapshot", "workspace_close"],
         false,
         Some("no cmux app found"),
     );
@@ -255,6 +255,7 @@ fn a_chief_turn_keeps_coordinator_tools_but_not_background_tasks() {
     std::fs::create_dir_all(session.path().join(".claude")).unwrap();
     let kept = [
         "acpmux_send",
+        "acpmux_send_status",
         "acpmux_ls",
         "acpmux_last",
         "acpmux_info",

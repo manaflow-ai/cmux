@@ -1,10 +1,21 @@
-//! The Linux [`Platform`]: one epoll set over the clock-set timerfd,
-//! rtnetlink, inotify on `/run/cmux` and `/etc/cmux`, a signalfd, three
-//! one-shot timerfds (re-arm, backoff, stop deadline) and the session
-//! host's pidfd.
+//! The Linux [`Platform`]: one epoll set over the clock-set timerfd, the
+//! pause watch's socket, rtnetlink, inotify on `/run/cmux` and `/etc/cmux`,
+//! a signalfd, three one-shot timerfds (re-arm, backoff, stop deadline) and
+//! the session host's pidfd.
+//!
+//! A resume reaches the agent one of two ways. Where a pause stops the boot
+//! clock, the realtime set after it moves `realtime - boottime`
+//! ([`crate::agent::clock_set_wake`]). Where the boot clock keeps running
+//! through a pause (Freestyle: every machine reports the same boot time for
+//! days, across many pauses), nothing moves against it, so the pause watch
+//! thread looks at the boot clock every [`PAUSE_TICK`] and reports a sleep
+//! that ended more than [`crate::agent::PAUSE_GAP`] late
+//! ([`crate::agent::paused_for`]). [`ResumeOnce`] keeps a resume both see
+//! to one `Resumed`.
 
 pub mod fds;
 pub mod identity;
+mod old_host;
 pub mod procs;
 pub mod spawn;
 
@@ -15,17 +26,17 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, Platform, Wake};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
-    DRIVER_FILE_NAME, ETC_DIR, GHOSTTY_VERSION_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE,
-    RUN_DIR, STATUS_FILE, STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
+    DRIVER_FILE_NAME, ETC_DIR, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE, RUN_DIR, STATUS_FILE,
+    STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
 };
-use crate::daemon_spec::{DaemonLayout, daemon_spec, ghostty_version};
+use crate::daemon_spec::{DaemonLayout, daemon_spec};
 use crate::machine::{Action, Input, Observation};
 use crate::metadata::{InstanceIdSource, Mmds, read_instance_id};
 use crate::retry::{CLOCK_REARM_ATTEMPTS, RearmOutcome, rearm_bounded};
@@ -43,6 +54,8 @@ const T_DAEMON: u64 = 8;
 const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
+const T_PAUSE: u64 = 12;
+const T_HOST_LOOK: u64 = 13;
 
 struct Daemon {
     pid: u32,
@@ -52,6 +65,9 @@ struct Daemon {
     /// `None` when adopted from a previous agent run (not our child).
     child: Option<Arc<cmux_link::caller::RootOwnedDaemon>>,
     started: Instant,
+    /// The relay carrier flags it runs with (`carrier_entry.rs`), empty
+    /// without a carrier.
+    carrier: Vec<String>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -73,10 +89,19 @@ pub struct LinuxPlatform {
     /// `realtime - boottime` when the clock was last armed or set: how far a
     /// clock set moved realtime tells a resume from a sync.
     clock_offset_ns: i128,
+    /// The pause watch's reports: one datagram (the stopped milliseconds,
+    /// little-endian `u64`) per pause.
+    pause: UnixDatagram,
+    /// The pause watch thread ends within a tick of this being dropped.
+    _pause_alive: Arc<()>,
+    /// Keeps a resume seen by both the clock set and the pause watch to one.
+    resume_once: ResumeOnce,
     netlink: Netlink,
     inotify: Inotify,
     wd_run: i32,
     wd_etc: i32,
+    /// The Cloud state directory (`carrier.json`), when it exists.
+    wd_state: Option<i32>,
     /// `server.json`'s directory watch and file name, when it exists.
     config_watch: Option<(i32, std::ffi::OsString)>,
     signals: SignalFd,
@@ -85,6 +110,9 @@ pub struct LinuxPlatform {
     stop_deadline: TimerFd,
     retry: TimerFd,
     announce_timer: TimerFd,
+    host_look: TimerFd,
+    /// When [`Platform::build_changed`] found the adopted host on another build.
+    build_changed_at: Option<Instant>,
     /// The global addresses last seen (netlink filter).
     addresses: BTreeSet<(String, IpAddr)>,
     metadata: Box<dyn InstanceIdSource>,
@@ -111,6 +139,12 @@ impl LinuxPlatform {
         let inotify = Inotify::new()?;
         let wd_run = inotify.watch_dir(&paths.at(RUN_DIR))?;
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
+        // The Cloud role writes carrier.json at its bind, which can come
+        // after this start: make its dir (0700, as the role does) so the
+        // watch is there first. Its removal is watched too: a session host
+        // started with the route must lose it when the file goes.
+        let wd_state =
+            carrier_dir(paths).and_then(|dir| inotify.watch_dir_with_removals(&dir).ok());
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
                 Some(file) => match file.parent().filter(|dir| dir.is_dir()) {
@@ -133,15 +167,30 @@ impl LinuxPlatform {
         } else {
             None
         };
+        // After the signalfd blocked its signals: the thread inherits the mask.
+        let (pause, pause_tx) = UnixDatagram::pair()?;
+        pause.set_nonblocking(true)?;
+        let pause_alive = Arc::new(());
+        // The record reaches the processes that flip outside this one (the
+        // operator's `cmux host update check`), on a machine with the updater.
+        let pause_file = paths.at(crate::updater::PAUSE_FILE);
+        if paths.is_system_root() && pause_file.parent().is_some_and(std::path::Path::is_dir) {
+            crate::agent::PAUSES.persist_to(pause_file);
+        }
+        spawn_pause_watch(Arc::downgrade(&pause_alive), pause_tx)?;
         let platform = Self {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
             clock_armed: false,
             clock_offset_ns: realtime_minus_boottime_ns(),
+            pause,
+            _pause_alive: pause_alive,
+            resume_once: ResumeOnce::default(),
             netlink: Netlink::new()?,
             inotify,
             wd_run,
             wd_etc,
+            wd_state,
             config_watch,
             signals,
             rearm: TimerFd::new(Clock::Boottime)?,
@@ -149,6 +198,8 @@ impl LinuxPlatform {
             stop_deadline: TimerFd::new(Clock::Monotonic)?,
             retry: TimerFd::new(Clock::Monotonic)?,
             announce_timer: TimerFd::new(Clock::Monotonic)?,
+            host_look: TimerFd::new(Clock::Monotonic)?,
+            build_changed_at: None,
             addresses: global_address_set(interface_addresses()),
             metadata,
             identity,
@@ -161,6 +212,7 @@ impl LinuxPlatform {
         };
         let e = &platform.epoll;
         e.add(platform.clock.raw(), T_CLOCK)?;
+        e.add(std::os::fd::AsRawFd::as_raw_fd(&platform.pause), T_PAUSE)?;
         e.add(platform.netlink.raw(), T_NET)?;
         e.add(platform.inotify.raw(), T_INOTIFY)?;
         e.add(platform.signals.raw(), T_SIGNAL)?;
@@ -169,6 +221,7 @@ impl LinuxPlatform {
         e.add(platform.stop_deadline.raw(), T_STOP)?;
         e.add(platform.retry.raw(), T_RETRY)?;
         e.add(platform.announce_timer.raw(), T_ANNOUNCE)?;
+        e.add(platform.host_look.raw(), T_HOST_LOOK)?;
         if let Some(identity) = &platform.identity {
             e.add(identity.raw(), T_IDENTITY)?;
         }
@@ -232,6 +285,10 @@ impl LinuxPlatform {
                 out.push(Wake::DriverFile);
             } else if event.wd == self.wd_etc && event.name == BAKE_FILE_NAME {
                 out.push(Wake::BakeFile);
+            } else if Some(event.wd) == self.wd_state
+                && event.name == crate::carrier_entry::CARRIER_FILE_NAME
+            {
+                out.push(Wake::CarrierFile);
             } else if self
                 .config_watch
                 .as_ref()
@@ -252,13 +309,23 @@ impl LinuxPlatform {
             format!("{}\n", layout.kind.as_str()).as_bytes(),
             0o644,
         );
-        let version =
-            ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
+        spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // Every spawn runs the installed build: nothing waits any more.
+        self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
+        // Same process is decided from this record (pid, start time, boot), not the pid file.
+        record_session_host(
+            &paths,
+            pid,
+            std::iter::once(spec.program.display().to_string())
+                .chain(spec.args.iter().cloned())
+                .collect(),
+        );
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
         // and park could not stop the first).
@@ -269,7 +336,8 @@ impl LinuxPlatform {
         {
             eprintln!("cmux-host: epoll add for session host {pid}: {e}");
         }
-        self.daemon = Some(Daemon { pid, pidfd, child: Some(child), started: Instant::now() });
+        self.daemon =
+            Some(Daemon { pid, pidfd, child: Some(child), started: Instant::now(), carrier });
         let written = ensure_agent_dir(&paths).and_then(|()| {
             identity::write_atomic(&paths.at(DAEMON_PID_FILE), format!("{pid}\n").as_bytes(), 0o600)
         });
@@ -322,10 +390,7 @@ impl LinuxPlatform {
     }
 
     fn rekey(&mut self, id: &str) -> io::Result<Option<Input>> {
-        let mut argv = self.cfg.self_argv.clone();
-        if argv.is_empty() {
-            argv.push(std::env::current_exe()?.display().to_string());
-        }
+        let mut argv = host_entry(&self.cfg)?;
         let program = argv.remove(0);
         argv.extend([
             "rekey".to_owned(),
@@ -419,6 +484,7 @@ impl LinuxPlatform {
             self.epoll.remove(fd.raw());
         }
         let _ = fs::remove_file(self.cfg.paths.at(DAEMON_PID_FILE));
+        self.clear_host_deferred();
         let lived_ms = daemon.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         eprintln!("cmux-host: session host {} exited after {lived_ms} ms", daemon.pid);
         Some(Exit::Daemon { lived_ms })
@@ -495,17 +561,55 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
     out
 }
 
-/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
-/// stops the boot clock while the machine is stopped, so this grows by the
-/// stopped time once realtime is set again; a sync moves it only by drift.
-fn realtime_minus_boottime_ns() -> i128 {
-    fn read(clock: libc::clockid_t) -> i128 {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // SAFETY: `ts` is a valid, writable timespec for the call.
-        unsafe { libc::clock_gettime(clock, &mut ts) };
-        i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
-    }
-    read(libc::CLOCK_REALTIME) - read(libc::CLOCK_BOOTTIME)
+/// `clock` in nanoseconds.
+fn clock_ns(clock: libc::clockid_t) -> i128 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid, writable timespec for the call.
+    unsafe { libc::clock_gettime(clock, &mut ts) };
+    i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
+}
+
+/// `CLOCK_BOOTTIME` in nanoseconds: the clock the pause watch reads.
+pub(crate) fn boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. Where a snapshot
+/// restore stops the boot clock while the machine is stopped, this grows by
+/// the stopped time once realtime is set again; a sync moves it only by
+/// drift. Where the boot clock keeps running through a pause (Freestyle), it
+/// does not move at a resume: the pause watch finds those.
+pub(crate) fn realtime_minus_boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_REALTIME) - clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// The pause watch: a thread that sleeps [`PAUSE_TICK`] at a time and sends
+/// `tx` the stopped milliseconds of every sleep the boot clock says ended
+/// far past its tick. It never wakes the agent otherwise, and ends within a
+/// tick of `alive`'s platform being dropped, or when `tx`'s peer is gone. It
+/// sleeps on its own thread so a busy agent thread (a metadata read, a
+/// role's stop) never looks like a pause.
+fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
+    std::thread::Builder::new().name("cmux-host-pause-watch".to_owned()).spawn(move || {
+        loop {
+            let before = clock_ns(libc::CLOCK_BOOTTIME);
+            std::thread::sleep(PAUSE_TICK);
+            if alive.strong_count() == 0 {
+                return;
+            }
+            let after = clock_ns(libc::CLOCK_BOOTTIME);
+            let found = paused_for(before, after);
+            // Before the report: a flip that looks now already sees it.
+            crate::agent::PAUSES.looked(after, found.is_some());
+            if let Some(stopped) = found {
+                let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
+                if tx.send(&ms.to_le_bytes()).is_err() {
+                    return;
+                }
+            }
+        }
+    })?;
+    Ok(())
 }
 
 impl Platform for LinuxPlatform {
@@ -531,9 +635,38 @@ impl Platform for LinuxPlatform {
                         self.clock.drain();
                         self.arm_clock();
                         let offset = realtime_minus_boottime_ns();
-                        let wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
+                        let mut wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
                         self.clock_offset_ns = offset;
+                        if wake == Wake::ClockSet {
+                            crate::agent::PAUSES.found();
+                        }
+                        if wake == Wake::ClockSet
+                            && !self
+                                .resume_once
+                                .first(ResumeSource::ClockSet, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wake = Wake::ClockAdjusted;
+                        }
                         wakes.push(wake);
+                    }
+                    T_PAUSE => {
+                        let mut buf = [0_u8; 8];
+                        let mut paused = false;
+                        while let Ok(8) = self.pause.recv(&mut buf) {
+                            let ms = u64::from_le_bytes(buf);
+                            eprintln!(
+                                "cmux-host: the machine resumed: its boot clock ran {} s past the pause watch's tick",
+                                ms / 1000
+                            );
+                            paused = true;
+                        }
+                        if paused
+                            && self
+                                .resume_once
+                                .first(ResumeSource::PauseWatch, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wakes.push(Wake::Paused);
+                        }
                     }
                     T_NET => {
                         // Act only when the set of global addresses changed:
@@ -578,6 +711,10 @@ impl Platform for LinuxPlatform {
                         wakes.push(Wake::StopDeadline);
                     }
                     T_DAEMON => wakes.push(Wake::ProcessExit),
+                    T_HOST_LOOK => {
+                        self.host_look.drain();
+                        wakes.push(Wake::HostLook);
+                    }
                     _ => {}
                 }
             }
@@ -651,10 +788,44 @@ impl Platform for LinuxPlatform {
         let layout = self.layout().ok()?.clone();
         let (pid, pidfd) =
             procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
+        // The owner record names the host by pid, start time and boot: a pid the record names
+        // that now runs with another start time is another process, whatever its argv says.
+        if let cmux_supervise_core::record::Loaded::Record(owner) =
+            cmux_supervise_core::record::load(&supervise_files(&self.cfg.paths).owner)
+            && owner.pid == pid
+            && owner.liveness() == cmux_supervise_core::Liveness::Dead
+        {
+            eprintln!(
+                "cmux-host: pid {pid} is not the recorded session host (reused); not adopted"
+            );
+            return None;
+        }
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
+        let carrier = crate::carrier_entry::args_in(&procs::cmdline(pid).unwrap_or_default());
         self.daemon =
-            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now() });
+            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now(), carrier });
         Some(pid)
+    }
+
+    /// Whether the running session host's route differs from carrier.json's.
+    /// Called on every carrier.json write and removal: it also rewrites the
+    /// grant config ([`carrier_args`]), so a rotated keyset reaches the
+    /// running host's verifier without a respawn, and a removed file
+    /// respawns the host without the carrier flags.
+    fn carrier_changed(&mut self) -> bool {
+        let Ok(host) = host_entry(&self.cfg) else {
+            return false;
+        };
+        let want = carrier_args(&self.cfg.paths, &host);
+        self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
+    }
+
+    fn build_changed(&mut self) -> bool {
+        self.adopted_build_changed()
+    }
+
+    fn look_host(&mut self) -> crate::machine::HostLook {
+        self.old_host_look()
     }
 
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
@@ -704,6 +875,11 @@ impl Platform for LinuxPlatform {
                 interval => self.announce_timer.arm_after(interval).map(|()| None),
             },
             Action::DisarmAnnounce => self.announce_timer.disarm().map(|()| None),
+            Action::ArmHostLook(ms) => {
+                self.host_look.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
+            }
+            Action::MarkHostDeferred => self.mark_host_deferred(),
+            Action::ReplaceOldHost(why) => self.replace_old_host(*why),
             Action::RemoveDriverFile => identity::remove_driver_file(&paths).map(|()| None),
             Action::Ready => {
                 self.notify_ready();
@@ -713,6 +889,7 @@ impl Platform for LinuxPlatform {
             | Action::StopRoles
             | Action::CommitBind(_)
             | Action::Recheck
+            | Action::LookHost
             | Action::ParkRoles
             | Action::ShutdownRoles
             | Action::Notify(_)
@@ -728,6 +905,73 @@ impl Platform for LinuxPlatform {
         let path = self.cfg.paths.at(STATUS_FILE);
         ensure_agent_dir(&self.cfg.paths)?;
         identity::write_atomic(&path, status.to_json().as_bytes(), 0o644)
+    }
+
+    fn record_stop(
+        &mut self,
+        cause: cmux_supervise_core::StopCause,
+    ) -> Option<cmux_supervise_core::BudgetState> {
+        let files = supervise_files(&self.cfg.paths);
+        // A fault is a death: one event naming what the dead host owned.
+        if cause.counts()
+            && let cmux_supervise_core::record::Loaded::Record(owner) =
+                cmux_supervise_core::record::load(&files.owner)
+        {
+            let death = cmux_supervise_core::death::Death {
+                name: files.name.clone(),
+                owner,
+                cause: cause.clone(),
+                owned: vec![
+                    "the session host's sessions and their carrier circuits".to_owned(),
+                    self.cfg.paths.at(DAEMON_PID_FILE).display().to_string(),
+                ],
+                at_ms: cmux_supervise_core::budget::now_ms(),
+            };
+            let _ = cmux_supervise_core::death::append(&files.deaths, &death);
+        }
+        match files.budget.record_with(cause, cmux_supervise_core::budget::now_ms(), &write_private)
+        {
+            Ok(state) => Some(state),
+            Err(e) => {
+                eprintln!("cmux-host: restart budget: {e}");
+                Some(files.budget.state())
+            }
+        }
+    }
+
+    fn restart_budget(&self) -> Option<cmux_supervise_core::BudgetState> {
+        Some(supervise_files(&self.cfg.paths).budget.state())
+    }
+}
+
+/// The session host's files on the supervisor contract.
+fn supervise_files(paths: &crate::config::Paths) -> cmux_supervise_core::Files {
+    cmux_supervise_core::Files::new(
+        &paths.at(crate::config::SUPERVISE_DIR),
+        crate::config::SESSION_HOST_NAME,
+        crate::config::SESSION_HOST_BUDGET,
+    )
+}
+
+/// The contract's writer here: the folder made root-only, the file by tmp-then-rename.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    identity::write_atomic(path, bytes, 0o600)
+}
+
+/// The owner record of the session host just spawned (`pid`), before anything waits on it.
+fn record_session_host(paths: &crate::config::Paths, pid: u32, argv: Vec<String>) {
+    let files = supervise_files(paths);
+    let Some(who) = cmux_supervise_core::identity::of(pid) else {
+        eprintln!("cmux-host: owner record: session host {pid} cannot be read");
+        return;
+    };
+    let previous = cmux_supervise_core::record::load(&files.owner);
+    let record = cmux_supervise_core::OwnerRecord::new(who, previous.record(), argv);
+    if let Err(e) = cmux_supervise_core::record::store_with(&files.owner, &record, &write_private) {
+        eprintln!("cmux-host: owner record: {e}");
     }
 }
 
@@ -754,20 +998,97 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
     entry
 }
 
+/// The session host's relay carrier flags from `carrier.json`
+/// (`carrier_entry.rs`), read only when root owns it and neither group nor
+/// others may write it. Empty without the file; a refused file is logged
+/// and gives no carrier. With it, the session host's grant config
+/// ([`crate::carrier_entry::GRANT_CONFIG_FILE`], 0644, public fields only)
+/// is written first (temp file, then rename), so a session host started
+/// with these flags finds it. Each carrier.json change writes it again, and
+/// the running host's verifier re-reads it at the first grant signed by a
+/// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
+/// The command that runs this supervisor's verbs, the program first: the
+/// `cmux host` it was started as (`[<current>/bin/cmux, host]`), else this
+/// executable (the standalone `cmux-host`, whose verbs need no noun).
+fn host_entry(cfg: &Config) -> io::Result<Vec<String>> {
+    if cfg.self_argv.is_empty() {
+        Ok(vec![std::env::current_exe()?.display().to_string()])
+    } else {
+        Ok(cfg.self_argv.clone())
+    }
+}
+
+/// The session host's carrier flags; `host` is [`host_entry`], whose
+/// `cloud carrier-ticket` is the ticket command.
+fn carrier_args(paths: &crate::config::Paths, host: &[String]) -> Vec<String> {
+    use crate::carrier_entry::GRANT_CONFIG_FILE;
+    let Some(file) = carrier_file(paths) else { return Vec::new() };
+    let grant_config = paths.at(GRANT_CONFIG_FILE);
+    let text = format!("{}\n", file.grant_config());
+    if let Err(e) = identity::write_atomic(&grant_config, text.as_bytes(), 0o644) {
+        eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
+        return Vec::new();
+    }
+    file.route.args(host, &grant_config)
+}
+
+fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
+    use crate::carrier_entry::{CARRIER_FILE, parse_file};
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    trusted_text(&paths.at(CARRIER_FILE), "carrier.json", euid)
+        .and_then(|text| parse_file(text.as_deref()))
+        .inspect_err(|why| eprintln!("cmux-host: carrier.json refused ({why}); carrier off"))
+        .ok()
+        .flatten()
+}
+
+/// The directory of `carrier.json`, made (0700) when missing; `None` when
+/// it cannot be.
+fn carrier_dir(paths: &crate::config::Paths) -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let file = paths.at(crate::carrier_entry::CARRIER_FILE);
+    let dir = file.parent()?;
+    if !dir.is_dir() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| eprintln!("cmux-host: {}: {e}; no carrier.json watch", dir.display()))
+            .ok()?;
+    }
+    Some(dir.to_path_buf())
+}
+
 /// The host config's text: `None` when absent, an error when the file may
 /// not be trusted or cannot be read.
 fn host_config_text(file: &std::path::Path) -> Result<Option<String>, String> {
+    // SAFETY: geteuid has no preconditions.
+    trusted_text(file, "host.json", unsafe { libc::geteuid() })
+}
+
+/// A root-written config's text: `None` when absent, an error unless it is
+/// a regular file owned by `euid` (root in production) that neither group
+/// nor others may write (`remote_entry::file_is_trusted`).
+pub(crate) fn trusted_text(
+    file: &std::path::Path,
+    name: &str,
+    euid: u32,
+) -> Result<Option<String>, String> {
     use std::os::unix::fs::MetadataExt;
     let meta = match fs::symlink_metadata(file) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("cannot stat host.json: {e}")),
+        Err(e) => return Err(format!("cannot stat {name}: {e}")),
         Ok(meta) => meta,
     };
     if !meta.file_type().is_file() {
-        return Err("host.json is not a regular file".to_owned());
+        return Err(format!("{name} is not a regular file"));
     }
-    // SAFETY: geteuid has no preconditions.
-    let euid = unsafe { libc::geteuid() };
-    crate::remote_entry::file_is_trusted(meta.uid(), meta.mode(), euid)?;
-    fs::read_to_string(file).map(Some).map_err(|e| format!("cannot read host.json: {e}"))
+    crate::remote_entry::file_is_trusted(meta.uid(), meta.mode(), euid)
+        .map_err(|why| why.replacen("host.json", name, 1))?;
+    fs::read_to_string(file).map(Some).map_err(|e| format!("cannot read {name}: {e}"))
 }
+
+#[cfg(test)]
+#[path = "carrier_file_tests.rs"]
+mod carrier_file_tests;

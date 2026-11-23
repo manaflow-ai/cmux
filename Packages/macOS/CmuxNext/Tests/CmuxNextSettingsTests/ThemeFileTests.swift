@@ -27,13 +27,13 @@ import Testing
     }
 
     @Test func aRefusedValueIsDroppedAndNamesTheFileAndKey() throws {
-        let overlay = Self.overlay(#"{ "appearance": { "accent": "purple", "borders": "none" }, "terminal.fontSize": 14, "nope": 1 }"#)
+        let overlay = Self.overlay(#"{ "appearance": { "accent": "purple", "borders": "none" }, "terminal.term": "xterm", "nope": 1 }"#)
         #expect(overlay.values.map(\.path) == [Self.borders])
         let accent = try #require(overlay.diagnostics.first { $0.path == "appearance.accent" })
         #expect(accent.file == "themes/tokyo.json")
         #expect(accent.value == #""purple""#)
         #expect(accent.message.hasPrefix("expected one of"))
-        #expect(overlay.diagnostics.contains { $0.path == "terminal.fontSize" && $0.message == "a theme file sets only look settings" })
+        #expect(overlay.diagnostics.contains { $0.path == "terminal.term" && $0.message == "a theme file sets only look settings" })
         #expect(overlay.diagnostics.contains { $0.path == "nope" && $0.message == "not a cmux setting" })
         // The toast names the theme file, not cmux-next.json.
         var notices = SettingsDiagnosticNotices()
@@ -91,6 +91,17 @@ import Testing
         #expect(Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#eeeeee" } }"##).corrected.isEmpty)
     }
 
+    /// `cmux theme export --save NAME --use` copies the settings' own edits: text they already
+    /// show under 4.5:1 stays as it is, so the generated file changes nothing.
+    @Test func textTheSettingsAlreadyShowIsNotCorrected() {
+        let edits: JSONValue = .object(["Nord/background": "#222222", "Nord/foreground": "#333333"])
+        let base: JSONValue = .object(["appearance": .object(["theme": "Nord", "themeEdits": edits])])
+        let overlay = Self.overlay(##"{ "appearance.theme": "Nord", "appearance.themeEdits": { "Nord/background": "#222222", "Nord/foreground": "#333333" } }"##, base: base)
+        #expect(overlay.corrected.isEmpty)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.applied(to: base) == base)
+    }
+
     /// The copy-paste example in skills/cmux-customization/SKILL.md ("Rice cmux") applies whole.
     @Test func theSkillExampleAppliesWithNoRefusals() {
         let overlay = Self.overlay(#"""
@@ -113,8 +124,137 @@ import Testing
         #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).diagnostics.isEmpty)
     }
 
+    /// Fonts and the sidebar's shape are part of a look (goal theme-live-reload: "changes the sidebar,
+    /// fonts, wallpaper and pane background").
+    @Test func aThemeFileSetsTheTerminalFontAndTheSidebarShape() {
+        let overlay = Self.overlay(#"{ "terminal.fontFamily": "Menlo", "terminal.fontSize": 14, "sidebar.border": true, "sidebar.sectionLook": "card", "sidebar.showChats": false }"#)
+        #expect(overlay.values.map { $0.path.joined(separator: ".") } == ["sidebar.border", "sidebar.sectionLook", "terminal.fontFamily", "terminal.fontSize"])
+        #expect(overlay.diagnostics.map(\.path) == ["sidebar.showChats"])
+    }
+
+    /// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
+    /// session info and the top right buttons as well". A theme sets the toolbar's buttons, Session Info, the
+    /// sidebar's buttons and pane corners, not only colors.
+    @Test func aThemeFileSetsTheTopRightButtonsSessionInfoAndSidebarButtons() {
+        let overlay = Self.overlay(#"""
+        { "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false,
+          "agentPane.display.sessionInfo.placement": "overlay", "agentPane.display.font.size": 12, "layout.paneCornerRadius": 2 }
+        """#)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.values.map { $0.path.joined(separator: ".") } == [
+            "agentPane.display.font.size", "agentPane.display.sessionInfo.placement", "layout.paneCornerRadius",
+            "sidebar.showSearchButton", "tabs.toolbarButtons", "window.titlebarButtons",
+        ])
+    }
+
+    /// A theme's own density shapes its tabs (the blockiness of horizontal and sidebar tabs) and sizes the
+    /// sidebar: a built-in with the playground's tokens over it, clamped, with unknown tokens refused.
+    @Test func aThemeFileCarriesItsOwnDensity() throws {
+        let overlay = Self.overlay(#"""
+        { "name": "Arcade", "appearance.density": "compact",
+          "density": { "tokens": { "tabCornerRadius": 2, "sidebarCornerRadius": 99, "sidebarWidth": 250, "nope": 1 }, "spacing": 0.9 } }
+        """#)
+        let density = try #require(overlay.density)
+        #expect(density.id == "theme-arcade")
+        #expect(density.name == "Arcade")
+        #expect(density.basedOn == "compact")
+        #expect(density.tokens["tabCornerRadius"] == 2)
+        #expect(density.tokens["sidebarCornerRadius"] == 20)
+        #expect(density.tokens["sidebarWidth"] == 250)
+        #expect(density.tokens["nope"] == nil)
+        #expect(abs(density.spacing - 0.9) < 0.0001)
+        #expect(overlay.diagnostics.map(\.path) == ["density.tokens.nope"])
+        // The rest of compact's tokens stay: only what the file names changes.
+        #expect(density.tokens["sidebarRowHeight"] == DensityPreset.compact.tokens.tokens["sidebarRowHeight"])
+        #expect(Self.overlay(#"{ "density": { "basedOn": "huge" } }"#).density == nil)
+        #expect(Self.overlay(#"{ "density": { "basedOn": "huge" } }"#).diagnostics.map(\.path) == ["density.basedOn"])
+        // A managed density keeps the theme's from applying.
+        #expect(overlay.density(under: ["appearance.density"]) == nil)
+        #expect(overlay.density(under: ["appearance.accent"]) == density)
+    }
+
+    /// The loaded file's density is the one in use, over cmux-next.json's; its row says the theme file sets it.
+    @Test func theActiveFilesDensityIsTheOneInUse() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "name": "Blocky", "density": { "basedOn": "cozy", "tokens": { "tabCornerRadius": 0 } } }"#, theme: "blocky")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "density": "spacious", "themeFile": "blocky" } }"#)
+        await settings.reload()
+        #expect(settings.snapshot.selectedDensity.id == "theme-blocky")
+        #expect(settings.snapshot.selectedDensity.tokens["tabCornerRadius"] == 0)
+        let note = try #require(settings.diagnostics.first { $0.path == "appearance.density" })
+        #expect(note.kind == .setByThemeFile)
+        // Previewing a density row shows that density over the file's.
+        let row = try #require(SettingsSchema.descriptor(for: DensitySetting.configPath))
+        #expect(settings.preview(row, "compact"))
+        #expect(settings.applied.selectedDensity.id == "compact")
+        settings.endPreview()
+        #expect(settings.applied.selectedDensity.id == "theme-blocky")
+    }
+
+    /// A density the person chose over the file (an exception, #44894) applies instead of the file's own.
+    @Test func thePersonsOwnDensityOverTheFileWins() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "density": { "tokens": { "tabCornerRadius": 0 } } }"#, theme: "blocky")
+        let settings = try Self.controller(home, config: #"""
+        { "appearance": { "density": "spacious", "themeFile": "blocky", "themeFileExceptions": ["appearance.density"] } }
+        """#)
+        await settings.reload()
+        #expect(settings.snapshot.selectedDensity.id == "spacious")
+    }
+
+    /// A picture beside the theme file travels with it: a relative path resolves against the themes
+    /// folder, `~` against home, and an absolute one is kept.
+    @Test func aRelativePictureResolvesAgainstTheThemesFolder() {
+        let folder = URL(fileURLWithPath: "/tmp/cmux-config/themes", isDirectory: true)
+        func background(_ value: String, folder: URL? = folder) -> JSONValue? {
+            ThemeFileOverlay(name: "harbor", source: .success(#"{ "appearance.background": "\#(value)" }"#), base: .object([:]), folder: folder)
+                .applied(to: .object([:])).value(at: BackdropSelectionSetting.configPath)
+        }
+        #expect(background("file:harbor.jpg") == "file:/tmp/cmux-config/themes/harbor.jpg")
+        #expect(background("folder:walls/") == "folder:/tmp/cmux-config/themes/walls")
+        #expect(background("file:../shared/sea.png") == "file:/tmp/cmux-config/shared/sea.png")
+        #expect(background("file:~/Pictures/sea.png") == .string("file:" + NSString(string: "~/Pictures/sea.png").expandingTildeInPath))
+        #expect(background("file:/Users/me/sea.png") == "file:/Users/me/sea.png")
+        #expect(background("velde-small-ship-storm") == "velde-small-ship-storm")
+        // With no folder a relative picture stays relative, which the schema refuses.
+        #expect(background("file:harbor.jpg", folder: nil) == nil)
+    }
+
+    /// The theme files cmux ships (Resources/theme-files) apply whole, and the example covers each
+    /// primitive the goal names: the sidebar, a font, the wallpaper and the pane background.
+    @Test func theShippedThemeFilesApplyWithNoRefusals() throws {
+        let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
+        let home = try Home()
+        let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond"] { #expect(names.contains(look), "\(look)") }
+        for name in names {
+            let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
+            let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)
+            #expect(overlay.isLoaded, "\(name)")
+            #expect(overlay.diagnostics.isEmpty, "\(name): \(overlay.diagnostics.map(\.message))")
+            let root = overlay.applied(to: .object([:]))
+            let parsed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics)
+            #expect(parsed.diagnostics.isEmpty, "\(name): \(parsed.diagnostics.map(\.message))")
+            // A shipped file names no picture of its own: it would resolve in the user's folder.
+            let background = root.value(at: BackdropSelectionSetting.configPath)?.stringValue ?? ""
+            #expect(!background.hasPrefix("file:") && !background.hasPrefix("folder:"), "\(name)")
+        }
+        let harbor = try #require(ThemeFileOverlay.source(named: "harbor", configDirectory: home.url, bundled: folder))
+        let keys = Set(ThemeFileOverlay(name: "harbor", source: harbor, base: .object([:])).values.map { $0.path.joined(separator: ".") })
+        #expect(keys.contains("appearance.surfaces.sidebar.color"))
+        #expect(keys.contains("terminal.fontFamily"))
+        #expect(keys.contains("appearance.background"))
+        #expect(keys.contains("appearance.surfaces.terminal.color"))
+        // The user's file of the same name wins over the shipped one.
+        try home.write(#"{ "appearance.accent": "red" }"#, theme: "harbor")
+        #expect(try ThemeFileOverlay.source(named: "harbor", configDirectory: home.url, bundled: folder)?.get() == #"{ "appearance.accent": "red" }"#)
+        #expect(ThemeFileSetting.names(configDirectory: home.url, bundled: folder).filter { $0 == "harbor" }.count == 1)
+    }
+
     @Test func theSettingTakesAPlainNameOnly() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.path))
+        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
         #expect(descriptor.accepts("tokyo night"))
         for bad in ["", "../x", "a/b", ".hidden", "tokyo.json", " tokyo"] { #expect(!descriptor.accepts(.string(bad)), "\(bad)") }
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.themeFile"))
@@ -138,7 +278,7 @@ import Testing
 
     static func controller(_ home: Home, config: String, design: DesignSettings = DesignSettings()) throws -> SettingsController {
         try Data(config.utf8).write(to: home.config)
-        return SettingsController(registry: .standard(), design: design, fileURL: home.config,
+        return SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: design, fileURL: home.config,
                                   managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
     }
 
@@ -177,12 +317,32 @@ import Testing
         #expect(note.pageMessage.hasPrefix("themes/tokyo.json: set by the theme file"))
 
         // Previewing another file shows it whole, and ending the preview restores the active one.
-        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.path))
+        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
         #expect(settings.preview(descriptor, "ember"))
         #expect(settings.applied.accent == .red)
         #expect(settings.applied.borders == BorderMode.default)
         settings.endPreview()
         #expect(settings.applied.accent == .blue)
+    }
+
+    /// Hovering a Theme File previews its whole look, the terminal font included (`lookFollowed`); any
+    /// other preview (a font size slider's ticks) leaves the font on the loaded settings.
+    @Test func aThemeFilePreviewCarriesItsTerminalFont() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "terminal.fontFamily": "Menlo", "terminal.fontSize": 15 }"#, theme: "harbor")
+        let settings = try Self.controller(home, config: #"{ "terminal": { "fontSize": 12 } }"#)
+        await settings.reload()
+        let themeFile = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
+        #expect(settings.preview(themeFile, "harbor"))
+        #expect(settings.lookFollowed.terminalFontSize == 15)
+        #expect(settings.lookFollowed.terminalFontFamily == "Menlo")
+        settings.endPreview()
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        let size = try #require(SettingsSchema.descriptor(for: ["terminal", "fontSize"]))
+        #expect(settings.preview(size, 20))
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        settings.endPreview()
     }
 
     /// Saving the active theme file re-applies it with no other step; the p50 and max of save to

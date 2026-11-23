@@ -231,10 +231,12 @@ impl Mux {
         {
             return false;
         }
-        // Until the Cloud verifier carries the VM principal through the
-        // entry stamp, require the explicit owner record. Never let a
-        // caller-provided `user_id` substitute for that source. The Cloud VM
-        // path is enabled by the follow-up verifier PR's owner stamp.
+        // This remote-entry path admits only the paired server's owner
+        // record; a caller-provided `user_id` never substitutes for it. A
+        // Cloud VM's phone channel does not come this way: it is a carrier
+        // `mux-control` stream, a unix connection the session host stamps
+        // with the grant's role (carrier_role.rs) and phone_carrier.rs holds
+        // to hostd's commands.
         match (self.remote_relay().peer_checked(client), self.remote_relay().owner_user()) {
             (Ok(Some(peer)), Ok(Some(owner))) => peer.user == owner,
             _ => false,
@@ -323,7 +325,7 @@ pub(super) fn intercept(
         | Command::ConversationHistory(_)
         | Command::ConversationOp(_)
         | Command::ConversationTyping(_) => return None,
-        Command::ListWorkspaces if mux.cloud_mobile_client(client) => return None,
+        Command::ListWorkspaces { .. } if mux.cloud_mobile_client(client) => return None,
         _ => Err(denied()),
     })
 }
@@ -361,6 +363,7 @@ pub(super) fn handle_frame(
                     | "agent-session-prompt"
                     | "agent-session-cancel"
                     | "agent-session-detach"
+                    | "agent-session-context"
             )
         );
         if allowed {
@@ -376,6 +379,14 @@ pub(super) fn handle_frame(
     if let Some(keep_open) = super::native_owner::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    // A Cloud team member's signed Native dial to a teammate's team machine: its chat verbs
+    // only, stamped with the member the token names (agent_session_member.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) =
+        super::agent_session_attach::member::try_handle(mux, client, message, writer)
+    {
+        return keep_open;
+    }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
@@ -383,7 +394,12 @@ pub(super) fn handle_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = super::cloud_repos::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = super::cloud_repos::try_handle(
+        mux,
+        client,
+        &super::line_value::LineValue::new(message),
+        writer,
+    ) {
         return keep_open;
     }
     if gate::check_frame(message).is_err() {

@@ -187,9 +187,12 @@ impl TrailDocument {
         })
     }
 
-    /// Removes the entries entered at or after `since_ms` (every entry: None).
-    fn clear(&mut self, since_ms: Option<i64>) -> u64 {
-        self.retain(|entry| since_ms.is_some_and(|since| entry.at_ms < since))
+    /// Removes the entries entered at or after `since_ms` (every entry: None)
+    /// and at or before `until_ms`.
+    fn clear(&mut self, since_ms: Option<i64>, until_ms: i64) -> u64 {
+        self.retain(|entry| {
+            since_ms.is_some_and(|since| entry.at_ms < since) || entry.at_ms > until_ms
+        })
     }
 
     /// Keeps the entries `keep` accepts, then joins two neighbours of the
@@ -445,15 +448,17 @@ pub(super) fn remove(mux: &Mux, key: &str, actor: &Actor, ids: &[u64]) -> anyhow
     })
 }
 
-/// Removes the entries entered at or after `since_ms` (every entry: None).
+/// Removes the entries entered at or after `since_ms` (every entry: None)
+/// and at or before `until_ms`.
 pub(super) fn clear(
     mux: &Mux,
     key: &str,
     actor: &Actor,
     since_ms: Option<i64>,
+    until_ms: i64,
 ) -> anyhow::Result<u64> {
     change(mux, key, actor, |document| {
-        let removed = document.clear(since_ms);
+        let removed = document.clear(since_ms, until_ms);
         (removed, removed > 0)
     })
 }

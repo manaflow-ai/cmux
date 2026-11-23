@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import CmuxNextCompat
 public import Foundation
 
@@ -61,8 +61,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// `Caches/cmux-home/<owner>/sidebar.json` in the user's Caches folder, beside the conversations'
     /// `HomeCache` of the same owner.
     public static func standard(owner: String) -> HomeSidebarLaunchCache {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let caches = NextSupport.cachesDirectory()
         return standard(owner: owner, caches: caches)
     }
 

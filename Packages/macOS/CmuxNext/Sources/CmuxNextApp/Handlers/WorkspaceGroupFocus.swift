@@ -1,4 +1,5 @@
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Going to a sidebar group (Go to Workspace's group rows, Next and Previous
 /// Workspace Group): the group's first workspace is shown. A collapsed group
@@ -17,13 +18,17 @@ enum WorkspaceGroupFocus {
 
     /// The first workspace of `group` that is not still being created.
     static func firstWorkspace(of group: SidebarGroup) -> CmuxNextSidebar.WorkspaceID? {
-        group.workspaces.first { !$0.rowState.isPending }?.id
+        plan(for: group).workspace
     }
 
+    /// The rule is Rust's (cmux-window-rules `workspaces::group_focus`); nothing happens when the FFI does not answer.
     static func plan(for group: SidebarGroup) -> Plan {
-        let reopens = group.isPinned && group.workspaces.isEmpty && group.items.isEmpty
-        let workspace = firstWorkspace(of: group)
-        return Plan(expands: group.isCollapsed && workspace != nil, workspace: workspace, reopens: reopens)
+        let rows = group.workspaces.map { (id: $0.id.rawValue, pending: $0.rowState.isPending) }
+        guard let plan = WindowRules().groupFocus(collapsed: group.isCollapsed, pinned: group.isPinned, workspaces: rows,
+                                                  items: group.items.count) else {
+            return Plan(expands: false, workspace: nil, reopens: false)
+        }
+        return Plan(expands: plan.expands, workspace: plan.workspace.map { CmuxNextSidebar.WorkspaceID($0) }, reopens: plan.reopens)
     }
 
     /// Goes to group `id` in the active window's sidebar. Returns false when

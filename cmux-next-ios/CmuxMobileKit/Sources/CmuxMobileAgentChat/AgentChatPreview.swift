@@ -57,44 +57,144 @@ public struct AgentChatPreview: View {
     }
 
     public var body: some View {
-        // Bottom aligned like the transcript at rest in follow mode: the
-        // turns keep their natural height and the overflow clips at the top.
+        // Laid out as the live page at rest (`ChatTranscriptController`), so a card opens into
+        // its page without a jump: the rows bottom aligned on the composer's gap
+        // (`bottomInset`, `AgentChatSurface.restingTranscriptBottomInset`), the overflow
+        // clipped at the top, in the chat's own Text and Width; with no turns, the page's empty
+        // state centered between the header and the composer.
+        let display = ChatDisplayPreferences.shared.settings(for: store.summary)
         Color.cmuxMobileBackground
             .overlay(alignment: .bottom) {
-                content
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, bottomInset)
+                if isEmpty {
+                    AgentChatEmptyState(store: store)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, topInset)
+                        .padding(.bottom, max(0, bottomInset - ChatTranscriptController.contentGap))
+                } else {
+                    rows
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                        // The column's cap (Text and Width's standard width), as the transcript's.
+                        .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
+                        .padding(.bottom, bottomInset)
+                }
             }
-            .overlay(alignment: .top) {
-                // The status bar region stays clear, as on the live page.
-                Color.clear.frame(height: topInset)
-            }
+            .modifier(ChatTextSize(display: display))
             .clipped()
             .allowsHitTesting(false)
     }
 
-    @ViewBuilder private var content: some View {
-        if turns.map(\.isEmpty) ?? !store.hasTurns {
-            VStack(spacing: 12) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 22))
-                    .frame(width: 48, height: 48)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-                Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 240)
-        } else {
-            let rows = model.tail(of: store, turns: turns)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(rows) { row in
-                    ChatRowView(row: row, context: model.context(store))
-                        .padding(.top, row.gap)
-                }
-            }
+    private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
+
+    private var rows: some View {
+        let rows = model.tail(of: store, turns: turns)
+        return PreviewRows(rows: rows, context: model.context(store))
             .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+/// The card's rows, stacked as the transcript stacks them (`ChatTranscriptLayout`): each row
+/// `gap` below the one before, a row the transcript draws natively (`ChatNativeEligibility`)
+/// at its native layout's height, the rest at their SwiftUI height. The card draws every row
+/// in SwiftUI (a picture cannot hold UIKit cells), so its rows take the live list's heights.
+private struct PreviewRows: View {
+    let rows: [ChatRow]
+    let context: ChatRowContext
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    var body: some View {
+        PreviewColumn(rows: rows, category: UIContentSizeCategory(textSize), wrapCode: CmuxMobilePreferences.wrapCode()) {
+            ForEach(rows) { row in
+                ChatRowView(row: row, context: context)
+                    .modifier(PreviewRowProbe(id: row.id))
+            }
         }
+    }
+}
+
+struct PreviewColumn: Layout {
+    let rows: [ChatRow]
+    let category: UIContentSizeCategory
+    let wrapCode: Bool
+
+    struct Cache {
+        var width: CGFloat = -1
+        var heights: [CGFloat] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    /// A row's height in a column `width` wide (its 20 pt margins already out), as the live
+    /// list lays it out: its native layout's when it draws natively at rest.
+    private func heights(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [CGFloat] {
+        if cache.width == width, cache.heights.count == subviews.count { return cache.heights }
+        let environment = ChatNativeEnvironment(width: width, category: category, wrapCode: wrapCode)
+        let heights = zip(rows, subviews).map { row, subview -> CGFloat in
+            if ChatNativeEligibility.drawsNatively(row, accessibilitySize: category.isAccessibilityCategory, wrapCode: wrapCode, isOpen: { _ in nil }),
+               let native = ChatNativeLayout.make(row.kind, id: row.id, expanded: false, environment: environment) {
+                return native.height
+            }
+            return subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+        cache = Cache(width: width, heights: heights)
+        return heights
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 0
+        let heights = heights(width: width, subviews: subviews, cache: &cache)
+        let total = zip(rows, heights).reduce(CGFloat(0)) { $0 + CGFloat($1.0.gap) + $1.1 }
+        return CGSize(width: width, height: total)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let heights = heights(width: bounds.width, subviews: subviews, cache: &cache)
+        var y = bounds.minY
+        for (index, subview) in subviews.enumerated() where index < rows.count {
+            y += CGFloat(rows[index].gap)
+            // At its own height, pinned to its slot's top (as `ChatRowTop` pins a hosted row).
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: nil))
+            y += heights[index]
+        }
+    }
+}
+
+/// A chat's Text and Width text size over the person's own (`ChatDisplaySettings.category`),
+/// as the live transcript's trait override (`ChatTranscriptController.applyDisplay`).
+struct ChatTextSize: ViewModifier {
+    let display: ChatDisplaySettings
+    @Environment(\.dynamicTypeSize) private var system
+
+    func body(content: Content) -> some View {
+        if let category = display.category(system: UIContentSizeCategory(system)), let size = DynamicTypeSize(category) {
+            content.environment(\.dynamicTypeSize, size)
+        } else {
+            content
+        }
+    }
+}
+
+/// Tests: each preview row's frame in window space (`AgentCardOpenGeometryTests` compares it with
+/// the live transcript's row at the same page size). Nothing is attached while no probe is set.
+struct PreviewRowProbe: ViewModifier {
+    let id: String
+    #if DEBUG
+    @MainActor static var report: (@MainActor (String, CGRect) -> Void)?
+    #endif
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        if let report = Self.report {
+            content.onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { report(id, $0) }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
@@ -121,20 +221,29 @@ final class AgentChatPreviewModel {
         if builder?.diffs !== store.diffs { builder = ChatTranscriptBuilder(diffs: store.diffs) }
         guard let builder else { return [] }
         let turns = frozen ?? store.turns
-        // The newest two turns, as the card showed before.
-        let shown = Array(turns.suffix(2))
-        let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
-                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false)
-        var out: [ChatRow] = []
-        var height: CGFloat = 0
-        for row in built.flatMap(\.rows).reversed() {
-            // The session line belongs to the chat's first turn only.
-            if row.id == "session-start", turns.count > 2 { continue }
-            out.append(row)
-            height += row.gap + row.estimatedHeight(width: 350)
-            if height > Self.budget { break }
+        // The newest turns that fill the page, as the page shows them: two newest turns shorter
+        // than the page left the card's top blank where the page shows older turns (the part
+        // of the page a card shows is its top). More turns are taken until the rows fill the
+        // budget or the chat begins.
+        var count = min(2, turns.count)
+        while true {
+            let shown = Array(turns.suffix(count))
+            let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
+                                      askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false,
+                                      earlierHistory: count >= turns.count && store.hasEarlierHistory)
+            var out: [ChatRow] = []
+            var height: CGFloat = 0
+            var filled = false
+            for row in built.flatMap(\.rows).reversed() {
+                // The session line belongs to the chat's first turn only.
+                if row.id == "session-start", count < turns.count { continue }
+                out.append(row)
+                height += row.gap + row.estimatedHeight(width: 350)
+                if height > Self.budget { filled = true; break }
+            }
+            if filled || count >= turns.count { return out.reversed() }
+            count = min(turns.count, count * 2)
         }
-        return out.reversed()
     }
 }
 #endif

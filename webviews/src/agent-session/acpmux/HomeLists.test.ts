@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { minutesAgo } from "../../gallery/clock";
 import { session } from "../../gallery/fixtures/acpmux";
-import { homeLists } from "./HomeLists";
+import { homeLists } from "./homeListsModel";
 import { withoutChildren } from "./sessionList";
 
 test("homeLists excludes unlisted and not-ready sessions, then caps each section", () => {

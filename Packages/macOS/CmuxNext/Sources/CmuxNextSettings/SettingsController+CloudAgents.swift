@@ -9,6 +9,6 @@ extension SettingsController {
     /// while a managed preference (docs/mdm) sets the key.
     public var stopAskingCloudAgents: (@MainActor () async -> Void)? {
         guard managedKeys[CloudAgentStartSetting.key] == nil else { return nil }
-        return { [weak self] in try? await self?.setSetting(at: CloudAgentStartSetting.path, to: .bool(true), by: .user) }
+        return { [weak self] in try? await self?.setSetting(at: CloudAgentStartSetting.configPath, to: .bool(true), by: .user) }
     }
 }

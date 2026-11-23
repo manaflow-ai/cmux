@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextVSCodeServer
+import CmuxNextWindowRules
 
 /// VS Code (Inline): Open Folder in VS Code (Inline)… serves a folder from the app's one
 /// `serve-web` server (`AppServices.vscodeServeWeb`) and opens it in a browser split to the right
@@ -31,14 +32,19 @@ enum VSCodeInlineHandlers {
 
     private static func openFolder(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let pane = try targetPane(invocation, context: context)
-        guard context.services.daemon(for: pane.pane).isLocal else { throw ActionFailure(message: VSCodeInlineStrings.thisMacOnly) }
-        let vscode = try installedVSCode()
-        let folder = folder(of: pane, invocation)
-        let byPerson = invocation.origin == .user
-        guard byPerson else {
-            guard let folder else { throw ActionFailure(message: VSCodeInlineStrings.noFolder) }
-            return serve(folder, vscode: vscode, beside: pane, byPerson: false, context: context)
+        let local = context.services.daemon(for: pane.pane).isLocal
+        let vscode = local ? (try? installedVSCode()) : nil
+        let shell = terminal(of: pane, invocation)
+        // Serve the terminal's folder, or ask in a panel that starts there (cmux-window-rules `files::vscode_open`).
+        let facts = WindowRules.VSCodeFacts(local: local, installed: vscode != nil, byPerson: invocation.origin == .user,
+                                            terminal: shell != nil, cwd: shell?.cwd)
+        let open = WindowRules().vscodeOpen(facts), decision = open?.decision
+        guard let vscode, decision == "serve" || decision == "panel" else {
+            throw ActionFailure(message: decision == "thisMacOnly" ? VSCodeInlineStrings.thisMacOnly
+                                    : decision == "notInstalled" ? VSCodeInlineStrings.notInstalled : VSCodeInlineStrings.noFolder)
         }
+        let folder = open?.folder
+        if decision == "serve", let folder { return serve(folder, vscode: vscode, beside: pane, byPerson: false, context: context) }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -90,12 +96,11 @@ enum VSCodeInlineHandlers {
         return pane
     }
 
-    /// The folder of the targeted terminal tab, else of `pane`'s selected one, if it reports one.
-    private static func folder(of pane: PaneController, _ invocation: ActionInvocation) -> String? {
+    /// The targeted terminal tab, else `pane`'s selected one, if it is a terminal.
+    private static func terminal(of pane: PaneController, _ invocation: ActionInvocation) -> TabModel? {
         let targeted = invocation.target.flatMap { $0.kind == .tab ? StripTabID($0.id) : nil }
-        guard let id = targeted ?? pane.stripModel.selectedID, let tab = pane.tab(id), tab.kind == .pty,
-              let cwd = tab.cwd?.trimmingCharacters(in: .whitespacesAndNewlines), cwd.hasPrefix("/") else { return nil }
-        return cwd
+        guard let id = targeted ?? pane.stripModel.selectedID, let tab = pane.tab(id), tab.kind == .pty else { return nil }
+        return tab
     }
 
     /// The installed VS Code app: by bundle id, else the usual install places; Insiders last.

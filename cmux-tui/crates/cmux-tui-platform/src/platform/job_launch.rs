@@ -24,8 +24,11 @@ pub fn foreground_job_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
     process_launch(super::foreground_process_group(pid)?, env_keys)
 }
 
+/// What process `pid` was started with: its argv and the values of
+/// `env_keys` it has. `None` when the process is gone, belongs to another
+/// user, or the platform refuses. One process, never an enumeration.
 #[cfg(target_os = "macos")]
-fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
+pub fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut argmax: libc::c_int = 0;
     let mut size = size_of::<libc::c_int>();
@@ -64,7 +67,7 @@ fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
 }
 
 #[cfg(target_os = "linux")]
-fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
+pub fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let environ = std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
     let argv = nul_strings(&cmdline).map(str::to_string).collect::<Vec<_>>();
@@ -72,7 +75,7 @@ fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_launch(_pid: u32, _env_keys: &[&str]) -> Option<JobLaunch> {
+pub fn process_launch(_pid: u32, _env_keys: &[&str]) -> Option<JobLaunch> {
     None
 }
 

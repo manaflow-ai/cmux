@@ -17,6 +17,14 @@ import {
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
+import { nextDocPages, nextDocPublicPath } from "../../data/next-docs/pages";
+import {
+  docsCanonicalOrigin,
+  docsPathAvailableInChannel,
+  isDocsPathname,
+  isDocsZoneDeployment,
+  type DocsChannel,
+} from "./docs-channel";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -258,6 +266,12 @@ export const agentReadablePages = [
     path: "/docs/agent-integrations/oh-my-claudecode",
     title: "oh-my-claudecode",
   },
+  // cmux-next docs, English only, at the URL cmux.com serves them from.
+  ...nextDocPages.map((page) => ({
+    path: nextDocPublicPath(page.slug),
+    title: `cmux-next: ${page.title}`,
+    locales: ["en"],
+  })),
   { path: "/docs/changelog", title: "Changelog" },
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
@@ -346,7 +360,35 @@ export function variantPathForPage(
   return canonicalPath === "/" ? `/index.${format}` : `${canonicalPath}.${format}`;
 }
 
-export function buildLlmsText(origin: string): string {
+/**
+ * A link in llms.txt, for the deployment serving it. cmux.com and previews
+ * serve every page under its public path. A docs zone (the deployment
+ * cmux.com/docs or /docs/nightly rewrites to, next.config.ts) serves only the
+ * docs of its own channel, at /docs/... without the /nightly prefix: those
+ * keep its own host and path, since cmux.com/docs reaches the release zone,
+ * which may not have them yet. Every other page names its public cmux.com URL.
+ */
+export function llmsLink(
+  origin: string,
+  publicPath: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  if (!isDocsZoneDeployment(env)) return `${origin}${publicPath}`;
+  const channel: DocsChannel = env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
+  const zonePath = publicPath.replace(/\/docs\/nightly(?=\/|\.|$)/u, "/docs");
+  // The channel tables match page paths: /docs/next.md is the page /docs/next.
+  const page = zonePath.replace(extensionPattern, "");
+  if (isDocsPathname(page) && docsPathAvailableInChannel(channel, page)) {
+    return `${origin}${zonePath}`;
+  }
+  return `${docsCanonicalOrigin()}${publicPath}`;
+}
+
+export function buildLlmsText(
+  origin: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const link = (path: string) => llmsLink(origin, path, env);
   const lines = [
     "# cmux",
     "",
@@ -382,15 +424,15 @@ export function buildLlmsText(origin: string): string {
     "- Automation: `cmux` CLI and Unix socket API, browser automation, hooks, skills, and custom commands",
     "- Remote tmux: attach to existing tmux sessions over SSH while preserving cmux workspaces and notifications.",
     "- Agent pages: every public page has Markdown and plain-text variants for AI crawlers and answer engines.",
-    `- Download: ${origin}/docs/getting-started`,
-    `- Updates: ${origin}/feed.xml`,
+    `- Download: ${link("/docs/getting-started")}`,
+    `- Updates: ${link("/feed.xml")}`,
     "- Source: https://github.com/manaflow-ai/cmux",
     "",
     "## Comparisons and buying guides",
     "",
     ...comparePages.map(
       (page) =>
-        `- [${comparePageTitles[page.key]}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
+        `- [${comparePageTitles[page.key]}](${link(comparePath(page.slug))}): ${llmsCompareDescriptions[page.slug]}`,
     ),
     "",
     "## Page variants",
@@ -400,8 +442,8 @@ export function buildLlmsText(origin: string): string {
     "## Agent-readable pages",
     "",
     ...agentReadablePages.flatMap(({ path, title }) => [
-      `- [${title}](${origin}${variantPathForPage(path, "md")})`,
-      `  - Text: ${origin}${variantPathForPage(path, "txt")}`,
+      `- [${title}](${link(variantPathForPage(path, "md"))})`,
+      `  - Text: ${link(variantPathForPage(path, "txt"))}`,
     ]),
     "",
     "Localized pages use the same extension pattern with the locale prefix, for example `/ja/docs/getting-started.md`.",
@@ -480,9 +522,25 @@ const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
   agentReadablePages.map((page) => [page.path, page]),
 );
 
+/**
+ * The nightly docs zone gets /docs/nightly/next/... without its /nightly
+ * prefix (next.config.ts rewrites), so it looks cmux-next pages up by the
+ * public path.
+ */
+function publicDocsPath(path: string): string {
+  return /^\/docs\/next(?:\/|$)/u.test(path) ? path.replace(/^\/docs/u, "/docs/nightly") : path;
+}
+
+/** Whether a page's canonical path is a page that exists only in English. */
+export function isEnglishOnlyAgentPage(canonicalPath: string): boolean {
+  const { path } = basePagePath(canonicalPath);
+  const page = agentReadablePageByPath.get(publicDocsPath(path));
+  return page?.locales?.length === 1 && page.locales[0] === "en";
+}
+
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
-  const page = agentReadablePageByPath.get(path);
+  const page = agentReadablePageByPath.get(publicDocsPath(path));
   if (page) {
     return !locale || !page.locales || page.locales.includes(locale);
   }

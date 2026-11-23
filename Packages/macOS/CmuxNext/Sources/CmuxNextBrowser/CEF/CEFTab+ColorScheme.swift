@@ -40,6 +40,7 @@ enum CEFColorScheme {
         if tab.runtime.forkFeatures.rendererPaths, !tab.devToolsModes.isOn(.toggleReducedMotion),
            let setScheme = tab.runtime.shim?.tabSetColorScheme {
             tab.sentColorScheme = setScheme(browserID, wanted == "dark" ? 2 : 1) == 1 ? wanted : nil
+            if tab.sentColorScheme == wanted { tab.colorSchemeWasSent(dark: wanted == "dark") }
             return
         }
         tab.sentColorScheme = wanted
@@ -60,6 +61,8 @@ enum CEFColorScheme {
                 runtime.logger.info("color scheme: \(media.method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
+        // After the scheme's call, on the same DevTools session: the read sees the page in it.
+        tab.colorSchemeWasSent(dark: wanted == "dark")
     }
 
     /// The `prefers-color-scheme` value to emulate: the tab's own choice, or

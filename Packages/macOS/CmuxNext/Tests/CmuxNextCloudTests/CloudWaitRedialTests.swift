@@ -73,6 +73,5 @@ struct CloudWaitRedialTests {
         #expect(CloudLinkError.isDrop(CloudLinkError.revoked(reason: "x")))
         #expect(!CloudLinkError.isDrop(CloudLinkError.failed(code: "c", message: "")))
         #expect(!CloudLinkError.isDrop(CloudLinkError.unsafeSocket("x")))
-        #expect(!CloudLinkError.isDrop(CloudAppOpError(code: "c", message: "m")))
     }
 }

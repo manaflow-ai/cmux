@@ -67,6 +67,13 @@ public final class CloudCredentialProvider {
         }
     }
 
+    /// Cloud turned off or back on by an organization's policy (``CloudCredentialRelay/policy``):
+    /// turned off, every call in flight ends and later ones are refused.
+    public func setTurnedOff(_ turnedOff: Bool) {
+        relay.policy.set(turnedOff: turnedOff)
+        if turnedOff { stop() }
+    }
+
     /// Ends every call in flight (sign-out, quit, connection gone).
     public func stop() {
         for task in running.values { task.cancel() }

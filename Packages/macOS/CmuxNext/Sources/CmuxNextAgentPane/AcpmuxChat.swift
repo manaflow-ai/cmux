@@ -24,11 +24,36 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
     /// never listed on its own (Leo 2026-10-13).
     public var parent: String?
+    /// What a query window found in the chat's prompts and answers (acpmux `match`, `chats/text.rs`);
+    /// nil for a chat found by its title or listed without a query.
+    public var said: Said?
+
+    /// A message of the chat that holds every word of the query: its turn (`_acpmux/chat_transcript`'s
+    /// turns), whether it is the prompt or the answer, a short snippet of it, the snippet's characters
+    /// (Unicode scalar offsets) that are part of a word, and how many of the chat's messages hold them.
+    public nonisolated struct Said: Hashable, Sendable {
+        public let turn: Int
+        public let isAnswer: Bool
+        public let snippet: String
+        public let highlights: [Int]
+        public let matches: Int
+
+        public init(turn: Int, isAnswer: Bool, snippet: String, highlights: [Int] = [], matches: Int = 1) {
+            (self.turn, self.isAnswer, self.snippet, self.highlights, self.matches) = (turn, isAnswer, snippet, highlights, matches)
+        }
+
+        init?(json: [String: Any]?) {
+            guard let json, let snippet = json["snippet"] as? String, let turn = (json["turn"] as? NSNumber)?.intValue else { return nil }
+            self.init(turn: turn, isAnswer: json["role"] as? String == "answer", snippet: snippet,
+                      highlights: (json["highlights"] as? [NSNumber] ?? []).map(\.intValue),
+                      matches: (json["matches"] as? NSNumber)?.intValue ?? 1)
+        }
+    }
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
                 roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
-                preview: String? = nil, parent: String? = nil) {
+                preview: String? = nil, parent: String? = nil, said: Said? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -44,6 +69,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.attention = attention
         self.preview = preview
         self.parent = parent
+        self.said = said
     }
 
     /// Decodes the daemon's `chat_value` object. Unknown optional fields are ignored.
@@ -62,7 +88,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
                   sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
                   attention: json["attention"] as? String, preview: json["preview"] as? String,
-                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  said: Said(json: json["match"] as? [String: Any]))
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

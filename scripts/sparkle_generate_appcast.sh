@@ -47,25 +47,52 @@ trap cleanup EXIT
 # in every nightly variant job. SPARKLE_TOOLS_DIR points at an existing tools
 # directory (tests); other versions still build from source.
 SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+# The release asset id of Sparkle-2.8.1.tar.xz, for the API fallback.
+SPARKLE_281_ASSET_ID="316680272"
 if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
   tools_dir="$SPARKLE_TOOLS_DIR"
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
-  echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --connect-timeout 15 --max-time 300 -o "$tarball" \
-    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  # The tarball is kept on the Mac (checksum checked on every use): the download took 2.5 min in
+  # build-nightly-deltas of run 44152453711, and nightly-next now builds deltas on the signer's critical
+  # path (hq#13299). A missing, unwritable or mismatched cache just downloads again.
+  cache_dir="${SPARKLE_TOOLS_CACHE_DIR:-${HOME:-/nonexistent}/Library/Caches/cmux-ci/sparkle}"
+  cached="$cache_dir/Sparkle-${SPARKLE_VERSION}-${SPARKLE_281_TARBALL_SHA256:0:16}.tar.xz"
+  if [[ -f "$cached" ]] && [[ "$(shasum -a 256 "$cached" | awk '{print $1}')" == "$SPARKLE_281_TARBALL_SHA256" ]]; then
+    echo "Using cached Sparkle ${SPARKLE_VERSION} tools ($cached)"
+    cp "$cached" "$tarball"
+    cached=""
+  else
+  echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
+  # github.com's release download path answered 504 for over an hour on
+  # 2026-11-08 (nightly runs 42462657834, 42464844265) while the API's asset
+  # endpoint served the same file. Over HTTP/2 that 504 is curl exit 56, which
+  # plain --retry never retries, so retry every error, then fall back to the
+  # asset endpoint. The checksum below checks whichever answered.
+  sparkle_download() {
+    curl --fail --silent --show-error --location --retry 4 --retry-delay 10 --retry-max-time 90 --retry-all-errors \
+      --connect-timeout 15 --max-time 300 -o "$tarball" "$@"
+  }
+  if ! sparkle_download "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"; then
+    echo "Sparkle release download failed; trying the GitHub API asset endpoint" >&2
+    sparkle_download -H "Accept: application/octet-stream" \
+      "https://api.github.com/repos/sparkle-project/Sparkle/releases/assets/${SPARKLE_281_ASSET_ID}"
+  fi
+  fi
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
     echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
     exit 1
+  fi
+  if [[ -n "$cached" ]] && mkdir -p "$cache_dir" 2>/dev/null && cp "$tarball" "$cached.partial.$$" 2>/dev/null; then
+    mv -f "$cached.partial.$$" "$cached" 2>/dev/null || rm -f "$cached.partial.$$"
   fi
   mkdir -p "$work_dir/Sparkle"
   tar -xf "$tarball" -C "$work_dir/Sparkle" ./bin
   tools_dir="$work_dir/Sparkle/bin"
 else
   echo "Cloning Sparkle ${SPARKLE_VERSION}..."
-  git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+  GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120 git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
   for scheme in generate_appcast sign_update BinaryDelta; do
     echo "Building Sparkle $scheme tool..."
     xcodebuild \

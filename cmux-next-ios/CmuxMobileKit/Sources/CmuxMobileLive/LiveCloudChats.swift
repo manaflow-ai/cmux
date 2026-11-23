@@ -152,6 +152,11 @@ public final class CloudChatRelay {
         hub = AcpmuxHub()
     }
 
+    /// How long the phone waits for `session/new`: past hostd's whole start (list, workspace and tab
+    /// at 15 s each, then 90 s for the agent; cloud_acp.rs `DEADLINE`, `START_DEADLINE`), so a slow
+    /// start that hostd still finishes is not given up here first.
+    static let startTimeout: Duration = .seconds(3 * 15 + 90 + 10)
+
     /// Starts a Claude chat on this machine (hostd's `session/new`: the machine makes its folder
     /// and the chat asks before acting) and returns its session id, already in `hub.sessions`.
     public func startChat() async throws -> String {
@@ -160,7 +165,7 @@ public final class CloudChatRelay {
             reply = try await hub.request("session/new", .object([
                 "mcpServers": .array([]),
                 "_meta": .object(["acpmux": .object(["harness": .string("claude"), "policy": .string("ask")])]),
-            ]), timeout: .seconds(95))
+            ]), timeout: Self.startTimeout)
         } catch {
             throw CloudChatStartError(message: AcpmuxSessionSource.message(error))
         }
@@ -175,11 +180,12 @@ public final class CloudChatRelay {
         guard !isRetired, let session = hub.sessions[sessionID], session.peer == nil else { return nil }
         if let store = stores[sessionID] { return store }
         let summary = AgentSessionSummary(
-            id: session.id, name: session.name, harness: session.harness, agentName: session.harness,
+            id: session.id, name: session.shownName ?? "", harness: session.harness, agentName: session.harness,
             cwd: session.cwd, workspaceTitle: machine.name, macName: machine.name,
             status: session.summaryStatus, macID: macID
         )
         let store = AgentChatStore(source: hub.source(sessionID: sessionID, summary: summary))
+        store.boundsMemoryOffScreen()
         stores[sessionID] = store
         return store
     }

@@ -11,7 +11,8 @@ public nonisolated struct RemoteLocalhostSetting: Sendable, Hashable {
     public var enabled: Bool
     public var workspaceOverrides: [String: Bool]
 
-    public static let fallback = RemoteLocalhostSetting(enabled: true, workspaceOverrides: [:])
+    /// `remoteLocalhostDefault` is schemas/settings/source/browser.json's (SettingsSchema+Browser.generated.swift).
+    public static let fallback = RemoteLocalhostSetting(enabled: remoteLocalhostDefault, workspaceOverrides: [:])
 
     public init(enabled: Bool, workspaceOverrides: [String: Bool]) {
         self.enabled = enabled

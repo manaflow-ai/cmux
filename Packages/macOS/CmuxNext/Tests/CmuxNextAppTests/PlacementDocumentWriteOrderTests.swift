@@ -112,8 +112,8 @@ struct PlacementDocumentWriteOrderTests {
         // before replacing it, so opening the window cannot replace ours.
         _ = services.sidebarLayout
         let initial = try Self.document(order: Self.original, revision: 1)
-        let clientMirror = try #require(SidebarMirror.make(), "this regression requires the real Rust sidebar mirror FFI")
-        let serverMirror = try #require(SidebarMirror.make())
+        let clientMirror = SidebarMirror()
+        let serverMirror = SidebarMirror()
         try #require(serverMirror.load(initial))
         let remote = Remote(document: initial, reducer: serverMirror)
         defer { remote.close() }
@@ -189,7 +189,7 @@ struct PlacementDocumentWriteOrderTests {
             controller.sidebar.sameTurn.syncNow(rows: true)
             #expect(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == Self.expected)
             // Fresh mirror: no client pending intents can mask a bad save.
-            let reloaded = try #require(SidebarMirror.make())
+            let reloaded = SidebarMirror()
             try #require(reloaded.load(remote.document))
             #expect(reloaded.rows(SidebarViewRequest(live: Self.live))?.compactMap(\.ref?.workspaceID) == Self.expected)
             if ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1" {

@@ -1,6 +1,8 @@
-import { COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
+import { billedMetersSql, COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
 import { lastSeenSeats, teamModeAt } from "./usage-billing-store.ts"
+import type { IncludedMode, UsagePriceSet } from "./billing-catalog.ts"
+import { addPeriodSpend, teamCapState } from "./team-cap.ts"
 
 /**
  * The per-user monthly AI spending counter (cx-ds09i, Lawrence 2026-10-12), kept by the team's
@@ -37,33 +39,57 @@ export const addUserSpend = (sql: SqlStorage, month: string, user: string, micro
 /** The cost of one usage record to us, in micro-dollars (money meters are USD, count meters at their unit cost). */
 export const recordCostMicros = (meter: Meter, quantity: number) => (MONEY_METERS.has(meter) ? quantity * 1_000_000 : quantity * COST_USD_PER_UNIT[meter] * 1_000_000)
 
-/** `included`: the refusal is the included-amount stop (team spend), not the member limit (cx-y79zh S5). */
-export type UserReserve = { readonly ok: true } | { readonly ok: false; readonly spent_usd: number; readonly limit_usd: number; readonly included?: true }
+/**
+ * `included`: the refusal is the included-amount stop (team spend), not the member limit (cx-y79zh S5). `team_cap`: the
+ * team spending cap (team-cap.ts), with the period end its spend resets at.
+ */
+export type UserReserve = { readonly ok: true } | { readonly ok: false; readonly spent_usd: number; readonly limit_usd: number; readonly included?: true } | { readonly ok: false; readonly team_cap: true; readonly spent_usd: number; readonly cap_usd: number; readonly period_end: number }
+
+/** The team spending cap a reservation is checked against (price set v2, billing-catalog.ts teamCapApplies). */
+export interface ReserveTeamCap {
+  readonly set: UsagePriceSet
+  /** The admin's cap (UsageMeterDO state, usage.cap.set), or null for the set's default. */
+  readonly admin_cap_usd: number | null
+  /** The raise lock's limit in pools (billing-catalog.ts teamCapUnpaidMaxPools); absent = the default. */
+  readonly unpaid_max_pools?: number
+}
 
 /** How long a billable mark outlives its period end and its last sync (the sync runs every 15 minutes). */
 export const BILLABLE_GRACE_MS = 2 * 3600_000
 
 /**
  * The included-amount stop inside the reservation's transaction (S5 review P2: two calls cannot both
- * pass it): a team with a fresh billable mark passes; any other team's settled model spend plus open
+ * pass it): a team with a fresh billable mark passes; any other team's settled billable spend (BILLABLE_METERS:
+ * models and Cloud machine time) plus open
  * reservations plus this call's maximum must stay within `includedMicros` this UTC month. A team the
- * operator set per seat (in force at the month's start) gets the amount times its last billable seats.
+ * operator set per seat (in force at the month's start) gets the amount times its last billable seats;
+ * with no setting, `fallback` decides (the plan's default in the price set in force, per seat for Team in v2).
  */
-const includedRefusal = (sql: SqlStorage, month: string, perTeamMicros: number, maxMicros: number, now: number): UserReserve | null => {
+const includedRefusal = (sql: SqlStorage, month: string, perTeamMicros: number, maxMicros: number, now: number, fallback: IncludedMode, machineTime: boolean): UserReserve | null => {
   const fresh = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ?`, BILLABLE_GRACE_MS, now, now - BILLABLE_GRACE_MS).one().n
   if (Number(fresh) > 0) return null
-  const includedMicros = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? perTeamMicros * lastSeenSeats(sql, now) : perTeamMicros
-  const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+  const includedMicros = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`), fallback) === "per_seat" ? perTeamMicros * lastSeenSeats(sql, now) : perTeamMicros
+  const spent = Number(sql.exec<{ m: number | null }>(`SELECT SUM(usd_micros) AS m FROM usage_month WHERE month = ? AND meter IN ${billedMetersSql(machineTime)}`, month).toArray()[0]?.m ?? 0)
   const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
   return spent + open + maxMicros <= includedMicros ? null : { ok: false, included: true, spent_usd: Math.round(spent + open) / 1_000_000, limit_usd: includedMicros / 1_000_000 }
 }
 
-export const reserveUser = (storage: DurableObjectStorage, month: string, user: string, id: string, maxMicros: number, limitMicros: number, now: number, includedMicros?: number): UserReserve => {
+export const reserveUser = (storage: DurableObjectStorage, month: string, user: string, id: string, maxMicros: number, limitMicros: number, now: number, includedMicros?: number, includedFallback: IncludedMode = "per_team", machineTime = false, teamCap?: ReserveTeamCap): UserReserve => {
   const sql = storage.sql
   return storage.transactionSync(() => {
     if (includedMicros !== undefined) {
-      const refused = includedRefusal(sql, month, includedMicros, maxMicros, now)
+      const refused = includedRefusal(sql, month, includedMicros, maxMicros, now, includedFallback, machineTime)
       if (refused) return refused
+    }
+    // The team spending cap, in the same transaction as the reservation (like the included stop): open calls count at
+    // their reserved maximum, so concurrent calls cannot all pass just under the cap. A call whose maximum would take
+    // the period's billed spend past the cap is refused.
+    if (teamCap) {
+      const cap = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd, maxMicros, teamCap.unpaid_max_pools)
+      if (cap.cap_micros !== null && cap.spent_micros > cap.cap_micros) {
+        const before = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd, 0, teamCap.unpaid_max_pools)
+        return { ok: false as const, team_cap: true as const, spent_usd: before.spent_usd, cap_usd: cap.cap_usd!, period_end: cap.period_end }
+      }
     }
     const { spent, open } = userSpentMicros(sql, month, user)
     if (spent + open + maxMicros > limitMicros) return { ok: false as const, spent_usd: Math.round(spent) / 1_000_000, limit_usd: limitMicros / 1_000_000 }
@@ -87,6 +113,8 @@ const writeCallFact = (sql: SqlStorage, key: string, source: string, month: stri
   // Signed: a late settle below the expired reservation lowers both counters (a correction is a new fact).
   sql.exec(`INSERT INTO user_month (month, user, usd_micros) VALUES (?, ?, ?) ON CONFLICT (month, user) DO UPDATE SET usd_micros = usd_micros + excluded.usd_micros`, month, user, micros)
   sql.exec(`INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, 'model.spend_usd', ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity, usd_micros = usd_micros + excluded.usd_micros`, month, micros / 1_000_000, micros)
+  // The team cap's running period total (team-cap.ts), at the fact's recorded time like the billing level.
+  addPeriodSpend(sql, "model.spend_usd", micros, now)
   return true
 }
 

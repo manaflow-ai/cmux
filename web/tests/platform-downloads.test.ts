@@ -142,21 +142,16 @@ describe("Windows and Linux downloads", () => {
   });
 
   test("publishes Linux and keeps unavailable Windows out of the sitemap", () => {
-    expect(
-      sitemap().filter((entry) =>
-        new URL(entry.url).pathname.endsWith(BROWSER_NIGHTLY_PAGE),
-      ),
-    ).toHaveLength(locales.length);
-    expect(
-      sitemap().filter((entry) =>
-        new URL(entry.url).pathname.endsWith("/windows"),
-      ),
-    ).toEqual([]);
-    expect(
-      sitemap().filter((entry) =>
-        new URL(entry.url).pathname.endsWith("/linux"),
-      ),
-    ).toHaveLength(locales.length);
+    // The page's own path in each locale, not any path ending the same way
+    // (the cmux-next docs page /docs/nightly/next/browser).
+    const entriesFor = (page: string) =>
+      sitemap().filter((entry) => {
+        const pathname = new URL(entry.url).pathname;
+        return locales.some((locale) => pathname === (locale === "en" ? page : `/${locale}${page}`));
+      });
+    expect(entriesFor(BROWSER_NIGHTLY_PAGE)).toHaveLength(locales.length);
+    expect(entriesFor("/windows")).toEqual([]);
+    expect(entriesFor("/linux")).toHaveLength(locales.length);
   });
 
   test("makes Browser downloads discoverable without enabling unsigned platforms", async () => {

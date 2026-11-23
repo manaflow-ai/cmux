@@ -2,15 +2,17 @@
 // Retry on a subagent's end line (SubagentDoneLine.tsx, retryState.ts), for Leo's two rows that
 // died on a transient capacity error (2026-10-26: "this needs to retry :("). While acpmux waits to
 // retry, the line reads "Retrying (2/4) after a capacity error" with the turning ring, never a dot.
-// A failed line offers Retry, inline and in its ⋯ menu (shown on hover); one acpmux gave up on says
-// how many tries it had; a Task subagent acpmux cannot retry offers "Ask parent to retry". Three
-// places for the failed line's Retry are compared: an inline button (the pick), a link after the
-// line, and the ⋯ menu alone. Synthetic data.
+// A failed line offers Retry once, on hover: on the line, or only in its ⋯ menu, never both; one
+// acpmux gave up on says how many tries it had; a Task subagent acpmux cannot retry offers none
+// (Leo, 2026-11-14: "we maybe want to remove the "ask parent to retry" if we haven't already"). A
+// subagent the harness refused to start is one quiet line with nothing to click. Three places for
+// the failed line's Retry are compared: an inline button (the pick), a link after the line, and the
+// ⋯ menu alone. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import type { RetryAffordance } from "./SubagentDoneLine";
+import type { RetryAffordance } from "./subagentDoneLineModel";
 import type { Subagent } from "./subagentFold";
 import { failedLineLook } from "./failedLine.experiment";
 
@@ -63,6 +65,14 @@ const THREE = [
     endedAt: minutesAgo(40 - 21.95),
   }),
 ];
+/// Leo's row (2026-11-11: "this is kind of weird tbh"): a subagent Claude Code refused to start, 13ms
+/// after the Agent call, on its concurrent subagent limit. The parent's own failed tool call.
+const REFUSAL =
+  "Concurrent subagent limit reached. You can run 40 subagents at once. Do not retry. If the user wants more concurrent subagents, ask them to increase CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS.";
+const refused = (name: string, fields: Partial<Subagent> = {}) =>
+  agent(name, name, { startedAt: minutesAgo(20), endedAt: minutesAgo(20) + 13, error: REFUSAL, ...fields });
+const REFUSED = [refused("Why only some messages are forked")];
+
 const MIXED = [
   THREE[0]!,
   overview({ retryable: true, retry: { attempt: 2, of: 4, ...capacity } }),
@@ -89,7 +99,8 @@ export default componentEntry<Props>({
   ],
   experiment: { definition: failedLineLook, script: [{ name: "Leo's three failed lines", run: async () => {} }] },
   load: async () => {
-    const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { RetryAffordanceContext } = await import("./subagentDoneLineModel");
     const { TurnActionsContext } = await import("../conversation/turnActions");
     const { SUBAGENT_DONE } = await import("./subagentRows");
     const restartSubagent = () => {};
@@ -129,7 +140,7 @@ export default componentEntry<Props>({
       props: { lines: MIXED },
     },
     "grid-long-cells": {
-      note: "The grid's growing cells: Ask parent to retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      note: "The grid's growing cells: a subagent acpmux cannot retry (no Retry, its cell left empty), and a run past an hour. Retry and the time grow instead of spilling into the next column.",
       props: {
         lines: [
           THREE[0]!,
@@ -151,7 +162,7 @@ export default componentEntry<Props>({
       props: { lines: [overview({ retryable: true }), relay({ retryable: true })], base: true },
     },
     "failed-capacity": {
-      note: "The pick. A failed line acpmux can retry: Retry as a small outlined button right after it, always shown; its ⋯ menu (on hover) has Retry and Ask parent to retry.",
+      note: "The pick. A failed line acpmux can retry: Retry as a small quiet button in its column, shown on hover; no ⋯ menu repeating it and no Restart beside it.",
       props: { lines: FAILED, affordance: "button" },
     },
     "failed-link": {
@@ -164,9 +175,28 @@ export default componentEntry<Props>({
       play: openMenu,
     },
     "menu-open": {
-      note: "The pick's ⋯ menu, opened: Retry (acpmux) and Ask parent to retry.",
-      props: { lines: [overview({ retryable: true })], affordance: "button" },
+      note: "The ⋯ menu exists only where the line has no Retry of its own (the menu affordance): opened, its one Retry.",
+      props: { lines: [overview({ retryable: true })], affordance: "menu" },
       play: openMenu,
+    },
+    "refused-spawn": {
+      note: "Leo's row (2026-11-11: \"this is kind of weird tbh\"): a subagent the harness refused to start. It is the parent's own failed tool call: its name and the harness's one short reason, no Retry, no Restart, no menu, no time.",
+      props: { lines: REFUSED },
+    },
+    "refused-hover": {
+      note: "The refused row under the pointer: nothing appears, as nothing on it acts.",
+      props: { lines: REFUSED },
+    },
+    "refused-among-lines": {
+      note: "A refused row beside a failed run, a finished one and another refusal: only the run that failed offers Retry (on hover), and the refused rows stay one quiet line each.",
+      props: {
+        lines: [
+          REFUSED[0]!,
+          THREE[0]!,
+          agent("Docs pass", "Tighten the running tray spec", { state: "completed", endedAt: minutesAgo(30) }),
+          refused("Audit the transcript chrome", { retryable: true }),
+        ],
+      },
     },
     retrying: {
       note: "acpmux waits to retry: the turning ring and 'Retrying (2/4) after a capacity error'; no Retry while it waits.",
@@ -181,8 +211,8 @@ export default componentEntry<Props>({
       note: "acpmux gave up after its last try: the line says so, and Retry runs it once more.",
       props: { lines: [relay({ retryable: true, retriedOut: { attempt: 4, of: 4, reason: "capacity" } })] },
     },
-    "task-ask-parent": {
-      note: "A Task subagent acpmux cannot retry (no `retryable`): Ask parent to retry, which sends the chat one line naming the task and its description.",
+    "task-no-retry": {
+      note: "A Task subagent acpmux cannot retry (no `retryable`): no Retry and no ⋯ menu; the chat's agent already read the error.",
       props: { lines: [relay()] },
     },
   },

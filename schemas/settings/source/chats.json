@@ -8,7 +8,7 @@
         "key": "settings.group.chats",
         "text": "Chats"
       },
-      "note": "Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage.",
+      "note": "Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage. The default `cmux chat` target is a CLI default the person may ask an agent to set.",
       "rows": [
         {
           "key": "agents.chats.enabled",
@@ -55,7 +55,7 @@
           },
           "help": {
             "key": "settings.chats.roots.help",
-            "text": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+            "text": "Folders agents may also use."
           },
           "summary": {
             "key": "settings.chats.roots.summary",
@@ -79,7 +79,7 @@
           },
           "help": {
             "key": "settings.chats.sessionRecap.help",
-            "text": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+            "text": "A line on where a Claude chat stands when you come back. Each is a small model call."
           },
           "kind": "toggle",
           "default": true,
@@ -90,6 +90,151 @@
             "summary",
             "away",
             "claude"
+          ]
+        },
+        {
+          "key": "agents.chats.coldArchive",
+          "name": "coldArchive",
+          "note": "Off by default (Leo, 2026-11-09: \"potentially auto compress old history to save disk? some sort of cold archival thing\"). On: the acpmux daemon moves the log of every chat idle for coldArchiveAfterDays into one zstd file and keeps a preview (title, last messages, sizes) in the chat list; opening the chat brings the log back byte for byte (cmux-tui acpmux hub/cold_archive.rs, read from the settings file at each pass).",
+          "title": {
+            "key": "settings.chats.coldArchive",
+            "text": "Compress Old Chats"
+          },
+          "help": {
+            "key": "settings.chats.coldArchive.help",
+            "text": "Unused chats are compressed into one small file each and open as before."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "cold",
+            "compress",
+            "disk",
+            "storage",
+            "old",
+            "history"
+          ]
+        },
+        {
+          "key": "agents.chats.coldArchiveAfterDays",
+          "name": "coldArchiveAfterDays",
+          "note": "Days with no new record and no change before Compress Old Chats compresses a chat. 30 by default.",
+          "title": {
+            "key": "settings.chats.coldArchiveAfterDays",
+            "text": "Compress Chats Idle For"
+          },
+          "help": {
+            "key": "settings.chats.coldArchiveAfterDays.help",
+            "text": "Days unused before a chat is compressed. Busy chats never are."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 30,
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "cold",
+            "compress",
+            "disk",
+            "idle",
+            "days"
+          ]
+        },
+        {
+          "key": "agents.chats.archiveInactive",
+          "name": "archiveInactive",
+          "note": "Never by default (Leo, 2026-11-18: \"there's the archived/settled chats for it, etc\", the Claude app's Archive inactive sessions). A number of days: the acpmux daemon archives every chat with no activity for that long (tags archived=<ms> and archivedBy=auto), never one that is running or waiting, has background commands or subagents, is pinned or is a side chat; a pass every 10 minutes, read from the settings file at each pass (cmux-tui acpmux hub/inactive_archive.rs). The daemon also reads a plain number of days.",
+          "title": {
+            "key": "settings.chats.archiveInactive",
+            "text": "Archive Inactive Chats"
+          },
+          "help": {
+            "key": "settings.chats.archiveInactive.help",
+            "text": "Archives chats after a period of no activity. Chats that are running or have background work never are."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.archiveInactiveNever",
+                "text": "Never"
+              }
+            },
+            {
+              "value": "1d",
+              "title": {
+                "key": "settings.choice.archiveInactiveOneDay",
+                "text": "After 1 Day"
+              }
+            },
+            {
+              "value": "3d",
+              "title": {
+                "key": "settings.choice.archiveInactiveThreeDays",
+                "text": "After 3 Days"
+              }
+            },
+            {
+              "value": "7d",
+              "title": {
+                "key": "settings.choice.archiveInactiveSevenDays",
+                "text": "After 7 Days"
+              }
+            },
+            {
+              "value": "30d",
+              "title": {
+                "key": "settings.choice.archiveInactiveThirtyDays",
+                "text": "After 30 Days"
+              }
+            }
+          ],
+          "default": "never",
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "archived",
+            "settled",
+            "inactive",
+            "idle",
+            "auto archive",
+            "days"
+          ]
+        },
+        {
+          "key": "chat.on",
+          "name": "chatOn",
+          "note": "The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: \"cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret\".",
+          "title": {
+            "key": "settings.chats.on",
+            "text": "Default Chat Target"
+          },
+          "help": {
+            "key": "settings.chats.on.help",
+            "text": "Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "chat",
+            "cli",
+            "target",
+            "on",
+            "device",
+            "vm",
+            "cloud",
+            "default"
           ]
         }
       ]

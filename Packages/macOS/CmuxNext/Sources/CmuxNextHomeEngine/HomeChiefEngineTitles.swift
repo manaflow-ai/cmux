@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The pickers' items and their "Default" titles for one snapshot: "Default"

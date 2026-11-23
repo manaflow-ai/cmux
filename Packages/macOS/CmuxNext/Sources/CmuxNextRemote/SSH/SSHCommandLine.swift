@@ -13,6 +13,8 @@ public import Foundation
 /// `StreamLocalBindUnlink`/stale-socket races, no `AllowStreamLocalForwarding`
 /// requirement on the server, and the link resumes reliable sequence
 /// numbers across short drops instead of resetting every attachment.
+/// The link is the only layer that redials (cmuxterm-hq#7766): it stays up
+/// under its own budget while the app holds it, so no attempt cap is passed.
 ///
 /// Every ssh gets ``enforcedOptions``: no prompts (the app has no TTY, so a
 /// prompt would hang or fail obscurely), and no agent, X11 or port
@@ -33,10 +35,6 @@ public struct SSHCommandLine: Sendable {
         "-oClearAllForwardings=yes",
         "-oPermitLocalCommand=no",
     ]
-
-    /// Link retries inside one `remote connect` before it exits and the
-    /// app's event-driven retry takes over.
-    public static let linkReconnectAttempts = 5
 
     public var sshBinary: String
 
@@ -91,7 +89,6 @@ public struct SSHCommandLine: Sendable {
             "--state-dir", clientStateDir,
             "--local-socket", localSocket,
             "--connect-timeout-seconds", "30",
-            "--reconnect-attempts", String(Self.linkReconnectAttempts),
         ]
         if let stateDir = host.remoteStateDir { args += ["--remote-state-dir", stateDir] }
         if let socket = host.remoteMuxSocket { args += ["--remote-mux-socket", socket] }

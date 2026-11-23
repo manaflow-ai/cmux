@@ -71,22 +71,28 @@ fn tools() -> Value {
 }
 
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
-or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
-user asked for one. When you notice side work the user would likely want (a bug, a follow-up, a \
-cleanup) that does not belong in this task, offer it instead of doing it inline or only mentioning \
-it: the chat draws it as a card the user starts as a new chat, or has you do here.";
+pub const INSTRUCTIONS: &str = "Side work the user did not ask for (a bug, a follow-up, a \
+cleanup): offer it with offer_session (one task) or suggest_tasks (several) instead of doing it \
+inline or only mentioning it; start a session yourself only when the user asked for one.";
 
-/// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(
+    daemon: &std::sync::Arc<crate::tools_mcp::Daemon>,
+) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         Some(INSTRUCTIONS.to_owned()),
+        daemon,
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
-    .await
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    crate::tools_mcp::serve_one(served).await
 }
 
 async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
@@ -124,7 +130,7 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
             return error_result(format!("task {} {e} (none was offered)", n + 1));
         }
     }
-    let nonce: String = crate::hub::person::new_nonce().chars().take(16).collect();
+    let nonce: String = crate::person_tokens::new_nonce().chars().take(16).collect();
     let group = format!("g-{nonce}");
     let mut offered = Vec::new();
     for (n, task) in tasks.iter().enumerate() {

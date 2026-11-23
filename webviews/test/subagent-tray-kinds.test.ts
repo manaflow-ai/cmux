@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -52,12 +53,16 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
         if ((await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")) !== "true")
           await page.click(".acpmux-running-tray__head");
         await page.waitForFunction(
-          () => document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === 5,
+          ({ RUNNING_TRAY_LIST_LINE }) => document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length === 5,
+          { RUNNING_TRAY_LIST_LINE },
         );
         await page.evaluate(() => {
           for (const animation of document.getAnimations())
             if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
         });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): the leaving words go
+        // once their animation's end lands, a turn after it finishes.
+        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const geometry = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;

@@ -1,0 +1,682 @@
+#!/usr/bin/env python3
+"""Palette coverage: everything a person can do from the `cmux` CLI or a menu in NEXT has a command palette entry.
+
+Leo, 2026-11-08 (cmuxterm-hq goals/palette-all-actions.md): every CLI and menu action has a palette entry, and the
+palette takes the same keys as lists. This compares the lists and prints what the palette is missing; NOW's
+`palette_coverage` reads the same two files with the same rules, so the goal's number is this script's count.
+
+The lists, from plans/cmux-next/action-surfaces.json (the app's own export, kept fresh by
+scripts/cmux-next/check-action-surfaces.sh):
+
+  action  a registry action offered on the CLI (`cli: "offered"`), placed in the menu bar (`main_menu`) or offered
+          in a right-click menu (`context_menu: "offered"`) whose `palette` is not "offered". Covered without an
+          entry: an exemption that names the palette row standing in for it (FAMILY: a family's one row, the
+          default engine's row), and a live-input action that only a right-click menu offers (Copy Link on the
+          link under the pointer: the palette has no pointer).
+  menu    a hand-built menu (`context_menus_not_exported`). The Rust catalog's hand_built_menus.rs (whose test fails
+          on a row naming no palette action) lists each one's rows by action id, read here from its `MENUS` list;
+          a menu is covered when it is listed there and every row and registry menu it names is offered
+          (cmux#51026), and counts as a gap otherwise.
+  cli     cmux-tui's own grammar verbs (`workspace create`, `tab pin`, `closed reopen`), not app actions, so the
+          export does not list them. `cli_verbs` in the keep list holds one entry per verb: {verb, palette} names
+          the palette-offered (or FAMILY) action that does the same for a person, {verb, reason} says with
+          "keep: " why the palette needs no row (a read, a stream, scripting plumbing), and a bare {verb} is a
+          gap. `--refresh-cli CMUX_BINARY` reads the verbs from the binary's help and merges them in: new verbs
+          arrive bare, mappings stay, verbs the binary no longer has are removed and printed. `cli_source`
+          records the build read.
+
+`inventoried` in the keep list names the lists compared; NOW's count reads unknown until all three are.
+
+plans/cmux-next/palette-coverage.json holds the reviewed exceptions, {surface, name, reason} with a one-line reason
+starting "keep: " that says why the palette needs no row. A keep entry that names no gap is an error (remove it).
+
+Keys: the palette resolves the list navigation keys (`list_navigation`: Ctrl-N/J down, Ctrl-P/K up) and Up/Down,
+the keys every list in NEXT takes.
+
+  python3 scripts/cmux-next/palette-coverage.py            the missing entries; exit 1 when any (or a bad keep list)
+  python3 scripts/cmux-next/palette-coverage.py --json     the same as JSON
+  python3 scripts/cmux-next/palette-coverage.py --refresh-cli CMUX_BINARY [--source TEXT]
+                                                           re-read the cli verbs (tools/cmux-cli --info: the commit)
+  python3 scripts/cmux-next/palette-coverage.py --self-test
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+KEEP = ROOT / "plans/cmux-next/palette-coverage.json"
+SURFACES = ROOT / "plans/cmux-next/action-surfaces.json"
+MENUS = ROOT / "cmux-tui/crates/cmux-action-catalog/src/hand_built_menus.rs"
+CATALOG = ROOT / "plans/cmux-next/action-catalog.json"
+KEY_MAP = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteKeyMap.swift"
+KINDS = ("action", "menu", "cli")
+KEEP_REASON = re.compile(r"keep: \S[^\n]*$")
+# Palette exemptions whose own row stands in for the action (ActionSurface.swift SurfaceExemption).
+FAMILY = {"familyMember", "duplicateOfDefault", "secondaryEngine"}
+
+
+RUST_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def rust_menus(text: str) -> dict:
+    """{"menus": [{name, source, rows, contexts, pointer_rows}]} read from hand_built_menus.rs's `MENUS` list.
+
+    Each entry there is `menu("name", "source", &[rows...])`, then `.contexts(&[...])` and `.pointer_rows("...")`
+    when it has them. A list this cannot read raises, so the count never quietly drops a menu."""
+    start = text.index("pub const MENUS")
+    body = text[text.index("= &[", start) + 4:text.index("\n];", start)]
+    body = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("//"))
+    menus = []
+    for chunk in re.split(r"\bmenu\(", body)[1:]:
+        head, _, rest = chunk.partition("&[")
+        rows, _, tail = rest.partition("]")
+        names = RUST_STRING.findall(head)
+        if len(names) != 2:
+            raise ValueError(f"hand_built_menus.rs: cannot read the entry `menu({chunk[:80]}`")
+        contexts = re.search(r"\.contexts\(&\[(.*?)\]\)", tail, re.S)
+        pointer = re.search(r"\.pointer_rows\(\s*" + RUST_STRING.pattern + r"\s*\)", tail, re.S)
+        menus.append({"name": names[0], "source": names[1], "rows": RUST_STRING.findall(rows),
+                      "contexts": RUST_STRING.findall(contexts.group(1)) if contexts else [],
+                      "pointer_rows": pointer.group(1) if pointer else None})
+    if not menus:
+        raise ValueError("hand_built_menus.rs: no entries in MENUS")
+    return {"menus": menus}
+
+
+def menu_gap(menu: dict, declared: dict | None, offered: set[str], contexts: set[str]) -> str | None:
+    """Why the palette does not cover hand-built `menu` (its rows by `declared`), or None when it does."""
+    where = f"hand-built menu in {menu.get('source')}"
+    if declared is None:
+        return f"{where}: no rows in cmux-action-catalog hand_built_menus.rs"
+    off = [r for r in declared.get("rows", []) if r not in offered]
+    off += [f"menu {c}" for c in declared.get("contexts", []) if c not in contexts]
+    if off or not (declared.get("rows") or declared.get("contexts") or declared.get("pointer_rows")):
+        return f"{where}: rows the palette does not offer: {', '.join(off) or 'none listed'}"
+    return None
+
+
+def gaps(surfaces: dict, menus: dict | None = None) -> dict[tuple[str, str], str]:
+    """{(surface, name): what it is} for every CLI or menu action the palette does not offer."""
+    out: dict[tuple[str, str], str] = {}
+    offered = {a["id"] for a in surfaces.get("actions", []) if a.get("palette") == "offered" or a.get("palette") in FAMILY}
+    contexts = set(surfaces.get("context_menus") or {})
+    declared = {m.get("name"): m for m in (menus or {}).get("menus", [])}
+    for a in surfaces.get("actions", []):
+        palette = a.get("palette")
+        cli, main_menu, context = a.get("cli") == "offered", a.get("main_menu"), a.get("context_menu") == "offered"
+        if palette == "offered" or palette in FAMILY or not (cli or main_menu or context):
+            continue
+        if palette == "liveInput" and not cli and not main_menu:
+            continue
+        where = [f"cli `{a.get('cli_name')}`"] if cli else []
+        where += [f"{main_menu} menu"] if main_menu else []
+        where += [f"right-click {','.join(a.get('context_menus') or [])}"] if context else []
+        out[("action", a["id"])] = f"{a.get('title')} (palette: {palette}; {'; '.join(where)})"
+    for m in surfaces.get("context_menus_not_exported", []):
+        if (why := menu_gap(m, declared.get(m["name"]), offered, contexts)) is not None:
+            out[("menu", m["name"])] = why
+    return out
+
+
+def cli_gaps(surfaces: dict, keep: dict) -> dict[tuple[str, str], str]:
+    """{("cli", verb): what} for every cli verb no palette-offered action covers (kept ones included)."""
+    actions = {a["id"]: a for a in surfaces.get("actions", [])}
+    out = {}
+    for e in keep.get("cli_verbs", []):
+        target = actions.get(e.get("palette"))
+        if target and (target.get("palette") == "offered" or target.get("palette") in FAMILY):
+            continue
+        out[("cli", e.get("verb"))] = "cmux-tui verb" + (f" (maps to {e['palette']}, which the palette does not offer)"
+                                                         if e.get("palette") else "")
+    return out
+
+
+def cli_problems(surfaces: dict, keep: dict) -> list[str]:
+    actions = {a["id"]: a for a in surfaces.get("actions", [])}
+    out, seen = [], set()
+    for e in keep.get("cli_verbs", []):
+        verb = e.get("verb")
+        if not isinstance(verb, str) or not verb.strip():
+            out.append(f"cli_verbs: an entry with no verb: {e}")
+            continue
+        if verb in seen:
+            out.append(f"cli {verb}: listed twice")
+        seen.add(verb)
+        if "palette" in e and "reason" in e:
+            out.append(f"cli {verb}: a palette mapping and a keep reason; give one")
+        if "palette" in e:
+            a = actions.get(e["palette"])
+            if a is None:
+                out.append(f"cli {verb}: maps to {e['palette']}, which is no registry action")
+            elif a.get("palette") != "offered" and a.get("palette") not in FAMILY:
+                out.append(f"cli {verb}: maps to {e['palette']}, which the palette does not offer ({a.get('palette')})")
+        if "reason" in e and not KEEP_REASON.match(str(e["reason"])):
+            out.append(f"cli {verb}: the reason must be one line starting \"keep: \"")
+    return out
+
+
+def kept_keys(keep: dict) -> set[tuple[str, str]]:
+    kept = {(e.get("surface"), e.get("name")) for e in keep.get("keep", [])}
+    return kept | {("cli", e.get("verb")) for e in keep.get("cli_verbs", []) if KEEP_REASON.match(str(e.get("reason", "")))}
+
+
+def keep_problems(found: dict[tuple[str, str], str], keep: dict) -> list[str]:
+    out = []
+    seen = set()
+    for e in keep.get("keep", []):
+        key = (e.get("surface"), e.get("name"))
+        if key in seen:
+            out.append(f"{key}: listed twice")
+        seen.add(key)
+        if key[0] not in KINDS:
+            out.append(f"{key}: unknown surface (one of {', '.join(KINDS)})")
+        elif key not in found:
+            out.append(f"{key[0]} {key[1]}: kept, but the palette covers it now (or it is gone): remove the entry")
+        if not KEEP_REASON.match(str(e.get("reason", ""))):
+            out.append(f"{key[0]} {key[1]}: the reason must be one line starting \"keep: \"")
+    out += [f"inventoried: {k} is not one of {', '.join(KINDS)}" for k in keep.get("inventoried", []) if k not in KINDS]
+    return out
+
+
+def missing(found: dict[tuple[str, str], str], keep: dict) -> dict[tuple[str, str], str]:
+    kept = kept_keys(keep)
+    return {k: v for k, v in found.items() if k not in kept}
+
+
+def key_problems(catalog: dict, key_map: str) -> list[str]:
+    """The palette resolves the list keys and Up/Down: every list_navigation command moves its selection."""
+    defaults = catalog.get("key_binding_defaults", {})
+    moves = dict(re.findall(r'"([\w.]+)": \.(moveDown|moveUp)', key_map))
+    out = []
+    lists = defaults.get("list_navigation", [])
+    if not {("n", ("ctrl",)), ("p", ("ctrl",))} <= {(k["key"], tuple(k["modifiers"])) for b in lists for k in b["keys"]}:
+        out.append("list_navigation no longer binds Ctrl-N and Ctrl-P")
+    for b in lists:
+        want = "moveDown" if b["command"].endswith("next") else "moveUp"
+        if moves.get(b["command"]) != want:
+            out.append(f"{b['command']} ({b['keys']}): lists take it, the palette does not {want} on it")
+    arrows = {(b["command"], k["key"]) for b in defaults.get("palette_keys", []) for k in b["keys"] if not k["modifiers"]}
+    for command, key in (("commandPalettePrevious", ""), ("commandPaletteNext", "")):
+        if (command, key) not in arrows:
+            out.append(f"the palette's {command} lost its plain arrow key")
+    return out
+
+
+# --- cli verbs, read from the binary's help ---------------------------------------------------------------------
+
+LITERAL = re.compile(r"[a-z][a-z0-9-]*$")
+UPPER = re.compile(r"[A-Z][A-Z0-9_]*$")
+# Example values in usage lines (`cmux vm status dev`) and the `current` selector are no verbs.
+EXAMPLE_WORDS = {"dev", "current"}
+
+
+def _strip_groups(text: str, open_: str, close: str) -> str:
+    out, depth = [], 0
+    for ch in text:
+        if ch == open_:
+            depth += 1
+        elif ch == close and depth:
+            depth -= 1
+        elif not depth:
+            out.append(ch)
+    return "".join(out)  # an unclosed group runs to the end of the line
+
+
+def _protect(text: str) -> str:
+    """Spaces and parens inside <...> belong to the placeholder (`<cloud machine>`, `<http(s) URL>`)."""
+    return re.sub(r"<[^<>]*>", lambda m: re.sub(r"[()]", "", m.group(0).replace(" ", "\x00")), text)
+
+
+def segment_verbs(scope: str, tokens: list[str]) -> tuple[list[str], bool]:
+    """(verb paths, from an index) of the tokens after `cmux SCOPE`: literal words, `a|b` expanded, <selectors>,
+    UPPER placeholders and example values skipped, stopping at the first flag or argument after a verb word."""
+    head = next((tokens[:i] for i, t in enumerate(tokens) if t.startswith("-")), tokens)
+    if "..." in head or "…" in head:
+        return [], False  # a nested scope: `pane <selector> tab ...`
+    paths: list[list[str]] = [[]]
+    words, placeholder, index = 0, False, False
+    for i, tok in enumerate(tokens):
+        if tok.startswith("-"):
+            break
+        if i == 0 and tok.startswith("<") and tok.endswith(">") and "|" in tok:
+            alts = tok[1:-1].split("|")
+            if all(LITERAL.match(a) for a in alts):  # `cmux link <init|show|...>`: the scope's verb index
+                paths, words, index = [p + [a] for p in paths for a in alts], words + 1, True
+                continue
+        alts = tok.split("|")
+        if all(LITERAL.match(a) for a in alts):
+            alts = [a for a in alts if a not in EXAMPLE_WORDS]
+            if alts:
+                paths, words = [p + [a] for p in paths for a in alts], words + 1
+            continue
+        lits = [a for a in alts if LITERAL.match(a) and a not in EXAMPLE_WORDS]
+        if i == 0 and lits:  # `browser page|<tab_…> <verb>`
+            paths, words = [p + [a] for p in paths for a in lits], words + 1
+            continue
+        if tok.startswith("<") or UPPER.match(tok.rstrip(".…")) or any(a.startswith("<") for a in alts):
+            if words and not tok.startswith("<"):
+                break  # NAME, HOST: arguments follow
+            if not words and re.search(r"verb|action|command", tok, re.I):
+                return [], False  # `cmux app <verb...>`: app actions, the export lists them
+            placeholder = True
+            continue
+        if words:
+            break  # prose after the usage
+        return [], False
+    if not words and placeholder:
+        return [], False
+    return [" ".join([scope, *p]) for p in paths], index
+
+
+def usage_verbs(scope: str, text: str) -> list[tuple[str, bool]]:
+    """Verb paths of a scope help's `cmux SCOPE ...` usage lines (indented, or after `usage:`)."""
+    out = []
+    for raw in text.splitlines():
+        m = re.match(r"(?:\s*usage:?\s*|\s{2,})cmux\s+(.*)$", raw, re.I)
+        if not m:
+            continue
+        line = re.split(r"\s{2,}", _protect(m.group(1)).strip())[0]  # drop the description column
+        no_bare = bool(re.search(r"[\[<](COMMAND|verb|action)", line, re.I))
+        line = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", " ", line)
+        line = re.sub(r"<([^<>]*)>(\.\.\.|…)", lambda m: f"<{m.group(1).replace('|', '/')}>", line)  # repeated args
+        line = re.sub(r"([\])])(\.\.\.|…)", r"\1", line)
+        line = _strip_groups(_strip_groups(line, "[", "]"), "(", ")")
+        segs = [s.split() for s in re.split(r"\s\|\s", line)]
+        first = segs[0]
+        while first and first[0] != scope and first[0].startswith(("-", "<")):
+            first = first[1:]  # `cmux --machine <cloud machine> workspace list`
+        if not first or first[0] != scope:
+            continue
+        segs[0] = first[1:]
+        for n, seg in enumerate(segs):
+            if seg[:2] == ["cmux", scope]:
+                seg = seg[2:]
+            elif n and seg and seg[0].startswith("-"):
+                continue  # `get <checkpoint> | --key <key>`: the same verb
+            got, index = segment_verbs(scope, seg)
+            if got == [scope]:
+                if no_bare:
+                    got = []
+                if n == 0:
+                    out += [(v, False) for v in got]
+                    break  # `cmux identify | ping`: sibling root commands
+            out += [(v, index) for v in got]
+    return out
+
+
+def command_list_verbs(scope: str, text: str) -> list[str]:
+    """A clap help's `Commands:` section (cmux acp, chats, harness)."""
+    out, on = [], False
+    for line in text.splitlines():
+        if line.strip() == "Commands:":
+            on = True
+        elif on:
+            m = re.match(r"  ([a-z][a-z0-9-]*)(\s{2,}|$)", line)
+            if m and m.group(1) != "help":
+                out.append(f"{scope} {m.group(1)}")
+            elif not m and line.strip() and not line.startswith("   "):
+                on = False
+    return out
+
+
+def indented_verbs(scope: str, text: str, strict: bool = False) -> list[str]:
+    """A hand-written verb table, two spaces in (cmux link, cmux server)."""
+    out = []
+    # Beside usage lines (`strict`), a row is its verb's words, then two or more spaces and a description, or a
+    # first word the scope's usage names (`cmux link <init|show|peer|...>`, then `  peer add --install ID`):
+    # prose there has neither. A page with no usage line (`cmux server --help`) is all table.
+    named = {w for group in re.findall(rf"cmux {re.escape(scope)} <([a-z0-9|-]+)>", text) for w in group.split("|")}
+    for line in text.splitlines():
+        row = not strict or re.match(r"  [a-z][^ ]*(?: [^ ]+)*?\s{2,}\S", line) or line[2:].split(" ", 1)[0] in named
+        if row and re.match(r"  [a-z]", line) and not line.startswith("  cmux"):
+            head = _strip_groups(_protect(re.split(r"\s{2,}", line.strip())[0]), "[", "]")
+            out += segment_verbs(scope, head.split())[0]
+    return out
+
+
+def scope_verbs(scope: str, text: str) -> list[str]:
+    usage = usage_verbs(scope, text)
+    got = [v for v, _ in usage] + command_list_verbs(scope, text)
+    # A verb table counts beside usage lines too: `cmux vm --help` has both, and its VM API table (run, show,
+    # start, stop, snapshot, access, key, creation) is in no usage line (#38553 review F1).
+    got += indented_verbs(scope, text, strict=bool(got) and not any(index for _, index in usage))
+    # An index word with deeper verbs (`agents <chat|...>`, `agents chat send`) is no verb of its own.
+    from_index = {v for v, index in usage if index} - {v for v, index in usage if not index}
+    got = [v for v in dict.fromkeys(got) if not (v in from_index and any(w.startswith(v + " ") for w in got))
+           and v != f"{scope} help"]
+    return got
+
+
+def root_scopes(text: str) -> list[str]:
+    """The scope names of `cmux help`: the indented first words under its section headings."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"  ([a-z][a-z0-9-]*)\s", line + " ")
+        if m and m.group(1) != "cmux":
+            out.append(m.group(1))
+    return list(dict.fromkeys(out))
+
+
+def root_commands(text: str) -> list[str]:
+    """The commands `cmux help` names by a usage line (`cmux attach`, `cmux wg hub|dial`), not by a scope row:
+    root_scopes skips those lines, so without this their verbs are never read (#38553 review F1)."""
+    out = []
+    for line in text.splitlines():
+        # Case-sensitive: `  cmux       Open the TUI` is the bare command and its description, no command `Open`.
+        m = re.match(r"\s+(?:[Uu]sage:?\s*|USAGE:?\s*)?cmux ([a-z][a-z0-9-]*)(?:\s|$)", line)
+        if m and m.group(1) != "help":
+            out.append(m.group(1))
+    return list(dict.fromkeys(out))
+
+
+SCOPE_ALIASES = {"vm": "cloud"}
+
+
+class HelpFailed(RuntimeError):
+    """A help page could not be read: refresh writes nothing rather than drop the verbs it lists (#38553 F2)."""
+
+
+def read_cli(binary: str) -> list[str]:
+    # English headings (`USAGE`, `Commands:`) are what the parser reads: a translated help lists no verbs (F3).
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
+
+    def run(*args: str) -> tuple[int, str]:
+        p = subprocess.run([binary, *args], capture_output=True, text=True, timeout=60, env=env)
+        return p.returncode, p.stdout + p.stderr
+
+    # A verb that is an app action's CLI name is the action list's, not a grammar verb (`vm rename-machine` is
+    # the app action `cloud rename-machine`; `vm` is `cloud`'s name).
+    # Only an action offered on the CLI: an exempt one (ownerVerb, liveInput) leaves the verb to the grammar.
+    actions = {a["cli_name"] for a in json.loads(SURFACES.read_text()).get("actions", [])
+               if a.get("cli_name") and a.get("cli") == "offered"}
+    def is_action(verb: str) -> bool:
+        words = verb.split(" ", 1)
+        return verb in actions or (words[0] in SCOPE_ALIASES and f"{SCOPE_ALIASES[words[0]]} {words[-1]}" in actions)
+
+    code, root = run("help")
+    scopes = root_scopes(root)
+    # Root help's quick-start lines (`cmux pane current neighbor right`) are examples of scopes with their own
+    # help; only a command no scope row names (`attach`, `relay`, `wg`) is read from root's usage lines.
+    commands = [c for c in root_commands(root) if c not in scopes]
+    if code or not scopes:
+        raise HelpFailed(f"`{binary} help` exited {code} with {len(scopes)} scopes")
+    verbs: list[str] = []
+    for scope in dict.fromkeys(scopes + commands):
+        code, text = run("help", scope)
+        if code or "unknown resource scope" in text:
+            code, text = run(scope, "--help")
+        got = scope_verbs(scope, text)
+        if scope in commands:
+            # Only root help's usage lines for it (`cmux relay`, `cmux wg hub|dial`): its scope table is no verb table
+            # of this command (reading it so made `workspace accounts`, `workspace acp`, ... verbs).
+            got += [v for v, _ in usage_verbs(scope, root)]
+        # A scope's help page that fails or is empty stops the refresh, even if its output parses: a half-read
+        # page would drop that scope's mapped verbs (review at 71db212, F1). A scope that parses to no verbs from a
+        # good page (`cmux app <verb...>`: the export lists those) is fine. Root commands (`attach`) may have no
+        # help page of their own; root's usage line is theirs.
+        if scope in scopes and (code or not text.strip()):
+            raise HelpFailed(f"`{binary} help {scope}` (then `{scope} --help`) exited {code}"
+                             + ("" if text.strip() else " with no output"))
+        verbs += got
+    if not verbs:
+        raise HelpFailed(f"`{binary}` help listed no verbs")
+    return sorted(v for v in set(verbs) if not is_action(v))
+
+
+def merge_cli(keep: dict, verbs: list[str]) -> tuple[dict, list[str], list[str]]:
+    """(keep with cli_verbs merged, added, removed): mappings stay, new verbs arrive bare, gone ones leave."""
+    old = {e["verb"]: e for e in keep.get("cli_verbs", []) if isinstance(e.get("verb"), str)}
+    added = [v for v in verbs if v not in old]
+    removed = sorted(v for v in old if v not in set(verbs))
+    return {**keep, "cli_verbs": [old.get(v, {"verb": v}) for v in verbs]}, added, removed
+
+
+def refresh_cli(binary: str, source: str | None) -> int:
+    keep = json.loads(KEEP.read_text())
+    try:
+        verbs = read_cli(binary)
+    except (HelpFailed, OSError, subprocess.SubprocessError) as e:
+        print(f"refresh-cli: {e}; {KEEP.name} is unchanged", file=sys.stderr)
+        return 2
+    merged, added, removed = merge_cli(keep, verbs)
+    if source is None:
+        code, info = 0, ""
+        try:
+            p = subprocess.run([binary, "--info"], capture_output=True, text=True, timeout=60)
+            code, info = p.returncode, p.stdout
+            source = f"cmux-tui {json.loads(info)['commit']}"
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+            source = f"{Path(binary).name} (no --info)" if code or not info else info.strip()
+    merged["cli_source"] = source
+    KEEP.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+    for v in added:
+        print(f"added\t{v}")
+    for v in removed:
+        print(f"removed\t{v}")
+    print(f"{len(merged['cli_verbs'])} cli verbs from {source}: {len(added)} added, {len(removed)} removed")
+    return 0
+
+
+def report() -> dict:
+    keep = json.loads(KEEP.read_text())
+    surfaces = json.loads(SURFACES.read_text())
+    found = gaps(surfaces, rust_menus(MENUS.read_text()))
+    if "cli" in keep.get("inventoried", []):
+        found |= cli_gaps(surfaces, keep)
+    gone = missing(found, keep)
+    return {"inventoried": keep.get("inventoried", []), "missing": len(gone), "kept": len(found) - len(gone),
+            "entries": [{"surface": s, "name": n, "what": w} for (s, n), w in sorted(gone.items())],
+            "problems": keep_problems(found, keep) + cli_problems(surfaces, keep)
+            + key_problems(json.loads(CATALOG.read_text()), KEY_MAP.read_text())}
+
+
+class Rules(unittest.TestCase):
+    @staticmethod
+    def action(**kw) -> dict:
+        return {"id": "x", "title": "X", "palette": "noObject", "cli": "guiOnly", "cli_name": None,
+                "main_menu": None, "context_menu": "noObject", **kw}
+
+    def test_a_cli_or_menu_action_off_the_palette_is_a_gap(self):
+        for kw in ({"cli": "offered"}, {"main_menu": "file"}, {"context_menu": "offered"}):
+            with self.subTest(**kw):
+                self.assertIn(("action", "x"), gaps({"actions": [self.action(**kw)]}))
+
+    def test_covered_family_and_pointer_only_actions_are_not_gaps(self):
+        covered = [self.action(palette="offered", cli="offered"), self.action(palette="familyMember", cli="offered"),
+                   self.action(palette="liveInput", context_menu="offered"), self.action(palette="guiOnly")]
+        self.assertEqual(gaps({"actions": covered}), {})
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(palette="liveInput", cli="offered")]}))
+
+    def test_hand_built_menus_are_gaps_until_their_rows_are_palette_rows(self):
+        surfaces = {"actions": [self.action(id="a", palette="offered"), self.action(id="b")],
+                    "context_menus": {"tab": {}}, "context_menus_not_exported": [{"name": "m", "source": "M.swift"}]}
+        self.assertIn(("menu", "m"), gaps(surfaces))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a", "b"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["pane"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": None}]}))
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": "a page's own"}]}), {})
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["tab"]}]}), {})
+
+    def test_hand_built_menus_are_read_from_the_rust_list(self):
+        text = """pub const MENUS: &[HandBuiltMenu] = &[
+    menu("a", "A.swift", &["x", "y"]),
+    // a comment
+    menu("b", "B/B.swift", &[
+        "z",
+    ])
+        .contexts(&["tab", "pane"])
+        .pointer_rows("the link under the pointer, which the palette cannot name"),
+    menu("c", "C.swift", &[]).pointer_rows("a page's own rows"),
+];
+"""
+        self.assertEqual(rust_menus(text)["menus"], [
+            {"name": "a", "source": "A.swift", "rows": ["x", "y"], "contexts": [], "pointer_rows": None},
+            {"name": "b", "source": "B/B.swift", "rows": ["z"], "contexts": ["tab", "pane"],
+             "pointer_rows": "the link under the pointer, which the palette cannot name"},
+            {"name": "c", "source": "C.swift", "rows": [], "contexts": [], "pointer_rows": "a page's own rows"}])
+        with self.assertRaises(ValueError):
+            rust_menus('pub const MENUS: &[HandBuiltMenu] = &[\n    menu(name, "A.swift", &[]),\n];\n')
+        real = {m["name"]: m for m in rust_menus(MENUS.read_text())["menus"]}
+        self.assertIn("browserReload", real["browserReload"]["rows"])
+        self.assertEqual(real["paneTabBarRows"]["contexts"], ["tab", "pane", "newTab"])
+
+    def test_keep_entries_name_live_gaps_with_a_reason(self):
+        found = {("action", "x"): "X", ("menu", "m"): "M"}
+        keep = {"inventoried": ["action", "menu"], "keep": [{"surface": "menu", "name": "m", "reason": "keep: data"}]}
+        self.assertEqual(keep_problems(found, keep), [])
+        self.assertEqual(missing(found, keep), {("action", "x"): "X"})
+        self.assertEqual(len(keep_problems({}, keep)), 1)  # covered now: remove it
+        bad = {"keep": [{"surface": "menu", "name": "m", "reason": "debt: later"}]}
+        self.assertEqual(len(keep_problems(found, bad)), 1)
+
+    def test_key_rules(self):
+        catalog = {"key_binding_defaults": {
+            "list_navigation": [{"command": "list.next", "keys": [{"key": "n", "modifiers": ["ctrl"]}]},
+                                {"command": "list.previous", "keys": [{"key": "p", "modifiers": ["ctrl"]}]}],
+            "palette_keys": [{"command": "commandPalettePrevious", "keys": [{"key": "", "modifiers": []}]},
+                             {"command": "commandPaletteNext", "keys": [{"key": "", "modifiers": []}]}]}}
+        self.assertEqual(key_problems(catalog, '"list.next": .moveDown, "list.previous": .moveUp,'), [])
+        self.assertEqual(len(key_problems(catalog, '"list.next": .moveDown,')), 1)
+
+    def test_cli_verbs_are_gaps_unless_mapped_to_a_palette_action_or_kept(self):
+        surfaces = {"actions": [self.action(id="ws.new", palette="offered"), self.action(id="fam", palette="familyMember"),
+                                self.action(id="hidden", palette="guiOnly")]}
+        keep = {"inventoried": ["action", "menu", "cli"], "cli_verbs": [
+            {"verb": "workspace create", "palette": "ws.new"}, {"verb": "tab pin", "palette": "fam"},
+            {"verb": "tab list", "reason": "keep: a listing"}, {"verb": "tab move"},
+            {"verb": "tab hide", "palette": "hidden"}]}
+        found = cli_gaps(surfaces, keep)
+        self.assertEqual(set(found), {("cli", "tab list"), ("cli", "tab move"), ("cli", "tab hide")})
+        self.assertEqual(set(missing(found, keep)), {("cli", "tab move"), ("cli", "tab hide")})
+        self.assertEqual(cli_problems(surfaces, keep), ["cli tab hide: maps to hidden, which the palette does not offer (guiOnly)"])
+
+    def test_cli_problems(self):
+        surfaces = {"actions": [self.action(id="ws.new", palette="offered")]}
+        bad = {"cli_verbs": [{"verb": "a", "palette": "nope"}, {"verb": "b", "reason": "later"},
+                             {"verb": "c"}, {"verb": "c"}, {"verb": "d", "palette": "ws.new", "reason": "keep: x"}, {}]}
+        got = cli_problems(surfaces, bad)
+        self.assertEqual(len(got), 5, got)
+        self.assertTrue(any("no registry action" in p for p in got))
+        self.assertTrue(any("listed twice" in p for p in got))
+
+    def test_cli_help_parsing(self):
+        text = """USAGE
+  cmux workspace create [--name <value>] [--focus]
+  cmux workspace <selector> show|focus|close
+  cmux workspace <selector> rename <name>|--name <name>
+  cmux workspace group <group> update [--name <value>]
+  cmux workspace <selector> screen ...
+  cmux --machine <cloud machine> workspace list
+  cmux workspace [<selector>] status set <key> <text>
+  cmux workspace placement list
+Prose: cmux workspace close --all closes them.
+"""
+        self.assertEqual(sorted(scope_verbs("workspace", text)),
+                         ["workspace close", "workspace create", "workspace focus", "workspace group update",
+                          "workspace list", "workspace placement list", "workspace rename", "workspace show",
+                          "workspace status set"])
+        self.assertEqual(scope_verbs("vm", "  cmux vm status dev\n  cmux vm ls | pause | rm [NAME|ID]\n"),
+                         ["vm status", "vm ls", "vm pause", "vm rm"])
+        self.assertEqual(scope_verbs("open", "usage: cmux open <path|url>... [--focus]\n  cmux open --link\n"), ["open"])
+        self.assertEqual(scope_verbs("status", "  cmux status run [--label <text>] -- CMD …\n"), ["status run"])
+        self.assertEqual(scope_verbs("identify", "usage: cmux identify | ping | capabilities\n"), ["identify"])
+        self.assertEqual(scope_verbs("app", "  cmux app <verb...> [--x <v>]\n  cmux app ping\n"), ["app ping"])
+        self.assertEqual(scope_verbs("device", "  cmux device add HOST --yes\n  cmux device remove ID|NAME\n"),
+                         ["device add", "device remove"])
+        index = "Usage: cmux agents <chat|doctor>\n  cmux agents chat send <chat>\n  cmux agents doctor\n"
+        self.assertEqual(sorted(scope_verbs("agents", index)), ["agents chat send", "agents doctor"])
+        link = "USAGE: cmux link <init|peer> [OPTIONS]\n  init --install ID   create\n  peer add --install ID\n"
+        self.assertEqual(scope_verbs("link", link), ["link init", "link peer add"])
+        clap = "Usage: cmux chats [OPTIONS] <COMMAND>\n\nCommands:\n  list    Chats\n  help    Print\n\nOptions:\n"
+        self.assertEqual(scope_verbs("chats", clap), ["chats list"])
+        # Usage lines and a verb table on one page (`cmux vm --help`): both count, prose does not (#38553 F1).
+        mixed = ("USAGE\n  cmux vm <action> [--x <v>]\n  cmux vm ls [NAME]\n\n  run       Run a command on a fresh VM\n"
+                 "  stop      Stop a VM; its disk stays\n  caller is the object this command runs\n")
+        self.assertEqual(sorted(scope_verbs("vm", mixed)), ["vm ls", "vm run", "vm stop"])
+        root = "USAGE\n  cmux attach\n\nAGENT\n  workspace     Create\n  tab           Tabs\nGLOBAL\n  --json  x\n"
+        self.assertEqual(root_scopes(root), ["workspace", "tab"])
+        # The root's own usage lines are commands too (#38553 review F1): `cmux attach`, `cmux wg hub|dial`.
+        root2 = "USAGE\n  cmux attach\n  cmux wg hub|dial [--port <p>]\n  cmux --machine <m> tab list\n  cmux help\n"
+        self.assertEqual(root_commands(root2), ["attach", "wg"])
+        self.assertEqual(sorted(scope_verbs("wg", root2)), ["wg dial", "wg hub"])
+
+    def fake_cli(self, script: str) -> str:
+        import tempfile
+        d = tempfile.mkdtemp()
+        path = Path(d) / "cmux"
+        path.write_text("#!/bin/sh\n" + script)
+        path.chmod(0o755)
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return str(path)
+
+    def test_read_cli_reads_root_commands_and_refuses_failed_help(self):
+        ok = self.fake_cli('case "$*" in\n'
+                           '  help) printf "USAGE\\n  cmux        Open the TUI\\n  cmux attach\\n  cmux wg hub|dial\\n  cmux tab list\\n'
+                           '\\nAGENT\\n  tab   Tabs\\n  vm    Cloud machines\\n";;\n'
+                           # F3: like a translated build, this help lists its verbs only in the C locale
+                           '  "help tab") [ "$LC_ALL" = C ] && printf "  cmux tab pin\\n" || printf "  cmux tab-ja\\n";;\n'
+                           '  "help vm") printf "  cmux vm ls\\n";;\n'
+                           '  *) exit 2;;\nesac\n')
+        got = read_cli(ok)
+        self.assertTrue({"attach", "wg hub", "wg dial", "tab pin"} <= set(got), got)
+        # `cmux tab list` in root help is an example of a scope with its own help; `cmux   Open the TUI` names no
+        # command `Open` (a refresh against cmux-tui 70e5c08 added `Open accounts`, `Open acp`, ...).
+        self.assertFalse([v for v in got if v == "tab list" or v.startswith("Open")], got)
+        # Root's scope table names scopes, not verbs of a root command: no `tab vm`, `wg tab`, `attach vm`.
+        self.assertFalse([v for v in got if v.split(" ")[-1] in {"tab", "vm"}], got)
+        failing = self.fake_cli('case "$*" in\n  help) printf "AGENT\\n  tab   Tabs\\n";;\n  *) exit 3;;\nesac\n')
+        with self.assertRaises(HelpFailed):  # F2: a scope whose help fails stops the refresh
+            read_cli(failing)
+        with self.assertRaises(HelpFailed):
+            read_cli(self.fake_cli("exit 1\n"))
+        # Review at 71db212 F1: an empty page that exits 0, and a failing fallback that still prints a usage line.
+        root = '  help) printf "AGENT\\n  tab   Tabs\\n  vm    VMs\\n";;\n  "help vm") printf "  cmux vm ls\\n";;\n'
+        for case in ('  "help tab") exit 0;;\n  *) exit 0;;\n',
+                     '  "help tab") exit 2;;\n  "tab --help") printf "  cmux tab pin\\n"; exit 1;;\n'):
+            with self.subTest(case=case), self.assertRaises(HelpFailed):
+                read_cli(self.fake_cli('case "$*" in\n' + root + case + 'esac\n'))
+
+    def test_refresh_writes_nothing_when_help_fails(self):
+        before = KEEP.read_bytes()
+        self.assertEqual(refresh_cli(self.fake_cli("exit 1\n"), "test"), 2)
+        self.assertEqual(KEEP.read_bytes(), before)
+
+    def test_cli_merge_keeps_mappings(self):
+        keep = {"cli_verbs": [{"verb": "a", "palette": "x"}, {"verb": "gone", "reason": "keep: y"}]}
+        merged, added, removed = merge_cli(keep, ["a", "b"])
+        self.assertEqual(merged["cli_verbs"], [{"verb": "a", "palette": "x"}, {"verb": "b"}])
+        self.assertEqual((added, removed), (["b"], ["gone"]))
+
+    def test_this_tree(self):
+        got = report()
+        self.assertEqual(got["problems"], [])
+        self.assertIn("action", got["inventoried"])
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["--self-test"]:
+        return 0 if unittest.main(argv=[sys.argv[0]], exit=False).result.wasSuccessful() else 1
+    if argv[:1] == ["--refresh-cli"] and len(argv) in (2, 4) and (len(argv) == 2 or argv[2] == "--source"):
+        return refresh_cli(argv[1], argv[3] if len(argv) == 4 else None)
+    got = report()
+    if argv == ["--json"]:
+        print(json.dumps(got, indent=2))
+    else:
+        for e in got["entries"]:
+            print(f"{e['surface']}\t{e['name']}\t{e['what']}")
+        for p in got["problems"]:
+            print(f"problem: {p}")
+        todo = [k for k in KINDS if k not in got["inventoried"]]
+        print(f"{got['missing']} missing, {got['kept']} kept" + (f"; not compared yet: {', '.join(todo)}" if todo else ""))
+    return 1 if got["missing"] or got["problems"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

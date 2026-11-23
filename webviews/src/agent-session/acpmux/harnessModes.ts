@@ -32,6 +32,16 @@ export type HarnessModeMenu = {
   /** The mode that skips every approval, the harness's highest permission level (acpmux's
    *  `FULL_ACCESS_MODES`, hub/start_mode.rs): what acpmux starts a chat in when the person chose none. */
   highest: string;
+  /** The mode a chat a Cloud machine begins in when it asks: a start whose level asks, or one the
+   *  machine holds to the remote `ask` policy (a team machine, a phone), starts the harness in its
+   *  asking mode (acpmux `web_modes.rs`: Claude's `ASKING_MODES` first row, the Codex bridge's
+   *  `BRIDGE_ASKING_MODES`). The person's own machine starts at their level ([`cloudStartMode`]).
+   *  `name` is the harness's own label for a mode its menu does not list (the bridge's `ask`). */
+  remoteStart: { id: string; name?: string };
+  /** The mode the person's own Cloud machine moves a new chat to under a full-access start level,
+   *  where the harness takes it (cmux-tui agent_session_start.rs `cloud_default_mode`): Claude Code's
+   *  Auto. None: the chat keeps the highest mode. */
+  cloudDefault?: string;
 };
 
 /** Claude Code's Mode menu: its five permission modes (`--permission-mode` ids), in its order. */
@@ -46,6 +56,9 @@ const CLAUDE: HarnessModeMenu = {
   ],
   hidden: [],
   highest: "bypassPermissions",
+  remoteStart: { id: "default" },
+  // Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness".
+  cloudDefault: "auto",
 };
 
 /** Codex's approval menu. The bridge (cmux-codex-acp `config.rs` `MODES`) runs Codex's default as
@@ -77,6 +90,8 @@ const CODEX: HarnessModeMenu = {
   ],
   hidden: ["ask", "read-only"],
   highest: "agent-full-access",
+  // cmux-codex-acp `config.rs` `MODES` names it "Ask" ("Asks before every command and every edit").
+  remoteStart: { id: "ask", name: "Ask" },
 };
 
 /** The harness family's own menu (by acpmux's family, else by the harness id: a second Claude
@@ -98,6 +113,85 @@ export function harnessModeMenu(
 export function highestMode(family: string | undefined, harness: string | undefined): HarnessModeRow | undefined {
   const menu = familyMenu(family, harness);
   return menu?.rows.find((row) => row.id === menu.highest);
+}
+
+/** The asking mode a new chat whose first send starts it on a Cloud machine begins in when it asks
+ * (`remoteStart`), named as the harness's menu names it. None for a harness this table does not list: the Cloud machine
+ * decides, and the chip says so with its generic label until the chat reports. */
+export function remoteStartMode(
+  family: string | undefined,
+  harness: string | undefined,
+): { id: string; name: string } | undefined {
+  const menu = familyMenu(family, harness);
+  if (!menu) return undefined;
+  const { id, name } = menu.remoteStart;
+  return { id, name: menu.rows.find((row) => row.id === id)?.name ?? name ?? id };
+}
+
+/** acpmux's full-access mode ids (`FULL_ACCESS_MODES`, hub/start_mode.rs): a start-mode answer in one
+ * of them says new chats start in full access. */
+const FULL_ACCESS_MODE_IDS: ReadonlySet<string> = new Set([
+  "bypassPermissions",
+  "agent-full-access",
+  "full-access",
+  "yolo",
+]);
+
+/** The mode a new chat whose first send starts it on the person's own Cloud machine begins in when
+ * nothing was picked for it: the person's start level for new chats, which the start carries to
+ * that machine (`permission_mode`, cmux-tui agent_session_start.rs `start_policy`) and which this
+ * Mac's acpmux answers as its start mode for the harness (`level`; `null`: it sets none;
+ * `undefined`: no answer yet). Full access, the default level, is the family's Cloud default
+ * (Claude Code's Auto, `cloudDefault`) else its highest mode (Codex's Full access; Lawrence
+ * 2026-11-20: "cloud mode should default in bypass permissions/auto mode"), also before any answer
+ * and when this Mac's acpmux has none for an agent it does not run. A level that asks is the
+ * family's asking mode ([`remoteStartMode`]). None for a harness this table does not list: the
+ * Cloud machine decides. */
+export function cloudStartMode(
+  family: string | undefined,
+  harness: string | undefined,
+  level: { modeId: string } | null | undefined,
+): { id: string; name: string } | undefined {
+  const asking = remoteStartMode(family, harness);
+  const highest = highestMode(family, harness);
+  if (!asking || !highest) return asking;
+  if (level?.modeId && !FULL_ACCESS_MODE_IDS.has(level.modeId)) return asking;
+  const menu = familyMenu(family, harness);
+  const start = menu?.rows.find((row) => row.id === menu.cloudDefault) ?? highest;
+  return { id: start.id, name: start.name };
+}
+
+/** The modes a Cloud start on this family can be picked into: its asking mode, its Cloud default
+ * (Claude Code's Auto) and its highest level. acpmux starts a chat in another mode that does not ask
+ * (Accept edits) only on the person's own proof, which the Cloud start does not carry. None for a
+ * harness this table does not list. */
+export function cloudPickableModes(family: string | undefined, harness: string | undefined): string[] | undefined {
+  const menu = familyMenu(family, harness);
+  if (!menu) return undefined;
+  return [menu.remoteStart.id, menu.cloudDefault, menu.highest].filter((id): id is string => id !== undefined);
+}
+
+/** The agent a Cloud machine starts when its send names none: acpmux's default, Claude first
+ * (default_harness.rs). */
+export const CLOUD_DEFAULT_AGENT = "claude";
+
+/** The built-in UniiChat harness (acpmux config/discover.rs UNIICHAT_PROFILE): every acpmux bundles
+ * it, so a Mac with no agent CLI shows it in the composer. Its tools run on its own server; it has no
+ * permission modes on a machine. */
+const UNII = "unii";
+
+/** The agent a Cloud start runs for a chat the composer shows on HARNESS, and whether the send names
+ * it. Claude and Codex, and any other agent the person picked (opencode, say: the machine runs it),
+ * are named and run. UniiChat is not a machine agent: the send leaves it out, so the machine starts
+ * its default, Claude, which the Mode chip names. The chip and every Cloud send read this one answer. */
+export function cloudStartAgent(
+  family: string | undefined,
+  harness: string | undefined,
+): { family: string | undefined; harness: string | undefined; named: boolean } {
+  const id = (family ?? harness ?? "").toLowerCase();
+  // No harness yet (none installed, or still listing): the send names none, so the machine's default.
+  if (id && id !== UNII && (harness ?? "").toLowerCase() !== UNII) return { family, harness, named: true };
+  return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
 }
 
 /** The family's own menu whatever the harness reported (none yet: a New Tab before its chat

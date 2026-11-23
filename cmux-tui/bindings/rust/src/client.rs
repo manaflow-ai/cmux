@@ -246,7 +246,10 @@ pub struct CmuxClient {
     connection: JsonLineConnection,
     next_id: u64,
     server: Option<ServerInfo>,
-    buffered_events: VecDeque<Event>,
+    /// Event frames that arrived while a request waited, as sent.
+    buffered_events: VecDeque<Value>,
+    /// Set once [`Self::closer`] hands out a closer.
+    control: Option<Arc<StreamControl>>,
 }
 
 impl CmuxClient {
@@ -293,7 +296,14 @@ impl CmuxClient {
             }
         }
         let connection = connection?;
-        Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
+        Ok(Self {
+            config,
+            connection,
+            next_id: 1,
+            server: None,
+            buffered_events: VecDeque::new(),
+            control: None,
+        })
     }
 
     pub fn config(&self) -> &ClientConfig {
@@ -305,7 +315,53 @@ impl CmuxClient {
     }
 
     pub fn take_buffered_event(&mut self) -> Option<Event> {
-        self.buffered_events.pop_front()
+        self.buffered_events.pop_front().map(decode_event)
+    }
+
+    /// The next event frame on this connection exactly as the daemon sent
+    /// it (`{event, ...}`): first those that arrived while earlier requests
+    /// waited, in order, then the next one read, with no read timeout. A
+    /// connection that subscribed with raw commands (`subscribe` and the
+    /// commands that scope it, such as `cloud-conversation-subscribe`) reads
+    /// its events here. [`Self::closer`] ends a blocked call from another
+    /// thread, which then returns [`CmuxError::Closed`].
+    pub fn recv_event_frame(&mut self) -> Result<Value> {
+        if let Some(value) = self.buffered_events.pop_front() {
+            return Ok(value);
+        }
+        let control = self.control.clone();
+        let closed = |error| match &control {
+            Some(control) => map_closed(error, control),
+            None => error,
+        };
+        if control.as_ref().is_some_and(|control| control.closed.load(Ordering::Acquire)) {
+            return Err(CmuxError::Closed);
+        }
+        self.connection.without_read_timeout(|connection| {
+            loop {
+                let value = connection.recv().map_err(closed)?;
+                if value.get("event").is_some() {
+                    return Ok(value);
+                }
+            }
+        })
+    }
+
+    /// Closes this connection from another thread and unblocks an active
+    /// [`Self::recv_event_frame`] or request.
+    pub fn closer(&mut self) -> Result<StreamCloser> {
+        let control = match &self.control {
+            Some(control) => Arc::clone(control),
+            None => {
+                let control = Arc::new(StreamControl {
+                    socket: self.connection.shutdown_clone()?,
+                    closed: AtomicBool::new(false),
+                });
+                self.control = Some(Arc::clone(&control));
+                control
+            }
+        };
+        Ok(StreamCloser { control })
     }
 
     pub fn close(&mut self) {
@@ -314,8 +370,23 @@ impl CmuxClient {
 
     /// Send an escape-hatch request for an extension unknown to this SDK.
     ///
-    /// Normal protocol commands should use the generated typed methods.
-    pub fn request_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
+    /// This is the generic call for the older `cmd` command lines (the
+    /// `conversation-*` and `cloud-*` commands and the rest of
+    /// spec/commands.md); `cmux.protocol/2` operations go through
+    /// [`crate::Client::call`] and [`crate::Client::subscribe`]. Normal
+    /// protocol commands should use the generated typed methods.
+    pub fn request_raw(&mut self, request: Map<String, Value>) -> Result<Value> {
+        let command = request.get("cmd").and_then(Value::as_str).unwrap_or("<raw>").to_string();
+        let response = self.request_raw_reply(request)?;
+        ensure_success(&command, &response)?;
+        Ok(response)
+    }
+
+    /// [`Self::request_raw`], but the daemon's reply line comes back as sent
+    /// whether `ok` is true or false, so a caller can read every field of a
+    /// refusal (`error_code`, `error`, and fields such as a cloud refusal's
+    /// `reason`). Only local and transport failures are errors.
+    pub fn request_raw_reply(&mut self, mut request: Map<String, Value>) -> Result<Value> {
         if let Some(command) = request.get("cmd").and_then(Value::as_str)
             && let Some(metadata) =
                 crate::generated::COMMANDS.iter().find(|metadata| metadata.name == command)
@@ -327,9 +398,8 @@ impl CmuxClient {
             request.insert("id".to_string(), id.clone());
             id
         });
-        let command = request.get("cmd").and_then(Value::as_str).unwrap_or("<raw>").to_string();
         self.connection.send(&Value::Object(request))?;
-        self.receive_response(&id, &command)
+        self.receive_reply(&id)
     }
 
     pub(crate) fn execute<Request, Response>(
@@ -345,7 +415,8 @@ impl CmuxClient {
         let id = Value::from(self.next_id());
         let envelope = request_envelope(metadata.name, id.clone(), request)?;
         self.connection.send(&envelope)?;
-        let response = self.receive_response(&id, metadata.name)?;
+        let response = self.receive_reply(&id)?;
+        ensure_success(metadata.name, &response)?;
         decode_response(metadata.name, response)
     }
 
@@ -469,7 +540,7 @@ impl CmuxClient {
         Ok(())
     }
 
-    fn receive_response(&mut self, id: &Value, command: &str) -> Result<Value> {
+    fn receive_reply(&mut self, id: &Value) -> Result<Value> {
         loop {
             let response = self.connection.recv()?;
             if response.get("event").is_some() {
@@ -477,13 +548,12 @@ impl CmuxClient {
                     self.connection.close();
                     return Err(CmuxError::QueueOverflow { limit: self.config.max_queued_events });
                 }
-                self.buffered_events.push_back(decode_event(response));
+                self.buffered_events.push_back(response);
                 continue;
             }
             if response.get("id") != Some(id) {
                 continue;
             }
-            ensure_success(command, &response)?;
             return Ok(response);
         }
     }

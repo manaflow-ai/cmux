@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -36,6 +37,8 @@ enum RoomHandlers {
             let adoptable = windows.adoptableWorkspaces(in: room.id, for: windowID)
             windows.state(for: windowID).enterProfile(room.id)
             if adoptable.isEmpty {
+                // Its workspaces show in another window: the new window is one more view of them (rule 6), never a new workspace beside them.
+                if windows.openView(id: windowID, of: room.id) != nil { return }
                 Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
             } else {
                 windows.openWindow(id: windowID, workspaces: adoptable)
@@ -72,13 +75,11 @@ enum RoomHandlers {
         }
         for color in GroupColor.allCases {
             bind(ActionID(rawValue: "space.color.\(color.rawValue)")) { invocation in
-                let room = try context.room(invocation)
-                update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
+                try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
             }
         }
         bind("space.clearColor") { invocation in
-            let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, color: .clear) }
+            try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .clear) }
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
@@ -137,8 +138,8 @@ enum RoomHandlers {
             // A person's delete gets the Reopen toast; automation does not.
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
+                // With `moveTo` the daemon also moves the space's sidebar pins and groups, in the same commit.
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
-                if let moveTo { await MainActor.run { services.sidebarDoc.store?.moveSpace(id.rawValue, into: moveTo.rawValue) } }
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
@@ -158,8 +159,9 @@ enum RoomHandlers {
         bind("space.selectByNumber") { invocation in
             guard let number = invocation["index"]?.intValue, let state = context.activeWindow?.state else { return }
             let order = context.services.machines.local.store.profileIDs
-            let pick = number >= 9 ? order[order.count - 1] : order[min(number - 1, order.count - 1)]
-            context.services.windows.switchProfile(pick, in: state)
+            // 9 and past the end are the last space (`targets::ordinal`).
+            guard let index = WindowRules().ordinal(number, count: order.count, pastEnd: .clamp), order.indices.contains(index) else { return }
+            context.services.windows.switchProfile(order[index], in: state)
         }
         bind("space.switch") { invocation in
             let room = try context.room(invocation)
@@ -167,6 +169,7 @@ enum RoomHandlers {
             context.services.windows.switchProfile(room.id, in: window.state)
         }
         RoomMoveHandlers.bind(bind, context: context)
+        registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
     }
 
     /// A new space with the next free color and its own first workspace.
@@ -183,9 +186,8 @@ enum RoomHandlers {
         let store = context.services.machines.local.store
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             ?? (incognito ? RoomStrings.incognitoName : RoomStrings.defaultName(store.profileIDs.count + 1))
-        let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
-            ?? GroupColor.automatic(used: used) ?? .grey
+            ?? GroupColor.automatic(after: store.profiles.compactMap(\.color))
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? (incognito ? "eyeglasses" : nil)
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins
@@ -210,7 +212,7 @@ enum RoomHandlers {
                     enter(id, state)
                 } else {
                     try await startNewSpace(id, from: inNewWindow ? nil : active?.id, windows: services.windows,
-                                            newTabPage: inNewWindow && invocation.origin == .user)
+                                            newTabPage: invocation.origin == .user) // a person's: a chat (David Beyer, 2026-11-20)
                 }
                 return nil
             } catch {
@@ -219,7 +221,7 @@ enum RoomHandlers {
         })
     }
 
-    /// Gives the new, empty space `profile` its first workspace. A run that
+    /// Gives the new, empty space `profile` its first workspace (a chat with `newTabPage`, else a terminal). A run that
     /// may change the view shows the space in window `windowID`
     /// (`switchProfile`, which creates the workspace there). Any other run
     /// (a script, the CLI without `focus`) files the workspace, pinned to
@@ -230,9 +232,9 @@ enum RoomHandlers {
     private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager, newTabPage: Bool = false) async throws {
         if let windowID, let state = windows.states[windowID], windows.registry.value.window(windowID)?.isOpen == true {
             if ActionRunScope.viewChangeAllowed() {
-                windows.switchProfile(profile, in: state)
+                windows.switchProfile(profile, in: state, opensNewTabPage: newTabPage)
             } else {
-                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: windowID)
+                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile, newTabPage: newTabPage), into: windowID)
             }
             return
         }

@@ -1,0 +1,2503 @@
+{
+ "format": "cmux-conversation-rules/1",
+ "note": "The conversation client rules (bindings/rust/src/conversation_rules.rs) as the Swift client ran them (each case's source). tests/conversation_rules.rs runs every case.",
+ "cases": [
+  {
+   "name": "policy",
+   "op": "policy",
+   "request": {},
+   "expect": {
+    "attachment_chunk_bytes": 4194304,
+    "attachment_chunk_timeout_ms": 30000,
+    "cloud_network_timeout_ms": 30000,
+    "max_page": 500,
+    "runs_key_batch": 200,
+    "runs_page_limit": 200,
+    "cloud_runs_page_limit": 100
+   },
+   "source": "ConversationAttachmentTransfer.swift, CloudConversationClient.swift, ConversationReadCommands.swift, ConversationRunsRequest.swift, CloudConversationRunsRequest.swift"
+  },
+  {
+   "name": "clamp_page 0",
+   "op": "clamp_page",
+   "request": {
+    "limit": 0
+   },
+   "expect": {
+    "limit": 1
+   },
+   "source": "ConversationReadCommands.swift, ConversationThread.swift"
+  },
+  {
+   "name": "clamp_page -3",
+   "op": "clamp_page",
+   "request": {
+    "limit": -3
+   },
+   "expect": {
+    "limit": 1
+   },
+   "source": "ConversationReadCommands.swift, ConversationThread.swift"
+  },
+  {
+   "name": "clamp_page 200",
+   "op": "clamp_page",
+   "request": {
+    "limit": 200
+   },
+   "expect": {
+    "limit": 200
+   },
+   "source": "ConversationReadCommands.swift, ConversationThread.swift"
+  },
+  {
+   "name": "clamp_page 500",
+   "op": "clamp_page",
+   "request": {
+    "limit": 500
+   },
+   "expect": {
+    "limit": 500
+   },
+   "source": "ConversationReadCommands.swift, ConversationThread.swift"
+  },
+  {
+   "name": "clamp_page 900",
+   "op": "clamp_page",
+   "request": {
+    "limit": 900
+   },
+   "expect": {
+    "limit": 500
+   },
+   "source": "ConversationReadCommands.swift, ConversationThread.swift"
+  },
+  {
+   "name": "cloud resolved: every loaded reply found inside the window ends the read",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     250,
+     150
+    ],
+    "turns": [
+     "recent-reply"
+    ],
+    "before": null,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "recent-reply"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud late-reply: page 1 reads on below the window",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     250,
+     150
+    ],
+    "turns": [
+     "recent-reply"
+    ],
+    "before": null,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "recent-reply",
+     "late-reply"
+    ]
+   },
+   "expect": {
+    "before": 150,
+    "unresolved": [
+     "late-reply"
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud late-reply: page 2 resolves it and ends",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     100
+    ],
+    "turns": [
+     "late-reply"
+    ],
+    "before": 150,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "late-reply"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud manual-reply: page 1",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     250,
+     150
+    ],
+    "turns": [
+     "recent-reply"
+    ],
+    "before": null,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "expect": {
+    "before": 150,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud manual-reply: page 2 reads on",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     100
+    ],
+    "turns": [
+     "late-reply"
+    ],
+    "before": 150,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "expect": {
+    "before": 100,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud manual-reply: the owner's end",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": false,
+    "started_at": [],
+    "turns": [],
+    "before": 100,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": [
+     "manual-reply"
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud stalled cursor ends the read",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     150
+    ],
+    "turns": [],
+    "before": 150,
+    "oldest_started_at": 200,
+    "unresolved": [
+     "late-reply"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": [
+     "late-reply"
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/CloudConversationRunsPaginationTests.swift"
+  },
+  {
+   "name": "cloud: a fractional start is no cursor",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     150.5
+    ],
+    "turns": [],
+    "before": null,
+    "oldest_started_at": 0,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "source": "CloudConversationClient.nextRunsCursor"
+  },
+  {
+   "name": "cloud: a negative start is no cursor",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [
+     -1
+    ],
+    "turns": [],
+    "before": null,
+    "oldest_started_at": -5,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "source": "CloudConversationClient.nextRunsCursor"
+  },
+  {
+   "name": "cloud: no start times is no cursor",
+   "op": "runs_next",
+   "request": {
+    "owner": "cloud",
+    "has_more": true,
+    "started_at": [],
+    "turns": [],
+    "before": null,
+    "oldest_started_at": 0,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "expect": {
+    "before": null,
+    "unresolved": [
+     "x"
+    ]
+   },
+   "source": "CloudConversationClient.nextRunsCursor"
+  },
+  {
+   "name": "local: history stops at the window's oldest message",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": true,
+    "started_at": [
+     250,
+     150
+    ],
+    "before": null,
+    "oldest_started_at": 200
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "Tests/CmuxNextDaemonTests/ConversationRunsAnswerLookupTests.swift"
+  },
+  {
+   "name": "local: reads on while the page is newer than the window",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": true,
+    "started_at": [
+     300,
+     250
+    ],
+    "before": null,
+    "oldest_started_at": 200
+   },
+   "expect": {
+    "before": 250,
+    "unresolved": []
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "local: a cursor that does not move ends",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": true,
+    "started_at": [
+     300,
+     250
+    ],
+    "before": 250,
+    "oldest_started_at": 200
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "local: the owner's end",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": false,
+    "started_at": [
+     300
+    ],
+    "before": null,
+    "oldest_started_at": 200
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "local: a negative window floor is 0",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": true,
+    "started_at": [
+     0
+    ],
+    "before": null,
+    "oldest_started_at": -10
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "local: a fractional start ends",
+   "op": "runs_next",
+   "request": {
+    "owner": "local",
+    "has_more": true,
+    "started_at": [
+     250.5
+    ],
+    "before": null,
+    "oldest_started_at": 200
+   },
+   "expect": {
+    "before": null,
+    "unresolved": []
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "runs_next needs an owner",
+   "op": "runs_next",
+   "request": {
+    "has_more": true,
+    "oldest_started_at": 0
+   },
+   "expect": {
+    "error": "invalid"
+   }
+  },
+  {
+   "name": "answers in batches of 200 when served",
+   "op": "runs_key_batches",
+   "request": {
+    "turns": [],
+    "answers": [
+     "question-0",
+     "question-1",
+     "question-2",
+     "question-3",
+     "question-4",
+     "question-5",
+     "question-6",
+     "question-7",
+     "question-8",
+     "question-9",
+     "question-10",
+     "question-11",
+     "question-12",
+     "question-13",
+     "question-14",
+     "question-15",
+     "question-16",
+     "question-17",
+     "question-18",
+     "question-19",
+     "question-20",
+     "question-21",
+     "question-22",
+     "question-23",
+     "question-24",
+     "question-25",
+     "question-26",
+     "question-27",
+     "question-28",
+     "question-29",
+     "question-30",
+     "question-31",
+     "question-32",
+     "question-33",
+     "question-34",
+     "question-35",
+     "question-36",
+     "question-37",
+     "question-38",
+     "question-39",
+     "question-40",
+     "question-41",
+     "question-42",
+     "question-43",
+     "question-44",
+     "question-45",
+     "question-46",
+     "question-47",
+     "question-48",
+     "question-49",
+     "question-50",
+     "question-51",
+     "question-52",
+     "question-53",
+     "question-54",
+     "question-55",
+     "question-56",
+     "question-57",
+     "question-58",
+     "question-59",
+     "question-60",
+     "question-61",
+     "question-62",
+     "question-63",
+     "question-64",
+     "question-65",
+     "question-66",
+     "question-67",
+     "question-68",
+     "question-69",
+     "question-70",
+     "question-71",
+     "question-72",
+     "question-73",
+     "question-74",
+     "question-75",
+     "question-76",
+     "question-77",
+     "question-78",
+     "question-79",
+     "question-80",
+     "question-81",
+     "question-82",
+     "question-83",
+     "question-84",
+     "question-85",
+     "question-86",
+     "question-87",
+     "question-88",
+     "question-89",
+     "question-90",
+     "question-91",
+     "question-92",
+     "question-93",
+     "question-94",
+     "question-95",
+     "question-96",
+     "question-97",
+     "question-98",
+     "question-99",
+     "question-100",
+     "question-101",
+     "question-102",
+     "question-103",
+     "question-104",
+     "question-105",
+     "question-106",
+     "question-107",
+     "question-108",
+     "question-109",
+     "question-110",
+     "question-111",
+     "question-112",
+     "question-113",
+     "question-114",
+     "question-115",
+     "question-116",
+     "question-117",
+     "question-118",
+     "question-119",
+     "question-120",
+     "question-121",
+     "question-122",
+     "question-123",
+     "question-124",
+     "question-125",
+     "question-126",
+     "question-127",
+     "question-128",
+     "question-129",
+     "question-130",
+     "question-131",
+     "question-132",
+     "question-133",
+     "question-134",
+     "question-135",
+     "question-136",
+     "question-137",
+     "question-138",
+     "question-139",
+     "question-140",
+     "question-141",
+     "question-142",
+     "question-143",
+     "question-144",
+     "question-145",
+     "question-146",
+     "question-147",
+     "question-148",
+     "question-149",
+     "question-150",
+     "question-151",
+     "question-152",
+     "question-153",
+     "question-154",
+     "question-155",
+     "question-156",
+     "question-157",
+     "question-158",
+     "question-159",
+     "question-160",
+     "question-161",
+     "question-162",
+     "question-163",
+     "question-164",
+     "question-165",
+     "question-166",
+     "question-167",
+     "question-168",
+     "question-169",
+     "question-170",
+     "question-171",
+     "question-172",
+     "question-173",
+     "question-174",
+     "question-175",
+     "question-176",
+     "question-177",
+     "question-178",
+     "question-179",
+     "question-180",
+     "question-181",
+     "question-182",
+     "question-183",
+     "question-184",
+     "question-185",
+     "question-186",
+     "question-187",
+     "question-188",
+     "question-189",
+     "question-190",
+     "question-191",
+     "question-192",
+     "question-193",
+     "question-194",
+     "question-195",
+     "question-196",
+     "question-197",
+     "question-198",
+     "question-199",
+     "question-200",
+     "question-201",
+     "question-202",
+     "question-203",
+     "question-204",
+     "question-205",
+     "question-206",
+     "question-207",
+     "question-208",
+     "question-209",
+     "question-210",
+     "question-211",
+     "question-212",
+     "question-213",
+     "question-214",
+     "question-215",
+     "question-216",
+     "question-217",
+     "question-218",
+     "question-219",
+     "question-220",
+     "question-221",
+     "question-222",
+     "question-223",
+     "question-224",
+     "question-225",
+     "question-226",
+     "question-227",
+     "question-228",
+     "question-229",
+     "question-230",
+     "question-231",
+     "question-232",
+     "question-233",
+     "question-234",
+     "question-235",
+     "question-236",
+     "question-237",
+     "question-238",
+     "question-239",
+     "question-240",
+     "question-241",
+     "question-242",
+     "question-243",
+     "question-244",
+     "question-245",
+     "question-246",
+     "question-247",
+     "question-248",
+     "question-249",
+     "question-250",
+     "question-251",
+     "question-252",
+     "question-253",
+     "question-254",
+     "question-255",
+     "question-256",
+     "question-257",
+     "question-258",
+     "question-259",
+     "question-260",
+     "question-261",
+     "question-262",
+     "question-263",
+     "question-264",
+     "question-265",
+     "question-266",
+     "question-267",
+     "question-268",
+     "question-269",
+     "question-270",
+     "question-271",
+     "question-272",
+     "question-273",
+     "question-274",
+     "question-275",
+     "question-276",
+     "question-277",
+     "question-278",
+     "question-279",
+     "question-280",
+     "question-281",
+     "question-282",
+     "question-283",
+     "question-284",
+     "question-285",
+     "question-286",
+     "question-287",
+     "question-288",
+     "question-289",
+     "question-290",
+     "question-291",
+     "question-292",
+     "question-293",
+     "question-294",
+     "question-295",
+     "question-296",
+     "question-297",
+     "question-298",
+     "question-299",
+     "question-300",
+     "question-301",
+     "question-302",
+     "question-303",
+     "question-304",
+     "question-305",
+     "question-306",
+     "question-307",
+     "question-308",
+     "question-309",
+     "question-310",
+     "question-311",
+     "question-312",
+     "question-313",
+     "question-314",
+     "question-315",
+     "question-316",
+     "question-317",
+     "question-318",
+     "question-319",
+     "question-320",
+     "question-321",
+     "question-322",
+     "question-323",
+     "question-324",
+     "question-325",
+     "question-326",
+     "question-327",
+     "question-328",
+     "question-329",
+     "question-330",
+     "question-331",
+     "question-332",
+     "question-333",
+     "question-334",
+     "question-335",
+     "question-336",
+     "question-337",
+     "question-338",
+     "question-339",
+     "question-340",
+     "question-341",
+     "question-342",
+     "question-343",
+     "question-344",
+     "question-345",
+     "question-346",
+     "question-347",
+     "question-348",
+     "question-349",
+     "question-350",
+     "question-351",
+     "question-352",
+     "question-353",
+     "question-354",
+     "question-355",
+     "question-356",
+     "question-357",
+     "question-358",
+     "question-359",
+     "question-360",
+     "question-361",
+     "question-362",
+     "question-363",
+     "question-364",
+     "question-365",
+     "question-366",
+     "question-367",
+     "question-368",
+     "question-369",
+     "question-370",
+     "question-371",
+     "question-372",
+     "question-373",
+     "question-374",
+     "question-375",
+     "question-376",
+     "question-377",
+     "question-378",
+     "question-379",
+     "question-380",
+     "question-381",
+     "question-382",
+     "question-383",
+     "question-384",
+     "question-385",
+     "question-386",
+     "question-387",
+     "question-388",
+     "question-389",
+     "question-390",
+     "question-391",
+     "question-392",
+     "question-393",
+     "question-394",
+     "question-395",
+     "question-396",
+     "question-397",
+     "question-398",
+     "question-399",
+     "question-400",
+     "question-401",
+     "question-402",
+     "question-403",
+     "question-404",
+     "question-405",
+     "question-406",
+     "question-407",
+     "question-408",
+     "question-409",
+     "question-410",
+     "question-411",
+     "question-412",
+     "question-413",
+     "question-414",
+     "question-415",
+     "question-416",
+     "question-417",
+     "question-418",
+     "question-419",
+     "question-420",
+     "question-421",
+     "question-422",
+     "question-423",
+     "question-424",
+     "question-425",
+     "question-426",
+     "question-427",
+     "question-428",
+     "question-429",
+     "question-430",
+     "question-431",
+     "question-432",
+     "question-433",
+     "question-434",
+     "question-435",
+     "question-436",
+     "question-437",
+     "question-438",
+     "question-439",
+     "question-440",
+     "question-441",
+     "question-442",
+     "question-443",
+     "question-444",
+     "question-445",
+     "question-446",
+     "question-447",
+     "question-448",
+     "question-449"
+    ],
+    "answers_served": true
+   },
+   "expect": {
+    "batches": [
+     {
+      "answers": [
+       "question-0",
+       "question-1",
+       "question-2",
+       "question-3",
+       "question-4",
+       "question-5",
+       "question-6",
+       "question-7",
+       "question-8",
+       "question-9",
+       "question-10",
+       "question-11",
+       "question-12",
+       "question-13",
+       "question-14",
+       "question-15",
+       "question-16",
+       "question-17",
+       "question-18",
+       "question-19",
+       "question-20",
+       "question-21",
+       "question-22",
+       "question-23",
+       "question-24",
+       "question-25",
+       "question-26",
+       "question-27",
+       "question-28",
+       "question-29",
+       "question-30",
+       "question-31",
+       "question-32",
+       "question-33",
+       "question-34",
+       "question-35",
+       "question-36",
+       "question-37",
+       "question-38",
+       "question-39",
+       "question-40",
+       "question-41",
+       "question-42",
+       "question-43",
+       "question-44",
+       "question-45",
+       "question-46",
+       "question-47",
+       "question-48",
+       "question-49",
+       "question-50",
+       "question-51",
+       "question-52",
+       "question-53",
+       "question-54",
+       "question-55",
+       "question-56",
+       "question-57",
+       "question-58",
+       "question-59",
+       "question-60",
+       "question-61",
+       "question-62",
+       "question-63",
+       "question-64",
+       "question-65",
+       "question-66",
+       "question-67",
+       "question-68",
+       "question-69",
+       "question-70",
+       "question-71",
+       "question-72",
+       "question-73",
+       "question-74",
+       "question-75",
+       "question-76",
+       "question-77",
+       "question-78",
+       "question-79",
+       "question-80",
+       "question-81",
+       "question-82",
+       "question-83",
+       "question-84",
+       "question-85",
+       "question-86",
+       "question-87",
+       "question-88",
+       "question-89",
+       "question-90",
+       "question-91",
+       "question-92",
+       "question-93",
+       "question-94",
+       "question-95",
+       "question-96",
+       "question-97",
+       "question-98",
+       "question-99",
+       "question-100",
+       "question-101",
+       "question-102",
+       "question-103",
+       "question-104",
+       "question-105",
+       "question-106",
+       "question-107",
+       "question-108",
+       "question-109",
+       "question-110",
+       "question-111",
+       "question-112",
+       "question-113",
+       "question-114",
+       "question-115",
+       "question-116",
+       "question-117",
+       "question-118",
+       "question-119",
+       "question-120",
+       "question-121",
+       "question-122",
+       "question-123",
+       "question-124",
+       "question-125",
+       "question-126",
+       "question-127",
+       "question-128",
+       "question-129",
+       "question-130",
+       "question-131",
+       "question-132",
+       "question-133",
+       "question-134",
+       "question-135",
+       "question-136",
+       "question-137",
+       "question-138",
+       "question-139",
+       "question-140",
+       "question-141",
+       "question-142",
+       "question-143",
+       "question-144",
+       "question-145",
+       "question-146",
+       "question-147",
+       "question-148",
+       "question-149",
+       "question-150",
+       "question-151",
+       "question-152",
+       "question-153",
+       "question-154",
+       "question-155",
+       "question-156",
+       "question-157",
+       "question-158",
+       "question-159",
+       "question-160",
+       "question-161",
+       "question-162",
+       "question-163",
+       "question-164",
+       "question-165",
+       "question-166",
+       "question-167",
+       "question-168",
+       "question-169",
+       "question-170",
+       "question-171",
+       "question-172",
+       "question-173",
+       "question-174",
+       "question-175",
+       "question-176",
+       "question-177",
+       "question-178",
+       "question-179",
+       "question-180",
+       "question-181",
+       "question-182",
+       "question-183",
+       "question-184",
+       "question-185",
+       "question-186",
+       "question-187",
+       "question-188",
+       "question-189",
+       "question-190",
+       "question-191",
+       "question-192",
+       "question-193",
+       "question-194",
+       "question-195",
+       "question-196",
+       "question-197",
+       "question-198",
+       "question-199"
+      ]
+     },
+     {
+      "answers": [
+       "question-200",
+       "question-201",
+       "question-202",
+       "question-203",
+       "question-204",
+       "question-205",
+       "question-206",
+       "question-207",
+       "question-208",
+       "question-209",
+       "question-210",
+       "question-211",
+       "question-212",
+       "question-213",
+       "question-214",
+       "question-215",
+       "question-216",
+       "question-217",
+       "question-218",
+       "question-219",
+       "question-220",
+       "question-221",
+       "question-222",
+       "question-223",
+       "question-224",
+       "question-225",
+       "question-226",
+       "question-227",
+       "question-228",
+       "question-229",
+       "question-230",
+       "question-231",
+       "question-232",
+       "question-233",
+       "question-234",
+       "question-235",
+       "question-236",
+       "question-237",
+       "question-238",
+       "question-239",
+       "question-240",
+       "question-241",
+       "question-242",
+       "question-243",
+       "question-244",
+       "question-245",
+       "question-246",
+       "question-247",
+       "question-248",
+       "question-249",
+       "question-250",
+       "question-251",
+       "question-252",
+       "question-253",
+       "question-254",
+       "question-255",
+       "question-256",
+       "question-257",
+       "question-258",
+       "question-259",
+       "question-260",
+       "question-261",
+       "question-262",
+       "question-263",
+       "question-264",
+       "question-265",
+       "question-266",
+       "question-267",
+       "question-268",
+       "question-269",
+       "question-270",
+       "question-271",
+       "question-272",
+       "question-273",
+       "question-274",
+       "question-275",
+       "question-276",
+       "question-277",
+       "question-278",
+       "question-279",
+       "question-280",
+       "question-281",
+       "question-282",
+       "question-283",
+       "question-284",
+       "question-285",
+       "question-286",
+       "question-287",
+       "question-288",
+       "question-289",
+       "question-290",
+       "question-291",
+       "question-292",
+       "question-293",
+       "question-294",
+       "question-295",
+       "question-296",
+       "question-297",
+       "question-298",
+       "question-299",
+       "question-300",
+       "question-301",
+       "question-302",
+       "question-303",
+       "question-304",
+       "question-305",
+       "question-306",
+       "question-307",
+       "question-308",
+       "question-309",
+       "question-310",
+       "question-311",
+       "question-312",
+       "question-313",
+       "question-314",
+       "question-315",
+       "question-316",
+       "question-317",
+       "question-318",
+       "question-319",
+       "question-320",
+       "question-321",
+       "question-322",
+       "question-323",
+       "question-324",
+       "question-325",
+       "question-326",
+       "question-327",
+       "question-328",
+       "question-329",
+       "question-330",
+       "question-331",
+       "question-332",
+       "question-333",
+       "question-334",
+       "question-335",
+       "question-336",
+       "question-337",
+       "question-338",
+       "question-339",
+       "question-340",
+       "question-341",
+       "question-342",
+       "question-343",
+       "question-344",
+       "question-345",
+       "question-346",
+       "question-347",
+       "question-348",
+       "question-349",
+       "question-350",
+       "question-351",
+       "question-352",
+       "question-353",
+       "question-354",
+       "question-355",
+       "question-356",
+       "question-357",
+       "question-358",
+       "question-359",
+       "question-360",
+       "question-361",
+       "question-362",
+       "question-363",
+       "question-364",
+       "question-365",
+       "question-366",
+       "question-367",
+       "question-368",
+       "question-369",
+       "question-370",
+       "question-371",
+       "question-372",
+       "question-373",
+       "question-374",
+       "question-375",
+       "question-376",
+       "question-377",
+       "question-378",
+       "question-379",
+       "question-380",
+       "question-381",
+       "question-382",
+       "question-383",
+       "question-384",
+       "question-385",
+       "question-386",
+       "question-387",
+       "question-388",
+       "question-389",
+       "question-390",
+       "question-391",
+       "question-392",
+       "question-393",
+       "question-394",
+       "question-395",
+       "question-396",
+       "question-397",
+       "question-398",
+       "question-399"
+      ]
+     },
+     {
+      "answers": [
+       "question-400",
+       "question-401",
+       "question-402",
+       "question-403",
+       "question-404",
+       "question-405",
+       "question-406",
+       "question-407",
+       "question-408",
+       "question-409",
+       "question-410",
+       "question-411",
+       "question-412",
+       "question-413",
+       "question-414",
+       "question-415",
+       "question-416",
+       "question-417",
+       "question-418",
+       "question-419",
+       "question-420",
+       "question-421",
+       "question-422",
+       "question-423",
+       "question-424",
+       "question-425",
+       "question-426",
+       "question-427",
+       "question-428",
+       "question-429",
+       "question-430",
+       "question-431",
+       "question-432",
+       "question-433",
+       "question-434",
+       "question-435",
+       "question-436",
+       "question-437",
+       "question-438",
+       "question-439",
+       "question-440",
+       "question-441",
+       "question-442",
+       "question-443",
+       "question-444",
+       "question-445",
+       "question-446",
+       "question-447",
+       "question-448",
+       "question-449"
+      ]
+     }
+    ]
+   },
+   "source": "Tests/CmuxNextDaemonTests/ConversationRunsAnswerLookupTests.swift"
+  },
+  {
+   "name": "no answer lookups when not served",
+   "op": "runs_key_batches",
+   "request": {
+    "turns": [],
+    "answers": [
+     "question-0"
+    ],
+    "answers_served": false
+   },
+   "expect": {
+    "batches": []
+   },
+   "source": "Tests/CmuxNextDaemonTests/ConversationRunsAnswerLookupTests.swift"
+  },
+  {
+   "name": "turns first, then answers",
+   "op": "runs_key_batches",
+   "request": {
+    "turns": [
+     "t1",
+     "t2"
+    ],
+    "answers": [
+     "q1"
+    ],
+    "answers_served": true
+   },
+   "expect": {
+    "batches": [
+     {
+      "turns": [
+       "t1",
+       "t2"
+      ]
+     },
+     {
+      "answers": [
+       "q1"
+      ]
+     }
+    ]
+   },
+   "source": "ConversationRunsRequest.swift runs()"
+  },
+  {
+   "name": "steps: next after the newest key",
+   "op": "run_steps_next",
+   "request": {
+    "has_more": true,
+    "cursor": 0,
+    "keys": [
+     3,
+     7,
+     5
+    ]
+   },
+   "expect": {
+    "after": 7
+   },
+   "source": "ConversationClient.runRows, CloudConversationClient.runRows"
+  },
+  {
+   "name": "steps: a cursor that does not move ends",
+   "op": "run_steps_next",
+   "request": {
+    "has_more": true,
+    "cursor": 7,
+    "keys": [
+     7
+    ]
+   },
+   "expect": {
+    "after": null
+   },
+   "source": "ConversationClient.runRows"
+  },
+  {
+   "name": "steps: the owner's end",
+   "op": "run_steps_next",
+   "request": {
+    "has_more": false,
+    "cursor": 0,
+    "keys": [
+     3
+    ]
+   },
+   "expect": {
+    "after": null
+   },
+   "source": "ConversationClient.runRows"
+  },
+  {
+   "name": "steps: no keys ends",
+   "op": "run_steps_next",
+   "request": {
+    "has_more": true,
+    "cursor": 0,
+    "keys": []
+   },
+   "expect": {
+    "after": null
+   },
+   "source": "ConversationClient.runRows"
+  },
+  {
+   "name": "upload: a small original in one chunk",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "hash": "h",
+     "name": "a.png",
+     "mime_type": "image/png",
+     "byte_count": 10
+    },
+    "needs": null
+   },
+   "expect": {
+    "pieces": [
+     {
+      "variant": "original",
+      "size": 10,
+      "chunks": [
+       {
+        "offset": 0,
+        "length": 10,
+        "progress": 0.99
+       }
+      ]
+     }
+    ]
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: a video's original in 4 MiB chunks, then its poster",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 5242880,
+     "poster": {
+      "hash": "p",
+      "mime_type": "image/jpeg",
+      "byte_count": 1000
+     }
+    },
+    "needs": [
+     "original",
+     "poster"
+    ],
+    "has_poster_file": true
+   },
+   "expect": {
+    "pieces": [
+     {
+      "variant": "original",
+      "size": 5242880,
+      "chunks": [
+       {
+        "offset": 0,
+        "length": 4194304,
+        "progress": 0.7998474412076554
+       },
+       {
+        "offset": 4194304,
+        "length": 1048576,
+        "progress": 0.99
+       }
+      ]
+     },
+     {
+      "variant": "poster",
+      "size": 1000,
+      "chunks": [
+       {
+        "offset": 0,
+        "length": 1000,
+        "progress": 0.99
+       }
+      ]
+     }
+    ]
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: only the preview the owner lacks",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 100,
+     "preview": {
+      "byte_count": 40
+     }
+    },
+    "needs": [
+     "preview"
+    ],
+    "has_preview_file": true
+   },
+   "expect": {
+    "pieces": [
+     {
+      "variant": "preview",
+      "size": 40,
+      "chunks": [
+       {
+        "offset": 0,
+        "length": 40,
+        "progress": 0.99
+       }
+      ]
+     }
+    ]
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: an already held hash sends nothing",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 100
+    },
+    "needs": []
+   },
+   "expect": {
+    "pieces": []
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: an empty file has no chunks",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 0
+    }
+   },
+   "expect": {
+    "pieces": [
+     {
+      "variant": "original",
+      "size": 0,
+      "chunks": []
+     }
+    ]
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: a poster needed without its file",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 100,
+     "poster": {
+      "byte_count": 4
+     }
+    },
+    "needs": [
+     "poster"
+    ],
+    "has_poster_file": false
+   },
+   "expect": {
+    "error": "poster_needed"
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: a preview needed the attachment lacks",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 100
+    },
+    "needs": [
+     "preview"
+    ],
+    "has_preview_file": true
+   },
+   "expect": {
+    "error": "preview_needed"
+   },
+   "source": "AttachmentTransfer.swift upload()"
+  },
+  {
+   "name": "upload: an unknown piece",
+   "op": "upload_plan",
+   "request": {
+    "attachment": {
+     "byte_count": 100
+    },
+    "needs": [
+     "thumbnail"
+    ]
+   },
+   "expect": {
+    "error": "unknown_piece"
+   },
+   "source": "ConversationAttachmentVariant.swift"
+  },
+  {
+   "name": "read: next chunk",
+   "op": "read_next",
+   "request": {
+    "offset": 0,
+    "received": 4194304,
+    "eof": false
+   },
+   "expect": {
+    "offset": 4194304
+   },
+   "source": "AttachmentTransfer.swift download()"
+  },
+  {
+   "name": "read: eof ends",
+   "op": "read_next",
+   "request": {
+    "offset": 5,
+    "received": 0,
+    "eof": true
+   },
+   "expect": {
+    "offset": null
+   },
+   "source": "AttachmentTransfer.swift download()"
+  },
+  {
+   "name": "read: no progress before eof",
+   "op": "read_next",
+   "request": {
+    "offset": 5,
+    "received": 0,
+    "eof": false
+   },
+   "expect": {
+    "error": "no_progress"
+   },
+   "source": "AttachmentTransfer.swift download()"
+  },
+  {
+   "name": "tool: a direct tell",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp__optchat__tell",
+     "input": {
+      "id": "a1",
+      "message": "hi"
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp__optchat__tell",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "hi"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: a Codex tell envelope",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "optchat",
+      "tool": "tell",
+      "arguments": {
+       "id": "a1",
+       "message": "m"
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": true,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "m"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an envelope to another server",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "other",
+      "tool": "tell",
+      "arguments": {
+       "id": "a1",
+       "message": "m"
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "m"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: the person's sender",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "tell",
+     "status": "done",
+     "input": {
+      "id": "a1",
+      "message": "from the person",
+      "_meta": {
+       "cmux": {
+        "sender": "human:p_lawrence"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "tell",
+    "status": "done",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "from the person",
+     "sender": "human:p_lawrence"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: the Chief's sender in an envelope",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "optchat",
+      "tool": "tell",
+      "arguments": {
+       "id": "a1",
+       "message": "from the Chief",
+       "_meta": {
+        "cmux": {
+         "sender": "chief:agent_mux"
+        }
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": true,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "from the Chief",
+     "sender": "chief:agent_mux"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an envelope's outer sender",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "optchat",
+      "tool": "tell",
+      "arguments": {
+       "id": "a1"
+      },
+      "_meta": {
+       "cmux": {
+        "sender": "human:x"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": true,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "sender": "human:x"
+    }
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: a sender that is not a string",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "tell",
+     "input": {
+      "id": "a1",
+      "message": "no meta",
+      "_meta": {
+       "cmux": {
+        "sender": 7
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "tell",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "id": "a1",
+     "message": "no meta"
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: a spawn's tasks and output",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "spawn",
+     "input": {
+      "tasks": [
+       "one",
+       "two"
+      ],
+      "cwd": "~/fun/cmux"
+     },
+     "output": "Started"
+    }
+   },
+   "expect": {
+    "name": "spawn",
+    "output": "Started",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "tasks": [
+      "one",
+      "two"
+     ]
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: a Codex spawn envelope",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "optchat",
+      "tool": "spawn",
+      "arguments": {
+       "tasks": [
+        "one"
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": true,
+     "tasks": [
+      "one"
+     ]
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: tasks that are not all strings",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "spawn",
+     "input": {
+      "tasks": [
+       "one",
+       2
+      ]
+     }
+    }
+   },
+   "expect": {
+    "name": "spawn",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 0",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": "command"
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 1",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": 42
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 2",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": {
+      "id": 7,
+      "message": [
+       1,
+       2
+      ]
+     }
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 3",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": {
+      "input": "value"
+     }
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 4",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": [
+      1,
+      2
+     ]
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an arbitrary input 5",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "other",
+     "input": null
+    }
+   },
+   "expect": {
+    "name": "other",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "Tests/CmuxNextHomeEngineTests/HomeAgentRunMappingTests.swift and Tests/CmuxNextDaemonTests/ConversationRunChangedDecodingTests.swift"
+  },
+  {
+   "name": "tool: an envelope whose arguments are not an object",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "mcp_tool_call",
+     "input": {
+      "server": "optchat",
+      "tool": "tell",
+      "arguments": null
+     }
+    }
+   },
+   "expect": {
+    "name": "mcp_tool_call",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false
+    }
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: `tool` and `arguments` keys",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "tool": "tell",
+     "arguments": {
+      "id": "x"
+     }
+    }
+   },
+   "expect": {
+    "name": "tell",
+    "input": {
+     "is_tell_envelope": false,
+     "is_spawn_envelope": false,
+     "id": "x"
+    }
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: no input key",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "n"
+    }
+   },
+   "expect": {
+    "name": "n"
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: not an object",
+   "op": "run_tool",
+   "request": {
+    "tool": "str"
+   },
+   "expect": {
+    "name": ""
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "tool: fields of the wrong type are absent",
+   "op": "run_tool",
+   "request": {
+    "tool": {
+     "name": "n",
+     "status": 5,
+     "output": [
+      "x"
+     ],
+     "started_at": 12.5
+    }
+   },
+   "expect": {
+    "name": "n",
+    "started_at": 12.5
+   },
+   "source": "ConversationRunTool.swift"
+  },
+  {
+   "name": "plain text: text",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "text",
+     "text": "hello",
+     "runs": []
+    }
+   },
+   "expect": {
+    "text": "hello"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: work with a preview",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "work",
+     "session": "s1",
+     "status": "done",
+     "preview": "reply"
+    }
+   },
+   "expect": {
+    "text": "reply"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: work without a preview",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "work",
+     "session": "s1",
+     "status": "running"
+    }
+   },
+   "expect": {
+    "text": "s1 running"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: attachment",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "attachment",
+     "hash": "h",
+     "name": "a.png",
+     "mime_type": "image/png",
+     "byte_count": 1
+    }
+   },
+   "expect": {
+    "text": "a.png"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: link preview with a title",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "link_preview",
+     "url": "https://x.dev",
+     "title": "X"
+    }
+   },
+   "expect": {
+    "text": "X"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: link preview without a title",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "link_preview",
+     "url": "https://x.dev"
+    }
+   },
+   "expect": {
+    "text": "https://x.dev"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: an unknown part with a url",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "bookmark",
+     "url": "https://y.dev"
+    }
+   },
+   "expect": {
+    "text": "https://y.dev"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: an unknown part with an empty url",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "bookmark",
+     "url": ""
+    }
+   },
+   "expect": {
+    "text": "bookmark"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "plain text: an unknown part",
+   "op": "plain_text",
+   "request": {
+    "part": {
+     "type": "question",
+     "items": []
+    }
+   },
+   "expect": {
+    "text": "question"
+   },
+   "source": "ConversationPart.swift plainText"
+  },
+  {
+   "name": "pin with a position",
+   "op": "inbox_op",
+   "request": {
+    "kind": "pin",
+    "on": true,
+    "position": 5
+   },
+   "expect": {
+    "kind": "inbox.pin",
+    "pinned": true,
+    "position": 5
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "unpin drops the position",
+   "op": "inbox_op",
+   "request": {
+    "kind": "pin",
+    "on": false,
+    "position": 5
+   },
+   "expect": {
+    "kind": "inbox.pin",
+    "pinned": false
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "pin after the last pin",
+   "op": "inbox_op",
+   "request": {
+    "kind": "pin",
+    "on": true
+   },
+   "expect": {
+    "kind": "inbox.pin",
+    "pinned": true
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "mark unread",
+   "op": "inbox_op",
+   "request": {
+    "kind": "mark_unread",
+    "on": true
+   },
+   "expect": {
+    "kind": "inbox.mark_unread",
+    "unread": true
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "mute until",
+   "op": "inbox_op",
+   "request": {
+    "kind": "mute",
+    "on": true,
+    "until": 99
+   },
+   "expect": {
+    "kind": "inbox.mute",
+    "muted": true,
+    "until": 99
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "unmute drops until",
+   "op": "inbox_op",
+   "request": {
+    "kind": "mute",
+    "on": false,
+    "until": 99
+   },
+   "expect": {
+    "kind": "inbox.mute",
+    "muted": false
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "an unknown inbox op",
+   "op": "inbox_op",
+   "request": {
+    "kind": "archive",
+    "on": true
+   },
+   "expect": {
+    "error": "invalid"
+   },
+   "source": "HomeInboxRequest.swift ConversationInboxOpRequest.Op"
+  },
+  {
+   "name": "an unknown op",
+   "op": "nope",
+   "request": {},
+   "code": -3
+  },
+  {
+   "name": "upload: a u64::MAX original plans as one piece, no chunk list",
+   "op": "upload_plan",
+   "shape": "plan",
+   "request": {
+    "attachment": {
+     "byte_count": 18446744073709551615
+    }
+   },
+   "expect": {
+    "total": 18446744073709551615,
+    "chunk_bytes": 4194304,
+    "pieces": [
+     {
+      "variant": "original",
+      "size": 18446744073709551615,
+      "sent_before": 0,
+      "chunk_count": 4398046511104
+     }
+    ]
+   },
+   "source": "constant-memory plan (review follow-up on #37396)"
+  },
+  {
+   "name": "upload: the last chunk of a u64::MAX original, on demand",
+   "op": "upload_chunk",
+   "request": {
+    "size": 18446744073709551615,
+    "sent_before": 0,
+    "total": 18446744073709551615,
+    "index": 4398046511103
+   },
+   "expect": {
+    "offset": 18446744073705357312,
+    "length": 4194303,
+    "progress": 0.99
+   },
+   "source": "constant-memory plan (review follow-up on #37396)"
+  },
+  {
+   "name": "upload: a chunk past the last is invalid",
+   "op": "upload_chunk",
+   "request": {
+    "size": 18446744073709551615,
+    "sent_before": 0,
+    "total": 18446744073709551615,
+    "index": 4398046511104
+   },
+   "expect": {
+    "error": "invalid"
+   },
+   "source": "constant-memory plan"
+  },
+  {
+   "name": "upload: a piece that ends past the total is invalid",
+   "op": "upload_chunk",
+   "request": {
+    "size": 10,
+    "sent_before": 5,
+    "total": 12,
+    "index": 0
+   },
+   "expect": {
+    "error": "invalid"
+   },
+   "source": "constant-memory plan"
+  }
+ ]
+}

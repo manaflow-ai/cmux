@@ -11,6 +11,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -48,7 +49,7 @@ const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
 const { createRoot } = await import("react-dom/client");
-const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { renderInline } = await import("../src/agent-session/acpmux/conversation/inlineMarkdown");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
 const { mockResolvable, SESSION_LINK_REFS } = await import("../src/agent-session/acpmux/mockFixture");
@@ -72,11 +73,8 @@ afterEach(() => {
   root = undefined;
   refs.setSessionRefResolver(undefined);
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 /// One macrotask, inside act so React commits what it brought.

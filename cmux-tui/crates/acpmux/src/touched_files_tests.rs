@@ -202,15 +202,32 @@ fn a_topic_matches_most_of_its_significant_words() {
 #[test]
 fn a_row_reads_as_one_line() {
     let r = json!({
-        "name": "crate-split", "harness": "codex", "host": "big-red", "branch": "lane/crate-split",
+        "name": "crate-split", "harness": "codex", "host": "my-vm", "branch": "lane/crate-split",
         "pullRequests": ["https://github.com/o/r/pull/123"], "filesInCommon": 5,
         "files": [{"path": "a.rs", "edited": true}, {"path": "b.rs", "edited": false}],
         "agoMs": 12 * 60_000,
     });
     assert_eq!(
         row_line(&r),
-        "crate-split (codex on big-red, lane/crate-split, #123): edited a.rs; read b.rs; +3 more; 12m ago"
+        "crate-split (codex on my-vm, lane/crate-split, #123): edited a.rs; read b.rs; +3 more; 12m ago"
     );
+}
+
+#[test]
+fn a_topic_match_reads_as_what_the_session_works_on_never_its_words() {
+    let r = |title: Option<&str>| {
+        json!({
+            "name": "swift-generated", "harness": "codex", "title": title, "filesInCommon": 0,
+            "files": [], "topicWords": ["above", "background", "message", "rows", "tasks"],
+            "agoMs": 3 * 3_600_000,
+        })
+    };
+    assert_eq!(
+        row_line(&r(Some("Regenerate the Swift action surfaces"))),
+        "swift-generated (codex): working on \"Regenerate the Swift action surfaces\"; 3h ago"
+    );
+    assert_eq!(row_line(&r(None)), "swift-generated (codex): working on something similar; 3h ago");
+    assert!(!row_line(&r(None)).contains("background"), "no matched word reaches the text");
 }
 
 #[test]

@@ -110,6 +110,11 @@ import Testing
         return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil), invites: invites)
     }
 
+    static func pairing<C: Clock<Duration>>(_ invites: PairInvites, clock: C) -> LinkPairing {
+        let keys = PhoneKeys(userID: "u1", service: "test.invite.\(UUID())", store: MemorySecretStore(), enclave: false)
+        return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil), push: nil, invites: invites, clock: clock)
+    }
+
     /// Runs one `auth` whose challenge is `frame`; the reply the phone sent.
     static func reply(_ pairing: LinkPairing, challenge frame: JSONValue, macID: String = MacPinTests.mac) async throws -> JSONValue? {
         let channel = RemoveThisPhoneUnpairTests.AuthChannel(frame)
@@ -173,6 +178,32 @@ import Testing
         #expect(!args.values.contains { $0.contains(Self.token) })
         #expect(invites.pending() != nil)
     }
+
+    /// `open` names this app's bundle id, which a tagged dev Mac matches against its own tag.
+    @Test func theOpenArgsNameThisAppsBundleID() async throws {
+        let link = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        var pairing = Self.pairing(PairInvites())
+        pairing.bundleID = "dev.cmux.mobile.my-tag"
+        _ = await pairing.open(link: link, macID: MacPinTests.mac)
+        #expect(link.opened.first?.1["bundleId"] == "dev.cmux.mobile.my-tag")
+        let quiet = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        pairing.bundleID = nil
+        _ = await pairing.open(link: quiet, macID: MacPinTests.mac)
+        #expect(quiet.opened.first?.1["bundleId"] == nil)
+    }
+
+    /// `open` names this app's build number, so the Mac's log says which build connected.
+    @Test func theOpenArgsNameThisAppsBuild() async throws {
+        let link = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        var pairing = Self.pairing(PairInvites())
+        pairing.appBuild = "1234"
+        _ = await pairing.open(link: link, macID: MacPinTests.mac)
+        #expect(link.opened.first?.1["appBuild"] == "1234")
+        let quiet = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        pairing.appBuild = nil
+        _ = await pairing.open(link: quiet, macID: MacPinTests.mac)
+        #expect(quiet.opened.first?.1["appBuild"] == nil)
+    }
 }
 
 #if os(iOS)
@@ -180,11 +211,17 @@ import Testing
 /// a taken code is held for its Mac's challenge, and that Mac is the one the team's Macs focus.
 @MainActor
 @Suite(.serialized) struct PairInviteCoordinatorTests {
-    func coordinator(_ store: AppStore) -> LiveCoordinator {
+    /// `snapshot` is what the last launch saved: this launch shows its space before the account's list loads.
+    func coordinator(_ store: AppStore, snapshot: LiveSnapshot? = nil) -> LiveCoordinator {
         let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
         ServiceStub.install(host: host) { _ in nil }
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
         let secrets = MemorySecretStore()
+        let snapshots = LiveSnapshotStore(directory: directory)
+        if let snapshot {
+            snapshots.save(snapshot, accountID: "user-a")
+            snapshots.flush()
+        }
         return LiveCoordinator(
             store: store,
             api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
@@ -192,7 +229,7 @@ import Testing
             userID: "user-a", deviceName: "iPhone", transport: .webRTC, dialer: MockDialer(fail: true),
             feedStore: FeedStore(items: []),
             keys: PhoneKeys(userID: "user-a", service: "test.invite.\(UUID())", store: secrets, enclave: false),
-            snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
+            snapshots: snapshots, secrets: secrets,
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
         )
     }
@@ -244,8 +281,54 @@ import Testing
         #expect(UserDefaults.standard.string(forKey: key) == nil)
     }
 
+    /// A cold launch shows only the snapshot's personal space until Stack's team list answers (#39361):
+    /// a code for one of the account's Stack teams is held, then followed once the teams arrive.
+    @Test func aCodeOpenedBeforeTheTeamsLoadIsTakenOnceTheyArrive() throws {
+        let key = "cmuxMobile.live.mac.t-stack"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let personal = LiveCoordinator.personalTeamID(userID: "user-a")
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = coordinator(store, snapshot: LiveSnapshot(teamID: personal, teamName: "Personal", macs: [],
+                                                             linkedMacID: nil, workspaces: [:]))
+        defer { live.stop() }
+        #expect(store.teams.map(\.id) == [personal])
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m1", team: "t-stack")))
+        #expect(live.accept(invite))
+        #expect(live.pairing?.invites.pending(mac: "m1") == invite)
+        #expect(store.activeTeamID == personal)
+        live.applyAccountTeams([AppStore.AccountTeam(id: "t-stack", name: "Stack")], selectedID: nil)
+        #expect(live.pairing?.invites.pending(mac: "m1") == invite)
+        #expect(store.activeTeamID == "t-stack")
+        #expect(UserDefaults.standard.string(forKey: key) == "m1")
+    }
+
+    /// The same cold launch still refuses a code for a team the account is not in once its teams
+    /// arrive, and refuses a new one at once after that.
+    @Test func aCodeOpenedBeforeTheTeamsLoadIsDroppedWhenItsTeamIsNotTheAccounts() throws {
+        let key = "cmuxMobile.live.mac.t9"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let personal = LiveCoordinator.personalTeamID(userID: "user-a")
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = coordinator(store, snapshot: LiveSnapshot(teamID: personal, teamName: "Personal", macs: [],
+                                                             linkedMacID: nil, workspaces: [:]))
+        defer { live.stop() }
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m9", team: "t9")))
+        #expect(live.accept(invite))
+        live.applyAccountTeams([AppStore.AccountTeam(id: "t-stack", name: "Stack")], selectedID: nil)
+        #expect(live.pairing?.invites.pending() == nil)
+        #expect(store.activeTeamID != "t9")
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+        let again = try #require(PairInvite(text: PairInviteTests.url(mac: "m8", team: "t9")))
+        #expect(!live.accept(again))
+    }
+
     /// A code from the other build on a listed computer (MacRoster lists one build per computer)
-    /// dials that build, though the listed one keeps the focus, even while every link is taken.
+    /// dials that build even while every link is taken, and since #46718 that build becomes the pick
+    /// (the remembered Mac steerToInvite writes), so it takes the focus and the computer's place.
+    /// Before #46718 the listed build kept the focus, which this test asserted; #46718 changed that
+    /// on purpose (the hand-off's phone stayed on another tag's build) and left this one red.
     @Test func aCodeFromTheOtherBuildOnAComputerDialsThatBuild() async throws {
         let userID = "user-a", teamID = "t-hidden-\(UUID().uuidString.prefix(8))"
         let pick = "cmuxMobile.live.mac.\(teamID)"
@@ -289,7 +372,60 @@ import Testing
         #expect(live.accept(invite))
         for _ in 0..<3000 where dialer.dialCount("m1b") == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(dialer.dialCount("m1b") > 0)
-        #expect(live.focusedMacID == "m1")
+        for _ in 0..<3000 where live.focusedMacID != "m1b" { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == "m1b")
+        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m1b", "m2", "m3", "m4", "m5"])
+    }
+
+    /// The hand-off's path end to end (review.sh hands a tag's phone its Mac's code, `accept`): the code's
+    /// build becomes the pick (#46718), the focus moves to it from the other build of the computer, and stays
+    /// once the code is used. Aziz's 2026-11-18 `ios-infinite-scroll-v3` run: the phone stayed on cu-all.
+    @Test func aCodeForTheOtherBuildOfTheFocusedComputerMovesTheFocusThere() async throws {
+        let userID = "user-a", teamID = "t-pick-\(UUID().uuidString.prefix(8))"
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let cuAll = "0ae8a0d4-d8d9-4872-b541-a48f3dc6cc50", v3 = "e7673bc3-6fc4-4184-ba29-d80ad6743844"
+        let macs = [
+            MacDevice(id: cuAll, name: "Aziz’s MacBook Pro", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: v3, name: "Aziz’s MacBook Pro", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(
+            teamID: teamID, teamName: "One", macs: macs, linkedMacID: cuAll,
+            workspaces: Dictionary(uniqueKeysWithValues: macs.map { ($0.id, .init(workspaces: [], savedAt: Date())) })
+        ), accountID: userID)
+        snapshots.flush()
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let secrets = MemorySecretStore()
+        let dialer = PerMacDialer()
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: dialer,
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: userID, service: "test.invite.\(UUID())", store: secrets, enclave: false),
+            snapshots: snapshots, secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
+        )
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        for _ in 0..<3000 where store.macConnection[cuAll] != .connected { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == cuAll)
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: v3, team: teamID)))
+        #expect(live.accept(invite))
+        for _ in 0..<3000 where live.focusedMacID != v3 { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == v3)
+        #expect(store.activeTeam?.pickedMacID == v3)
+        #expect(store.activeTeam?.listedMacs.map(\.id) == [v3])
+        // The code used up, the phone stays on v3.
+        live.pairing?.invites.drop()
+        live.retarget()
+        #expect(live.focusedMacID == v3)
     }
 }
 #endif

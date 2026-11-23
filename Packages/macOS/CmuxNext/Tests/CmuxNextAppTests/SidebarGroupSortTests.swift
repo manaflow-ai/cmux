@@ -135,7 +135,7 @@ import Testing
 
     @Test func aSortOnlyChangeShowsTheSameRowsAgain() {
         // The rows a sort lists are the same live rows: a pass that lists them again must still arrange them.
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.shown = Self.projection(sort: .manual)
         let model = SidebarModel(sections: [])
         model.docDrag = SidebarDocDrag(document: store, item: { Self.drag.item($0) }, section: { id in id == .machine(.local) ? Self.machine : nil },

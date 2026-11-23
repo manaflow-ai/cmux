@@ -1,0 +1,10 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/usr/lib/libresolv.9.dylib'
+current-version: 1
+compatibility-version: 1
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [ '_res_9_nclose', '_res_9_ninit', '_res_9_nsearch' ]
+...

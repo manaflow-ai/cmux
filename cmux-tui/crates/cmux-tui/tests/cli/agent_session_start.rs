@@ -31,6 +31,10 @@ mod agents_cli_receipt;
 mod agents_events_cli;
 #[path = "agents_wait_cli.rs"]
 mod agents_wait_cli;
+#[path = "cloud_harness_start.rs"]
+mod cloud_harness_start;
+#[path = "events_until.rs"]
+mod events_until;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified
@@ -87,9 +91,17 @@ impl Daemon {
         for sub in ["home", "acpmux", "work"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
+        // acpmux refuses a group-writable ancestor of its home; a 002 umask makes this dir 775.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+            // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+            std::fs::set_permissions(
+                dir.join("acpmux/config.json"),
+                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+            )
+            .unwrap();
         }
         let cloud_etc = vm_kind.map(|kind| {
             let etc = dir.join("etc-cmux");
@@ -610,6 +622,8 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    // A Codex credential's provider reaches app-server here (cmux#45774): the app updates a machine without it.
+    assert!(capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -630,6 +644,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = ssh.rpc(json!({"id": 2, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");

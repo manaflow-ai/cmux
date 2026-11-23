@@ -157,6 +157,23 @@ if [ -n "$CACHED_ARCHIVE" ] && [ -f "$CACHED_ARCHIVE" ]; then
   fi
 fi
 
+# A release download that keeps failing goes once through the release-assets API, which serves the same file
+# another way (2026-11-08: every release download answered 504 for hours while the API served the same bytes).
+# The checksum below judges what it gets.
+fetch_via_release_api() {
+  [[ "$DOWNLOAD_URL" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]] || return 1
+  local api="https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" name="${BASH_REMATCH[4]}" asset_url
+  echo "Fetching $ARCHIVE_NAME through the release-assets API" >&2
+  asset_url="$(curl --fail --silent --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
+    --max-time "$DOWNLOAD_MAX_TIME" \
+    -H 'Accept: application/vnd.github+json' "$api/releases/tags/${BASH_REMATCH[3]}" \
+    | python3 -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
+    || return 1
+  rm -f "$ARCHIVE_PATH"
+  curl --fail --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" \
+    -H 'Accept: application/octet-stream' -o "$ARCHIVE_PATH" "$asset_url"
+}
+
 # Each attempt is its own curl process so --continue-at resumes from the bytes
 # already on disk; curl's built-in --retry starts the file over.
 if [ "$FROM_CACHE" -eq 0 ]; then
@@ -177,8 +194,7 @@ if [ "$FROM_CACHE" -eq 0 ]; then
       break
     fi
     if [ "$attempt" -gt "$DOWNLOAD_RETRIES" ]; then
-      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
-      exit 1
+      break
     fi
     # 33: the server refused the byte range, so the partial file cannot be resumed.
     if [ "$status" -eq 33 ]; then
@@ -187,6 +203,14 @@ if [ "$FROM_CACHE" -eq 0 ]; then
     echo "Download attempt $attempt failed (curl exit $status); retrying in ${DOWNLOAD_RETRY_DELAY}s" >&2
     sleep "$DOWNLOAD_RETRY_DELAY"
   done
+  # The API fallback runs once, after the retries, never inside the sleeping loop:
+  # the loop must not call the GitHub API (tests/test_ci_no_github_token_polling.py).
+  if [ "$status" -ne 0 ] && ! archive_matches_checksum; then
+    if ! { fetch_via_release_api && archive_matches_checksum; }; then
+      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
+      exit 1
+    fi
+  fi
 fi
 
 ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"

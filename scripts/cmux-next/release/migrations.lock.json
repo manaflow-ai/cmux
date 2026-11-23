@@ -52,7 +52,9 @@
         "0014_cmux_vm_overlay_servers.sql": "f21124a605b9c811c6b379aaa5b5c371b46f279bafd8629ee8d06b18cc10c383",
         "0015_cmux_vm_overlay_server_codes.sql": "a0a7c6fcb425f8d64a319730ad2a523bf0b91b77ac0a956dc0966e90153ecb51",
         "0016_cmux_vm_agent_keys.sql": "558b159aafaf1c7f64d4436b646e239c28e7f3f482b2046f81a03d9b27f86360",
-        "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882"
+        "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882",
+        "0018_cmux_vm_mesh_device_intents.sql": "2adce20690c9e70c9c92acb0465b48886d5d419f293bc4965aff14c9dcf5370c",
+        "0019_cmux_vm_mesh_device_intents_index.sql": "7b19ba73f9051afbff4a140ec09e6b9ec9a208d149bae85d209007e332ac3505"
       }
     },
     "backend": {
@@ -64,7 +66,8 @@
         "0004_connections.sql": "9459fb9706ccd0907aa46e07c8a4eb6457b363c0f1a825cc6b9c089beefa0b4c",
         "0005_audit_events.sql": "6414026f95b4a0496c02bd20e554b3954a0515460b2a4f464798ff8c8b38964c",
         "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858",
-        "0007_membership_roles.sql": "c2f115ca678bb41a42210e21d8a38fc22052ba7ec15586f35362bd20235c14df"
+        "0007_membership_roles.sql": "c2f115ca678bb41a42210e21d8a38fc22052ba7ec15586f35362bd20235c14df",
+        "0008_build_space.sql": "ff92dc3341a6d82b6360fad9faff6b04c23d9bc6ab0b01e94366903b6cc0941b"
       }
     }
   }

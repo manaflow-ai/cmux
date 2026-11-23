@@ -24,6 +24,8 @@ struct SettingsTogglePaletteStateTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
+        // The glass lens and latency HUD rows are debug-only: Internal Developer Mode on.
+        services.registry.debugActions = DebugActionGate(devTools: true, isOn: { true })
         var context = AppActionContext(services: services)
         context.design = design
         let tunables = TunableStore()

@@ -1,12 +1,10 @@
 /// `browser.defaultEngine` in cmux.json: the engine a browser tab uses when
 /// it is created without an explicit engine (New Browser Tab, the "+" menu,
-/// links from terminals, `cmux browser open`). Chromium unless set.
+/// links from terminals, `cmux browser open`). Chromium unless set. `configPath` and `fallback`
+/// come from schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated enum BrowserDefaultEngine: String, Sendable, Hashable, CaseIterable {
     case chromium
     case webkit
-
-    public static let configPath = ["browser", "defaultEngine"]
-    public static let fallback: BrowserDefaultEngine = .chromium
 
     /// Parses the `browser` section. A missing key is the default with no
     /// diagnostic; a bad value is the default plus a diagnostic.

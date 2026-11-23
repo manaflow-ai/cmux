@@ -23,8 +23,8 @@ import Testing
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
-        /// The row's on/off state, as its symbol shows it.
-        var rowIsOn: Bool? { row.map { $0.symbol == "checkmark.circle.fill" } }
+        /// The row's on/off state, as its trailing On/Off shows it.
+        var rowIsOn: Bool? { row?.toggleState }
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
 
         func tearDown() {
@@ -54,7 +54,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         if watching { settings.start() }
         await settings.reload()
@@ -188,7 +188,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let source = SettingsPaletteSource(settings: settings, themeColors: { [] })

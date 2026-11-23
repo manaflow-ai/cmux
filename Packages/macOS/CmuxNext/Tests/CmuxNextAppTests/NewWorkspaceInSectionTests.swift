@@ -60,8 +60,9 @@ import Testing
         #expect(try Self.placed(.bottom, home: false) == nil)
     }
 
-    /// The fallback Leo named: with no setting a new workspace goes to the top.
+    /// With no setting a new workspace goes first, below Pinned and Home (Lawrence 2026-11-12: "by default
+    /// all new workspaces should go to the top").
     @Test func theDefaultIsTop() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .top)
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .top)
     }
 }

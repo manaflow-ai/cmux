@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import runner_routing_table as table  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 CLASSES = {
     "apple-app-build": {"needs": "macos", "description": "Builds the app with Xcode."},
@@ -93,7 +95,7 @@ class RoutingTableTests(unittest.TestCase):
             route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
                      "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
             job = {"runs-on": route, "permissions": {"contents": "read"},
-                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+                   "steps": [{"run": "python3 scripts/ci/side_lane_placement.py"}]}
             for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
                                       ({"environment": "release"}, False),
                                       ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
@@ -102,7 +104,7 @@ class RoutingTableTests(unittest.TestCase):
                                       ({"runs-on": route.replace(" || fromJSON(vars.RUNNER_POOLS).linux_2", "")}, False)):
                 with self.subTest(changed=changed):
                     (workflows / "controls.yml").write_text(table.yaml.safe_dump({
-                        "jobs": {"portable-placement": {**job, **changed}}}, width=10000))
+                        "jobs": {"portable-placement": workflow_jobs.copy_job(job, changed)}}, width=10000))
                     problems, allowed = table.hosted_light_policy(policy, workflows)
                     self.assertEqual(not problems, accepted, problems)
                     self.assertEqual(bool(allowed), accepted)
@@ -184,6 +186,7 @@ class RoutingTableTests(unittest.TestCase):
             baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
             for change, error in (({}, False), ({"environment": "release"}, True),
                                   ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  ({"environment": {"name": "ci-routing-agent", "deployment": False}}, False),
                                   # ci.yml's router: the routing environment off pull requests, none on them.
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"}, False),
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'release' || '' }}"}, True),
@@ -215,7 +218,7 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(len(allowed), 0 if error else 1)
                     if not error:
                         number = int(allowed[0].rsplit(":", 1)[1])
-                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + {**baseline, **change}["runs-on"])
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + workflow_jobs.single_runs_on({**baseline, **change}))
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 
@@ -238,9 +241,9 @@ class RoutingTableTests(unittest.TestCase):
         # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
         import yaml
         route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
-                 "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+                 "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                  "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        widened = route.replace('\"ubuntu-24.04\",', '\"ubuntu-24.04\",\"self-hosted\",')
+        widened = route.replace('\"blacksmith-2vcpu-ubuntu-2404\",', '\"self-hosted\",\"blacksmith-2vcpu-ubuntu-2404\",')
         for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
             with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
@@ -307,7 +310,7 @@ class RoutingTableTests(unittest.TestCase):
                 for inherited in (False, True):
                     with self.subTest(value=value, inherited=inherited):
                         job = {"runs-on": route, "environment": "ci-routing-agent"}
-                        document = {"jobs": {"picker": dict(job), "report": dict(job)}}
+                        document = {"jobs": {"picker": workflow_jobs.copy_job(job), "report": workflow_jobs.copy_job(job)}}
                         if inherited:
                             document["env"] = {"TOKEN": value}
                         else:
@@ -591,7 +594,8 @@ class RoutingTableTests(unittest.TestCase):
         document = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
         for fleet in document["fleets"].values():
             for key in ("linux", "linux_16", "linux_32"):
-                self.assertIn("ubuntu", fleet[key])
+                # An Ubuntu image, or the one owned Linux label (Ubuntu VMs) the `owned` fleet names.
+                self.assertTrue("ubuntu" in fleet[key] or fleet[key] == "cmux-linux", fleet[key])
 
 
 if __name__ == "__main__":

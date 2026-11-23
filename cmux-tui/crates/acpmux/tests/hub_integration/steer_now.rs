@@ -117,6 +117,42 @@ async fn send_now_for_a_waiting_steer_ends_the_turn_and_the_steer_runs_next() {
     assert_eq!(read, "read: PINEAPPLE");
 }
 
+/// The agent read the steer: the log says so with its promptId (`steer_read`), so a chat drops
+/// the X on its row at once. Without it, a chat learned of the read only from the agent's next
+/// words, and an X clicked meanwhile was refused with nothing to say why (Leo, 2026-11-06: "I
+/// can't ... cancel and edit these messages. Why?").
+#[tokio::test]
+async fn a_steer_the_agent_read_is_logged_read_and_cannot_be_taken_back() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    a.send(method::SESSION_PROMPT, prompt(&id, "p-steer", "PINEAPPLE", true)).await;
+    a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+    send_now(&hub, &id, "p-steer").await;
+    assert_eq!(ended_and_carried(&mut c, turn, json!(["p-steer"])).await, "read: PINEAPPLE");
+
+    let mut logged = false;
+    for _ in 0..100 {
+        let page = c
+            .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+            .await
+            .unwrap();
+        logged = page["events"].as_array().unwrap().iter().any(|r| {
+            r["kind"] == "steer_read"
+                && r["msg"]["promptId"] == "p-steer"
+                && r["msg"]["turnId"].is_string()
+        });
+        if logged {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(logged, "no steer_read record for the steer the agent read");
+    let mut e = connect(&hub).await;
+    let edit = json!({"sessionId": id, "promptId": "p-steer", "op": "withdraw"});
+    assert_eq!(e.request("_acpmux/queue_edit", edit).await.unwrap()["ok"], false);
+}
+
 #[tokio::test]
 async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
     let (hub, mut c, id) = claude_hub().await;

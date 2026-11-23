@@ -12,7 +12,7 @@ import Testing
             selection.authNamespace = "origin-0"
             selection.legacyStorage = legacy
             selection.authStorageNamespace = storageNamespace
-            configuration.runtimeSelection = selection
+            configuration = configuration.selecting(selection)
         }
         return configuration
     }
@@ -22,16 +22,19 @@ import Testing
         let previous = try #require(nightly(legacy: true).namespacedLegacyStorage(homeDirectory: home))
         #expect(nightly(legacy: true).keychainService == "com.cmuxterm.app.nightly.auth")
         #expect(previous.keychainService == "com.cmuxterm.app.nightly.auth.origin-0")
-        #expect(previous.credentialsDirectory.path
-            == "/Users/fixture/Library/Application Support/cmux/com.cmuxterm.app.nightly/origin-0")
-        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil) is ImportingTokenStore)
+        // The store the update used is the one a selection scoped to `origin-0` names; the linked FFI says
+        // where that folder is (classic's `cmux`, or `cmux-next` once the scoped stores move).
+        let scoped = nightly(legacy: false).credentialsDirectory(homeDirectory: home)
+        #expect(previous.credentialsDirectory == scoped)
+        #expect(scoped.pathComponents.suffix(2) == ["com.cmuxterm.app.nightly", "origin-0"])
+        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true)) is ImportingTokenStore)
     }
 
     @Test func anyOtherSelectionHasNoStoreToAdopt() {
         let home = URL(fileURLWithPath: "/Users/fixture")
         #expect(nightly(legacy: false).namespacedLegacyStorage(homeDirectory: home) == nil)
         #expect(nightly(legacy: true, storageNamespace: "project").namespacedLegacyStorage(homeDirectory: home) == nil)
-        #expect(!(CloudAuth.tokenStore(configuration: nightly(legacy: false), nightlySession: nil) is ImportingTokenStore))
-        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil, memoryOnly: true) is MemoryStackTokenStore)
+        #expect(!(CloudAuth.tokenStore(configuration: nightly(legacy: false)) is ImportingTokenStore))
+        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), memoryOnly: true) is MemoryStackTokenStore)
     }
 }

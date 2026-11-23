@@ -19,6 +19,12 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     public var isPictureInPicture: Bool
     /// The reporting frame keeps the tab muted (`BrowserAudioMuting`).
     public var isTabMuted: Bool
+    /// Sound with no media element behind it (Web Audio, `hiddenSoundScript`): the tab's speaker
+    /// shows it, the media hub and Now Playing do not (nothing there to play, pause or seek).
+    public var isSoundOnly: Bool
+    /// Sound besides the reported element: Web Audio in its frame, or another frame's sound
+    /// (`BrowserMediaFrames`). The tab's speaker shows it; the reported element stays the session.
+    public var isOtherSound: Bool
     /// The `mediaSession` actions the page handles (`nexttrack`, ...).
     public var actions: Set<BrowserMediaAction>
     /// The element's position in seconds when reported (`positionDate`);
@@ -33,7 +39,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
 
     public init(title: String, artist: String = "", album: String = "", artworkURL: URL? = nil, isPlaying: Bool,
                 isMuted: Bool = false, isVideo: Bool = false, isPictureInPicture: Bool = false, isTabMuted: Bool = false,
-                actions: Set<BrowserMediaAction> = [], position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1,
+                isSoundOnly: Bool = false, isOtherSound: Bool = false, actions: Set<BrowserMediaAction> = [], position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1,
                 positionDate: Date = Date()) {
         self.title = title
         self.artist = artist
@@ -44,6 +50,8 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         self.isVideo = isVideo
         self.isPictureInPicture = isPictureInPicture
         self.isTabMuted = isTabMuted
+        self.isSoundOnly = isSoundOnly
+        self.isOtherSound = isOtherSound
         self.actions = actions
         self.position = position
         self.duration = duration
@@ -53,6 +61,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
 
     /// Sound is coming out of the tab (the tab's speaker indicator).
     public var isAudible: Bool { isPlaying && !isMuted }
+
+    /// Sound is coming out of the tab, from the element or besides it (the tab's speaker).
+    public var isSounding: Bool { isAudible || isOtherSound }
 
     /// The position at `date`: it moves on while playing, kept inside the length.
     public func position(at date: Date) -> TimeInterval? {
@@ -98,7 +109,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
             title: text("title"), artist: text("artist"), album: text("album"), artworkURL: artwork,
             isPlaying: object["playing"] as? Bool ?? false, isMuted: object["muted"] as? Bool ?? false,
             isVideo: object["video"] as? Bool ?? false, isPictureInPicture: object["pip"] as? Bool ?? false,
-            isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions),
+            isTabMuted: object["tabMuted"] as? Bool ?? false, isSoundOnly: object["soundOnly"] as? Bool ?? false,
+            isOtherSound: object["sound"] as? Bool ?? false,
+            actions: Set(actions),
             position: seconds("position"), duration: seconds("duration").flatMap { $0 > 0 ? $0 : nil },
             rate: seconds("rate").flatMap { $0 > 0 ? $0 : nil } ?? 1))
     }
@@ -158,12 +171,11 @@ public nonisolated enum BrowserPictureInPicture: String, Sendable {
     case unsupported
 }
 
-/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps the media of
-/// the page and its frames muted, across navigations, until Unmute. Pages
-/// built on the media scripts (WebKit and Chromium) adopt it. It sets the
-/// elements' `muted`, which the page sees. Not muted: Web Audio, media in
-/// shadow roots, Chromium's out-of-process frames, and a new document's
-/// first moments, until its report brings the mute back.
+/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps every sound of
+/// the page muted, across navigations, until Unmute, as Chrome's Mute site.
+/// The engine mutes the page (Chromium's `SetAudioMuted`, WebKit's page
+/// mute): media, Web Audio and every frame. The media scripts also set the
+/// elements' `muted`, which the page sees, so its own controls show the mute.
 @MainActor
 public protocol BrowserAudioMuting: AnyObject {
     func setAudioMuted(_ muted: Bool)

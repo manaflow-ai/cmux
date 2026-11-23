@@ -7,6 +7,7 @@ public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
 import Foundation
+import Observation
 
 /// Feeds the session tree's chat history (`sidebar.sessionTree`, hq#2569 #6) from acpmux's chat
 /// index: the pinned chats, and Earlier, the newest chats that no open workspace of this Mac shows,
@@ -27,9 +28,35 @@ public final class SidebarChatHistoryFeed {
     public nonisolated static let pinnedWindow = "sidebar.history.pinned"
 
     private var task: Task<Void, Never>?
+    /// Follows the live tab list (which tabs, never their fields) while the history shows.
+    private var listTask: Task<Void, Never>?
+    /// One observation per live tab of the chat it shows (main-thread-scheduling.md section 3, O6): a tab's change
+    /// re-reads that tab only, never every live tab, and arrives as one change (`ObservedItems.Change`): the joined
+    /// set is updated for that tab's chat before and now, with no pass over the live tabs (the person's session has
+    /// 1600 of them).
+    private var observed: ObservedItems<TabModel, LiveChat>?
+    /// The live tabs listed now.
+    private var listed: [TabModel] = []
+    /// By chat: how many live tabs show it. Right while each tab is listed once (the store's are): a tab listed two
+    /// times has one observation and two counts until the next change of the list.
+    private var holders: [String: Int] = [:]
+    /// The chats the live tabs show, joined: what the history reads.
+    private let joined = JoinedLiveChats()
+
+    /// One live tab's chat (nil: it shows none of this Mac's acpmux chats).
+    nonisolated struct LiveChat: Equatable, Sendable {
+        var chat: String?
+    }
+
+    /// The chats every live tab shows; nil while the history is off.
+    @Observable @MainActor final class JoinedLiveChats {
+        var live: Set<String>?
+    }
 
     /// Follows the setting, acpmux's windows, the lanes, every machine's live tabs and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
+    /// The live tab list is observed without reading any tab's fields, and each tab's chat is its own
+    /// observation, so one tab's change re-reads that tab only and the history reads the joined set.
     public func start(liveTabs: @escaping @MainActor @Sendable () -> [TabModel], localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
@@ -37,14 +64,33 @@ public final class SidebarChatHistoryFeed {
         history.onOpen = open
         let earlier = windows.window(Self.earlierWindow)
         let pinned = windows.window(Self.pinnedWindow)
+        let joined = joined
+        observed = ObservedItems(item: { tab in LiveChat(chat: Self.liveChat(tab, lanes: lanes, localHost: localHost)) },
+                                 same: { $0 == $1 }, changedItem: { [weak self] change in self?.itemChanged(change) })
+        // task-owner: the app (one feed for the app's life); event-driven (Observation)
+        listTask = Task { [weak self] in
+            for await trigger in ObservationStream({ () -> ObservationTrigger<[TabModel]?> in
+                ObservationTrigger(DesignSettings.shared.sidebarSections.sessionTree ? liveTabs() : nil)
+            }) {
+                guard let self else { return }
+                guard let tabs = trigger.value else {
+                    observed?.cancelAll()
+                    listed = []
+                    holders = [:]
+                    if joined.live != nil { joined.live = nil }
+                    continue
+                }
+                listed = tabs
+                listChanged()
+            }
+        }
         // task-owner: the app (one feed for the app's life); event-driven (Observation). One value
         // per change of what the history shows besides the index (the windows' specs for acpmux)
         // or of a window's rows (the state, O(visible rows)).
         task = Task {
             for await shown in ObservationStream({ () -> Shown? in
-                guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let inputs = Inputs(live: Self.liveChats(liveTabs(), lanes: lanes, localHost: localHost),
-                                    pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
+                guard DesignSettings.shared.sidebarSections.sessionTree, let live = joined.live else { return nil }
+                let inputs = Inputs(live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, more: earlier.hasMore, pinned: pinned.rows,
                                                                inputs: inputs, loading: !earlier.hasAnswered))
             }) {
@@ -57,6 +103,36 @@ public final class SidebarChatHistoryFeed {
                 }
                 if history.state != shown?.state { history.state = shown?.state }
             }
+        }
+    }
+
+    /// The live tab list changed: the live tabs' chats now. Only tabs new to the list are read (their own
+    /// observations keep the rest), but every live tab is visited, so this runs for a list change only. The
+    /// joined set is written only when it changed.
+    private func listChanged() {
+        guard let observed else { return }
+        holders = [:]
+        for chat in observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }).compactMap(\.chat) {
+            holders[chat, default: 0] += 1
+        }
+        let live = Set(holders.keys)
+        if joined.live != live { joined.live = live }
+    }
+
+    /// One live tab's chat changed: the chat it showed leaves the joined set when no other tab shows it, and the
+    /// chat it shows now joins when no tab showed it. No other tab is visited. What still follows the count of open
+    /// chats after such a change: Earlier's spec, which names them all for acpmux (``Inputs/earlierSpec``).
+    private func itemChanged(_ change: ObservedItems<TabModel, LiveChat>.Change) {
+        let chats = [change.old.chat, change.new.chat].compactMap { $0 }
+        ObservationWork.visited(chats.count, "SidebarChatHistoryFeed.join")
+        if let chat = change.old.chat, let count = holders[chat] {
+            holders[chat] = count > 1 ? count - 1 : nil
+            if count == 1 { joined.live?.remove(chat) }
+        }
+        if let chat = change.new.chat {
+            let count = holders[chat] ?? 0
+            holders[chat] = count + 1
+            if count == 0 { joined.live?.insert(chat) }
         }
     }
 
@@ -98,16 +174,16 @@ public final class SidebarChatHistoryFeed {
                                             loading: loading)
     }
 
-    /// The live-tab projection used by the app. It observes each session's chat binding only;
+    /// The live-tab projection: the chats `tabs` show. It reads each session's chat binding only;
     /// turn-state changes, usage detail and terminal output leave the projection unchanged.
     static func liveChats(_ tabs: [TabModel], lanes: AgentLaneStore, localHost: String?) -> Set<String> {
-        var live: Set<String> = []
-        for tab in tabs {
-            guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session,
-                  let chat = lanes.chat(session) else { continue }
-            live.insert(chat)
-        }
-        return live
+        Set(tabs.compactMap { liveChat($0, lanes: lanes, localHost: localHost) })
+    }
+
+    /// The chat one tab shows: its agent session's on this Mac (`localHost`), by the lane's chat binding.
+    static func liveChat(_ tab: TabModel, lanes: AgentLaneStore, localHost: String?) -> String? {
+        guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session else { return nil }
+        return lanes.chat(session)
     }
 
     /// Pin or Unpin Chat: its target is a history row's chat (`sidebar-item:<chat key>`).

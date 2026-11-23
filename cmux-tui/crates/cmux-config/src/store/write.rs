@@ -1,16 +1,22 @@
-//! `settings.set`, `settings.reset` and `settings.reset_all` on the file
-//! text (Swift `setSetting`, `removePruning`, `resetAllSettings` and the
-//! socket's `writeSetting`).
+//! `settings.set`, `settings.reset`, `settings.reset_all` and
+//! `settings.edit` on the file text (Swift `setSetting`, `removePruning`,
+//! `resetAllSettings`, the socket's `writeSetting`, and `CmuxConfigFile`'s
+//! `apply`, `setUnset` and `removeUnchanged`).
 
 use serde_json::Value;
 
 use super::replay::{Lookup, fingerprint};
-use super::{Applied, Change, Op, Origin, Outcome, State, Target, WriteMeta, diff};
+use super::{
+    Applied, Change, Edit, EditKind, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta, diff,
+};
 use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, retired_reason};
+use crate::schema::{
+    Row, accepts, normalize_backdrop, recents_of, record_recent, replaced_by_row, retired_keys,
+    retired_reason,
+};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -19,7 +25,10 @@ fn not_a_write() -> Refusal {
 
 pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
     let meta = match &op {
-        Op::Set { meta, .. } | Op::Reset { meta, .. } | Op::ResetAll { meta } => meta.clone(),
+        Op::Set { meta, .. }
+        | Op::Reset { meta, .. }
+        | Op::ResetAll { meta }
+        | Op::Edit { meta, .. } => meta.clone(),
         _ => return Err(not_a_write()),
     };
     let print = fingerprint(&op);
@@ -47,15 +56,24 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
     {
         return Err(Refusal::RevisionConflict { expected, actual: state.revision });
     }
-    let text = match op {
-        Op::Set { target, value, meta } => set_text(state, &target, canonical(value), &meta)?,
-        Op::Reset { target, meta } => reset_text(state, &target, &meta)?,
-        Op::ResetAll { meta } => reset_all_text(state, &meta)?,
+    let source = state.source.as_str();
+    let (text, applied_edits) = match op {
+        Op::Set { target, value, meta } => {
+            (set_text(state, source, &target, canonical(value), &meta, true)?, Vec::new())
+        }
+        Op::Reset { target, meta } => (reset_text(state, source, &target, &meta)?, Vec::new()),
+        Op::ResetAll { meta } => (reset_all_text(state, &meta)?, Vec::new()),
+        Op::Edit { edits, meta } => edit_text(state, &edits, &meta)?,
         _ => return Err(not_a_write()),
     };
     let mut next = state.clone();
     let mut applied = if text == state.source {
-        let outcome = Outcome { revision: state.revision, keys: Vec::new(), replayed: false };
+        let outcome = Outcome {
+            revision: state.revision,
+            keys: Vec::new(),
+            replayed: false,
+            applied: applied_edits,
+        };
         Applied { state: next, changes: Vec::new(), outcome, write: None }
     } else {
         next.read_file(super::FileRead::Text(text.clone()));
@@ -63,11 +81,21 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
             return Err(Refusal::FileUnreadable { message: problem.clone() });
         }
         next.recompute();
+        // Once per write, so an edit batch records the background it started from.
+        let text = match record_background(state, &next, text)? {
+            Recorded::Same(text) => text,
+            Recorded::Changed(text) => {
+                next.read_file(super::FileRead::Text(text.clone()));
+                next.recompute();
+                text
+            }
+        };
         next.revision = state.revision + 1;
         // Every applied write bumps the revision once, even when no value changed.
         let keys = diff::changed_keys(&state.effective, &next.effective);
         let change = Change { revision: next.revision, keys: keys.clone(), origin: meta.origin };
-        let outcome = Outcome { revision: next.revision, keys, replayed: false };
+        let outcome =
+            Outcome { revision: next.revision, keys, replayed: false, applied: applied_edits };
         Applied { state: next, changes: vec![change], outcome, write: Some(text) }
     };
     if let Some(key) = meta.idempotency_key {
@@ -116,11 +144,68 @@ fn check_managed(state: &State, path: &[String]) -> Result<(), Refusal> {
     }
 }
 
+/// `settings.edit`: each edit on the text the edits before it left, with
+/// the checks of `settings.set` and `settings.reset`; the managed keys, the
+/// layers below the file and the domains are the state's. Returns the text
+/// and the indexes of the edits that applied.
+fn edit_text(
+    state: &State,
+    edits: &[Edit],
+    meta: &WriteMeta,
+) -> Result<(String, Vec<usize>), Refusal> {
+    if edits.is_empty() || edits.len() > MAX_EDITS {
+        return Err(Refusal::InvalidParams {
+            message: format!("settings.edit takes 1 to {MAX_EDITS} edits, not {}", edits.len()),
+        });
+    }
+    if let Some(problem) = &state.file_problem {
+        // Never rewrite a file the user left broken, even when no condition holds.
+        return Err(Refusal::FileUnreadable { message: problem.clone() });
+    }
+    let mut text = state.source.clone();
+    let mut applied = Vec::new();
+    for (index, edit) in edits.iter().enumerate() {
+        let holds = match &edit.kind {
+            EditKind::Set(_) | EditKind::SetExact(_) | EditKind::Reset => true,
+            EditKind::SetUnset(_) => file_value(&text, &edit.target)?.is_none(),
+            EditKind::ResetUnchanged(expected) => {
+                file_value(&text, &edit.target)?.map(canonical) == Some(canonical(expected.clone()))
+            }
+        };
+        if !holds {
+            continue;
+        }
+        text = match &edit.kind {
+            EditKind::Set(value) | EditKind::SetUnset(value) => {
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, true)?
+            }
+            EditKind::SetExact(value) => {
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, false)?
+            }
+            EditKind::Reset | EditKind::ResetUnchanged(_) => {
+                reset_text(state, &text, &edit.target, meta)?
+            }
+        };
+        applied.push(index);
+    }
+    Ok((text, applied))
+}
+
+/// The value `text` holds at the target's path, if any.
+fn file_value(text: &str, target: &Target) -> Result<Option<Value>, Refusal> {
+    let root = jsonc::parse(text).map_err(unreadable)?;
+    Ok(value_at(&root, &target.path()).cloned())
+}
+
+/// `remove_default`: a schema row set to its default loses its key
+/// (`settings.set`); `set_exact` passes false and keeps it.
 fn set_text(
     state: &State,
+    source: &str,
     target: &Target,
     value: Value,
     meta: &WriteMeta,
+    remove_default: bool,
 ) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
     if let Some(reason) = retired_reason(&path) {
@@ -129,23 +214,94 @@ fn set_text(
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
+    // A pasted YouTube address in a background row is stored as its `youtube:` id.
+    let value = match row {
+        Some(row) => normalize_backdrop(row, value),
+        None => value,
+    };
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
+        // The default's own value removes the key, so it keeps following the default when a later
+        // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
+        let below = state.managed.recommended.contains_key(&row.key)
+            || state.team.defaults.contains_key(&row.key);
+        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
+            let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
+            return Ok(text);
+        }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
-    jsonc::set(&state.source, &path, &value).map_err(unreadable)
+    let text = without_replaced(source.to_string(), &path)?;
+    jsonc::set(&text, &path, &value).map_err(unreadable)
+}
+
+const BACKGROUND: [&str; 2] = ["appearance", "background"];
+const BACKGROUND_RECENTS: [&str; 2] = ["appearance", "backgroundRecents"];
+
+enum Recorded {
+    Same(String),
+    Changed(String),
+}
+
+/// The background cmux shows: the effective value (theme, file, team defaults, recommended), else
+/// the schema default.
+fn shown_background(state: &State) -> Option<String> {
+    let path = parts(&BACKGROUND);
+    value_at(&state.effective.root, &path)
+        .cloned()
+        .or_else(|| state.schema.row_at(&path).and_then(|row| row.default.clone()))
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+/// After a write that changes the background shown, from any surface, the background it replaced
+/// goes first in `appearance.backgroundRecents` (Leo, 2026-11-22: "it was cumbersome back then to
+/// switch back"), and the new one leaves the list. Nothing is recorded when the shown value did
+/// not change or a policy manages the recents.
+fn record_background(state: &State, next: &State, text: String) -> Result<Recorded, Refusal> {
+    let recents_path = parts(&BACKGROUND_RECENTS);
+    if check_managed(state, &recents_path).is_err() {
+        return Ok(Recorded::Same(text));
+    }
+    let (Some(previous), now) = (shown_background(state), shown_background(next)) else {
+        return Ok(Recorded::Same(text));
+    };
+    if now.as_deref() == Some(previous.as_str()) {
+        return Ok(Recorded::Same(text));
+    }
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    let old = recents_of(value_at(&root, &recents_path));
+    // The background now shown is not a recent one: the list is what one click goes back to.
+    let mut recents = record_recent(&old, &previous);
+    recents.retain(|recent| Some(recent) != now.as_ref());
+    if recents == old {
+        return Ok(Recorded::Same(text));
+    }
+    let value = Value::Array(recents.into_iter().map(Value::String).collect());
+    Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
+}
+
+/// `text` without the retired key the row at `path` replaced, so the old key
+/// never applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
+    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    if value_at(&root, &replaced.old).is_none() {
+        return Ok(text);
+    }
+    remove_pruning(text, &replaced.old)
 }
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor
 /// object would replace rows without validating them, and writing below a
 /// row would turn its value into an object.
 fn check_row_overlap(state: &State, path: &[String]) -> Result<(), Refusal> {
-    let overlapping = state.schema.rows.iter().find(|row| {
-        let shorter = row.path.len().min(path.len());
-        row.path[..shorter] == path[..shorter]
-    });
+    let overlapping = state
+        .schema
+        .rows
+        .iter()
+        .find(|row| row.path.iter().zip(path).all(|(row_part, part)| row_part == part));
     match overlapping {
         None => Ok(()),
         Some(row) => Err(Refusal::InvalidParams {
@@ -158,17 +314,24 @@ fn check_row_overlap(state: &State, path: &[String]) -> Result<(), Refusal> {
     }
 }
 
-fn reset_text(state: &State, target: &Target, meta: &WriteMeta) -> Result<String, Refusal> {
+fn reset_text(
+    state: &State,
+    source: &str,
+    target: &Target,
+    meta: &WriteMeta,
+) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
     // A retired key may be removed from an old file (pruning like a row).
-    if row.is_some() || retired_reason(&path).is_some() {
-        remove_pruning(state.source.clone(), &path)
+    let text = without_replaced(source.to_string(), &path)?;
+    let text = if row.is_some() || retired_reason(&path).is_some() {
+        remove_pruning(text, &path)?
     } else {
-        jsonc::remove(&state.source, &path).map_err(unreadable)
-    }
+        jsonc::remove(&text, &path).map_err(unreadable)?
+    };
+    Ok(text)
 }
 
 /// Removes every schema key and every shortcut override. Custom actions,
@@ -194,6 +357,14 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
         }
         text = remove_pruning(text, &row.path)?;
     }
+    // Retired keys go too, as in Swift `resetAllSettings`: an old key a row
+    // replaced would apply again behind the reset.
+    for (key, _) in retired_keys() {
+        let path: Vec<String> = key.split('.').map(str::to_string).collect();
+        if removable(path.as_slice()) && !managed.contains_key(key) {
+            text = remove_pruning(text, &path)?;
+        }
+    }
     let bindings = parts(&["shortcuts", "bindings"]);
     if removable(bindings.as_slice()) {
         text = jsonc::remove(&text, &bindings).map_err(unreadable)?;
@@ -214,7 +385,7 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
 /// Removes `path`, then each parent object that became empty.
 fn remove_pruning(text: String, path: &[String]) -> Result<String, Refusal> {
     let mut text = jsonc::remove(&text, path).map_err(unreadable)?;
-    let mut parent = path[..path.len() - 1].to_vec();
+    let mut parent = path.split_last().map(|(_, parent)| parent.to_vec()).unwrap_or_default();
     while !parent.is_empty() && prune_empty(&mut text, &parent)? {
         parent.pop();
     }

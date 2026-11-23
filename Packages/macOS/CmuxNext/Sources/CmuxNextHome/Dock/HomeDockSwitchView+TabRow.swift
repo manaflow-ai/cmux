@@ -13,10 +13,9 @@ extension HomeDockSwitchView: PaneTabRowSharing {
         needsLayout = true
     }
 
-    /// The shown view's tools' width now, a gap before them included; 0 with none or with
-    /// `ChromeTunables.tabRowTools` off.
+    /// The shown view's tools' width now, a gap before them included; 0 with none.
     var shownToolsWidth: CGFloat {
-        guard ChromeTunables.tabRowTools.value, let tools = rowTools[mode] else { return 0 }
+        guard let tools = rowTools[mode] else { return 0 }
         return ceil(max(tools.intrinsicContentSize.width, tools.fittingSize.width)) + Metrics.space2
     }
 

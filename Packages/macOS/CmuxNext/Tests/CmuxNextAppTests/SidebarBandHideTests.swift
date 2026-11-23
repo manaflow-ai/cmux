@@ -25,6 +25,12 @@ import Testing
             guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             return (root["sidebar"] as? [String: Any])?[key] as? Bool
         }
+
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
         var account: LayoutItemID { LayoutItemID("itm_account") }
         var showsProfileControl: Bool { sidebar.footerRegion.itemView(account) != nil }
 
@@ -55,8 +61,10 @@ import Testing
         }
 
         /// Waits for `condition` up to a deadline: the settings write and reload run on other
-        /// tasks, which a fixed count of yields outran on a busy runner.
-        func until(_ condition: () -> Bool, within timeout: Duration = .seconds(10)) async {
+        /// tasks, which a fixed count of yields outran on a busy runner. The deadline only bounds a
+        /// failure: in the full parallel run other suites hold the main thread for seconds at a time,
+        /// and 10 s ended before the hide reached the sidebar (it landed later in the same test).
+        func until(_ condition: () -> Bool, within timeout: Duration = .seconds(60)) async {
             let deadline = ContinuousClock.now + timeout
             while !condition(), ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(5))
@@ -77,7 +85,7 @@ import Testing
         // The sidebar draws from the settings controller's design settings, as in the app (its own
         // instance here: suites run in parallel, and another sidebar reads the shared one).
         let design = DesignSettings()
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: design, fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -103,10 +111,19 @@ import Testing
         (menu?.items ?? []).flatMap { [$0.title] + titles($0.submenu) }.filter { !$0.isEmpty }
     }
 
-    @Test func aSpaceDotHidesTheSpacesAndTheBandShowsThemAgain() async throws {
+    /// Spaces is off by default (https://github.com/manaflow-ai/cmux/issues/48355): a cmux.json without the key
+    /// draws no dots and no "+", and the band offers Show Spaces. Showing writes the key; a dot's Hide Spaces
+    /// takes it back out, since hidden is the default.
+    @Test func spacesStartHiddenTheBandShowsThemAndADotHidesThemAgain() async throws {
         let h = try await make()
         defer { h.tearDown() }
+        #expect(h.sidebar.profileBar.isHidden, "Spaces is off by default: no dots and no + in the footer")
+        #expect(h.rightClickBand().contains("Show Spaces"))
+
+        _ = h.services.registry.perform("sidebar.spaces.show")
+        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
         #expect(!h.sidebar.profileBar.isHidden)
+        #expect(h.saved("showSpaces") == true)
         #expect(!h.rightClickBand().contains("Show Spaces"))
 
         // Right-click a dot: its menu offers Hide Spaces.
@@ -114,22 +131,16 @@ import Testing
                                                scope: ThemeScope(level: .room))
         #expect(Self.titles(dotMenu).contains("Hide Spaces"))
         _ = h.services.registry.perform("sidebar.spaces.hide", invocation: ActionInvocation(target: ActionTargetRef(kind: .profile, id: "space0")))
-        await h.until { h.sidebar.profileBar.isHidden && h.saved("showSpaces") == false }
+        // Hidden is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { h.sidebar.profileBar.isHidden && h.fileParses() && h.saved("showSpaces") == nil }
         #expect(h.sidebar.profileBar.isHidden)
-        #expect(h.saved("showSpaces") == false)
-
-        // Right-click the band where they were: Show Spaces, and only for what is hidden.
-        let band = h.rightClickBand()
-        #expect(band.contains("Show Spaces"))
-        #expect(!band.contains("Show Profile Button"))
-        _ = h.services.registry.perform("sidebar.spaces.show")
-        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
-        #expect(!h.sidebar.profileBar.isHidden)
-        #expect(h.saved("showSpaces") == true)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("showSpaces") == nil, "hidden is the default: sidebar.showSpaces leaves cmux.json")
+        #expect(!h.rightClickBand().contains("Show Profile Button"))
     }
 
     @Test func theProfileButtonHidesFromItsMenuAndTheBandShowsItAgain() async throws {
-        let h = try await make()
+        let h = try await make(#"{"sidebar":{"showSpaces":true}}"#)
         defer { h.tearDown() }
         #expect(h.showsProfileControl)
         let itemMenu = h.services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: h.account.rawValue))
@@ -147,8 +158,11 @@ import Testing
         #expect(band.contains("Show Profile Button"))
         #expect(!band.contains("Show Spaces"))
         _ = h.services.registry.perform("sidebar.profileControl.show")
-        await h.until { h.showsProfileControl && h.saved("showProfileControl") == true }
+        // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { h.showsProfileControl && h.fileParses() && h.saved("showProfileControl") == nil }
         #expect(h.showsProfileControl)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("showProfileControl") == nil, "shown is the default: sidebar.showProfileControl leaves cmux.json")
     }
 
     /// Relaunch: cmux.json still says hidden, so the band draws neither piece, and its empty

@@ -12,10 +12,13 @@ import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
+import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
+import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
+import { installFocusModality } from "../../ui/focusModality";
 import { installImeKeyLayer } from "./imeKeys";
 import { installWebSwap } from "./webSwap";
 
@@ -67,12 +70,17 @@ export function installDesktopLayer(doc: Document = document): void {
   // RUNNING-WAVE: no wave runs while the page is hidden (ui/wave.ts).
   installWave(doc);
   installPageLoops(doc);
+  // HIGHLIGHT-CONTRAST: the selection keeps its contrast on every surface (ui/adaptiveSelection.ts).
+  installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
   installImeKeyLayer(doc);
+  // FOCUS-RING: rings only for focus a navigation key moved; any press, Escape, scroll or pointer
+  // move takes them away (ui/focusModality.ts).
+  installFocusModality(doc);
   // WEB-SWAP: the page answers whether a web update may reload it now (webSwap.ts).
   installWebSwap(doc);
   // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
@@ -86,6 +94,9 @@ export function installDesktopLayer(doc: Document = document): void {
   // Transparency, with no host still or with no glass on the page). The fallback keeps a still the
   // host sends before the lens chunk arrives; the WebGL engine stays out of each page's eager budget.
   installBackdropFallback(view);
+  // GLASS BLURS WHAT IT COVERS: a menu or popover the App does not draw glass under blurs the page
+  // under it in place, so no text reads crisp through it (ui/glass/pageGlassBlur.ts).
+  if (doc.body) installPageGlassBlur(doc);
   void import("../../ui/glass/lens").then(({ installGlassLens }) => installGlassLens(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.

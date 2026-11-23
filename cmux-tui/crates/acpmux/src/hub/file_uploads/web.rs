@@ -146,7 +146,7 @@ pub(crate) async fn handle(
                 let dir = upload_dir(&id, upload).ok_or_else(refused)?;
                 if !dir.join(CONSUMED).exists() {
                     let _held = hold(upload);
-                    let _ = std::fs::remove_dir_all(dir);
+                    let _ = crate::home_fs::remove_dir_all(dir);
                 }
                 Ok(json!({}))
             }

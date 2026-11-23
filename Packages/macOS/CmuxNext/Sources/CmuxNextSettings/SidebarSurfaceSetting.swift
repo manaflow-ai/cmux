@@ -6,9 +6,6 @@ public import CmuxNextDesign
 /// A missing key is the default; a bad value is the default plus a
 /// diagnostic.
 public nonisolated struct SidebarSurfaceSetting: Sendable {
-    public static let configPath = ["appearance", "sidebarSurface"]
-    public static let fallback: SidebarSurface = .same
-
     public init() {}
 
     /// `unset` is the surface when the key is missing (the
@@ -30,21 +27,6 @@ public nonisolated struct SidebarSurfaceSetting: Sendable {
     public static func effective(in snapshot: CmuxConfigSnapshot) -> SidebarSurface {
         var ignored: [SettingsDiagnostic] = [] // the parse reported them (`ChromePlacementSetting.parse`)
         return parse(snapshot.root, unset: snapshot.chromeStyle.sidebarSurface ?? fallback, diagnostics: &ignored)
-    }
-
-    static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .appearance, group: group,
-            title: SettingsText.keyed("settings.sidebar.surface", "Sidebar Background"),
-            help: SettingsText.keyed("settings.sidebar.surface.help",
-                                     "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."),
-            kind: .choice([
-                SettingChoice(SidebarSurface.same.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.same", "Same as Main Pane")),
-                SettingChoice(SidebarSurface.separate.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.separate", "Separate")),
-            ]),
-            default: .string(fallback.rawValue),
-            keywords: ["sidebar", "background", "surface", "shade", "color", "colour", "panel", "separate", "main pane"]
-        )
     }
 }
 

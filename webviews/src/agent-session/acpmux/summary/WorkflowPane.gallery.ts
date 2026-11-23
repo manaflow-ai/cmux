@@ -41,7 +41,7 @@ const realPaneSnapshot = (running: boolean) => {
     { isWorking: running, title: "File count workflow" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default), opened in this pane.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });
@@ -63,6 +63,7 @@ export default agentPaneEntry({
       note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Judge as a plain pending row.",
       snapshot: paneSnapshot("running"),
       native,
+      sessionInfoOpen: true,
       workflowLabs: true,
       play: shown,
     },
@@ -70,6 +71,7 @@ export default agentPaneEntry({
       note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
       native,
+      sessionInfoOpen: true,
       workflowLabs: true,
       play: shown,
     },
@@ -77,6 +79,7 @@ export default agentPaneEntry({
       note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 10s elapsed.",
       snapshot: realPaneSnapshot(false),
       native,
+      sessionInfoOpen: true,
       workflowLabs: true,
       play: shown,
     },
@@ -84,6 +87,7 @@ export default agentPaneEntry({
       note: "Labs: the transcript card and Session Info Background tasks render the real Claude Workflow replay while Report runs.",
       snapshot: realPaneSnapshot(true),
       native,
+      sessionInfoOpen: true,
       workflowLabs: true,
       play: shown,
     },

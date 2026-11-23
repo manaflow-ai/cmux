@@ -1,0 +1,30 @@
+/* The gallery's sidebar stage for the Updated card's drag (updatedCardDrag.gallery.tsx): the
+   native host's settle (a spring to the new place) and the `ghosts` feel's two outlined places. */
+.wn-drag-card[data-settling] {
+  transition: translate var(--cmux-motion-large, 240ms) var(--cmux-ease-spring, var(--cmux-ease-out, ease-out));
+}
+.wn-drag-list {
+  transition: inset var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+}
+.wn-drag-ghost {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: var(--composer-material-height);
+  border: 1px dashed color-mix(in srgb, var(--page-text, CanvasText) 28%, transparent);
+  border-radius: var(--composer-material-radius, 12px);
+  pointer-events: none;
+}
+.wn-drag-ghost[data-anchor="top"] { top: 8px; }
+.wn-drag-ghost[data-anchor="bottom"] { bottom: 8px; }
+.wn-drag-ghost[data-near] {
+  border-style: solid;
+  border-color: var(--cmux-accent, currentColor);
+  background: color-mix(in srgb, var(--cmux-accent, currentColor) 12%, transparent);
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.wn-drag-card, .wn-drag-list) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.wn-drag-card, .wn-drag-list) { transition: none; }
+}

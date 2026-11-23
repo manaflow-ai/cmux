@@ -112,9 +112,9 @@ describe("Stripe catalog provisioning", () => {
       .flatMap((call) => call.args)
       .find((argument) => argument.startsWith("description="));
     expect(description("prod_starter")).toContain("1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap.");
-    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
-    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
-    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+    expect(description("prod_pro")).toBe("description=Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage.");
+    expect(description("prod_team")).toBe("description=Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support.");
   });
 
   test("renames the legacy Starter product to cmux Plus in place", async () => {

@@ -18,27 +18,18 @@
   min-height: 0;
   padding-bottom: 0;
 }
-/* The edge arms: the running row's mark, hidden in the shipped row, drawn at its trailing edge. */
-.bg-command-inline:is([data-look="edge-spinner"], [data-look="edge-dot"])
-  .cv-command__bg-state[data-state="running"]::before {
+/* The edge arms: the running row's mark, hidden in the shipped row, drawn at its trailing edge: the
+   shared `Spinner` (placed by the gallery) or a still dot. */
+.bg-command-inline__edge-spinner {
+  color: var(--cv-text-dim);
+}
+.bg-command-inline[data-look="edge-dot"] .cv-command__bg-state[data-state="running"]::before {
   content: "";
   box-sizing: border-box;
   width: 12px;
-  height: 12px;
+  aspect-ratio: 1;
   border-radius: 50%;
-}
-.bg-command-inline[data-look="edge-spinner"] .cv-command__bg-state[data-state="running"]::before {
-  border: 1.5px solid var(--cv-text-dim);
-  border-top-color: transparent;
-  animation: bg-command-inline-turn var(--cmux-motion-large) linear infinite;
-}
-.bg-command-inline[data-look="edge-dot"] .cv-command__bg-state[data-state="running"]::before {
   background: radial-gradient(circle, var(--cv-text-dim) 3px, transparent 3.5px);
-}
-@keyframes bg-command-inline-turn {
-  to {
-    transform: rotate(1turn);
-  }
 }
 /* The removed count line, as conversation.css drew it (.cv-bgstatus). */
 .bg-command-inline__before {

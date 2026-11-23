@@ -204,7 +204,10 @@ async fn authorize(
         op.insert("quiet".into(), json!(true));
     }
     let url = format!("{}/v1/triggers/{trigger}/authorize", environment.platform_origin());
+    let space = cmux_build_space::headers()
+        .map_err(|e| RpcError::new(-32001, format!("trigger authorization unavailable: {e}")))?;
     let client = reqwest::Client::builder()
+        .default_headers(space)
         .https_only(true)
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -314,6 +317,12 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
                 cwd: Some(PathBuf::from(&scope.cwd)),
                 workspace_id: Some(scope.workspace.clone()),
                 remote: true,
+                // A Cloud trigger is a script, run from its workspace (`hub/created_by.rs`).
+                created_by: Some(crate::store::CreatedBy {
+                    kind: crate::store::CreatorKind::Script,
+                    workspace: Some(scope.workspace.clone()),
+                    session: None,
+                }),
                 ..Default::default()
             },
             Some(scope.session.clone()),

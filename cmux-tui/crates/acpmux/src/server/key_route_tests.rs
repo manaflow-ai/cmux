@@ -28,7 +28,8 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
     let hub = Hub::new(config, store);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"}),
+        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-review-1".into(),
@@ -36,7 +37,7 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-review-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-review-1".into(), row);
     hub
 }
 
@@ -92,7 +93,8 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
     let hub = setup_with(&[("local-review-1", "review"), ("local-child-1", "review/child")]);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"}),
+        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-child-1".into(),
@@ -100,7 +102,7 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-child-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-child-1".into(), row);
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "review/child"})).await;
     assert_eq!(reply["error"]["data"]["reason"], "session_ambiguous", "{reply}");
     let uses: Vec<&str> = reply["error"]["data"]["choices"]
@@ -110,4 +112,75 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
         .filter_map(|c| c["route"].as_str())
         .collect();
     assert!(uses.contains(&"local-child-1") && uses.contains(&"hb/peer-child-1"), "{reply}");
+}
+
+/// Review of #38112: `local/ID`, a session's qualified id here, names that session through the
+/// dispatcher, never another session whose whole name is the same text.
+#[tokio::test]
+async fn a_local_qualified_id_beats_a_session_named_like_it() {
+    let hub = setup_with(&[("local-a-1", "a"), ("local-b-1", "local/local-a-1")]);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "local/local-a-1"})).await;
+    assert_eq!(reply["result"]["sessionId"], "local-a-1", "{reply}");
+    let found = hub.locate("local/local-a-1", false, true).unwrap();
+    assert_eq!(found["session"]["sessionId"], "local-a-1", "{found}");
+}
+
+/// Review of #38112: with configured peer hb, `hb/ID` whose row is gone (a stale qualified id)
+/// stays in hb's namespace and is refused, never handed to a session here named `hb/ID`.
+#[tokio::test]
+async fn a_stale_peer_qualified_id_never_picks_a_local_session_named_like_it() {
+    let hub = setup_with(&[("local-d-1", "hb/peer-gone-1")]);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-gone-1"})).await;
+    assert_ne!(reply["result"]["sessionId"], "local-d-1", "{reply}");
+}
+
+#[tokio::test]
+async fn spoken_handles_resolve_rename_and_send_through_the_socket() {
+    let hub = setup_with(&[("lane-a", "ci-fleet"), ("lane-b", "docs")]);
+    let info = call(&hub, method::MUX_INFO, json!({"sessionId": "lane-a"})).await;
+    let generated = info["result"]["handle"].as_str().expect("the old record has a handle");
+    let lookup = call(&hub, method::MUX_INFO, json!({"sessionId": generated})).await;
+    assert_eq!(lookup["result"]["sessionId"], "lane-a", "{lookup}");
+
+    let renamed =
+        call(&hub, method::MUX_RENAME, json!({"sessionId": generated, "newHandle": "Mango"})).await;
+    assert_eq!(renamed["result"]["handle"], "Mango", "{renamed}");
+    assert_eq!(renamed["result"]["name"], "ci-fleet", "{renamed}");
+    let found = call(&hub, method::MUX_RESOLVE, json!({"query": "local/mango"})).await;
+    assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
+    let link = "https://cmux.com/deeplink/agent?harness=fake&session=handle%3AMango";
+    let found = call(&hub, method::MUX_RESOLVE, json!({"query": link})).await;
+    assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
+    let id_link = "https://cmux.com/deeplink/agent?harness=fake&session=Mango";
+    let missing = call(&hub, method::MUX_RESOLVE, json!({"query": id_link})).await;
+    assert!(missing.get("error").is_some(), "{missing}");
+
+    let collision =
+        call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-b", "newHandle": "mango"})).await;
+    assert_eq!(collision["error"]["data"]["reason"], "handle.taken", "{collision}");
+
+    let request = json!({"sessionId": "Mango", "prompt": [{"type": "text", "text": "hi"}]});
+    let sent = call(&hub, method::MUX_SEND_QUEUE, json!({"request": request})).await;
+    assert!(sent.get("result").is_some(), "{sent}");
+}
+
+#[tokio::test]
+async fn spoken_handles_refuse_a_duplicate_peer_handle() {
+    let hub = setup_with(&[("lane-a", "ci-fleet")]);
+    call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-a", "newHandle": "Mango"})).await;
+    let mut rows = hub.remote_sessions.write();
+    let mut row = rows.get("hb/peer-review-1").unwrap().as_ref().clone();
+    let mut summary = row.summary.value();
+    summary["handle"] = json!("mango");
+    row.summary = summary.into();
+    rows.insert("hb/peer-review-1".into(), row);
+    drop(rows);
+
+    let refused = call(&hub, method::MUX_INFO, json!({"sessionId": "Mango"})).await;
+    assert_eq!(refused["error"]["data"]["reason"], "session_ambiguous", "{refused}");
+    let found = call(&hub, method::MUX_INFO, json!({"sessionId": "local/Mango"})).await;
+    assert_eq!(found["result"]["sessionId"], "lane-a", "{found}");
 }

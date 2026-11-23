@@ -30,7 +30,16 @@
 //!   a signed-in user in `<COPILOT_HOME or ~/.copilot>/config.json`
 //!   (`lastLoggedInUser`, `loggedInUsers`; the token itself is in the
 //!   keychain or that file).
-//! - Grok CLI: `GROK_API_KEY`, else `~/.grok/user-settings.json` `apiKey`.
+//! - Grok CLI (xAI's Grok Build): `GROK_API_KEY` or `XAI_API_KEY`; else the
+//!   `grok login` session in `<GROK_HOME or ~/.grok>/auth.json` (a SuperGrok
+//!   or X Premium+ sign-in; xai-org/grok-build `02-authentication.md`), or
+//!   the older CLI's `~/.grok/user-settings.json` `apiKey`.
+//! - Antigravity: `GEMINI_API_KEY` (the ACP server takes it); else the ACP
+//!   server's own `<GEMINI_HOME or ~/.gemini>/antigravity-acp/acp_token.json`
+//!   or the `agy` CLI's `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+//!   Both keep the login in the keychain when one works (macOS "Antigravity
+//!   Safe Storage", a Linux secret service) and write the file only without
+//!   one, so a keychain sign-in stays unknown; the two logins are separate.
 //! - Muse Code: `META_API_KEY` (Muse's docs name no login file, so a
 //!   browser sign-in stays unknown).
 
@@ -58,6 +67,7 @@ pub(super) fn file_auth(
         "copilot" => &["copilot"],
         "grok" => &["grok"],
         "muse" => &["muse", "muse-acp"],
+        "antigravity" => &["agy", "agy_acp_server.par"],
         _ => return None,
     };
     // Windows names them `gemini.exe`, `opencode.cmd` (an npm shim).
@@ -109,13 +119,26 @@ pub(super) fn file_auth(
                     .is_some_and(|users| !users.is_empty());
             user.then(|| signed_in(format!("{} names a signed-in user", file.display())))
         }),
-        "grok" => set(&["GROK_API_KEY"]).or_else(|| {
+        "grok" => set(&["GROK_API_KEY", "XAI_API_KEY"]).or_else(|| {
+            let session = dir("GROK_HOME", home.join(".grok")).join("auth.json");
+            if non_empty(&session) {
+                return Some(holds(session));
+            }
             let file = home.join(".grok/user-settings.json");
             let key = read_json(&file)?
                 .get("apiKey")
                 .and_then(Value::as_str)
                 .is_some_and(|k| !k.trim().is_empty());
             key.then(|| signed_in(format!("{} holds an API key", file.display())))
+        }),
+        "antigravity" => set(&["GEMINI_API_KEY"]).or_else(|| {
+            [
+                dir("GEMINI_HOME", home.join(".gemini")).join("antigravity-acp/acp_token.json"),
+                home.join(".gemini/antigravity-cli/antigravity-oauth-token"),
+            ]
+            .into_iter()
+            .find(|file| non_empty(file))
+            .map(holds)
         }),
         _ => set(&["META_API_KEY"]),
     }
@@ -200,6 +223,8 @@ mod tests {
             ("copilot", "copilot"),
             ("grok", "grok"),
             ("muse", "muse-acp"),
+            ("antigravity", "agy_acp_server.par"),
+            ("antigravity", "agy"),
         ] {
             assert_eq!(auth(family, program, &env), None, "{family}");
         }
@@ -214,7 +239,9 @@ mod tests {
             ("cursor", "cursor-agent", "CURSOR_API_KEY"),
             ("copilot", "copilot", "COPILOT_GITHUB_TOKEN"),
             ("grok", "grok", "GROK_API_KEY"),
+            ("grok", "grok", "XAI_API_KEY"),
             ("muse", "muse-acp", "META_API_KEY"),
+            ("antigravity", "agy_acp_server.par", "GEMINI_API_KEY"),
             ("opencode", "opencode", "OPENCODE_AUTH_CONTENT"),
         ] {
             let found = file_auth(family, program, &env(&dir, &[(key, "sk-secret-value")]));
@@ -259,11 +286,40 @@ mod tests {
     }
 
     #[test]
+    fn a_grok_login_session_is_a_sign_in() {
+        let dir = home("grok-login");
+        let env = env(&dir, &[]);
+        write(&dir.join(".grok/auth.json"), "{}");
+        assert_eq!(auth("grok", "grok", &env), None, "an empty file proves nothing");
+        write(&dir.join(".grok/auth.json"), r#"{"access_token":"x","refresh_token":"y"}"#);
+        let (auth, detail) = file_auth("grok", "grok", &env).unwrap();
+        assert_eq!(auth, Auth::SignedIn);
+        assert!(detail.unwrap().ends_with(".grok/auth.json holds a sign-in"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn antigravity_token_files_prove_a_sign_in() {
+        let dir = home("antigravity");
+        let acp = env(&dir, &[]);
+        write(&dir.join(".gemini/antigravity-acp/acp_token.json"), r#"{"refresh_token":"x"}"#);
+        assert_eq!(auth("antigravity", "agy_acp_server.par", &acp), Some(Auth::SignedIn));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir = home("agy-cli");
+        let cli = env(&dir, &[]);
+        write(&dir.join(".gemini/antigravity-cli/antigravity-oauth-token"), "ya29.token");
+        assert_eq!(auth("antigravity", "agy", &cli), Some(Auth::SignedIn));
+        assert_eq!(auth("antigravity", "agy-wrapper", &cli), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn folder_variables_move_the_login_files() {
         let dir = home("vars");
         let elsewhere = dir.join("elsewhere");
         write(&elsewhere.join(".gemini/oauth_creds.json"), r#"{"refresh_token":"x"}"#);
         write(&elsewhere.join("auth.json"), r#"{"anthropic":{"type":"oauth"}}"#);
+        write(&elsewhere.join("antigravity-acp/acp_token.json"), r#"{"refresh_token":"x"}"#);
         let moved = elsewhere.display().to_string();
         assert_eq!(auth("gemini", "gemini", &env(&dir, &[])), None);
         assert_eq!(
@@ -272,6 +328,14 @@ mod tests {
         );
         assert_eq!(
             auth("pi", "pi-acp", &env(&dir, &[("PI_CODING_AGENT_DIR", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(
+            auth("grok", "grok", &env(&dir, &[("GROK_HOME", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(
+            auth("antigravity", "agy_acp_server.par", &env(&dir, &[("GEMINI_HOME", &moved)])),
             Some(Auth::SignedIn)
         );
         let _ = std::fs::remove_dir_all(&dir);

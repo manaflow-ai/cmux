@@ -27,6 +27,7 @@ impl Sidecar {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),

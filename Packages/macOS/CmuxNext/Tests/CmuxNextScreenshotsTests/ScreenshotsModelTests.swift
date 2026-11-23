@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
+import CmuxNextTestSupport
 import Foundation
 import os
 import Testing
@@ -254,7 +255,7 @@ private final class RecordingWatcher: FolderWatching {
 /// lists with no second click, and no folder is detected until the first click.
 @MainActor @Suite struct ScreenshotsGateTests {
     @Test func nothingIsUnlockedOrDetectedBeforeTheClickAndTheClickIsRememberedPerTab() {
-        let gate = ScreenshotsGate(defaults: UserDefaults(suiteName: "ScreenshotsGateTests.\(UUID().uuidString)") ?? UserDefaults())
+        let gate = ScreenshotsGate(defaults: UserDefaults(testSuiteName: "ScreenshotsGateTests.\(UUID().uuidString)") ?? UserDefaults())
         #expect(!gate.mayDetect)
         #expect(!gate.isUnlocked("tab-a"))
         gate.unlock("tab-a")

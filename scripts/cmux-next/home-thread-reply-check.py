@@ -18,10 +18,12 @@ No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui
 
 Usage: home-thread-reply-check.py --tag <tag> [--app APP] [--out DIR]
 """
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, hashlib, json, os, signal, socket, subprocess, sys, time
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -80,6 +82,19 @@ def poll(predicate, timeout=20):
     return None
 
 
+def settled_snapshot(path, timeout=15):
+    """The window snapshot at `path` once two in a row are the same picture (an animation or layout ended)."""
+    def frame():
+        rpc("debug.window_snapshot", {"path": path})
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    wait_stable(frame, f"the window picture for {os.path.basename(path)}", timeout=timeout, interval=0.2, reads=2,
+                raise_on_timeout=False)
+
+
+def shown_conversation():
+    return ((rpc("debug.home") or {}).get("page") or {}).get("shown")
+
+
 def snapshot(conversation):
     return (api(call="snapshot", conversation=conversation, tail=20) or {}).get("messages") or []
 
@@ -136,7 +151,7 @@ env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.ge
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900", **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
-print(f"launched pid {process.pid}", flush=True)
+safe_print(f"launched pid {process.pid}", flush=True)
 try:
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
@@ -173,20 +188,20 @@ try:
     result.update(conversation=conversation, root=root, before=before)
 
     def opened():
-        if ((rpc("debug.home") or {}).get("page") or {}).get("shown") != conversation:
+        if shown_conversation() != conversation:
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts
-            return None
+            # Home shows it; a request while Home starts can be dropped, and the poll asks again.
+            if not wait_until(lambda: shown_conversation() == conversation, "Home to show the conversation", timeout=5,
+                              raise_on_timeout=False):
+                return None
         return root_text in (drive("texts").get("texts") or [])
     check("Home shows the root", bool(poll(opened, timeout=180)), drive("texts"))
-    time.sleep(1)  # test harness: let the rows settle before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "before.png")})
+    settled_snapshot(os.path.join(opts.out, "before.png"))  # the rows settled
 
     opened_thread = drive("thread")
     result["open"] = opened_thread
     check("a click on \"2 Replies\" opens the thread view", bool(opened_thread.get("open_thread")), opened_thread)
-    time.sleep(1)  # test harness: the view's fly-in, before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "thread-open.png")})
+    settled_snapshot(os.path.join(opts.out, "thread-open.png"))  # the view's fly-in ended
     drive("type", text=reply_text)
     sent = drive("send")
     check("Return in the thread view's field sends", bool(sent.get("ok")), sent)
@@ -200,19 +215,18 @@ try:
     mine = next((m for m in snapshot(conversation) if m.get("text") == reply_text), None)
     result["reply"] = mine
     check("the reply went out with thread_root = the root", bool(mine) and mine.get("thread_root") == root, mine)
-    time.sleep(1)  # test harness: the reply's arrival animation, before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "thread-after.png")})
+    settled_snapshot(os.path.join(opts.out, "thread-after.png"))  # the reply's arrival animation ended
     # A real Esc while the key focus is outside the pane (a terminal split, the sidebar, the
     # palette) is theirs: the thread stays open (cx-6ida review P2).
     drive("post_escape", outside=True)
-    time.sleep(0.5)  # test harness: the posted key press goes through the app's event queue
+    # sleep-ok: an observation window; the pass is that nothing changes (the thread stays open), so no event ends it
+    time.sleep(0.5)
     state = drive("thread_state")
     check("Esc with the key focus outside the pane leaves the thread open", bool(state.get("open_thread")), state)
     drive("escape")
     closed = drive("escape")
     check("Esc closes the thread view", closed.get("open_thread") is None, closed)
-    time.sleep(1)  # test harness: the view's fly-out, before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "after.png")})
+    settled_snapshot(os.path.join(opts.out, "after.png"))  # the view's fly-out ended
     check("Home still shows the root", root_text in (drive("texts").get("texts") or []))
 
     # Reply… on a reply whose root is out of Home's loaded window (HomeStore tail 60): the send
@@ -242,8 +256,9 @@ try:
     state = drive("escape")
     check("the first Esc in the field keeps the view open", bool(state.get("open_thread")), state)
     drive("post_escape")
-    time.sleep(0.5)  # test harness: the posted key press goes through the app's event queue
-    state = drive("thread_state")
+    # The posted key press went through the app's event queue: the view closed (checked below on timeout).
+    state = wait_until(lambda: (s := drive("thread_state")) and s.get("open_thread") is None and s,
+                       "the posted Esc to close the thread view", timeout=5, raise_on_timeout=False) or drive("thread_state")
     check("a second, real Esc closes the view", state.get("open_thread") is None, state)
     state = drive("reply", mine=True)
     check("Reply… opens the view again", bool(state.get("open_thread")), state)
@@ -257,17 +272,19 @@ try:
     late = next((m for m in snapshot(conversation) if m.get("text") == late_text), None)
     result["late_reply"] = late
     check("the reply names the old root, not the late reply", bool(late) and late.get("thread_root") == old_root, late)
-    time.sleep(1)  # test harness: the reply's arrival animation, before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "late-reply.png")})
+    settled_snapshot(os.path.join(opts.out, "late-reply.png"))  # the reply's arrival animation ended
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     exited = poll(lambda: process.poll() is not None, timeout=30)
-    print("app exited" if exited else "app STILL RUNNING", flush=True)
+    safe_print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)  # the app this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,

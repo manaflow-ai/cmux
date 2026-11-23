@@ -1,4 +1,4 @@
-package import CmuxNextHome
+package import CmuxNextHomeModel
 
 /// What Home's first-run panel shows for keys at one moment: the two rows'
 /// shortcuts and the Switching card (nil: hidden), compared so a registry

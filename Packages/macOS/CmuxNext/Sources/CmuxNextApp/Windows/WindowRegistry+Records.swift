@@ -42,12 +42,14 @@ extension WindowRegistry {
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
                 selectedTabs: [String: String] = [:], machines: [String: String] = [:]) -> WindowRecord? {
         // Incognito windows are never restored: nothing of them is saved.
-        guard let window = window(id), !isIncognito(id) else { return nil }
+        // A window that owns nothing is only a view of other windows' workspaces (`openView`): they are saved with their
+        // owners, and a record that named one would take it from its owner at the next launch (`init(records:)`).
+        guard let window = window(id), !isIncognito(id), !window.ownedIDs.isEmpty else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
         var record = WindowRecord(
             id: id,
             workspaceKey: selected.map(WorkspaceKey.init(rawValue:)),
-            workspaceKeys: window.workspaceIDs.map(WorkspaceKey.init(rawValue:)),
+            workspaceKeys: window.ownedIDs.map(WorkspaceKey.init(rawValue:)), // a guest is its owner's to save
             machine: state.flatMap { $0.machineID == MachineRegistry.localID ? nil : $0.machineID },
             screenID: state?.activeScreenID.map(ResourceID.init(rawValue:)),
             frame: window.frame.map(WindowFrame.init(rect:)),
@@ -71,6 +73,7 @@ extension WindowRegistry {
         // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
         let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
         record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }
+        record.chiefPanel = state?.chiefPanel.record
         // The docked workspaces (`window.dockedWorkspaces`), those the window still lists.
         if var docks = state?.docks, LayoutTunables.dockedWorkspaces.value {
             docks.prune(keeping: window.workspaceIDs.contains)

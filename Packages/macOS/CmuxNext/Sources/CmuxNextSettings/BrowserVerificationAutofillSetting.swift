@@ -1,21 +1,22 @@
-import CmuxNextDesign
-
 /// Email verification AutoFill in cmux.json (plans/cmux-next/email-verification-autofill/DESIGN.md):
 ///
 /// ```jsonc
-/// "browser": { "verificationAutofill": { "enabled": false } }
+/// "browser": { "verificationAutofill": { "enabled": false, "accounts": ["you@example.com"] } }
 /// ```
 ///
-/// `enabled`: when a site's page waits for a verification email, the tab's prompt bar offers the
-/// code or link from that site's email. Off by default: it reads mail the person opted into. The
+/// `enabled`: when a site's page waits for a verification email, the tab offers the code or link
+/// from that site's email. Off by default: it reads mail the person opted into.
+/// `accounts`: the mailbox addresses the person opted in, one by one; mail of any other account is
+/// never read for codes. Empty by default, so turning `enabled` on alone reads nothing. The
 /// app reads it from the effective root (``current(_:)``), so the snapshot type does not grow; a
 /// bad value is the default plus a diagnostic. Agents can neither read offers nor change it.
+///
+/// The key's path and default come from schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserVerificationAutofillSetting: Sendable, Hashable {
-    /// The key path of the switch.
-    public static let enabledPath = ["browser", "verificationAutofill", "enabled"]
-
     /// Whether the browser offers codes and links from verification emails.
-    public var enabled = false
+    public var enabled = BrowserVerificationAutofillSetting.enabledDefault
+    /// The opted-in mailbox addresses, lowercased and trimmed, each once.
+    public var accounts = BrowserVerificationAutofillSetting.accountsDefault
 
     public init() {}
 
@@ -33,38 +34,23 @@ public nonisolated struct BrowserVerificationAutofillSetting: Sendable, Hashable
     /// Checked against its schema row, so the parser and the Settings window agree.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserVerificationAutofillSetting {
         var setting = fallback
-        for descriptor in BrowserVerificationAutofillSettingsSchema.descriptors {
+        for descriptor in BrowserSettingsSchema.verificationAutofill {
             guard let value = root.value(at: descriptor.path) else { continue }
-            guard descriptor.accepts(value), let flag = value.boolValue else {
+            guard descriptor.accepts(value) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
             }
-            if descriptor.path == enabledPath { setting.enabled = flag }
+            if descriptor.path == enabledPath, let flag = value.boolValue { setting.enabled = flag }
+            if descriptor.path == accountsPath, case .array(let items) = value {
+                var addresses: [String] = []
+                for case .string(let text) in items {
+                    let address = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if address.contains("@"), !addresses.contains(address) { addresses.append(address) }
+                }
+                setting.accounts = addresses
+            }
         }
         return setting
-    }
-}
-
-/// Email verification AutoFill's row (Browser > Passwords), shown in Settings and the palette. Off
-/// by default; the person turns it on.
-nonisolated enum BrowserVerificationAutofillSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.passwords", "Passwords")
-        return [
-            SettingDescriptor(
-                BrowserVerificationAutofillSetting.enabledPath, section: .browser, group: group,
-                title: SettingsText.keyed("settings.browser.verificationAutofill.enabled", "Fill Codes from Verification Emails"),
-                help: SettingsText.keyed("settings.browser.verificationAutofill.enabled.help",
-                                         "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."),
-                kind: .toggle, default: .bool(BrowserVerificationAutofillSetting.fallback.enabled),
-                keywords: ["email", "verification", "code", "one-time", "otp", "2fa", "autofill", "magic link"]
-            ),
-        ]
-    }
-
-    /// The person decides whether cmux reads verification emails (privacy: agents never change it).
-    static var refusedKeys: [String: SettingsSchema.AgentRefusal] {
-        Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, .privacy) })
     }
 }
 

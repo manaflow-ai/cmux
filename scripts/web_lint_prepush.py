@@ -11,7 +11,8 @@ What runs, per area touched by the change:
 * webviews/ and cmux-tui/frontends/web/: the package's own `check` script from
   its package.json (the exact step CI runs: Oxfmt, Oxlint with the type check,
   and webviews' source checks such as check:browser-lanes). The `&&` pieces of
-  that script run at once, so the hook costs the slowest piece, not the sum.
+  that script run side by side, one per core this process may use (at most 8) and the type-aware ones one per
+  two cores, so on a big machine the hook costs the slowest piece, not the sum, and on a small one it waits.
 * A check runs when any input it reads changes. A source-check piece (`python3 ../scripts/cmux-next/X.py`)
   that reads files outside its package's triggers declares them next to its own path constants, as a
   module-level `INPUTS` tuple (read with `ast`, never run; see declared_inputs()). A change that touches one
@@ -87,7 +88,14 @@ type-aware lint and type check (tsgolint, about 9 GB and 5 GB on webviews), ever
 and a package with no node_modules. CI's `web lint` job and the PR's fast gates run them, or
 `cmux-ci test` on a build box. Elsewhere, every command this script spawns (installs, builds,
 checks) goes through spawn(), which outside CI runs it under `nice` with capped Go threads, Go
-heap and Node heap.
+heap and Node heap, and the checks run at most one per core (run_checks).
+
+In the hook (--pre-push) it installs and downloads nothing: an area with no node_modules in the tree it would lint is
+left to CI, named (without_missing_modules()), and a commit whose full lint tree would first fetch files a partial
+clone lacks is not linted there (missing_objects()). The hook runs it under a wall-clock limit
+(CMUX_WEB_LINT_TIMEOUT_SECONDS, 60 s) and lets the push go on past the limit or on a finding, unless
+CMUX_WEB_LINT_STRICT=1; by hand, a finding fails. On a loaded 2-core VM a full lint tree of a blobless clone plus a
+`bun install` of web/ held pushes 19-54 minutes (cmuxterm-hq#16030).
 """
 from __future__ import annotations
 
@@ -95,6 +103,7 @@ import argparse
 import ast
 import concurrent.futures
 import contextlib
+import fcntl
 import fnmatch
 import hashlib
 import json
@@ -104,9 +113,11 @@ import re
 import unicodedata
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -117,6 +128,17 @@ FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
 # "0" (or false/no/off/skip): this host runs no heavy check. Set by the host, e.g. from a fleet registry.
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
+# Leo, 2026-11-22, on a type check that went red in CI: "should've been caught and fixed faster". A host that runs no
+# heavy check by policy (66 of 68 lane hosts, so every lane VM pushed with no type check and no Oxlint) may still run
+# them when it says how much free memory that takes (GiB) and has it now: the type check and type-aware lint peak
+# at about 5 and 9 GB, with GOMEMLIMIT and the Node heap capped below. One such push at a time per host
+# (HEAVY_LOCK): a second push while one runs stays light rather than doubling the peak. Unset: light, as before.
+LOCAL_HEAVY_FREE_ENV = "CMUX_LOCAL_HEAVY_WHEN_FREE_GB"
+HEAVY_LOCK = "cmux-web-lint-heavy.lock"
+_heavy_lock = None
+# --timings: each setup step and check says on stderr when it starts and how long it took, as it happens, so a run
+# stopped by its job's timeout names the step it stalled in (a `bun install` that never returns printed nothing).
+PHASES = False
 # The only check pieces such a host runs, by their leading words: the formatter's check (Oxfmt, no type
 # information), the python3 source checks, and bun running a source-check script from the package's scripts/.
 # Exactly these argument lists, and source-check scripts (light_script): `python3 [-I] SCRIPT.py ARGS` or
@@ -134,6 +156,11 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
+# The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
+# 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
+# with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
+# (14.6 GB free, load under 2): the tools sleep while they wait on each other, so fewer at once wait less.
+WEIGHTY = re.compile(r"(?:^|&&|;|\|\|)\s*vp\s+(?:lint|check)\b")
 
 
 @dataclass(frozen=True)
@@ -1148,23 +1175,75 @@ def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, rea
     return light
 
 
-def local_heavy_checks() -> bool:
-    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0). CI always runs every piece:
-    a runner that inherits the host setting still runs the full type-aware check."""
+def local_heavy_checks(mode: str = "web lint") -> bool:
+    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0), unless it also set
+    CMUX_LOCAL_HEAVY_WHEN_FREE_GB and free_memory_heavy() lets it. CI always runs every piece: a runner that inherits
+    the host setting still runs the full type-aware check."""
     if in_ci():
         return True
-    return os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip")
+    if os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip"):
+        return True
+    return free_memory_heavy(mode)
+
+
+def available_gib(meminfo: str = "/proc/meminfo") -> float | None:
+    """MemAvailable in GiB, or None where it cannot be read (macOS, no /proc)."""
+    try:
+        with open(meminfo) as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / (1024 * 1024)
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def free_memory_heavy(mode: str, meminfo: str = "/proc/meminfo") -> bool:
+    """True when CMUX_LOCAL_HEAVY_WHEN_FREE_GB names a floor this host's free memory meets and no other push on the
+    host holds HEAVY_LOCK; this process then holds it until it exits. Says which way it went, either way."""
+    global _heavy_lock
+    raw = os.environ.get(LOCAL_HEAVY_FREE_ENV, "").strip()
+    if not raw:
+        return False
+    try:
+        floor = float(raw)
+    except ValueError:
+        print(f"{mode}: {LOCAL_HEAVY_FREE_ENV}={raw!r} is not a number of GiB; type check left to CI.", file=sys.stderr)
+        return False
+    free = available_gib(meminfo)
+    if free is None or free < floor:
+        shown = "unknown" if free is None else f"{free:.1f} GiB"
+        print(f"{mode}: free memory {shown} is under {floor:g} GiB; the type check and Oxlint are left to CI.",
+              file=sys.stderr)
+        return False
+    path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / HEAVY_LOCK
+    try:
+        handle = open(path, "a")
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"{mode}: another push on this host is running the type check; this one leaves it to CI.",
+              file=sys.stderr)
+        return False
+    _heavy_lock = handle
+    print(f"{mode}: {free:.1f} GiB free (floor {floor:g}): running the type check and Oxlint here.", file=sys.stderr)
+    return True
 
 
 def in_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI", "").lower() in ("1", "true")
 
 
+def usable_cores() -> int:
+    """The cores this process may run on (its affinity, which a VM, cgroup or taskset narrows), at least one."""
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 2)
+    return max(1, cores)
+
+
 def capped_env(env: dict[str, str] | None) -> dict[str, str]:
     """ENV outside CI: half the cores (at most 8) for Go, a soft Go heap goal, a capped Node heap. A value the
     caller already set is kept."""
     env = dict(os.environ if env is None else env)
-    env.setdefault("GOMAXPROCS", str(max(1, min(8, (os.cpu_count() or 2) // 2))))
+    env.setdefault("GOMAXPROCS", str(max(1, min(8, usable_cores() // 2))))
     env.setdefault("GOMEMLIMIT", HEAVY_GOMEMLIMIT)
     node = env.get("NODE_OPTIONS", "")
     if "--max-old-space-size" not in node:
@@ -1172,9 +1251,35 @@ def capped_env(env: dict[str, str] | None) -> dict[str, str]:
     return env
 
 
+# Bun's preload flags that take a path. In BUN_OPTIONS, Bun reads `--preload PATH` (a space, not `=`) as a script
+# path, so every `bun install` failed with 'Script not found "install"' and the pre-push lint stopped every push
+# (a shell profile that adds a Claude Code preload, 2026-11-07). The `--flag=PATH` form means the same and installs.
+BUN_PATH_FLAGS = {"--preload": "--preload", "--require": "--require", "--import": "--import", "-r": "--preload"}
+
+
+def bun_options_joined(value: str) -> str:
+    """BUN_OPTIONS with each path-taking preload flag joined to its path (`--preload=PATH`), the rest as given."""
+    words = value.split()
+    joined: list[str] = []
+    index = 0
+    while index < len(words):
+        flag = BUN_PATH_FLAGS.get(words[index])
+        if flag and index + 1 < len(words) and not words[index + 1].startswith("-"):
+            joined.append(f"{flag}={words[index + 1]}")
+            index += 2
+        else:
+            joined.append(words[index])
+            index += 1
+    return " ".join(joined)
+
+
 def spawn(command: list[str] | str, cwd: Path, env: dict[str, str] | None):
     """The one way this script starts a tool (git aside): installs, builds and checks alike. Outside CI it runs
-    under `nice` with capped_env, so no path spawns an uncapped type check or build."""
+    under `nice` with capped_env, so no path spawns an uncapped type check or build. A BUN_OPTIONS preload is
+    joined to its path (bun_options_joined), so the person's Bun preload never breaks `bun install`."""
+    env = dict(os.environ if env is None else env)
+    if env.get("BUN_OPTIONS"):
+        env["BUN_OPTIONS"] = bun_options_joined(env["BUN_OPTIONS"])
     if not in_ci():
         env = capped_env(env)
         nice = shutil.which("nice")
@@ -1244,6 +1349,20 @@ def deps_command(repo: Path, directory: str, force: bool = False, state: TreeSta
     return [shutil.which("bun") or "bun", *command]
 
 
+@contextlib.contextmanager
+def phase(name: str):
+    """With PHASES on: `web-lint: NAME: started` now and `web-lint: NAME: N.Ns` when it ends, flushed."""
+    if not PHASES:
+        yield
+        return
+    print(f"web-lint: {name}: started", file=sys.stderr, flush=True)
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        print(f"web-lint: {name}: {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
+
+
 def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | None:
     """Install the package's pinned dependencies (fast when they are current), with deps_command's command."""
     command = deps_command(repo, directory, force)
@@ -1252,7 +1371,8 @@ def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | Non
     if shutil.which(command[0]) is None:  # a relative PATH entry (node_modules/.bin/bun) is a real bun
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
-    result = run_leaving_no_lockfile(command, repo / directory)
+    with phase(f"{directory}: bun install"):
+        result = run_leaving_no_lockfile(command, repo / directory)
     if result.returncode == 0:
         return None
     return Result(directory, f"bun {' '.join(c for c in command[1:] if c != '--silent')}", result.returncode,
@@ -1340,7 +1460,8 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     started = time.monotonic()
     env = package_env(repo, build.directory)
     for step in steps:  # spawn() nices and caps them outside CI: the build is tsc
-        result = run_leaving_no_lockfile(step, root, env)
+        with phase(f"{build.directory}: {' '.join([Path(step[0]).name, *step[1:]])}"):
+            result = run_leaving_no_lockfile(step, root, env)
         if result.returncode != 0:
             shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
             return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
@@ -1389,10 +1510,11 @@ def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> 
 
 
 def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str], shown: str | None = None) -> Result:
-    started = time.monotonic()
-    result = spawn(command, cwd, env)
     if shown is None:
         shown = command if isinstance(command, str) else " ".join(command)
+    started = time.monotonic()
+    with phase(f"{label}: {shown}"):
+        result = spawn(command, cwd, env)
     return Result(label, shown, result.returncode, result.stdout + result.stderr, time.monotonic() - started)
 
 
@@ -1455,6 +1577,26 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
         jobs.append((directory, eslint_command(repo, directory, files, fix, cache), repo / directory,
                      package_env(repo, directory)))
     return jobs
+
+
+def without_missing_modules(plan: Plan, has_modules, mode: str) -> Plan:
+    """PLAN for the pre-push hook on a host that runs heavy checks: an area with no node_modules in the tree is left to
+    CI, named, never installed there. A `bun install` of web/ into a fresh lint tree on a loaded 2-core VM, beside a
+    full lint tree, held pushes 19-54 minutes (cmuxterm-hq#16030); a hook installs nothing it has not got."""
+    kept = Plan(untrusted=plan.untrusted, script_pieces=plan.script_pieces, trusted_pieces=plan.trusted_pieces,
+                trusted_skipped=plan.trusted_skipped, trusted=plan.trusted)
+    ci = "CI's `web lint` job checks it (the hook installs nothing; `scripts/web-lint.sh` by hand does)"
+    for package in plan.script_packages:
+        if has_modules(package.directory):
+            kept.script_packages.append(package)
+        else:
+            print(f"{mode}: {package.directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+    for directory, files in plan.eslint_files.items():
+        if has_modules(directory):
+            kept.eslint_files[directory] = files
+        else:
+            print(f"{mode}: {directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+    return kept
 
 
 def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode: str, read=None,
@@ -1526,6 +1668,55 @@ def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
     return bool(plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files)
 
 
+def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
+    """PIECE runs a WEIGHTY tool, itself or through a `bun run NAME` script of SCRIPTS it names."""
+    if WEIGHTY.search(piece):
+        return True
+    for name in re.findall(r"\bbun run ([\w:.-]+)", piece):
+        body = scripts.get(name)
+        if name not in seen and isinstance(body, str) and weighty(body, scripts, (*seen, name)):
+            return True
+    return False
+
+
+def heavy_slots() -> int:
+    """How many WEIGHTY checks (and ESLint runs) run at once, in CI or not: one per two cores this process may use,
+    at least one. nice lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about
+    8 checks at once for 141 s at load 17.8 (2026-11-15). A busy machine makes the hook slower, never makes it fail."""
+    return max(1, usable_cores() // 2)
+
+
+def check_slots() -> int:
+    """How many check jobs run at once: one per core this process may use, at most 8."""
+    return min(8, usable_cores())
+
+
+def run_checks(repo: Path, plan: Plan, jobs: list[tuple]) -> list[Result]:
+    """Every check job, at most check_slots() at once and the weighty ones at most heavy_slots() at once, started
+    first; the results in JOBS' order."""
+    scripts = {package.directory: package_scripts(repo, package) for package in plan.script_packages}
+    weighs = [job[0] in plan.eslint_files or isinstance(job[1], str) and weighty(job[1], scripts.get(job[0], {}))
+              for job in jobs]
+    gate = threading.BoundedSemaphore(heavy_slots())
+    cores = threading.BoundedSemaphore(check_slots())
+
+    def check(index: int) -> Result:
+        # A weighty check waits for its own slot before a core's, so a queued one never keeps a light check from
+        # running; a check's phase starts once it holds its slots, so a queued one is never named as running.
+        if not weighs[index]:
+            with cores:
+                return run(*jobs[index])
+        with gate, cores:
+            return run(*jobs[index])
+
+    order = sorted(range(len(jobs)), key=lambda index: not weighs[index])
+    # A thread per job: the slots, not the pool, bound what runs, so weighty jobs waiting on the gate never hold every
+    # worker while light ones queue behind them.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
+        futures = {index: pool.submit(check, index) for index in order}
+        return [futures[index].result() for index in range(len(jobs))]
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
@@ -1538,14 +1729,91 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
         if failures:
             return failures
         directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(check_slots(), len(directories)))) as pool:
             installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
         if installs:
             return installs
     for job in fixes:
         run(*job)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
-        return list(pool.map(lambda job: run(*job), jobs))
+    return run_checks(repo, plan, jobs)
+
+
+def piece_tree_paths(repo: Path, sha: str | None, plan: Plan, read) -> list[str] | None:
+    """The files of commit SHA a lint tree needs when PLAN runs lone source-check pieces only (a Swift-only push:
+    Plan.script_pieces and trusted_pieces, no package check, no ESLint), or None when the tree must be the whole
+    commit. They are what the pieces declare they read (INPUTS, the same declaration that chose them), the
+    package's package.json (the folder a piece starts in) and its other executed folders (scripts/cmux-next/, where
+    the scripts and the modules they import are).
+
+    A full lint tree is every file of the commit: 49,011 files on 2026-11-10, written by `git worktree add`, which
+    took 7 s of a Swift-only push's 11 s of web lint on an idle Mac and 2-6 minutes on a loaded one, for three
+    checks that read 14,791 of them and run for 2 s.
+
+    None also when a piece declares nothing, or when a symlink or a submodule lies in what a piece reads: a link
+    would be read through to a file this tree does not hold."""
+    if sha is None or plan.script_packages or plan.eslint_files or not (plan.script_pieces or plan.trusted_pieces):
+        return None
+    packages = {package.directory: package for package in SCRIPT_PACKAGES}
+    readers = ((plan.script_pieces, read),
+               (plan.trusted_pieces, trusted_reader(plan.trusted, read) if plan.trusted else read))
+    patterns: list[str] = []
+    for pieces_of, reader in readers:
+        for directory, pieces in pieces_of.items():
+            package = packages[directory]
+            for piece in pieces:
+                inputs = piece_inputs(package, piece, reader)
+                if not inputs:
+                    return None
+                patterns += inputs
+            patterns += [f"{directory}/package.json", *(path for path in package.executed if path != f"{directory}/")]
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    # Where each pattern reads: the folder a `DIR/**/GLOB` walks, or the path itself.
+    roots = [pattern.split("**/", 1)[0] if "**/" in pattern else pattern.rstrip("/") + "/" for pattern in patterns]
+    paths = []
+    for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition("\t")
+        mode, kind = meta.split(" ")[:2]
+        if kind != "blob" or mode == SYMLINK_MODE:
+            if any(f"{path}/".startswith(root) or root.startswith(f"{path}/") for root in roots):
+                return None
+            continue
+        if any(input_matches(path, pattern) for pattern in patterns):
+            paths.append(path)
+    return paths
+
+
+def export_files(repo: Path, sha: str, paths: list[str], tree: Path, work: Path) -> None:
+    """PATHS of commit SHA written under TREE (a new folder), from git objects through a throwaway index in WORK.
+    No worktree is registered, so nothing here takes the clone's shared worktree list, which `git worktree add`
+    and `remove` both lock (nine hooks at once waited minutes on each, 2026-11-10). The index is filled from the
+    paths' own tree entries, never `git read-tree`: that applies a sparse checkout's rules and would leave files
+    out. Raises when a path was not written: a check must never pass on a tree short of a file it reads."""
+    wanted = set(paths)
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    entries = [entry for entry in listed.stdout.split(b"\0")
+               if entry and entry.partition(b"\t")[2].decode("utf-8", "surrogateescape") in wanted]
+    # Through a file, never a pipe: on a Mac short of pipe memory a write into a pipe blocks for good (git_batch.py).
+    info = work / "index-info"
+    info.write_bytes(b"".join(entry + b"\0" for entry in entries))
+    env = {**os.environ, "GIT_INDEX_FILE": str(work / "index")}
+    tree.mkdir()
+    for command, stdin in ((["update-index", "-z", "--index-info"], info),
+                           (["checkout-index", "--all", f"--prefix={tree}{os.sep}"], None)):
+        with open(stdin or os.devnull, "rb") as handle:
+            done = subprocess.run(["git", "-C", str(repo), *command], env=env, stdin=handle, capture_output=True)
+        if done.returncode != 0:
+            raise SystemExit(f"web-lint: git {command[0]} for the lint tree of {sha[:12]} failed: "
+                             f"{done.stderr.decode(errors='replace').strip()}; nothing was linted")
+    missing = [path for path in paths if not (tree / path).is_file()]
+    if missing:
+        raise SystemExit(f"web-lint: the lint tree of {sha[:12]} lacks {len(missing)} file(s) the checks read "
+                         f"({', '.join(missing[:3])}); nothing was linted")
 
 
 def in_place_cache(repo: Path, head: str | None) -> bool:
@@ -1553,24 +1821,73 @@ def in_place_cache(repo: Path, head: str | None) -> bool:
     return head is None or is_checked_out(repo, head)
 
 
+def missing_objects(repo: Path, sha: str) -> int:
+    """How many objects of commit SHA's tree this clone lacks (a partial, blobless clone fetches them on first read).
+    One `git rev-list --missing=print` over the commit's tree, which fetches nothing: 0.1 s for 59,562 objects."""
+    listed = subprocess.run(["git", "-C", str(repo), "rev-list", "--objects", "--no-walk", "--missing=print", sha],
+                            capture_output=True)
+    if listed.returncode != 0:
+        return 0  # an older git: the lint tree reads as it always did, under the hook's time limit
+    return sum(1 for line in listed.stdout.splitlines() if line.startswith(b"?"))
+
+
 def is_checked_out(repo: Path, sha: str) -> bool:
-    """The checkout is exactly `sha`: HEAD is it and nothing is modified or untracked."""
+    """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
+    sparse checkout (git status is clean in one that lacks most of the commit). A clone with no work tree (a bare
+    mirror the hook pushes from, REPO its git dir) is never checked out: its commits are linted in a tree of their
+    own, and `git status` there dies with "must be run in a work tree"."""
+    if not has_work_tree(repo):
+        return False
     return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
-            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip())
+            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip()
+            and not is_sparse(repo))
+
+
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    return git(repo, "rev-parse", "--is-inside-work-tree", check=False).strip() == "true"
+
+
+def is_sparse(repo: Path) -> bool:
+    """The checkout leaves files of the index out: an index entry has the skip-worktree bit (`git ls-files -t`
+    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file. A clone
+    with no work tree has no checkout to leave files out of (its index is not one)."""
+    if not has_work_tree(repo):
+        return False
+    return any(entry.startswith("S ") for entry in git(repo, "ls-files", "-t", "-z").split("\0"))
+
+
+def sparse_refusal(plan: Plan, mode: str) -> str:
+    """What a push from a sparse checkout is told when its checks need the whole commit (tree_of())."""
+    areas = sorted({package.directory for package in plan.script_packages} | set(plan.eslint_files))
+    return (f"{mode}: refused; nothing was linted. This worktree is a sparse checkout, and the "
+            f"{', '.join(area + '/' for area in areas)} checks read the whole repository, which it does not hold. "
+            "Run `git sparse-checkout disable` here and push again, or push with "
+            "`scripts/cmux-next/push-from-host.sh <branch>`, which runs this hook on a full clone.")
 
 
 @contextlib.contextmanager
-def tree_of(repo: Path, sha: str | None, directories: list[str]):
+def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
-    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..)."""
+    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
+    ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
     holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
     tree = holder / "tree"
+    if only is not None:
+        try:
+            with phase(f"lint tree at {sha[:12]} ({len(only)} files the checks read)"):
+                export_files(repo, sha, only, tree, holder)
+            yield tree
+        finally:
+            shutil.rmtree(holder, ignore_errors=True)
+        return
     try:
         # No hooks: a checkout hook must not run for a lint tree.
-        git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        with phase(f"lint tree at {sha[:12]}"):
+            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
                 if os.path.lexists(tree / directory / "node_modules"):
@@ -1617,6 +1934,35 @@ def load_compare():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+# --new-only: the file (one repo-relative path per line) of the paths the change touches, for a check that is a pure
+# function of each file (webviews' check:compiler-bails) to read only those. Its findings on the other files are the
+# base's, which a full run on every feat-cmux-next push (cmux-next-web-lint.yml, no --new-only) already holds. The
+# merge and the --new-only base run read the same list. check:compiler-bails compiled all 2,977 agent-chat files
+# serially on every pull request: 65 s of the fast gates' 159 s step (job 136902872282, 2026-11-21).
+CHANGED_FILES_ENV = "CMUX_WEB_LINT_CHANGED_FILES"
+
+
+@contextlib.contextmanager
+def changed_files_env(files: list[str] | None):
+    """CHANGED_FILES_ENV naming a file of FILES while the checks run; unset (every check reads every file) when None."""
+    if files is None:
+        yield
+        return
+    handle, name = tempfile.mkstemp(prefix="web-lint-changed-", suffix=".txt")
+    previous = os.environ.get(CHANGED_FILES_ENV)
+    try:
+        with os.fdopen(handle, "w") as out:
+            out.write("".join(f"{path}\n" for path in files))
+        os.environ[CHANGED_FILES_ENV] = name
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(CHANGED_FILES_ENV, None)
+        else:
+            os.environ[CHANGED_FILES_ENV] = previous
+        Path(name).unlink(missing_ok=True)
 
 
 def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
@@ -1679,7 +2025,22 @@ def report(results: list[Result], seconds: float, mode: str, timings: bool = Fal
     return 1
 
 
+def add_installed_bun_to_path(environ=os.environ, home: Path | None = None) -> bool:
+    """With no bun on PATH, put the bun installer's default bin directory ($BUN_INSTALL/bin, else ~/.bun/bin) at
+    PATH's front when it holds a bun, so a shell that never sourced the installer's profile line still lints. True
+    when it added one. Every later shutil.which("bun") and every child process sees it."""
+    if shutil.which("bun", path=environ.get("PATH", "")):
+        return False
+    root = Path(environ["BUN_INSTALL"]) if environ.get("BUN_INSTALL") else (home or Path.home()) / ".bun"
+    bun = root / "bin" / "bun"
+    if not (bun.is_file() and os.access(bun, os.X_OK)):
+        return False
+    environ["PATH"] = os.pathsep.join(p for p in (str(bun.parent), environ.get("PATH", "")) if p)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
+    add_installed_bun_to_path()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, help="checkout root (default: the current one)")
     parser.add_argument("--base", help="base ref (default: the push's own range, scripts/cmux-next/push_range.py)")
@@ -1690,12 +2051,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trusted-scripts-dir", type=Path,
                         help="the installed cmux-next-checks snapshot that holds push_range.py (the hook passes it)")
     parser.add_argument("--dry-run", action="store_true", help="print what would run, run nothing")
-    parser.add_argument("--timings", action="store_true", help="print each check's time")
+    parser.add_argument("--timings", action="store_true",
+                        help="name each step (lint tree, install, build, check) as it starts and ends; each check's time")
     parser.add_argument("--all", action="store_true",
                         help="run every package check, whatever changed (CI, when the push base is unknown)")
     parser.add_argument("--new-only", action="store_true",
                         help="fail only on findings --base does not have (a pull request merged with its base)")
     args = parser.parse_args(argv)
+    global PHASES
+    PHASES = args.timings
+    if args.pre_push:
+        # The hook stops a lint past its time limit with SIGTERM to the whole group: exit through the `finally`s, so a
+        # lint tree is removed (tree_of()) before the hook's SIGKILL a few seconds later.
+        signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
 
     mode = "pre-push" if args.pre_push else "web-lint"
     if args.pre_push:
@@ -1715,6 +2083,11 @@ def main(argv: list[str] | None = None) -> int:
     heads: dict[str | None, list[str]] = {}
     if args.base:
         heads[None if args.fix else args.head] = changed_files(repo, args.base, args.head)
+    elif args.all and not args.pre_push:
+        # Every package is checked, whatever changed (below), so no push range is needed: in CI's shallow checkout
+        # of a commit no remote ref names, that range cannot be told, and asking for it refused the whole run
+        # (cmux-ci test, run 44991179215: "nothing was linted").
+        heads[None if args.fix else args.head] = []
     else:
         push_range = load_push_range(args.trusted_scripts_dir.resolve() if args.trusted_scripts_dir else None)
         try:
@@ -1722,7 +2095,10 @@ def main(argv: list[str] | None = None) -> int:
                 ranges, errors = push_range.pushed_ranges(repo, sys.stdin.read().splitlines(), args.remote)
             else:
                 # The working tree (no --head) is linted over the own range of HEAD.
-                ranges, errors = [push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
+                # Fetching the shared base first, as a push does (manual_range; an older installed copy lacks it).
+                manual = getattr(push_range, "manual_range", None)
+                ranges, errors = [manual(repo, args.head or "HEAD", remote=args.remote) if manual
+                                  else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
         if errors:
@@ -1731,11 +2107,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{mode}: refused; nothing was linted. Fix the clone as said above and push again.", file=sys.stderr)
             return 1
         for own in ranges:
+            # The range's note says how its base was chosen, and that a base the refresh could not fetch is this
+            # clone's stale copy (push_range.refresh_base): files a newer base brought in then count as the push's.
+            print(f"{mode}: linting {own.describe()}", file=sys.stderr)
             head = own.head if args.pre_push else args.head
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
     started = time.monotonic()
-    heavy = local_heavy_checks()
+    heavy = local_heavy_checks(mode)
     results: list[Result] = []
     for head, changed in heads.items():
         files = sorted(set(changed))
@@ -1774,6 +2153,17 @@ def main(argv: list[str] | None = None) -> int:
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
         # A host that runs no heavy checks builds nothing, so every package may share the checkout's node_modules.
         directories = [p.directory for p in plan.script_packages if not p.builds or not heavy] + list(plan.eslint_files)
+        if args.pre_push and heavy:
+            # Decided before any lint tree is written: the checkout's node_modules, or those a lint tree links in.
+            if in_place_cache(repo, head):
+                plan = without_missing_modules(plan, lambda d: (repo / d / "node_modules").is_dir(), mode)
+            else:
+                shared = {d for d in directories if shares_deps(repo, head, d)}
+                plan = without_missing_modules(plan, lambda d: d in shared, mode)
+            if not (plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files):
+                continue
+            directories = [d for d in directories if d in plan.eslint_files
+                           or any(p.directory == d for p in plan.script_packages)]
         if args.dry_run:
             # The run's own plan_steps(), for the tree it would run in: the checkout as it is, or the fresh lint tree
             # tree_of() makes (no build output, node_modules only where it links the checkout's): setup, fix passes,
@@ -1785,7 +2175,26 @@ def main(argv: list[str] | None = None) -> int:
             for job in setup + fixes + jobs:
                 print(shown(job))
             continue
-        with tree_of(repo, head, directories) as tree:
+        only = piece_tree_paths(repo, head, plan, read)
+        if is_sparse(repo):
+            # 2026-11-11: a sparse checkout passed is_checked_out() before is_sparse() was part of it, and the checks
+            # ran in it: FileNotFoundError without webviews/, "no Packages/macOS/CmuxNext/Sources" without the sources.
+            if head is None or only is None:
+                print(sparse_refusal(plan, mode), file=sys.stderr)
+                return 1
+            print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
+                  f"files of {head[:12]} they read.", file=sys.stderr)
+        if args.pre_push and head is not None and only is None and not is_checked_out(repo, head):
+            missing = missing_objects(repo, head)
+            if missing:
+                # A full lint tree here first downloads every file this partial clone lacks: 19-54 minutes on a loaded
+                # 2-core VM, until someone stopped the push (cmuxterm-hq#16030).
+                print(f"{mode}: not linted here: this clone lacks {missing} files of {head[:12]} (a partial clone), and "
+                      "the lint tree would download them first. CI's `web lint` job checks it; `scripts/web-lint.sh` "
+                      "on a full checkout runs it by hand.", file=sys.stderr)
+                continue
+        scoped = files if args.new_only and not args.all else None
+        with tree_of(repo, head, directories, only) as tree, changed_files_env(scoped):
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

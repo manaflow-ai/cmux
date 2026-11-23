@@ -1,15 +1,16 @@
 import AppKit
 import CmuxNextDesign
 
-/// The trailing state of an on/off command's palette row (``PaletteToggleStyle``): a mini switch,
-/// a switch with its word, an "On"/"Off" pill or a checkmark. Drawn directly (no subviews, no
-/// `NSSwitch`): the row is a reused table cell and a control there would take clicks and focus.
+/// The trailing state of a palette row that flips a state (``PaletteToggleStyle``): "On" or "Off"
+/// as plain text (with a dot in one style), an "On"/"Off" pill or a checkmark. Never a switch: the
+/// row itself flips. Drawn directly (no subviews, no control): the row is a reused table cell and a
+/// control there would take clicks and focus.
 final class PaletteToggleBadgeView: NSView {
-    /// Whether the command is on now.
+    /// Whether the state is on now.
     var isOn = false {
         didSet { if isOn != oldValue { needsDisplay = true } }
     }
-    var style: PaletteToggleStyle = .trailingSwitch {
+    var style: PaletteToggleStyle = .stateWord {
         didSet {
             guard style != oldValue else { return }
             invalidateIntrinsicContentSize()
@@ -19,17 +20,18 @@ final class PaletteToggleBadgeView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// The switch's track: 26 by 15 pt at the body text size, the mini `NSSwitch`'s proportions.
-    private var trackSize: NSSize {
-        let height = max(12, round(Typography.body.pointSize * 1.15))
-        return NSSize(width: round(height * 1.73), height: height)
-    }
-
     private var word: String { isOn ? PaletteStrings.on : PaletteStrings.off }
 
-    /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
+    /// The dot before the word in ``PaletteToggleStyle/stateWordDot``.
+    private var dotSide: CGFloat { max(5, round(Typography.caption.pointSize * 0.5)) }
+
+    /// theme-scoped: read inside `performWithTheme` (draw) or for measuring. "On" takes the accent's lit
+    /// ink (`litGlyph`, never the raw accent); "Off" the tertiary ink, or the secondary one in
+    /// ``PaletteToggleStyle/stateWordStrongOff``.
     private func wordAttributes(on: Bool) -> [NSAttributedString.Key: Any] {
-        [.font: Typography.caption, .foregroundColor: on ? Palette.textPrimary : Palette.textTertiary]
+        let ink: NSColor = on ? (style == .wordPill ? Palette.textPrimary : Palette.litGlyph)
+            : style == .stateWordStrongOff ? Palette.textSecondary : Palette.textTertiary
+        return [.font: Typography.caption, .foregroundColor: ink]
     }
 
     /// The wider of "On" and "Off", so a row's layout never moves when the state changes.
@@ -42,8 +44,8 @@ final class PaletteToggleBadgeView: NSView {
     override var intrinsicContentSize: NSSize {
         let height = PaletteLayout.keycapSize
         switch style {
-        case .trailingSwitch: return NSSize(width: trackSize.width, height: height)
-        case .switchWithWord: return NSSize(width: wordWidth + Metrics.space3 + trackSize.width, height: height)
+        case .stateWord, .stateWordStrongOff: return NSSize(width: wordWidth, height: height)
+        case .stateWordDot: return NSSize(width: dotSide + Metrics.space2 + wordWidth, height: height)
         case .wordPill: return NSSize(width: wordWidth + Metrics.space3 * 2, height: height)
         case .trailingCheck: return NSSize(width: Metrics.iconSize, height: height)
         case .leadingCheck, .titleSuffix, .none: return .zero
@@ -53,13 +55,11 @@ final class PaletteToggleBadgeView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             switch style {
-            case .trailingSwitch:
-                drawSwitch(in: NSRect(x: bounds.maxX - trackSize.width, y: (bounds.height - trackSize.height) / 2,
-                                      width: trackSize.width, height: trackSize.height))
-            case .switchWithWord:
-                drawWord(rightAt: bounds.maxX - trackSize.width - Metrics.space3)
-                drawSwitch(in: NSRect(x: bounds.maxX - trackSize.width, y: (bounds.height - trackSize.height) / 2,
-                                      width: trackSize.width, height: trackSize.height))
+            case .stateWord, .stateWordStrongOff:
+                drawWord(rightAt: bounds.maxX)
+            case .stateWordDot:
+                drawDot()
+                drawWord(rightAt: bounds.maxX)
             case .wordPill:
                 drawPill()
             case .trailingCheck:
@@ -70,27 +70,19 @@ final class PaletteToggleBadgeView: NSView {
         }
     }
 
-    /// theme-scoped. An accent track with the knob right while on; a hairline gray track, knob left, while off.
-    private func drawSwitch(in track: NSRect) {
-        let radius = track.height / 2
-        let path = NSBezierPath(roundedRect: track, xRadius: radius, yRadius: radius)
+    /// theme-scoped. A dot filled with the lit ink while on, an outline in the tertiary ink while off.
+    private func drawDot() {
+        let side = dotSide
+        let rect = NSRect(x: bounds.minX, y: (bounds.height - side) / 2, width: side, height: side)
         if isOn {
-            Palette.accentFill.setFill()
-            path.fill()
+            Palette.litGlyph.setFill()
+            NSBezierPath(ovalIn: rect).fill()
         } else {
-            Palette.hoverFill.setFill()
-            path.fill()
-            Palette.separator.setStroke()
-            let outline = NSBezierPath(roundedRect: track.insetBy(dx: 0.5, dy: 0.5), xRadius: radius - 0.5, yRadius: radius - 0.5)
-            outline.lineWidth = 1
-            outline.stroke()
+            Palette.textTertiary.setStroke()
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            ring.lineWidth = 1
+            ring.stroke()
         }
-        let inset: CGFloat = 1.5
-        let knobSide = track.height - inset * 2
-        let knobX = isOn ? track.maxX - inset - knobSide : track.minX + inset
-        let knob = NSBezierPath(ovalIn: NSRect(x: knobX, y: track.minY + inset, width: knobSide, height: knobSide))
-        (isOn ? Palette.onAccent : Palette.textTertiary).setFill()
-        knob.fill()
     }
 
     /// theme-scoped. The state word, right-aligned at `right`.

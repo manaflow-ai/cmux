@@ -58,8 +58,8 @@ driver_args=("$@")
 for a in ${driver_args[@]+"${driver_args[@]}"}; do [ "$a" != "--seconds" ] || { echo "--seconds is set by the lease" >&2; exit 2; }; done
 if [ -n "$build" ]; then [ -z "$base$head" ] || usage; elif [ -z "$base" ] || [ -z "$head" ]; then usage; fi
 [[ $runs =~ ^[1-9][0-9]*$ ]] || usage
-out=${out:-${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ)}
-mkdir -p "$out"
+# The default is a folder mktemp makes, never a guessable shared-temp name another account could make first.
+if [ -n "$out" ]; then mkdir -p "$out"; else out=$(mktemp -d "${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"); fi
 # capture-host on PATH (the installed hq tools) and the ssh routes to the capture minis.
 . "$repo/scripts/cmux-next/capture-host-env.sh"
 command -v capture-host >/dev/null || { echo "capture-host not found (install the hq tools: cmux-ci capture)" >&2; exit 2; }

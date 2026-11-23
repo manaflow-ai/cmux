@@ -30,28 +30,28 @@ struct DebugTunablesActivateTests {
     /// bench that never calls `activate` still sees it.
     @Test func withoutActivateASetChangesNothing() {
         let services = Self.services(), store = TunableStore()
-        let row = Self.call(["action": "set", "key": "browserPage.loadingBackground", "value": false], store, services)
-        #expect(row["value"]?.boolValue == true)
+        let row = Self.call(["action": "set", "key": "browserPage.uiPointer", "value": true], store, services)
+        #expect(row["value"]?.boolValue == false)
         #expect(row["changed"]?.boolValue == false)
-        #expect(BrowserPageTunables.loadingBackground.value(in: store) == true)
+        #expect(BrowserPageTunables.uiPointer.value(in: store) == false)
         #expect(Self.call(["action": "state"], store, services)["active"]?.boolValue == false)
     }
 
     /// After `activate`, `state` says active, and each `set` reaches the next read: a switch
-    /// read per frame (`browserPage.loadingBackground`) and a spring read when its motion starts (`motion.spring.move`,
+    /// (`browserPage.uiPointer`) and a spring read when its motion starts (`motion.spring.move`,
     /// which the speed sweep scales).
     @Test func activateTurnsTheStoreOnAndEachSetReachesTheNextRead() throws {
         let services = Self.services(), store = TunableStore()
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        let backdrop = BrowserPageTunables.loadingBackground
-        let row = Self.call(["action": "set", "key": .string(backdrop.key), "value": false], store, services)
-        #expect(row["value"]?.boolValue == false)
+        let pointer = BrowserPageTunables.uiPointer
+        let row = Self.call(["action": "set", "key": .string(pointer.key), "value": true], store, services)
+        #expect(row["value"]?.boolValue == true)
         #expect(row["changed"]?.boolValue == true)
-        #expect(backdrop.value(in: store) == false)
-        _ = Self.call(["action": "set", "key": .string(backdrop.key), "value": true], store, services)
-        #expect(backdrop.value(in: store) == true)
+        #expect(pointer.value(in: store) == true)
+        _ = Self.call(["action": "set", "key": .string(pointer.key), "value": false], store, services)
+        #expect(pointer.value(in: store) == false)
         let move = try #require(MotionTunables.springs[.move])
         _ = Self.call(["action": "set", "key": .string(move.key), "value": ["response": 0.6, "dampingFraction": 1]], store, services)
         #expect(move.value(in: store) == SpringParameters(response: 0.6, dampingFraction: 1))
@@ -63,8 +63,8 @@ struct DebugTunablesActivateTests {
         let services = Self.services(), store = TunableStore()
         _ = Self.call(["action": "activate"], store, services)
         let changes = CmuxNextCompat.Atomic<Int>(0)
-        withObservationTracking { _ = BrowserPageTunables.loadingBackground.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
-        _ = Self.call(["action": "set", "key": "browserPage.loadingBackground", "value": false], store, services)
+        withObservationTracking { _ = BrowserPageTunables.uiPointer.value(in: store) } onChange: { changes.wrappingAdd(1, ordering: .relaxed) }
+        _ = Self.call(["action": "set", "key": "browserPage.uiPointer", "value": true], store, services)
         #expect(changes.load(ordering: .relaxed) == 1)
     }
 
@@ -73,11 +73,11 @@ struct DebugTunablesActivateTests {
         let services = Self.services(), store = TunableStore()
         store.register(BrowserPageTunables.all)
         store.activate(file: nil)
-        store.set(BrowserPageTunables.loadingBackground.key, .bool(false))
+        store.set(BrowserPageTunables.uiPointer.key, .bool(true))
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        #expect(BrowserPageTunables.loadingBackground.value(in: store) == false)
+        #expect(BrowserPageTunables.uiPointer.value(in: store) == true)
     }
 }
 #endif

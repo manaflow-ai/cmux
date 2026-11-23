@@ -44,6 +44,52 @@ struct AgentPaneDebugClickPageHostTests {
         let none = await view.debugLocate(selector: ".missing", text: "")
         #expect(none["error"] as? String == "no visible element matches")
     }
+
+    /// A control that takes the pointer only while its block is hovered (a reply table's Open): the
+    /// capture slot's window gives the page no hover, so the click focuses it first, which reveals it
+    /// (`:focus-within`), and the native press then lands on it instead of on what lies under it.
+    /// WebKit matches `:focus-within` only in a focused, active frame, which this one (no window), like
+    /// a capture slot's, is not: the lookup then gives the control the pointer inline until the next one.
+    @Test func clickRevealsAControlShownOnlyOnHover() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
+                                              chromium: nil))
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        // The page's own textarea, not `document.body`: the blank document before the load has a
+        // body too, and the load then replaces it with the block added below.
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            let ready = try? await view.callPageScript("return !!document.querySelector('textarea');") as? Bool
+            if ready == true { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        _ = try await view.callPageScript("""
+            const style = document.createElement('style');
+            style.textContent = '#hover-tools { pointer-events: none; } #hover-block:hover #hover-tools, #hover-tools:focus-within { pointer-events: auto; }';
+            document.head.append(style);
+            const block = document.createElement('div');
+            block.id = 'hover-block';
+            block.innerHTML = '<span id="hover-tools"><button id="hover-open">Open</button></span>';
+            document.body.append(block);
+            return true;
+            """)
+
+        let open = await view.debugLocate(selector: "#hover-open", text: "")
+        #expect(open["tag"] as? String == "button", "\(open)")
+        #expect(open["focused"] as? Bool == true, "\(open)")
+        let takesPointer = try await view.callPageScript(
+            "return getComputedStyle(document.getElementById('hover-open')).pointerEvents;") as? String
+        #expect(takesPointer == "auto")
+
+        // A control that already takes the pointer is not focused by the lookup.
+        let field = await view.debugLocate(selector: "textarea", text: "")
+        #expect(field["focused"] as? Bool == false, "\(field)")
+        // That lookup gave the revealed control its own style back: this view's frame is not focused,
+        // so its focus alone does not reveal it.
+        let restored = try await view.callPageScript(
+            "return getComputedStyle(document.getElementById('hover-open')).pointerEvents;") as? String
+        #expect(restored == "none")
+    }
     /// The default: the chat shows in Chromium and the pane's own WebKit view is hidden and empty. The
     /// element is found by a script in the Chromium page and pressed with DevTools input there.
     @Test func clickFindsAndPressesAnElementOfAChromiumChat() async throws {

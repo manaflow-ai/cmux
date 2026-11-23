@@ -4,14 +4,14 @@
 The one scale is schemas/type-scale/type-scale.json. This script writes the webviews' tokens (the
 generated block of webviews/src/pages/shared/desktop.css: --font-ui, --text-<step>,
 --text-<step>--line-height, --text-<step>--letter-spacing, --weight-<name>) and the app's
-(CmuxNextDesign/TypeScale.generated.swift), so a size changes in one place for both. It also writes
-each step's `tracking` into the JSON from the tracking constants (Inter's dynamic metrics,
-a + b * e^(c * size) em, 4 decimals; Leo 2026-10-21), so the table is never typed by hand.
+(CmuxNextDesign/TypeScale.generated.swift), so a size changes in one place for both. The UI font is the
+system font (Lawrence 2026-11-07), which carries its own size-specific tracking, so every step's
+letter-spacing token is 0em.
 
     python3 scripts/cmux-next/gen-type-scale.py           # write the copies
     python3 scripts/cmux-next/gen-type-scale.py --check   # exit 1 when a copy drifted
 """
-import json, math, os, sys
+import json, os, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SOURCE = "schemas/type-scale/type-scale.json"
@@ -24,31 +24,23 @@ END = "/* type-scale:end */"
 SWIFT_WEIGHTS = {400: ".regular", 500: ".medium", 600: ".semibold", 700: ".bold"}
 
 
-def tracking(data, size):
-    """The tracking at `size`, in em, 4 decimals: a + b * e^(c * size)."""
-    constants = data["tracking"]
-    value = round(constants["a"] + constants["b"] * math.exp(constants["c"] * size), 4)
-    return 0.0 if value == 0 else value
-
-
 def load():
     with open(os.path.join(ROOT, SOURCE)) as handle:
         data = json.load(handle)
     sizes = [step["size"] for step in data["steps"]]
     assert sizes == sorted(set(sizes)), "steps run small to large, one size each"
     for step in data["steps"]:
-        assert set(step) <= {"name", "size", "lineHeight", "tracking", "for"}, step
-        step["tracking"] = tracking(data, step["size"])
+        assert set(step) <= {"name", "size", "lineHeight", "for"}, step
     for weight in data["weights"]:
         assert set(weight) == {"name", "weight", "for"} and weight["weight"] in SWIFT_WEIGHTS, weight
     font = data["font"]
-    assert {"family", "fileFamily", "files", "fallback"} <= set(font), font
+    assert set(font) == {"about", "stack"} and font["stack"], font
     return data
 
 
 def font_stack(data):
-    """`--font-ui`: the bundled face, then the system stack."""
-    return ", ".join(['"%s"' % data["font"]["family"]] + data["font"]["fallback"])
+    """`--font-ui`: the system font stack."""
+    return ", ".join(data["font"]["stack"])
 
 
 def source_json(data):
@@ -58,7 +50,7 @@ def source_json(data):
     head = {k: v for k, v in data.items() if k not in ("steps", "weights")}
     text = json.dumps(head, indent=2)[:-2] + ",\n"
     text += '  "steps": [\n' + ",\n".join(
-        "    " + row(step, ("name", "size", "lineHeight", "tracking", "for")) for step in data["steps"]) + "\n  ],\n"
+        "    " + row(step, ("name", "size", "lineHeight", "for")) for step in data["steps"]) + "\n  ],\n"
     text += '  "weights": [\n' + ",\n".join(
         "    " + row(weight, ("name", "weight", "for")) for weight in data["weights"]) + "\n  ]\n}\n"
     return text
@@ -66,12 +58,12 @@ def source_json(data):
 
 def css_block(data):
     lines = [BEGIN, ":root {", "  --cmux-interface-scale: 1;"]
-    lines.append("  /* The UI font: Inter, bundled (WebTheme's page bootstrap declares the face), then the system's. */")
+    lines.append("  /* The UI font: the macOS system font (SF Pro), with its own tracking, so no letter-spacing. */")
     lines.append("  --font-ui: %s;" % font_stack(data))
     for step in data["steps"]:
         lines.append("  --text-%s: calc(%spx * var(--cmux-interface-scale, 1)); /* %s */" % (step["name"], step["size"], step["for"]))
         lines.append("  --text-%s--line-height: calc(%spx * var(--cmux-interface-scale, 1));" % (step["name"], step["lineHeight"]))
-        lines.append("  --text-%s--letter-spacing: %sem;" % (step["name"], step["tracking"]))
+        lines.append("  --text-%s--letter-spacing: 0em;" % step["name"])
     lines.append("  /* Menu and picker rows: the body step (NSFont.menuFont is the system size). */")
     lines.append("  --text-control: var(--text-body);")
     lines.append("  --text-control--line-height: var(--text-body--line-height);")
@@ -92,10 +84,8 @@ def css(current, data):
 
 def swift(data):
     steps = "\n".join(
-        "    /// %s.\n    @MainActor public static var %s: CGFloat { Base.%s * Typography.userScale }\n    @MainActor public static var %sLineHeight: CGFloat { Base.%sLineHeight * Typography.userScale }\n"
-        "    public static let %sTracking: CGFloat = %s"
-        % (step["for"][0].upper() + step["for"][1:], step["name"], step["name"], step["name"], step["name"],
-           step["name"], step["tracking"])
+        "    /// %s.\n    @MainActor public static var %s: CGFloat { Base.%s * Typography.userScale }\n    @MainActor public static var %sLineHeight: CGFloat { Base.%sLineHeight * Typography.userScale }"
+        % (step["for"][0].upper() + step["for"][1:], step["name"], step["name"], step["name"], step["name"])
         for step in data["steps"])
     base_steps = "\n".join(
         "        public static let %s: CGFloat = %s\n        public static let %sLineHeight: CGFloat = %s"
@@ -115,25 +105,9 @@ public import AppKit
 public nonisolated struct TypeScale: Sendable {{
     public init() {{}}
 
-    /// The UI font as CSS names it (`--font-ui`), pinned by schemas/type-scale/leo-bans.json.
-    public static let family = "{family}"
-    /// The bundled TTF's own family, the name AppKit finds it by once registered (`BundledFonts`).
-    public static let fileFamily = "{file_family}"
-    /// The bundled files (CmuxNextDesign/Resources/Fonts): the TTF registered natively, the WOFF2 pages load.
-    public static let nativeFontFile = "{native}"
-    public static let webFontFile = "{web}"
-    /// `--font-ui`: the bundled face, then the system's.
+    /// `--font-ui`, the webviews' UI font: the macOS system font (pinned by schemas/type-scale/ui-font-pin.json).
+    /// Natively the same face is `NSFont.systemFont` (`Typography.system`).
     public static let fontStack = "{stack}"
-
-    /// Tracking in em at a size: trackingA + trackingB * e^(trackingC * size) (Inter's dynamic metrics).
-    public static let trackingA: CGFloat = {a}
-    public static let trackingB: CGFloat = {b}
-    public static let trackingC: CGFloat = {c}
-
-    /// The UI font's tracking at `size` points, in em (each step's `<step>Tracking` is this at its size).
-    public static func tracking(em size: CGFloat) -> CGFloat {{
-        trackingA + trackingB * exp(trackingC * size)
-    }}
 
 {steps}
 
@@ -149,9 +123,7 @@ public nonisolated struct TypeScale: Sendable {{
 {weights}
 }}
 """.format(src=SOURCE, steps=steps, base_steps=base_steps, weights=weights, sizes=", ".join(str(step["size"]) for step in data["steps"]),
-           family=data["font"]["family"], file_family=data["font"]["fileFamily"], native=data["font"]["files"]["native"],
-           web=data["font"]["files"]["web"], stack=font_stack(data).replace('"', '\\"'),
-           a=data["tracking"]["a"], b=data["tracking"]["b"], c=data["tracking"]["c"])
+           stack=font_stack(data).replace('"', '\\"'))
 
 
 def main():

@@ -11,7 +11,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use cmux_holder::client::{HolderClient, launch};
 use cmux_holder::holder::error_code;
@@ -23,15 +23,10 @@ fn holder_binary() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_cmux-holder"))
 }
 
+mod support;
+
 fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = PathBuf::from("/tmp").join(format!(
-        "cmhl-{}-{}",
-        std::process::id(),
-        stamp % 1_000_000_000
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    support::unique_dir("cmhl")
 }
 
 fn kill(mut holder: Child) {

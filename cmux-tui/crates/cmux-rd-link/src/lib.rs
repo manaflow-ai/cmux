@@ -22,9 +22,13 @@ pub mod endpoint;
 mod replay;
 
 pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
+/// The datagram link next to a stream carrier (cmuxterm-hq#7976).
+#[cfg(feature = "net")]
+pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;
+pub mod wake;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -37,14 +41,54 @@ pub const TAG_HANDSHAKE_1: u8 = 0xD0;
 pub const TAG_HANDSHAKE_2: u8 = 0xD1;
 pub const TAG_HANDSHAKE_3: u8 = 0xD2;
 pub const TAG_SEALED: u8 = 0xD3;
+/// A responder's hole punch: one byte, sent to each of the initiator's routes
+/// until the handshake finishes, so the responder's own NAT or firewall lets
+/// the initiator's message 1 in (a responder behind address-dependent
+/// filtering that only listens never hears it). Every side drops it unread;
+/// an older initiator does too, as an unknown tag.
+pub const TAG_PUNCH: u8 = 0xD4;
 /// Bytes a sealed packet adds to its payload: tag, nonce, inner kind, AEAD tag.
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
 const MAX_HANDSHAKE: usize = 256;
-/// Resend the last handshake message this often until the peer answers.
+/// The first resend of a handshake message that got no answer. A wired or
+/// Wi-Fi LAN answers in well under a millisecond and a tailnet or WAN path in
+/// tens, so a lost message 1, 2 or 3 costs this much instead of a full
+/// [`HANDSHAKE_RETRY_US`]: each later resend of the same message waits twice as
+/// long as the one before, up to that cap. Handshake messages are under 200
+/// bytes, so the extra resends on a slow path cost nothing that matters.
+pub const HANDSHAKE_FIRST_RETRY_US: u64 = 50_000;
+/// The longest gap between resends of the last handshake message while the
+/// peer does not answer ([`HANDSHAKE_FIRST_RETRY_US`] doubling up to it).
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
-/// Give up on a handshake after this long.
+
+/// The gap before resend number `resends + 1` of one handshake message.
+pub fn handshake_retry_us(resends: u32) -> u64 {
+    HANDSHAKE_FIRST_RETRY_US
+        .checked_shl(resends)
+        .map_or(HANDSHAKE_RETRY_US, |us| us.min(HANDSHAKE_RETRY_US))
+}
+/// Give up on a handshake after this long from first contact: in an endpoint, the first
+/// route to the peer; in a bare link, the initiator's start (it dials at once), or the moment
+/// a responder first has the peer (a route from signaling, or a valid message 1).
 pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
+/// The longest a responder waits for that first contact. A responder starts
+/// its link before signaling has carried its answer to the peer (its key and
+/// candidates are in that answer), so the peer's time to get the answer and
+/// start is no part of the handshake's own [`HANDSHAKE_TIMEOUT_US`]. It
+/// matches the host's 30 s wait for a viewer (`cmux-rd serve`).
+pub const RESPONDER_WAIT_US: u64 = 30_000_000;
+/// Give up when signaling has supplied no route to the peer after this long. Signaling (the
+/// device hub, a relayed bench) can take longer than the handshake itself, so its wait does
+/// not count against [`HANDSHAKE_TIMEOUT_US`]; this bounds it, so a peer that never shows up
+/// does not hold the socket.
+pub const SIGNALING_TIMEOUT_US: u64 = 60_000_000;
+/// A viewer's bound for an established link that hears nothing at all
+/// ([`Link::set_peer_lost`]): the host's own grace for a silent viewer
+/// (`cmux-rd-host` `REATTACH_GRACE_NS`). A live peer answers a probe every
+/// second, so only a peer that is gone stays silent this long; a network
+/// drop or a sleep shorter than it still comes back.
+pub const PEER_LOST_US: u64 = 90_000_000;
 
 /// Inner kinds (first plaintext byte of a sealed packet).
 mod inner {
@@ -54,6 +98,10 @@ mod inner {
     pub const PROBE: u8 = 3;
     pub const PROBE_REPLY: u8 = 4;
     pub const CLOSE: u8 = 5;
+    /// Nothing to deliver: the packet only keeps the radios on the path awake
+    /// ([`crate::endpoint::KEEP_AWAKE_US`]). A peer that predates it drops it as
+    /// an unknown kind, so it needs no version or cap.
+    pub const KEEP_AWAKE: u8 = 6;
 }
 
 /// Which side opens the handshake. The viewer initiates; the host responds.
@@ -92,12 +140,20 @@ pub enum LinkError {
     Noise(snow::Error),
     /// The peer authenticated with a static key the hub did not vouch for.
     WrongPeer,
-    /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`].
+    /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`] from first
+    /// contact, or a responder heard of no peer in [`RESPONDER_WAIT_US`].
     HandshakeTimeout,
+    /// Signaling supplied no route to the peer in [`SIGNALING_TIMEOUT_US`].
+    NoRoute,
     /// A sealed packet or control record before the handshake finished.
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
     ControlBacklog,
+    /// An established link heard nothing from the peer for `silent_us`
+    /// ([`Link::set_peer_lost`]): the peer is gone without a close.
+    PeerLost {
+        silent_us: u64,
+    },
     /// A socket or thread could not be set up (the `net` driver).
     Io(String),
 }
@@ -108,8 +164,18 @@ impl std::fmt::Display for LinkError {
             Self::Noise(e) => write!(f, "noise: {e}"),
             Self::WrongPeer => write!(f, "the peer's key is not the one the hub vouched for"),
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
+            Self::NoRoute => {
+                write!(f, "no route to the peer arrived in {} s", SIGNALING_TIMEOUT_US / 1_000_000)
+            }
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
+            Self::PeerLost { silent_us } => {
+                write!(
+                    f,
+                    "the peer stopped answering ({} s with nothing heard)",
+                    silent_us / 1_000_000
+                )
+            }
             Self::Io(e) => write!(f, "network: {e}"),
         }
     }
@@ -148,8 +214,13 @@ pub struct Link {
     state: State,
     expected_remote: [u8; 32],
     started_us: u64,
+    /// When the handshake's own clock started: the initiator's start, a
+    /// responder's first contact with the peer (`None` until then).
+    contact_us: Option<u64>,
     /// The last handshake message this side sent, resent until answered.
     last_handshake: Option<(Vec<u8>, u64)>,
+    /// Resends of `last_handshake` so far: the next waits [`handshake_retry_us`] of it.
+    handshake_resends: u32,
     send_nonce: u64,
     replay: ReplayWindow,
     control_out: ControlSender,
@@ -158,6 +229,10 @@ pub struct Link {
     out: VecDeque<Vec<u8>>,
     /// Control records the caller queued before the handshake finished.
     pending_control: VecDeque<Vec<u8>>,
+    /// When an authenticated packet last arrived (or the handshake finished).
+    heard_us: u64,
+    /// [`Link::set_peer_lost`]: how long an established link may hear nothing.
+    peer_lost_us: Option<u64>,
 }
 
 impl Link {
@@ -185,13 +260,17 @@ impl Link {
             state: State::Handshake(Box::new(handshake)),
             expected_remote,
             started_us: now_us,
+            contact_us: (role == Role::Initiator).then_some(now_us),
             last_handshake: None,
+            handshake_resends: 0,
             send_nonce: 0,
             replay: ReplayWindow::default(),
             control_out: ControlSender::default(),
             control_in: ControlReceiver::default(),
             out: VecDeque::new(),
             pending_control: VecDeque::new(),
+            heard_us: now_us,
+            peer_lost_us: None,
         };
         if role == Role::Initiator {
             link.write_handshake(TAG_HANDSHAKE_1, now_us)?;
@@ -203,8 +282,25 @@ impl Link {
         self.role
     }
 
+    /// A responder has the peer now (signaling gave a route to it): the
+    /// handshake's [`HANDSHAKE_TIMEOUT_US`] runs from here, not from this
+    /// link's start. The first contact counts; later ones change nothing.
+    pub fn peer_contact(&mut self, now_us: u64) {
+        if matches!(self.state, State::Handshake(_)) && self.contact_us.is_none() {
+            self.contact_us = Some(now_us);
+        }
+    }
+
     pub fn is_established(&self) -> bool {
         matches!(self.state, State::Transport(_))
+    }
+
+    /// Ends an established link that hears nothing from the peer for
+    /// `after_us` ([`LinkError::PeerLost`] from the next poll). `None` (the
+    /// default) waits for the peer forever, as a host does: its session has
+    /// its own grace.
+    pub fn set_peer_lost(&mut self, after_us: Option<u64>) {
+        self.peer_lost_us = after_us;
     }
 
     fn write_handshake(&mut self, tag: u8, now_us: u64) -> Result<(), LinkError> {
@@ -217,6 +313,7 @@ impl Link {
         packet.extend_from_slice(&buf);
         self.out.push_back(packet.clone());
         self.last_handshake = Some((packet, now_us));
+        self.handshake_resends = 0;
         Ok(())
     }
 
@@ -233,6 +330,7 @@ impl Link {
         }
         let transport = handshake.into_stateless_transport_mode().map_err(LinkError::Noise)?;
         self.state = State::Transport(Box::new(transport));
+        self.heard_us = now_us;
         // The responder's last handshake message needs no resend: the
         // initiator's first sealed packet (or message 3's retry) answers it.
         self.last_handshake =
@@ -258,6 +356,7 @@ impl Link {
             {
                 let mut scratch = [0u8; MAX_HANDSHAKE];
                 if handshake.read_message(body, &mut scratch).is_ok() {
+                    self.peer_contact(now_us);
                     self.write_handshake(TAG_HANDSHAKE_2, now_us)?;
                 }
             }
@@ -310,6 +409,7 @@ impl Link {
         let mut plain = vec![0u8; sealed.len()];
         let Ok(n) = transport.read_message(nonce, sealed, &mut plain) else { return Ok(()) };
         self.replay.accept(nonce);
+        self.heard_us = self.heard_us.max(now_us);
         plain.truncate(n);
         // Any sealed packet proves the initiator's message 3 arrived.
         if self.role == Role::Initiator {
@@ -345,6 +445,8 @@ impl Link {
                 self.state = State::Failed;
                 events.push(Event::Closed);
             }
+            // Its only job, waking this side's radio, is done by arriving.
+            inner::KEEP_AWAKE => {}
             _ => {}
         }
         Ok(())
@@ -391,6 +493,11 @@ impl Link {
         self.seal(inner::PROBE, &id.to_le_bytes())
     }
 
+    /// A keep-awake packet (no payload, never answered), sealed, for the current path.
+    pub fn keep_awake(&mut self) -> Result<Vec<u8>, LinkError> {
+        self.seal(inner::KEEP_AWAKE, &[])
+    }
+
     /// Tells the peer the link ends.
     pub fn close(&mut self) -> Result<Vec<u8>, LinkError> {
         let packet = self.seal(inner::CLOSE, &[])?;
@@ -401,16 +508,9 @@ impl Link {
     /// Packets to send now, on the current path: handshake messages and their
     /// retries, control records and their retransmissions, acks and probe replies.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Vec<u8>>, LinkError> {
-        if let State::Handshake(_) = self.state
-            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        if self.poll_handshake_timers(now_us)?
+            && let Some((packet, _)) = &self.last_handshake
         {
-            self.state = State::Failed;
-            return Err(LinkError::HandshakeTimeout);
-        }
-        if let Some((packet, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
-        {
-            *sent = now_us;
             self.out.push_back(packet.clone());
         }
         if self.is_established() {
@@ -422,14 +522,86 @@ impl Link {
         Ok(self.out.drain(..).collect())
     }
 
+    /// Starts the handshake's timeout clock over: the endpoint calls it when the first route
+    /// arrives, so the wait for signaling does not count against the handshake.
+    pub(crate) fn start_handshake_clock(&mut self, now_us: u64) {
+        if let State::Handshake(_) = self.state {
+            self.started_us = now_us;
+            self.contact_us = Some(now_us);
+        }
+    }
+
+    /// Ends a handshake that never got a route ([`LinkError::NoRoute`]).
+    pub(crate) fn fail_no_route(&mut self) -> LinkError {
+        self.state = State::Failed;
+        LinkError::NoRoute
+    }
+
+    /// Advances handshake timers without creating another packet.  Endpoints
+    /// use this while signaling has not supplied a route, so the queued first
+    /// message stays available without a retry storm or a lost timeout.
+    pub(crate) fn poll_handshake_timers(&mut self, now_us: u64) -> Result<bool, LinkError> {
+        let expired = match self.contact_us {
+            Some(at) => now_us.saturating_sub(at) > HANDSHAKE_TIMEOUT_US,
+            None => now_us.saturating_sub(self.started_us) > RESPONDER_WAIT_US,
+        };
+        if let State::Handshake(_) = self.state
+            && expired
+        {
+            self.state = State::Failed;
+            return Err(LinkError::HandshakeTimeout);
+        }
+        if let Some(bound) = self.peer_lost_us
+            && self.is_established()
+        {
+            let silent_us = now_us.saturating_sub(self.heard_us);
+            if silent_us >= bound {
+                self.state = State::Failed;
+                return Err(LinkError::PeerLost { silent_us });
+            }
+        }
+        let mut retry = false;
+        let gap = handshake_retry_us(self.handshake_resends);
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= gap
+        {
+            *sent = now_us;
+            self.handshake_resends = self.handshake_resends.saturating_add(1);
+            retry = true;
+        }
+        Ok(retry)
+    }
+
+    /// Moves a due handshake retry on without sending it or checking the timeout: an
+    /// endpoint with no route yet has nowhere to send it, and its first route gets the
+    /// queued message at once.
+    pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+        }
+    }
+
+    /// This side's last handshake message while the handshake runs, for a
+    /// route learned after it went out (resending it is what a retry does).
+    pub(crate) fn handshake_in_flight(&self) -> Option<&[u8]> {
+        match self.state {
+            State::Handshake(_) => self.last_handshake.as_ref().map(|(packet, _)| &packet[..]),
+            _ => None,
+        }
+    }
+
     /// When the caller should call [`Link::poll_transmit`] next without input.
     pub fn next_deadline_us(&self) -> Option<u64> {
-        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + HANDSHAKE_RETRY_US);
+        let gap = handshake_retry_us(self.handshake_resends);
+        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + gap);
         let control =
             if self.is_established() { self.control_out.next_deadline_us() } else { None };
-        match (handshake, control) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        let lost = self
+            .peer_lost_us
+            .filter(|_| self.is_established())
+            .map(|bound| self.heard_us.saturating_add(bound));
+        [handshake, control, lost].into_iter().flatten().min()
     }
 }

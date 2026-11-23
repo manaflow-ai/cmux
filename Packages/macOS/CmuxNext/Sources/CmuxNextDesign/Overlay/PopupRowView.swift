@@ -51,6 +51,8 @@ open class PopupRowView: NSView {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
             (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
+            // VoiceOver says "dimmed", as for a disabled menu item or button.
+            setAccessibilityEnabled(isEnabled)
             needsDisplay = true
         }
     }
@@ -227,6 +229,26 @@ open class PopupRowView: NSView {
         isPressed = false
         guard isInteractive, isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate()
+    }
+
+    /// A press held from outside the popup (the one that opened it) is over the row
+    /// (``PopupPressRelease``): AppKit sends its drags to the press's own window, so no tracking
+    /// area reports it. The row takes the hover, as under a free pointer.
+    func pressEntered() {
+        guard isInteractive, isEnabled else { return }
+        isHovering = true
+        onHover?()
+    }
+
+    /// That press left the row.
+    func pressLeft() { isHovering = false }
+
+    /// That press is released over the row: it activates. Returns whether it did.
+    func pressReleased() -> Bool {
+        isHovering = false
+        guard isInteractive, isEnabled else { return false }
+        activate()
+        return true
     }
 
     /// Runs ``onActivate`` (subclasses add their own default, a toggle's flip).

@@ -62,12 +62,18 @@ mod mcp_connect;
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
 mod prompt_approval;
+#[path = "hub_integration/prompt_attribution.rs"]
+mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
+#[path = "hub_integration/prompt_coach.rs"]
+mod prompt_coach;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[cfg(unix)]
@@ -77,6 +83,8 @@ mod prompt_delivery;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_provenance_app_pane.rs"]
+mod prompt_provenance_app_pane;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
@@ -93,12 +101,17 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/send_burst.rs"]
+mod send_burst;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
@@ -125,6 +138,8 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/task_list.rs"]
+mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
@@ -175,6 +190,13 @@ impl TestClient {
             }
         }
     }
+}
+
+/// `text` as another chat reads it when session `sender` sent it: the daemon writes its Sent-by
+/// line under it (`sent_by.rs`), and the receiver keeps it.
+pub(crate) fn signed(hub: &Hub, sender: &str, text: &str) -> String {
+    let who = acpmux::sent_by::of_session(hub, sender).expect("the sender's session");
+    format!("{text}\n\n{}", acpmux::sent_by::line(&who))
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -889,6 +911,22 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    let all = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions": true, "query": "quota broker", "limit": 2
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all["incomplete"], json!([]));
+    assert_eq!(all["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(all["hits"][0]["session"], "finder");
+    assert_eq!(all["hits"][0]["sessionId"], id);
+    assert!(all["hits"][0]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert!(all["hits"][0]["turnTime"].as_str().is_some_and(|time| time.ends_with('Z')));
+    assert_eq!(all["hits"][0]["turnTime"], all["hits"][1]["turnTime"]);
     for params in
         [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
     {
@@ -1021,6 +1059,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop parks it; the person's next prompt goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -1029,7 +1072,11 @@ async fn limit_error_stays_on_the_current_profile() {
         .await
         .unwrap();
     assert_eq!(ok["stopReason"], "end_turn");
-    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
+    // Stop parked the rate-limited chat; the person's prompt takes it back and carries the
+    // continuation's words (`rate_hold.rs`).
+    let preview = hub.session_summary(&session)["preview"].as_str().unwrap_or_default().to_owned();
+    assert!(preview.starts_with("echo: after"), "{preview}");
+    assert!(preview.contains("rate limit"), "{preview}");
 }
 
 #[tokio::test]
@@ -1142,7 +1189,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
     assert!(fake_models.contains(&"m1"));
     // Presets: one harness, bundled model/effort/policy/env; -m still wins.
-    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "approve-reads", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
     assert_eq!(p["profile"], "fake-pool");
     let err = c
         .request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}}))
@@ -1152,7 +1199,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
     assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "approve-reads");
     // ${model} in the preset env: the model is a spawn parameter the process sees.
     let id4 = s4["sessionId"].as_str().unwrap().to_owned();
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"}))
@@ -1169,7 +1216,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     // `fake` is the family: its prefer list still decides the profile.
     assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
-    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "approve-reads");
     let err = c
         .request(
             method::SESSION_NEW,
@@ -1178,6 +1225,20 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all",
+        "env": {"FAKE_ASK_CLAIM": "0"}}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    // Refused at its first start, it names the one fix (the start's flag, or the chat's policy).
+    assert!(err.contains("approve-all`") && !err.contains("did not start"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
@@ -1710,6 +1771,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 

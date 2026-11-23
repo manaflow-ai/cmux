@@ -2,16 +2,26 @@
 //! whether a chat may move, and where its folder goes on the target. Pure, so the rules are
 //! tested without a daemon, ssh or git.
 //!
-//! - A chat whose turn is running moves only with `--interrupt`; one being moved, or one that
-//!   moved away already, never.
+//! - A chat whose turn is running moves too: the move waits for its tool calls in flight to end,
+//!   then stops the turn there and it goes on where the chat lands (`cli/run/transfer.rs`
+//!   `begin_move_live`); `--after-turn` waits for the turn to end instead, `--interrupt` stops it
+//!   at once. A dry run (the preflight) names the running turn, so its caller can offer those
+//!   choices. One being moved, or one that moved away already, never moves.
 //! - A folder in a git checkout on a branch becomes a fresh worktree of the same branch on the
 //!   target (`Folder::Worktree`), its subfolder kept. The branch is pushed first, so the target
 //!   checks out what this machine has. A detached HEAD or a checkout with no `origin` is refused;
-//!   so are uncommitted changes, unless `--leave-dirty` (they then stay on this machine and the
-//!   move's record says so).
+//!   so are uncommitted changes, unless `--carry-changes` (they go with the chat,
+//!   `session_move_carry.rs`) or `--leave-dirty` (they then stay on this machine and the move's
+//!   record says so). `leave_dirty` below is either: the folder may be dirty.
 //! - Any other folder under this machine's home maps to the same path under the target's home
 //!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
 //!   not move. A folder outside the home is refused: pass `--cwd`.
+//! - A checkout on a shared default branch (`main`, `master`, or the branch `origin/HEAD` names)
+//!   never pushes that branch: other people's work lands there, and a move that pushed it would
+//!   either fail (origin moved on) or publish this machine's unpushed commits to everyone. Its
+//!   HEAD is pushed to a ref of the move's own outside `refs/heads` instead
+//!   (`refs/acpmux/moves/ID`), and the target checks that commit out detached
+//!   (`Folder::Worktree { snapshot: true }`); uncommitted changes go as for any branch.
 //! - `--cwd PATH` (`target_cwd`) runs the chats in PATH on the target as it is there, for any
 //!   folder: no worktree is made and no branch pushed.
 
@@ -29,6 +39,14 @@ pub(crate) struct Checkout {
     pub origin: Option<String>,
     /// It has uncommitted changes (tracked or untracked, ignoring ignored files).
     pub dirty: bool,
+    /// The branch `origin/HEAD` names (`main` for `refs/remotes/origin/main`), when it is set.
+    pub default_branch: Option<String>,
+}
+
+/// Whether `branch` is one others share and a move must never push: `main`, `master`, or the
+/// checkout's `default_branch` (origin's HEAD).
+pub(crate) fn shared_branch(branch: &str, default_branch: Option<&str>) -> bool {
+    matches!(branch, "main" | "master") || default_branch == Some(branch)
 }
 
 /// Where the chat's folder goes on the target.
@@ -37,11 +55,21 @@ pub(crate) enum Folder {
     /// The same path under the target's home.
     Plain { cwd: String },
     /// A worktree of `branch` of `repo` (`owner/name`) on the target, then `subdir` inside it.
-    Worktree { repo: String, url: String, branch: String, subdir: String, dirty: bool },
+    /// `snapshot`: `branch` is shared (`shared_branch`), so it is never pushed; HEAD goes under a
+    /// ref of the move's own and the target's checkout is of that commit, detached.
+    Worktree {
+        repo: String,
+        url: String,
+        branch: String,
+        subdir: String,
+        dirty: bool,
+        snapshot: bool,
+    },
 }
 
-/// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not.
-pub(crate) fn refusal(summary: &Value, interrupt: bool) -> Option<String> {
+/// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not. With
+/// `running_ok` a running turn is no reason: the move takes it along.
+pub(crate) fn refusal(summary: &Value, running_ok: bool) -> Option<String> {
     if summary.get("movedTo").is_some_and(|m| !m.is_null()) {
         let to = moved_to_text(&summary["movedTo"]);
         return Some(format!("it moved away already ({to}); it never runs here again"));
@@ -49,12 +77,20 @@ pub(crate) fn refusal(summary: &Value, interrupt: bool) -> Option<String> {
     if summary["moving"] == true {
         return Some("it is being moved already".into());
     }
-    let running = summary.get("turn").is_some_and(|t| !t.is_null())
-        || summary["status"].as_str() == Some("running");
-    if running && !interrupt {
-        return Some("a turn is running; pass --interrupt to stop it and move".into());
+    if running(summary) && !running_ok {
+        return Some(
+            "a turn is running; the move takes it along between its tool calls, --after-turn \
+             waits for it to end, --interrupt stops it now"
+                .into(),
+        );
     }
     None
+}
+
+/// A turn admitted but not yet started also needs the person's running-turn choice.
+pub(crate) fn running(summary: &Value) -> bool {
+    summary.get("turn").is_some_and(|t| !t.is_null())
+        || summary.get("status").and_then(Value::as_str) == Some("running")
 }
 
 /// `HOST/SESSION` of a `movedTo` record, for a sentence.
@@ -154,7 +190,7 @@ pub(crate) fn plan_folder(
             .ok_or_else(|| format!("origin of {} is not an owner/name remote", c.top.display()))?;
         if c.dirty && !leave_dirty {
             return Err(format!(
-                "{} has uncommitted changes: commit them, or pass --leave-dirty to move without them",
+                "{} has uncommitted changes: commit them, pass --carry-changes to bring them, or --leave-dirty to move without them",
                 c.top.display()
             ));
         }
@@ -168,6 +204,7 @@ pub(crate) fn plan_folder(
             branch: branch.to_owned(),
             subdir,
             dirty: c.dirty,
+            snapshot: shared_branch(branch, c.default_branch.as_deref()),
         });
     }
     let rel = under(cwd, home).ok_or_else(|| {

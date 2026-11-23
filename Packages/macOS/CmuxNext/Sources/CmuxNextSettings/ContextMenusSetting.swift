@@ -22,29 +22,13 @@ public import CmuxNextActions
 public nonisolated struct ContextMenusSetting: Sendable, Hashable {
     public static let configPath = ["contextMenus"]
     public static let layoutsPath = configPath + ["layouts"]
-    public static let showCustomizeItemPath = configPath + ["showCustomizeItem"]
 
     public var layouts: [ActionMenuContext: ContextMenuLayout] = [:]
-    public var showsCustomizeItem = true
+    public var showsCustomizeItem = ContextMenusSetting.showCustomizeItemDefault
 
-    public init(layouts: [ActionMenuContext: ContextMenuLayout] = [:], showsCustomizeItem: Bool = true) {
+    public init(layouts: [ActionMenuContext: ContextMenuLayout] = [:], showsCustomizeItem: Bool = ContextMenusSetting.showCustomizeItemDefault) {
         self.layouts = layouts
         self.showsCustomizeItem = showsCustomizeItem
-    }
-
-    /// `contextMenus.showCustomizeItem` as a schema row, so the palette, `cmux settings` and MCP
-    /// change it as they change every setting. Settings > Menus draws it as its own switch
-    /// (ContextMenusCard), so the page keeps the row off its lists.
-    static var showCustomizeItemDescriptor: SettingDescriptor {
-        var row = SettingDescriptor(
-            showCustomizeItemPath, section: .general, group: SettingsText.keyed("settings.category.menus", "Menus"),
-            title: SettingsText.keyed("settings.contextMenus.showCustomizeItem", "Show Customize Menu…"),
-            help: SettingsText.keyed("settings.contextMenus.showCustomizeItem.help", "Adds Customize Menu… to the end of every right-click menu."),
-            kind: .toggle, default: .bool(true),
-            keywords: ["context menu", "right click", "customize", "menu"]
-        )
-        row.page = .hidden("Settings > Menus draws it as the first switch of its card")
-        return row
     }
 
     public static func read(_ root: JSONValue) -> ContextMenusSetting {
@@ -167,9 +151,10 @@ extension SettingsController {
         try await set(ContextMenusSetting.value(layout), at: path)
     }
 
-    /// Whether whole right-click menus end with Customize Menu…; true (the default) removes the key.
+    /// Whether whole right-click menus end with Customize Menu…; the default (off, Lawrence
+    /// 2026-11-20: "drastically simplify all parts of the UI") removes the key.
     public func setShowsCustomizeMenuItem(_ show: Bool) async throws {
-        if show { return try await removePruning(ContextMenusSetting.showCustomizeItemPath) }
-        try await set(.bool(false), at: ContextMenusSetting.showCustomizeItemPath)
+        if show == ContextMenusSetting.showCustomizeItemDefault { return try await removePruning(ContextMenusSetting.showCustomizeItemPath) }
+        try await set(.bool(show), at: ContextMenusSetting.showCustomizeItemPath)
     }
 }

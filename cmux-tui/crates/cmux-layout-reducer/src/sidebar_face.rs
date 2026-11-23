@@ -224,6 +224,11 @@ pub struct Face<'a> {
     pub work: Option<usize>,
     /// The agent chat whose last message the row shows (`chatTab`).
     pub chat: Option<usize>,
+    /// The agent chat Copy Agent Identifier on the row copies: the front
+    /// tab's when it is one, else the first chat (`chat_tab(front)`). It
+    /// differs from `chat` only while the front tab is idle and the label
+    /// moved to a chat.
+    pub front_chat: Option<usize>,
     /// The tab whose folder and branch the row shows (`folderTab`).
     pub folder_tab: Option<usize>,
     /// The tab whose folder is the row's Group by Folder bucket.
@@ -333,7 +338,8 @@ impl Workspace<'_> {
         self.work_tab().or(label)
     }
 
-    /// The row's agent chat: `label`'s when it is one, else the first chat.
+    /// The agent chat of `label` (the row's) or of `front` (Copy Agent
+    /// Identifier's): that tab when it is a chat, else the first chat.
     pub fn chat_tab(&self, label: Option<usize>) -> Option<usize> {
         if let Some(label) = label.filter(|index| self.tabs.get(*index).is_some_and(|tab| tab.chat))
         {
@@ -572,6 +578,7 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
         face,
         work: workspace.work_tab(),
         chat: workspace.chat_tab(label),
+        front_chat: workspace.chat_tab(front),
         folder_tab,
         bucket_tab,
         agent: workspace.agent_tab(),

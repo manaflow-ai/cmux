@@ -21,6 +21,16 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 def main():
@@ -110,7 +120,7 @@ def main():
         before = statistics.median(row[metric] for row in measurements["before"])
         after = statistics.median(row[metric] for row in measurements["after"])
         result[metric] = {"before": before, "after": after, "delta": after - before}
-    print(json.dumps(result, indent=2))
+    safe_print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

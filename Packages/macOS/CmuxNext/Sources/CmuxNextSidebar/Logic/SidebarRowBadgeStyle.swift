@@ -80,6 +80,14 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         return ready ? .success : items.first { $0.isWorking || $0.isLoading }
     }
 
+    /// Whether a row's badge going from `old` to `new` (the same workspace's) is its work finishing:
+    /// a spinner (working or loading) showed and is gone, and a done glyph (`success`) shows. Only
+    /// then do its done glyphs settle in (`RowBadgeView.configure(_:look:settles:)`).
+    static func settles(from old: [StatusIndicatorState], to new: [StatusIndicatorState]) -> Bool {
+        func spins(_ state: StatusIndicatorState) -> Bool { state.isWorking || state.isLoading }
+        return old.contains(where: spins) && !new.contains(where: spins) && new.contains(.success)
+    }
+
     var first: StatusIndicatorState? { items.first }
     var stacked: [StatusIndicatorState] { Array(items.prefix(stackLimit)) }
     /// The items the stack leaves to the hover card.

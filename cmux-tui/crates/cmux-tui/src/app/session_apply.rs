@@ -417,6 +417,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.synchronized_output.remove(&surface);
         self.rendered_kitty_graphics.remove(&surface);
         self.graphics_scene_cache.invalidate();
         self.graphics_dirty_surfaces.remove(&surface);

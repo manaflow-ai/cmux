@@ -2,7 +2,6 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
-import { gridLength } from "../transcriptGrid";
 
 const TEXT = "Use the cache directory for the next run";
 const snapshot = (steer: "waiting" | "landed" = "waiting") => {
@@ -79,9 +78,13 @@ const preview = (gap?: string) => async (ctx: PlayContext) => {
   if (pending && bubble) {
     const bubbleBox = bubble.getBoundingClientRect();
     const footerBox = actions!.getBoundingClientRect();
-    // The row overhangs the bubble's right edge by its control's inset, so the last glyph's ink sits
-    // on that edge (conversation.css `--cv-action-overhang`: (control - icon box) / 2; #27580, #31683).
-    const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+    // The row overhangs the bubble's right edge by its icon buttons' inset, so the last control's ink
+    // sits on the edge (conversation.css `--cv-footer-overhang`, the shared `--cv-action-inset`;
+    // #27580, #31683). Measured off the drawn Copy button and its glyph, so a button size change
+    // cannot strand the check.
+    const copy = actions!.querySelector<HTMLElement>('[aria-label="Copy"]');
+    const glyph = copy?.querySelector("svg");
+    const overhang = copy && glyph ? (copy.getBoundingClientRect().width - glyph.getBoundingClientRect().width) / 2 : 0;
     if (footerBox.top < bubbleBox.bottom || Math.abs(footerBox.right - overhang - bubbleBox.right) > 1)
       throw new Error("waiting steer footer is not under the bubble's right edge");
   }
@@ -110,6 +113,27 @@ const checkRest = async (ctx: PlayContext) => {
   for (const send of ctx.document.querySelectorAll<HTMLElement>(".cv-user__send-now"))
     if (getComputedStyle(send.closest(".cv-user__actions")!).opacity !== "1") throw new Error("Send now hides at rest");
 };
+/// G03: the queued row's actions are keyboard reachable. Focus shows the hover group in the room it
+/// keeps hidden, so Send now does not move. `how` says what takes focus: the transcript's row stop
+/// (↑/↓ in the transcript), or Tab onto Send now. `quiet` draws the rejected look (focus shows only
+/// Send now, the group stays hidden) for comparison.
+const QUEUED_ROW = "article.acpmux-user:has(.cv-user__pending)";
+const focusShows =
+  (how: "row" | "send-now", quiet = false) =>
+  async (ctx: PlayContext) => {
+    const getComputedStyle = (element: Element) => ctx.document.defaultView!.getComputedStyle(element);
+    const send = ctx.find({ selector: ".cv-user__send-now" });
+    const before = send.getBoundingClientRect().right;
+    await ctx.focus({ selector: how === "row" ? QUEUED_ROW : ".cv-user__send-now" });
+    const group = ctx.find({ selector: ".cv-user__queued-hover" }) as HTMLElement;
+    if (quiet) {
+      group.style.opacity = "0";
+      return;
+    }
+    await ctx.waitFor(() => getComputedStyle(group).opacity === "1");
+    if (Math.abs(send.getBoundingClientRect().right - before) > 0.5) throw new Error("Send now moved when focus came");
+    checkOrder(ctx);
+  };
 export default agentPaneEntry({
   id: "agent-pane.queued-user-footer",
   title: "Queued user footer",
@@ -134,6 +158,21 @@ export default agentPaneEntry({
       note: "Alternative: a roomier 12px control gap while keeping the footer under the bubble.",
       snapshot: snapshot(),
       play: preview("12px"),
+    },
+    "focus-row": {
+      note: "Chosen (G03): the keyboard on the queued row (the transcript's row stop) shows Copy, Retry, × and Send now, as hover does; nothing moves.",
+      snapshot: snapshot(),
+      play: focusShows("row"),
+    },
+    "focus-send-now": {
+      note: "Tab onto Send now: the rest of the group shows with it, so × and Copy are one Tab away and visible.",
+      snapshot: snapshot(),
+      play: focusShows("send-now"),
+    },
+    "focus-quiet": {
+      note: "Rejected (the old look): the row has keyboard focus but only Send now shows; Copy and × stay hidden until the pointer comes.",
+      snapshot: snapshot(),
+      play: focusShows("row", true),
     },
     rest: {
       note: "At rest, as Claude desktop: a waiting steer shows only Send now under its bubble; Copy, Retry and × wait for hover.",

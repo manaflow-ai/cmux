@@ -39,13 +39,39 @@ pub(super) fn parse(
         ("reset" | "unset", [key]) => {
             request(ResourceOperation::SettingsReset, &selectors, flags, key_params(key))
         }
+        // `edit EDITS`: several keys in one atomic write (`settings.edit`). EDITS is a JSON
+        // array of `{"op": "set"|"set_unset"|"reset"|"reset_unchanged", "key", "value"?}`;
+        // `cmux wallpaper` switches modes through it.
+        ("edit", [edits]) => {
+            let edits: Value = serde_json::from_str(edits).ok().filter(Value::is_array).ok_or_else(
+                || {
+                    UsageError::new(
+                        "cmux settings edit takes a JSON array of edits: [{\"op\":\"set\",\"key\":KEY,\"value\":VALUE}, {\"op\":\"reset\",\"key\":KEY}]",
+                    )
+                },
+            )?;
+            let params = Map::from_iter([(String::from("edits"), edits)]);
+            request(ResourceOperation::SettingsEdit, &selectors, flags, params)
+        }
         _ => Err(UsageError::new(
             "unknown or incomplete settings action; run `cmux settings --help` for its actions",
         )),
     }
 }
 
+/// Short CLI names of settings keys: (alias, key). An alias is never a schema key itself. Both
+/// settings parsers read them (this one and the app's, cli/app/settings.rs); they live here
+/// because the app's parser is Unix-only and this one builds everywhere.
+pub(in crate::cli) const KEY_ALIASES: &[(&str, &str)] = &[("on", "chat.on")];
+
+/// The key `path` names: its key when it is an alias, else `path` itself.
+pub(in crate::cli) fn resolve_alias(path: &str) -> &str {
+    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| *key)
+}
+
+/// The request's `key`: a CLI alias (`on`) is its schema key, as the app's parser reads it.
 fn key_params(key: &str) -> Map<String, Value> {
+    let key = resolve_alias(key);
     Map::from_iter([(String::from("key"), Value::String(key.to_owned()))])
 }
 
@@ -120,16 +146,5 @@ pub(in crate::cli) fn human_rows(rows: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settings_list_human_table_keeps_values_and_defaults() {
-        let rows =
-            json!([{"key":"sidebar.side", "value":"right", "default":"left", "customized":true}]);
-        assert_eq!(
-            human_rows(&rows),
-            json!([{"key":"sidebar.side", "value":"right", "default":"left"}])
-        );
-    }
-}
+#[path = "settings_tests.rs"]
+mod tests;

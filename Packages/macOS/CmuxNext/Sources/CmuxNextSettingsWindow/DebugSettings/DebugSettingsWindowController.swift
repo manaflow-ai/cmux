@@ -13,7 +13,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     /// Runs once after the window closed (the owner releases it).
     public var onClose: (() -> Void)?
 
-    /// `content` replaces the SwiftUI view (the React page, `debugSettings.surface`); `onFind`
+    /// `content` replaces the SwiftUI view (the React page); `onFind`
     /// then takes Cmd-F instead of the SwiftUI search field. A web view under a transparent title
     /// bar takes the title bar's drags, so that window keeps a standard title bar.
     /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).

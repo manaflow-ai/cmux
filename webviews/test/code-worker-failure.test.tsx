@@ -6,19 +6,28 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { WatchedWorker } from "../src/agent-session/acpmux/conversation/highlightWatchdog";
+import { teardownDom } from "./support/domTeardown";
 
 let creates = 0;
 let renders = 0;
 let cleanups = 0;
 let poolWorks = true;
 const pool = { isWorkingPool: () => poolWorks };
-await mock.module("../src/agent-session/acpmux/conversation/highlightPool", () => ({
+// mock.module replaces a module for every later file in the process, and mock.restore() does not undo
+// it: afterAll mocks both back to their real exports (else the next file's edit diff gets this fake pool
+// and @pierre/diffs throws "workerManager?.subscribeToThemeChanges is not a function").
+const HIGHLIGHT_POOL = "../src/agent-session/acpmux/conversation/highlightPool";
+const realHighlightPool = { ...(await import(HIGHLIGHT_POOL)) };
+const realDiffs = { ...(await import("@pierre/diffs")) };
+await mock.module(HIGHLIGHT_POOL, () => ({
   paneHighlightPool: () => pool,
   onHighlightTimeout: () => () => {},
 }));
 await mock.module("@pierre/diffs", () => ({
   DIFFS_TAG_NAME: "diffs-container",
-  registerCustomTheme: () => {},
+  // The real one: a theme the app registers while this mock is in place (diffTheme.ts registers once per
+  // process) must reach Pierre's real registry, or a later file's diff finds no cmux-agent-dark loader.
+  registerCustomTheme: realDiffs.registerCustomTheme,
   File: class {
     options: Record<string, unknown>;
     constructor(options: Record<string, unknown>) {
@@ -82,13 +91,11 @@ afterEach(async () => {
   creates = renders = cleanups = 0;
   poolWorks = true;
 });
-afterAll(() => {
+afterAll(async () => {
   mock.restore();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await mock.module(HIGHLIGHT_POOL, () => realHighlightPool);
+  await mock.module("@pierre/diffs", () => realDiffs);
+  await teardownDom(saved, { window: dom.window, scope });
 });
 async function draw(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
@@ -138,7 +145,7 @@ test("a mounted highlighted card drops Pierre on worker failure and can recover 
 
 test("a streaming handoff stays readable when its eager worker fails after mount", async () => {
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
   await loadHighlightedCode();
   document.documentElement.dataset.agentMotion = "off";
   await draw(<Markdown streaming>{"```ts\nconst value = 3;\n```\n\nStill arriving"}</Markdown>);

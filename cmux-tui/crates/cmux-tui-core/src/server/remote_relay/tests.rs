@@ -119,12 +119,19 @@ fn cloud_mobile_frame_path_is_exact_and_owner_scoped() {
     );
     assert_eq!(malformed["ok"], false);
 
+    let context = json!({"id":5, "cmd":"agent-session-context", "surface":1, "op":"get"});
+    assert_eq!(
+        send(&fixture.mux, owner, context.clone())["error_code"],
+        "agent_session.unavailable"
+    );
+
     let teammate = cloud_mobile(&fixture, "inst_teammate", "7");
     assert!(!fixture.mux.cloud_mobile_client(teammate));
     assert_eq!(
         send(&fixture.mux, teammate, json!({"id": 4, "cmd": "list-workspaces"}))["error_code"],
         "remote_denied"
     );
+    assert_eq!(send(&fixture.mux, teammate, context)["error_code"], "remote_denied");
 }
 
 /// One frame through the remote frame path (`handle_frame`, the path the

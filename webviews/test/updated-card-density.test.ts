@@ -4,7 +4,9 @@
 // a 24 px button, a 12 px corner), so at Compact it towered over the 24 pt rows. The host sends the
 // sidebar's row tokens for the card as `--cmux-sidebar-card-*` (WebTheme, SidebarCardMetrics in
 // Swift); the card's padding, text, button and corner are those, so at Compact it is about as
-// tight as a row and Comfortable gives it the comfortable rows' room.
+// tight as a row and Comfortable gives it the comfortable rows' room. Since Leo 2026-11-07 ("it
+// becomes the exact same height as the composer") the card's box is the composer's one-line box at
+// every density (48, two compact rows); its words still take the density's sizes.
 //
 // The real stylesheets and the real component (bundled) in Chromium and WebKit, under each density's
 // variables exactly as SidebarCardMetricsTests expects the host to send them at page zoom 1.
@@ -60,6 +62,7 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
   const css = [
     "pages/shared/desktop.css",
     "pages/shared/pageBase.css",
+    "ui/glass/composerMaterial.css",
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ]
@@ -125,17 +128,10 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
           const style = getComputedStyle(card);
           const title = getComputedStyle(document.querySelector(".wn-card-title")!);
           const note = getComputedStyle(document.querySelector(".wn-card-note")!);
-          const button = document.querySelector<HTMLElement>(".wn-card-primary")!;
-          const buttonStyle = getComputedStyle(button);
           return {
-            paddingX: px(style.paddingLeft),
-            paddingY: px(style.paddingTop),
             radius: px(style.borderTopLeftRadius),
             title: px(title.fontSize),
             note: px(note.fontSize),
-            button: button.getBoundingClientRect().height,
-            buttonPaddingX: px(buttonStyle.paddingLeft),
-            buttonRadius: px(buttonStyle.borderTopLeftRadius),
             height: card.getBoundingClientRect().height,
           };
         });
@@ -143,28 +139,19 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
         return metrics;
       }
 
+      // The words follow the sidebar's density; the card's box is the composer's at every density
+      // (Leo 2026-11-07: "it becomes the exact same height as the composer"): grid.md 5.1's one-line
+      // box (48) and corner (12).
       for (const density of Object.keys(DENSITIES) as (keyof typeof DENSITIES)[]) {
-        test(`at ${density} the card takes the sidebar rows' tokens`, async () => {
+        test(`at ${density} the card's words take the sidebar rows' tokens and its box is the composer's`, async () => {
           const want = DENSITIES[density];
           const got = await measure(density);
-          expect(got.paddingX).toBe(want.paddingX);
-          expect(got.paddingY).toBe(want.paddingY);
-          expect(got.radius).toBe(want.radius);
           expect(got.title).toBe(want.title);
           expect(got.note).toBe(want.note);
-          expect(got.button).toBe(want.button);
-          expect(got.buttonPaddingX).toBe(want.buttonPaddingX);
-          expect(got.buttonRadius).toBe(want.buttonRadius);
+          expect(got.height).toBe(48);
+          expect(got.radius).toBe(12);
         });
       }
-
-      // A title, one note line and the button: at Compact the whole card is under three 24 pt rows.
-      test("a compact card is shorter than a comfortable one, and under three compact rows", async () => {
-        const compact = await measure("compact");
-        const comfortable = await measure("comfortable");
-        expect(compact.height).toBeLessThan(comfortable.height);
-        expect(compact.height).toBeLessThanOrEqual(3 * 24);
-      });
     });
   }
 });

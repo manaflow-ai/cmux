@@ -69,6 +69,26 @@ fn a_bulk_close_is_one_group_and_one_reopen_restores_every_tab_in_place() {
     assert!(read(&mux, "closed.list", json!({})).as_array().unwrap().is_empty());
 }
 
+/// Cmd-Shift-T after Cmd-W on a middle tab: the tab comes back in its old
+/// slot, between the same neighbors, as Chrome's Reopen Closed Tab restores
+/// a tab at its index (close-focus.md, Chrome table R1).
+#[test]
+fn tab_close_like_chrome_r1_reopen_puts_the_tab_back_in_its_slot() {
+    let mux = Mux::new_for_test("closed-v2-middle", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 4);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    assert!(mux.close_surface(tabs[1]).unwrap());
+    assert_eq!(pane_tab_ids(&mux, tabs[0]), vec![ids[0].clone(), ids[2].clone(), ids[3].clone()]);
+
+    let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen");
+    let order = pane_tab_ids(&mux, tabs[0]);
+    assert_eq!(order.len(), 4, "{order:?}");
+    assert_eq!(order[0], ids[0]);
+    assert_eq!(order[1], reopened["tab_ids"][0], "back in slot 1: {order:?} {reopened}");
+    assert_eq!(order[2], ids[2]);
+    assert_eq!(order[3], ids[3]);
+}
+
 /// Partial restore from the Reopen Closed list: one member comes back, the
 /// rest of the group stays listed.
 #[test]

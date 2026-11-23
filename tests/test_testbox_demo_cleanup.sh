@@ -10,18 +10,21 @@
 #  2. Without an hq checkout the demo starts nothing and names the public
 #     fallback instead of a personal default path.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 demo="$root/scripts/blacksmith-testbox-demo.sh"
 bounded="$root/scripts/blacksmith-bounded-command.sh"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+remove_work() { rm -rf "$work"; }
+git_fixture_trap_exit remove_work
 log=""
 fail() { echo "FAIL: $*" >&2; if [[ -n "$log" && -f "$log" ]]; then cat "$log" >&2; fi; exit 1; }
 git_q() { git -c user.name=t -c user.email=t@e -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 # A cmux-shaped checkout whose branch is pushed, as the demo requires.
-git_q init --bare "$work/origin.git"
+git_fixture_init --bare "$work/origin.git"
 repo="$work/repo"
 mkdir -p "$repo/scripts" "$repo/.github/workflows" "$repo/ghostty-next"
 cp "$bounded" "$repo/scripts/"
@@ -34,7 +37,7 @@ git_q -C "$repo" remote add origin "$work/origin.git"
 git_q -C "$repo" push origin demo-branch
 
 # An hq checkout on main with a fake wrapper whose behavior FAKE_WARMUP picks.
-git_q init --bare "$work/hq.git"
+git_fixture_init --bare "$work/hq.git"
 git_q clone "$work/hq.git" "$work/hq-seed"
 mkdir -p "$work/hq-seed/scripts"
 cat >"$work/hq-seed/scripts/testbox-warmup.sh" <<'SH'
@@ -220,6 +223,61 @@ if kill -0 "$child_pid" 2>/dev/null; then
   kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
   fail "parent-signal: child survived the bound's signal cleanup"
 fi
+
+# A signal that lands while the Python bound is reaping its child must still
+# end the bound. Popen.wait holds a non-reentrant lock around waitpid; a
+# handler that waited on the child itself, run inside that window, never
+# reaped it and hung forever (1f-double-ctrl-c-python, main CI fast guards,
+# 2026-11-17: "cleanup never began to stop the box"). Under load the window
+# is hit by chance; this hook makes it certain: the bound's first
+# non-blocking waitpid sends the bound SIGTERM before it returns.
+in_reap_hook="$work/in-reap-hook"
+mkdir -p "$in_reap_hook"
+cat >"$in_reap_hook/sitecustomize.py" <<'PY'
+import os
+import signal
+
+_waitpid = os.waitpid
+_fired = False
+
+def waitpid(pid, options):
+    global _fired
+    result = _waitpid(pid, options)
+    if options & os.WNOHANG and not _fired:
+        _fired = True
+        os.kill(os.getpid(), signal.SIGTERM)
+    return result
+
+os.waitpid = waitpid
+PY
+reap_child_pid="$work/reap-child-pid"
+reap_status="$work/reap-status"
+rm -f "$reap_child_pid" "$reap_status"
+set -m
+set +e
+(
+  # shellcheck disable=SC2016 # the child's own $$ and $1, expanded by its bash
+  PATH="$nognu" PYTHONPATH="$in_reap_hook" "$bounded" 30 \
+    bash -c 'echo "$$" >"$1"; exec sleep 30' reap-child "$reap_child_pid" >/dev/null 2>&1
+  echo "$?" >"$reap_status"
+) &
+reap_pid=$!
+set +m
+set -e
+# The bound acts within 50 ms; 15 s leaves a busy runner room and is still
+# under the 30 s bound, so a hung bound is caught, never waited out.
+( sleep 15; kill -TERM -- "-$reap_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &  # sleep-ok: the watchdog's bound
+watchdog_pid=$!
+wait "$reap_pid" 2>/dev/null || true
+kill -KILL "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+reap_rc="$(cat "$reap_status" 2>/dev/null || true)"
+if [[ -s "$reap_child_pid" ]]; then
+  reap_child="$(cat "$reap_child_pid")"
+  kill -TERM -- "-$reap_child" 2>/dev/null || true
+fi
+[[ -n "$reap_rc" ]] || fail "in-reap-signal: the bound hung after a signal that landed while it reaped its child"
+[[ "$reap_rc" -eq 143 ]] || fail "in-reap-signal: expected exit 143 after TERM (rc=$reap_rc)"
 
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok

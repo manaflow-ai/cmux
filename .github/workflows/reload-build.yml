@@ -90,6 +90,11 @@ on:
         options:
           - remote
           - local
+      release:
+        description: "macOS only: build the Release configuration for this Mac's architecture (reload.sh --config release --native-arch) instead of Debug, with its own DerivedData cache entries"
+        required: false
+        default: false
+        type: boolean
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -102,6 +107,10 @@ concurrency:
   # One in-flight build per tag+platform; a newer dispatch supersedes an older one.
   group: reload-build-${{ inputs.tag }}-${{ inputs.platform }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   resolve-ref:
@@ -119,7 +128,7 @@ jobs:
     # re-run), then Blacksmith. iOS builds stay on Blacksmith: the side runners
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26)) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (needs.resolve-ref.outputs.trusted_ref != 'true' && fromJSON(vars.RUNNER_POOLS).macos_26 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26))) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.resolve-ref.outputs.trusted_ref != 'true' && fromJSON(vars.RUNNER_POOLS).macos_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26)) || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
@@ -158,7 +167,11 @@ jobs:
       # files behind, so make the ref boundary explicit before building.
       - name: Remove stale checkout files
         shell: bash
-        run: git clean -ffdx
+        # build-acpmux.sh leaves Go's module cache in .build/go-path, read-only (a toolchain switch,
+        # or a clone from before tailnet-go.sh set -modcacherw), and git clean fails on it.
+        run: |
+          chmod -R u+w .build/go-path 2>/dev/null || true
+          git clean -ffdx
 
       - name: Start timer
         id: t0
@@ -187,20 +200,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-
-      # The macOS app build compiles the bundled cmux-cua (Rust) in a copy-
-      # resources phase via scripts/build-cmux-cua.sh, so the runner needs a
-      # toolchain. Guarded so source refs that predate cmux-cua are a no-op
-      # (scripts come from inputs.ref); install-rust-ci.sh is idempotent.
-      - name: Provision Rust for bundled cmux-cua (macOS)
-        if: ${{ inputs.platform == 'macos' }}
-        run: |
-          set -euo pipefail
-          if [ -f scripts/build-cmux-cua.sh ] && [ -f scripts/install-rust-ci.sh ]; then
-            ./scripts/install-rust-ci.sh
-          else
-            echo "cmux-cua build script absent in source ref; skipping Rust provisioning"
-          fi
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # cmux-next's agent pane starts the in-tree acpmux daemon from the app
       # bundle. Build it on the fleet before reload.sh; local reloads use the
@@ -210,6 +210,15 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys runs `zig build` in ghostty-next with ghostty-next's
+          # own Zig (as cloud-chat-proof.yml does); without it the build stops at
+          # "failed to run `zig build` ... No such file or directory".
+          if [[ -z "${ZIG:-}" ]]; then
+            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+            vt_zig="$(sed -n 's/^CMUX_VT_ZIG=//p' "$GITHUB_ENV" | tail -1)"
+            [[ -x "$vt_zig" ]] || { echo "::error::ghostty-next Zig not installed" >&2; exit 1; }
+            export ZIG="$vt_zig"
+          fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
@@ -230,7 +239,7 @@ jobs:
           git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
-          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" --arch native \
             --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
             --expected-commit "$client_commit" --require-capability wireguard-hub \
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
@@ -245,7 +254,22 @@ jobs:
             ghostty_source=ghostty-next
           fi
           ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
-          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
+          # The commit path is an alias of a tree-addressed build: the client under
+          # cmux-tui/<client_commit>/ may have been built at another commit with the
+          # same cmux-tui and Ghostty trees, and it reports that commit (run
+          # 43685975924: 1c111e8b439's client is 45ad74a874d's build). Such a build is
+          # this tree's client; any other identity is still refused below.
+          identity="$(printf '%s' "$probe" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("build_identity") or "")')"
+          expected_identity="$client_commit"
+          if [[ "$identity" != "$client_commit" && "$identity" =~ ^[0-9a-f]{40}$ ]]; then
+            git cat-file -e "$identity^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$identity" || true
+            if git cat-file -e "$identity^{commit}" 2>/dev/null \
+              && git diff --quiet "$identity" HEAD -- cmux-tui ghostty ghostty-next; then
+              echo "The cmux-tui client published for $client_commit was built at $identity, with the same cmux-tui and Ghostty trees."
+              expected_identity="$identity"
+            fi
+          fi
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$expected_identity" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
           import json
           import os
 
@@ -263,6 +287,7 @@ jobs:
         env:
           DISPATCH_REF: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
         run: |
           set -euo pipefail
           # actions/cache scopes entries to the run's dispatch ref: a run may
@@ -298,7 +323,8 @@ jobs:
           spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
           # DerivedData contains ONLY_ACTIVE_ARCH products and object files;
           # never restore those across OS/architecture changes.
-          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${runner_key}-${workspace_key}-"
+          # A Release build keeps its own entries, outside the Debug prefix: its objects never stand in for a Debug run's.
+          derived_prefix="reload-build-macos-deriveddata-${RELEASE_BUILD:+release-}v3-${xcode_key}-${runner_key}-${workspace_key}-"
           if [ -f "$resolved_file" ]; then
             resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
             spm_cache_enabled=true
@@ -597,6 +623,7 @@ jobs:
         env:
           BUILD_TAG: ${{ inputs.tag }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
@@ -620,7 +647,8 @@ jobs:
             ./scripts/reload.sh \
               --tag "$BUILD_TAG" \
               --derived-data "$derived_data" \
-              --swift-frontend-workaround
+              --swift-frontend-workaround \
+              ${RELEASE_BUILD:+--config release --native-arch}
           }
 
           set +e
@@ -725,7 +753,7 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -archivePath "$archive" \
-            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}" \
             CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
             CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
@@ -756,7 +784,7 @@ jobs:
             -scheme cmux-ios \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
@@ -777,7 +805,7 @@ jobs:
             SWIFT_COMPILATION_MODE=wholemodule \
             GCC_OPTIMIZATION_LEVEL=s \
             "${swift_workaround_args[@]}"
-          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          sim_app="${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}/Build/Products/Debug-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 
           mkdir -p artifact

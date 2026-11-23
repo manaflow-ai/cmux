@@ -8,7 +8,9 @@ import CoreGraphics
 ///   then back up");
 /// - jump: the element moved more in one frame than its container's edges did, or, for an element that is itself what
 ///   moves, more than half its whole travel in one frame (a snap or a pop-in mid-motion);
-/// - after the end: the element moves after the motion landed (a layout jump once the animation ended).
+/// - after the end: the element moves after the motion landed (a layout jump once the animation ended);
+/// - late: the element still shows away from its rest (by more than 0.5 % of its travel) after the motion's deadline, a
+///   retarget that started a second whole motion or a tail that crawls.
 /// Built for the frame-owner path's manual 120 Hz ticks (`LayoutRootView.advanceFrame`); dropped frames are the
 /// films' and benches' to count, not this check's.
 struct MotionTargetTrace {
@@ -27,6 +29,12 @@ struct MotionTargetTrace {
     /// A first-frame step an element may take that is not motion: a terminal grid's last row sits a leftover (less than
     /// a cell) above its surface's bottom, and that leftover differs between the start and the final grid.
     private(set) var firstStep: [String: CGFloat] = [:]
+    /// The frame by which every element shows at its rest; nil: no deadline is checked.
+    private(set) var deadline: Int?
+
+    mutating func deadline(_ frame: Int) {
+        deadline = frame
+    }
 
     mutating func allowFirstStep(_ element: String, _ points: CGFloat) {
         firstStep[element] = abs(points)
@@ -44,7 +52,7 @@ struct MotionTargetTrace {
     }
 
     struct Violation: CustomStringConvertible {
-        enum Kind: String { case away, jump, afterEnd = "after the end" }
+        enum Kind: String { case away, jump, afterEnd = "after the end", late }
         var element: String
         var frame: Int
         var kind: Kind
@@ -68,6 +76,13 @@ struct MotionTargetTrace {
             if let last = samples.last, let settledAt = settled[element], abs(settledAt - last.position) > Self.tolerance {
                 found.append(Violation(element: element, frame: samples.count, kind: .afterEnd, points: abs(settledAt - last.position)))
             }
+            if let deadline, samples.count > deadline + 1 {
+                let travel = samples.map { abs($0.position - rest) }.max() ?? 0
+                let near = max(Self.tolerance, travel * 0.005)
+                if let worst = samples[(deadline + 1)...].map({ abs($0.position - rest) }).max(), worst > near {
+                    found.append(Violation(element: element, frame: deadline + 1, kind: .late, points: worst))
+                }
+            }
         }
         return found
     }
@@ -80,7 +95,8 @@ struct MotionTargetTrace {
             String(format: "%.1f", all.filter { $0.kind == kind }.map(\.points).max() ?? 0)
         }
         let bad = Set(all.map { "\($0.element)#\($0.frame)" }).count
-        return "frames \(frames), bad \(bad), worst away \(worst(.away)) pt, worst jump \(worst(.jump)) pt, after end \(worst(.afterEnd)) pt"
+        return "frames \(frames), bad \(bad), worst away \(worst(.away)) pt, worst jump \(worst(.jump)) pt, after end \(worst(.afterEnd)) pt, "
+            + "late \(worst(.late)) pt"
     }
 
     /// Each element's distance from its rest in every frame, in points (positive above or right of it): the frames a

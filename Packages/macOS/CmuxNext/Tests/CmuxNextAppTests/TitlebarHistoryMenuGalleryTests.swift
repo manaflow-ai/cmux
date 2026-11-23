@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHistory
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// drawn offscreen, so each row is laid out from the menu's own items (image, title, headers,
 /// separators, a submenu's arrow) at the system menu's row height. Artifact
 /// `titlebar-history-menu-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct TitlebarHistoryMenuGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TitlebarHistoryMenuGalleryTests {
     /// The menu's row height and separator height, as NSMenu draws them at the default font.
     static let rowHeight: CGFloat = 22
     static let separatorHeight: CGFloat = 11

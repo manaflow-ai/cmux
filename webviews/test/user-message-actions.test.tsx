@@ -4,6 +4,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
+import { describedText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -23,18 +25,16 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
+  // A hidden element is a control's description (aria-describedby), not an item of the row.
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > :not([hidden])")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -47,7 +47,7 @@ async function draw(row: AcpmuxRow, actions: object, presentation: "transcript" 
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/PresentationContext");
+  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/presentationContextModel");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
@@ -102,9 +102,9 @@ test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or st
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
-  expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
-    "Starts a new session from this point. This one stays as it is.",
-  );
+  // A tooltip is one line (its name); what Fork does describes the button for screen readers.
+  expect(forkButton.hasAttribute("data-tooltip-detail")).toBe(false);
+  expect(describedText(forkButton)).toBe("Starts a new session from this point. This one stays as it is.");
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
   expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
@@ -245,12 +245,19 @@ test("Fork shows success when the live host returns a new session id", async () 
   }
 });
 
-test("a chat that cannot fork at a prompt hides Fork there rather than showing it disabled", async () => {
+// An answered prompt of an agent that forks only from its latest reply keeps Fork, dimmed, and says
+// why, rather than the control vanishing from some messages only (Leo, 2026-11-11: "why are only
+// some chats forkable").
+test("a chat that cannot fork at an earlier prompt shows Fork there dimmed, saying why", async () => {
   await draw(
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Fork from here: This agent can fork only from its latest reply"]);
+  const fork = host.querySelector<HTMLButtonElement>(".cv-fork-button")!;
+  expect(fork.dataset.forkState).toBe("unavailable");
+  expect(fork.getAttribute("aria-disabled")).toBe("true");
+  expect(fork.title).toBe("This agent can fork only from its latest reply");
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
@@ -285,18 +292,16 @@ test("a sent prompt draws no Retry: the last turn's reply footer has it", async 
   expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
 });
 
-// The Messages view draws no footer for a turn that ended well (messagesRows.ts), so a prompt there
-// keeps the Retry it had, which sends it again.
-test("in the Messages view a sent prompt keeps its Retry", async () => {
+// Both presentations keep resend in the message menu, without a prompt fallback.
+test("in the Messages view a sent prompt has no inline Retry", async () => {
   const sent: [string, string][] = [];
   await draw(
     { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
     { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
     "messages",
   );
-  const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
-  act(() => retry.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('.cv-message-retry button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("a recorded steer has no receipt checks in its normal hover actions", async () => {

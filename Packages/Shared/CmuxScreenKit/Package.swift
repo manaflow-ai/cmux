@@ -26,6 +26,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
+        .package(path: "../CmuxSpinner"),
     ],
     targets: [
         .target(
@@ -37,7 +38,7 @@ let package = Package(
             ],
             swiftSettings: swiftSettings
         ),
-        .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
+        .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
         .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
     ]
 )

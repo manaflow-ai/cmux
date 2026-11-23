@@ -129,7 +129,7 @@ impl Keymap {
             ("focus-composer", "alt+j,super+ctrl+j"),
             ("pageup", "pageup"),
             ("pagedown", "pagedown"),
-            ("steer", "ctrl+s"),
+            ("queue", "ctrl+s"),
             ("undo", "ctrl+z"),
         ] {
             specs.insert(

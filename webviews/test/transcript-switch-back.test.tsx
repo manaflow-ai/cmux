@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { pageSwitch } from "./support/pageSwitch";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,16 +52,13 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+const { RevealedMarkdown } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+const { revealFrames } = await import("../src/agent-session/acpmux/conversation/revealedMarkdownModel");
 const page = pageSwitch(dom.window);
 
-afterAll(() => {
+afterAll(async () => {
   page.dispose();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -107,7 +105,8 @@ test("a row that arrives while the chat shows still enters", async () => {
     await act(async () => render(turns));
     await page.switchAwayAndBack();
     page.reset();
-    await act(async () => render([...turns, row("t3-user", "user", "Question 3")]));
+    // It happens now, after the chat was opened (a row from before the open never enters).
+    await act(async () => render([...turns, { ...row("t3-user", "user", "Question 3"), at: Date.now() }]));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(page.entrances().length).toBeGreaterThan(0);
   } finally {

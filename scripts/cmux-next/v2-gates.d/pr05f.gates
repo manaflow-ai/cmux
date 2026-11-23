@@ -1,0 +1,8 @@
+# The gates whose tests write the design doc's row 5f (`v2.pr05f.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+book pr05f_apply_newest
+book pr05f_apply_move
+book pr05f_first_window
+book pr05f_deep_page
+book pr05f_equal_entry
+core folders_serving_release_gates
+core folders_tail_release_gates

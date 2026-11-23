@@ -15,7 +15,8 @@ extension TabStripView {
         for (group, chip) in groups.chips where counts[group] == nil {
             let id = TabID.groupChip(group)
             guard !dying.contains(id) else { continue }
-            if animated {
+            // A group whose tabs moved to another pane, or that a drag holds, takes its chip with them: no close (`departures`).
+            if animated, group != groups.detachedGroupID, !displayed.contains(where: { $0.groupID == group && model.departures.contains($0.id) }) {
                 dying.insert(id)
                 placed[id]?.width = 0
                 placed[id]?.alpha = 0
@@ -92,11 +93,13 @@ extension TabStripView {
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
             var moved = false
-            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
+            // A chip still moving joins this change on its curve, as the tabs do (`applyFrames`).
+            let restarts = move.map { !$0.isScroll && TabStripMove.isMoving(chip.layer) } ?? false
+            if let move, restarts || frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
                 let before = TabStripMove.snapshot(chip.layer)
                 chip.frame = frame
                 chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll)
+                moved = move.animate(from: before, scroll: scroll, restarts: restarts)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
@@ -127,8 +130,8 @@ extension TabStripView {
             )
             band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
             if let move, let wash, let line {
-                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd)
-                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd)
+                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd, restarts: !move.isScroll && TabStripMove.isMoving(band.washLayer))
+                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd, restarts: !move.isScroll && TabStripMove.isMoving(band.lineLayer))
             }
         }
     }

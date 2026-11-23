@@ -29,7 +29,9 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const ALLOW = /glass-opaque-allow:\s*\S/;
 // Reduce Transparency contexts; `not (...)` and `:not([...])` are the glass side, so they stay checked.
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
+// The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
+// outside a `:not(...)` list.
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 // Host tokens (WebTheme.swift) the CSS never defines but documents as solid.
 const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
@@ -37,7 +39,17 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
 // The History page menu (pages/shared/PageMenu.tsx) drew the solid popup surface under a border
 // (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni", "page-menu"]);
+// The suggestion lists, hover action bars and palettes that still drew the solid popup
+// surface a month after that ask (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named here too, so none goes solid again.
+const REQUIRED_GLASS_CLASSES = new Set([
+  "acpmux-omni",
+  "page-menu",
+  "hm-suggestions",
+  "hc-msg-toolbar",
+  "hc-msg-more",
+  "lg-palette",
+]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
 // inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
 // editing, and each entry goes when that file is free.
@@ -492,20 +504,9 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
 // Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
-  ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
-  ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
-  [
-    "pages/home-channels/ledger.css .lg-palette.ui-dialog, .lg-palette",
-    "the ledger's palette dialog paints the solid popup surface",
-  ],
-  [
-    "pages/home-channels/ledger.css .lg-form.ui-dialog, .lg-form",
-    "the ledger's form dialog paints the solid popup surface",
-  ],
   ["pages/markdown/styles.css .cmux-comment-card", "the Markdown viewer's comment card paints the elevated surface"],
   ["ui/ui.css .ui-sheet", "the shared sheet paints --ui-surface, not the glass"],
-  ["ui/findPill.css .find-pill", "the find pill paints the card material (--cmux-card-tint, at least 90%)"],
   [
     "pages/markdown/styles.css .md-link-bubble",
     "the Markdown link editor popover paints --cmux-md-popover-background (the solid popup surface) over its glass",

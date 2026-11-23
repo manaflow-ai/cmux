@@ -4,15 +4,19 @@
 // composer, thread panel and the Cmd-K switcher show without the app.
 import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
+import type { PlayContext } from "../../gallery/play";
 import { UiProvider } from "../../ui/UiProvider";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { HomeChannelsPage } from "./HomeChannelsPage";
+import { APP_ACTION_RUN, HomeChannelsPage, NEW_CLOUD_MACHINE } from "./HomeChannelsPage";
+import type { CloudEntryLook } from "./ConversationList";
 import { BridgePageClient } from "../shared/pageClient";
 import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
 import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
+import type { SendLaterStyle } from "./SendLater";
 import { HomeChannelsStore } from "./store";
 import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
@@ -33,6 +37,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** #media's video plays (a sample MP4); without it its link cannot be had. */
+  video?: boolean;
   /** Adds #launch, a channel two teammates share; Ana types in it. */
   teammates?: boolean;
   /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
@@ -51,16 +57,31 @@ type Props = {
   hostBridge?: boolean;
   /** A cmux link the page opens (as the Messages view's switch does through the hash). */
   link?: string;
+  /** The Cloud inbox read fails with this reason: the rows stay and the list says why. */
+  cloudError?: string;
+  /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
+  cloudEntry?: CloudEntryLook;
+  /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
+  cloudNotRun?: boolean;
+  /** Where the composer puts Send Later. */
+  sendLater?: SendLaterStyle;
+  /** The Chief DM has two scheduled messages of mine, one the owner could not send. */
+  scheduled?: boolean;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
- * answer `cmux.protocol.unknown_op` (this host serves no ops); the host's calls go in through the
+ * answer `cmux.protocol.unknown_op` (this host serves no ops) except `cmux.app.action.run`, which it
+ * records in `actions` and answers as run; the host's calls go in through the
  * client's receive (what `window.__cmuxPageReceive` calls in the app) and resolve with the reply
  * envelope the page posts back. */
 class GalleryBridgeHost {
   private nextCall = 1_000_000;
   private readonly waiting = new Map<number, (reply: unknown) => void>();
   readonly client: BridgePageClient;
+  /** The app actions the page asked to run, oldest first. */
+  readonly actions: unknown[] = [];
+  /** Whether the app runs the actions the page asks for (`ran` in the reply). */
+  ran = true;
 
   constructor() {
     // A private target: the frame's own `__cmuxPageReceive` global stays untouched.
@@ -68,7 +89,11 @@ class GalleryBridgeHost {
   }
 
   private post(body: unknown): unknown {
-    const envelope = body as { t?: string; id?: number; op?: string; stream?: string };
+    const envelope = body as { t?: string; id?: number; op?: string; stream?: string; params?: unknown };
+    if (envelope.t === "call" && envelope.op === APP_ACTION_RUN) {
+      this.actions.push(envelope.params);
+      return { t: "ok", id: envelope.id, value: { ran: this.ran } };
+    }
     if ((envelope.t === "ok" || envelope.t === "err") && typeof envelope.id === "number") {
       this.waiting.get(envelope.id)?.(envelope);
       this.waiting.delete(envelope.id);
@@ -105,6 +130,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  video = false,
   teammates = false,
   terminalSelection,
   route,
@@ -114,14 +140,29 @@ function HomeChannelsGallery({
   pane,
   hostBridge = false,
   link,
+  cloudEntry,
+  cloudNotRun = false,
+  cloudError,
+  sendLater,
+  scheduled = false,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
+    if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
+    if (provider && cloudError) provider.cloudError = cloudError;
+    if (provider && scheduled) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      provider.schedule("c-chief", "Morning: summarize what the agents shipped overnight.", tomorrow.getTime());
+      provider.schedule("c-chief", "Check the release build.", Date.now() - 600_000, "agent_rate");
+    }
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
+      bridge.ran = !cloudNotRun;
       (window as GalleryHostWindow).cmuxGalleryHost = bridge;
       host = bridge.client;
     }
@@ -149,7 +190,13 @@ function HomeChannelsGallery({
     >
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} />
+          <HomeChannelsPage
+            store={store}
+            strings={strings}
+            pane={width ? pane : undefined}
+            cloudEntry={cloudEntry}
+            sendLaterStyle={sendLater}
+          />
         </UiProvider>
       ) : null}
     </div>
@@ -176,6 +223,17 @@ async function askSelection(document: Document): Promise<unknown> {
   const host = (document.defaultView as GalleryHostWindow | null)?.cmuxGalleryHost;
   if (!host) throw new Error("no gallery bridge host");
   return host.callPage(CURRENT_SELECTION_OP);
+}
+
+// Clicks New Cloud Machine and checks the page asked the app to run its action, once.
+async function expectCloudMachineRun(ctx: PlayContext): Promise<void> {
+  const host = (ctx.document.defaultView as GalleryHostWindow | null)?.cmuxGalleryHost;
+  if (!host) throw new Error("no gallery bridge host");
+  await ctx.waitFor(() => ctx.document.querySelector("[data-new-cloud-machine]"));
+  await ctx.click({ selector: "[data-new-cloud-machine]" });
+  await ctx.waitFor(() => host.actions.length > 0);
+  if (JSON.stringify(host.actions) !== JSON.stringify([{ action: NEW_CLOUD_MACHINE }]))
+    throw new Error(`cmux.app.action.run: ${JSON.stringify(host.actions)}`);
 }
 
 function expectSelection(reply: unknown, expected: HomeSelection | null): void {
@@ -221,6 +279,8 @@ export default componentEntry<Props>({
     "pages/home-channels/GoalStrip.tsx#GoalStrip",
     "pages/home-channels/LiveTyping.tsx#LiveTyping",
     "pages/home-channels/AttachmentViews.tsx",
+    "pages/home-channels/SendLater.tsx#SendLaterPicker",
+    "pages/home-channels/ScheduledStrip.tsx#ScheduledStrip",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -231,6 +291,40 @@ export default componentEntry<Props>({
     await import("./ledger.css");
   },
   variants: {
+    "cloud-entry-row": {
+      note: "New Cloud Machine as a labeled row under the search field (the page's): a click runs the app's newCloudMachine action.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "row" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-header": {
+      note: "New Cloud Machine as a cloud icon in the list header beside New Message and New Chief.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "header" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-footer": {
+      note: "New Cloud Machine as a labeled row at the foot of the list.",
+      props: { select: "c-release", hostBridge: true, cloudEntry: "footer" },
+      play: expectCloudMachineRun,
+    },
+    "cloud-entry-not-run": {
+      note: "The app does not run New Cloud Machine (turned off): the click says so in the page's short notice.",
+      props: { select: "c-release", hostBridge: true, cloudNotRun: true },
+      play: async (ctx) => {
+        await expectCloudMachineRun(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".lg-notice")?.textContent?.includes("Couldn't open New Cloud Machine"),
+        );
+      },
+    },
+    "cloud-entry-browser": {
+      note: "No app host (a browser on the daemon's listener): no New Cloud Machine entry.",
+      props: { select: "c-release" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
+        if (ctx.document.querySelector("[data-new-cloud-machine]"))
+          throw new Error("New Cloud Machine shows without a host");
+      },
+    },
     "stable-thread-counts": {
       note: "Thread metadata keeps equal-width digits as reply and participant totals change.",
       props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
@@ -283,7 +377,9 @@ export default componentEntry<Props>({
       },
     },
     "switcher-filtered": {
-      note: "The palette ranks conversations, threads and actions with the palette ranker as you type.",
+      // The mock provider answers `cmux.home.paletteRank` with the fixture ranker (paletteRank.ts: a
+      // case-insensitive substring filter in row order); in the app the daemon's palette.rank ranks.
+      note: "The palette filters conversations, threads and actions as you type (the fixture ranker here; the daemon ranks in the app).",
       props: { select: "c-release" },
       checks: {
         longFrameFailMs: openFrame,
@@ -356,6 +452,62 @@ export default componentEntry<Props>({
         await ctx.waitFor(
           () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png",
         );
+      },
+    },
+    "attachments-lightbox-video": {
+      note: "Leo 2026-11-04: \"i can neither preview a vid in place nor have it pop up anymore :(\". A video's Expand opens it in the lightbox, paused with its Play and length (the agent chat's player); it still plays in place.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-playing": {
+      note: "Play in the lightbox: the video plays large with sound and the player's controls; the inline copy pauses.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+        await ctx.click({ selector: ".hc-lightbox .cv-media__poster" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__frame.is-playing"));
+      },
+    },
+    "attachments-lightbox-arrow-to-video": {
+      note: "From the first image, Left arrow wraps to the message's video (images, then videos): the lightbox steps among both.",
+      props: { select: "c-media", media: true, video: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the video, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "run-recording.mp4",
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-unavailable": {
+      note: "A video whose link cannot be had (an owner without attachment reads): the lightbox shows its poster and says it cannot play here.",
+      props: { select: "c-media", media: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox-unread.failed img"));
       },
     },
     "attachments-composer": {
@@ -445,6 +597,17 @@ export default componentEntry<Props>({
         );
       },
     },
+    "cloud-unreachable": {
+      note: "A Cloud inbox read failed: the rows stay (the last good list) and the list says why while the page retries.",
+      props: { select: "c-chief", cloudError: "timed out after 10 s" },
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector("[data-cloud-error]") !== null &&
+            ctx.document.querySelector('[data-list-row="c-design"]') !== null,
+        );
+      },
+    },
     hover: {
       note: "Hovering a message shows its card: quick reactions, Add reaction, Reply in thread, More.",
       props: { select: "c-release" },
@@ -495,6 +658,51 @@ export default componentEntry<Props>({
         await ctx.click({ role: "button", name: "Bold" });
         await ctx.type("Ship the fix today", field);
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-composer strong"));
+      },
+    },
+    "send-later-clock": {
+      note: "Send Later, variant A: a clock among the composer's tools opens the time picker (presets with their times, a date and time field).",
+      props: { select: "c-chief", sendLater: "clock" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ role: "button", name: "Send Later…" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    "send-later-split": {
+      note: "Send Later, variant B: a segment on the Send button opens the same time picker.",
+      props: { select: "c-chief", sendLater: "split" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ selector: ".lg-main .hc-send-later" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    scheduled: {
+      note: "My scheduled messages above the composer: one waits for tomorrow morning, one the owner could not send (Not sent). Each has Edit, Change Time, Send Now and Cancel.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+      },
+    },
+    "scheduled-send-now": {
+      note: "Send Now on a scheduled message: it leaves the list and shows in the conversation at once.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+        await ctx.click({ selector: ".lg-main .hc-scheduled-row:last-child button:nth-last-of-type(2)" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 1);
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-main .hc-md")].some((node) =>
+            node.textContent?.includes("Check the release build."),
+          ),
+        );
       },
     },
     emoji: {

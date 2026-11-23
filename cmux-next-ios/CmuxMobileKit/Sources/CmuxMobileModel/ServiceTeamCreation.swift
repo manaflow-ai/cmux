@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import Foundation
 
 /// Create Team through the cmux service (`POST /v1/teams`, PROTOCOL.md).
@@ -15,18 +16,23 @@ public struct ServiceTeamCreation: Sendable {
     }
 
     public let apiBase: URL
+    /// The build's cloud data space (a dev build's `X-Cmux-Build-Space`); a misconfigured dev build's
+    /// request throws ``CMUXBuildSpaceError``.
+    public let buildSpace: CMUXBuildSpaceState
 
-    public init(apiBase: URL) {
+    public init(apiBase: URL, buildSpace: CMUXBuildSpaceState) {
         self.apiBase = apiBase
+        self.buildSpace = buildSpace
     }
 
     /// `POST /v1/teams {name}`.
-    public func request(accessToken: String, name: String) -> URLRequest {
+    public func request(accessToken: String, name: String) throws -> URLRequest {
         var request = URLRequest(url: apiBase.appending(path: "v1/teams"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
+        try buildSpace.apply(to: &request)
         return request
     }
 
@@ -70,5 +76,30 @@ public enum TeamCreationRoute: Equatable, Sendable {
         } else {
             self = .unavailable
         }
+    }
+
+    /// The cmux web origin for App Store plans (`<origin>/api/billing/apple/*`):
+    /// the same production-account origin as the team API, since cmux.com
+    /// accepts only production Stack sessions. Nil for every other build.
+    public var billingOrigin: URL? {
+        if case .teamAPI(let origin) = self { return origin }
+        return nil
+    }
+
+    /// The billing origin with a DEBUG launch override applied: a development build signs in to
+    /// the development Stack project, whose sessions staging (`https://cmux-staging.vercel.app`)
+    /// and the per-tag development web stacks accept, so `CMUX_MOBILE_BILLING_ORIGIN` points the
+    /// plans screen at one of them for a real App Store Sandbox purchase in a simulator.
+    /// Only a bare http(s) origin counts (no path, query or fragment, since the billing API
+    /// appends its own paths); anything else keeps ``billingOrigin``.
+    /// - Parameter launchOverride: The `CMUX_MOBILE_BILLING_ORIGIN` value; the caller passes it
+    ///   only in DEBUG builds.
+    public func billingOrigin(launchOverride: String?) -> URL? {
+        if let launchOverride, let url = URL(string: launchOverride),
+           let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host() != nil,
+           url.path().isEmpty || url.path() == "/", url.query() == nil, url.fragment() == nil {
+            return url
+        }
+        return billingOrigin
     }
 }

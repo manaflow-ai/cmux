@@ -17,7 +17,7 @@ nonisolated extension RefusalStrings {
 
     /// Move Pane to Dock with no pane focused or named.
     public static var noPaneForDock: String {
-        text("handlers.refusal.noPaneForDock", "No pane is focused.")
+        text("handlers.refusal.noPaneForDock", "Click a tab first, then try again.")
     }
 
     /// Move Pane to Dock on a pane that is in a dock already (or holds no tab).
@@ -30,7 +30,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.dockWorkspaceGone", "The dock's workspace is gone.")
     }
 
-    /// Open Chief Dock while this window has no Home to dock (classic Home, or Home not ready).
+    /// Undock Chief while this window's Chief panel is not docked.
+    public static var chiefNotDocked: String {
+        text("handlers.refusal.chiefNotDocked", "The Chief is not docked.")
+    }
+
+    /// Show/Hide Chief while this window has no Home to show the Chief from (classic Home, or Home not ready).
     public static var chiefDockUnavailable: String {
         text("handlers.refusal.chiefDockUnavailable", "The Chief can't dock yet. Open Home first.")
     }

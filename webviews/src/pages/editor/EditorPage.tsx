@@ -4,6 +4,7 @@
 // Monaco host element and a status bar. Monaco mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
 import { useSyncExternalStore, type ReactNode } from "react";
+import { useLasting } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import type { ReadOnlyReason } from "./host";
 import { PREFERENCE_KEYS, isLargeFile, resolveEditorSettings } from "./settings";
@@ -55,8 +56,14 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const view = useSyncExternalStore(status.subscribe, status.get);
   const { t } = strings;
+  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
+  // link is back, `linkChanged`); until then the page stays blank.
+  const downLasting = useLasting(state.phase === "disconnected");
 
   if (state.phase === "empty" && emptyState) return emptyState();
+
+  if (state.phase === "disconnected" && !downLasting)
+    return <div className="ed-page ed-page-message" aria-busy="true" />;
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (

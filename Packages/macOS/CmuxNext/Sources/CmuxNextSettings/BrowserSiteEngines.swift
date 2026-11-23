@@ -20,17 +20,11 @@ public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     /// Normalized pattern (lowercase host, optional `/path`) to engine.
     public let rules: [String: BrowserDefaultEngine]
 
-    public static let configPath = ["browser", "siteEngines"]
-
-    /// Sites whose protected media needs WebKit (FairPlay) in cmux. `music.youtube.com` is not
-    /// here: it plays in Chromium unless shown otherwise.
-    public static let protectedMediaSites = [
-        "spotify.com", "netflix.com", "disneyplus.com", "max.com", "hulu.com", "primevideo.com",
-        "amazon.com/gp/video", "tv.apple.com", "music.apple.com",
-    ]
-
-    /// Every protected-media site on WebKit.
-    public static let fallback = BrowserSiteEngines(rules: Dictionary(uniqueKeysWithValues: protectedMediaSites.map { ($0, .webkit) }))
+    /// Every protected-media site on WebKit: `siteEnginesDefault`, from
+    /// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
+    public static let fallback = BrowserSiteEngines(rules: (siteEnginesDefault.objectValue ?? [:]).compactMapValues {
+        $0.stringValue.flatMap(BrowserDefaultEngine.init(rawValue:))
+    })
 
     /// - Parameter rules: Site pattern to engine; patterns are normalized (lowercase, no scheme,
     ///   no `*.`, no trailing `/`), and one that is empty after that is dropped.

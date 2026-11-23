@@ -1,6 +1,7 @@
 //! `git.worktree.create`: a chat's own worktree, so an agent works on a
 //! branch of its own while the user's checkout stays as it is. The worktree
-//! is `~/.cmux/worktrees/<project>/<name>` on a new branch `cmux/<name>`,
+//! is `~/.cmux/worktrees/<project>/<name>` (with `agentPane.sessionWorktrees`
+//! set to `project`, `<project>/.claude/worktrees/<name>`) on a new branch `cmux/<name>`,
 //! made from `base` (default: the current branch, else HEAD's commit) with
 //! `git worktree add` in the user's environment, so their post-checkout hook
 //! and filters run as in a terminal. The base is recorded as
@@ -11,6 +12,11 @@
 //! retry after a lost reply or a timeout finds the worktree (or the branch)
 //! it made instead of making a second. A post-checkout hook that fails does
 //! not undo the worktree git made, so that is a made worktree too.
+//!
+//! Once git made it, the project's recipe sets it up without holding the
+//! reply (`worktree_setup`): the `.worktreeinclude` files are copied from
+//! the main checkout and the setup command runs; the reply's `setup` says
+//! it started and which port the worktree keeps.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -25,10 +31,11 @@ use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::push::current_branch;
 use super::run::run_git;
 use super::user_run::{UserGit, deadline};
-use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
+use super::{MAX_SMALL_OUTPUT_BYTES, Repository, worktree_recipe, worktree_setup};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_config::session_worktrees::{self, SessionWorktrees};
 use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.create";
@@ -64,14 +71,23 @@ pub(super) fn dispatch(
         let attempt = match journal.attempt::<Attempt>(&fingerprint) {
             Some(attempt) => attempt,
             None => {
-                let attempt = plan(repository, target.common_dir(), &request.fields)?;
+                let setting = cmux_config::Target::Key(session_worktrees::KEY.to_string());
+                let place = mux.with_settings(|state| {
+                    SessionWorktrees::parse(
+                        state.get(&setting).row.and_then(|row| row.value).as_ref(),
+                    )
+                });
+                // The folder is chosen once: a retry reads the root the journal kept.
+                let folder = storage_folder(target.common_dir(), place)?;
+                let attempt = plan(repository, &folder, &request.fields)?;
                 journal.start(&fingerprint, &attempt)?;
                 attempt
             }
         };
-        match create(repository, &git, &attempt) {
+        match create(repository, &git, &attempt, target.common_dir()) {
             Ok(()) => {
-                let value = described(&attempt, target.common_dir());
+                let mut value = described(&attempt, target.common_dir());
+                value.set("setup", setup(mux, &attempt, target.common_dir()));
                 let reply = ledger::commit(
                     mux,
                     &key,
@@ -96,10 +112,58 @@ pub(super) fn dispatch(
     })
 }
 
+/// The folder this project's worktrees go in: `~/.cmux/worktrees/<project>`,
+/// or with `place` Project, `<project>/.claude/worktrees`, made with a
+/// `.gitignore` of `*` so the main checkout's status never lists them (and
+/// the ignore file ignores itself; the repository's own settings are never
+/// edited).
+fn storage_folder(common_dir: &Path, place: SessionWorktrees) -> Result<PathBuf, ResourceError> {
+    if place.in_project() {
+        let Some(main) = main_root(common_dir) else {
+            let message = "this repository has no main checkout to keep worktrees in";
+            return Err(refused(OPERATION, "no_project_folder", message, Value::Null));
+        };
+        let folder = session_worktrees::PROJECT_FOLDER
+            .iter()
+            .fold(main.to_path_buf(), |path, name| path.join(name));
+        let fail = |error: std::io::Error| {
+            let message = format!("cannot prepare {}: {error}", folder.display());
+            refused(OPERATION, "no_worktree_root", message, Value::Null)
+        };
+        if let Some(parent) = folder.parent() {
+            std::fs::create_dir_all(parent).map_err(fail)?;
+        }
+        match std::fs::create_dir(&folder) {
+            Ok(()) => {
+                use std::io::Write as _;
+                std::fs::File::create_new(folder.join(".gitignore"))
+                    .and_then(|mut file| file.write_all(b"*\n"))
+                    .map_err(fail)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::symlink_metadata(&folder).map_err(fail)?.is_dir() {
+                    return Err(fail(std::io::Error::other("not a folder")));
+                }
+            }
+            Err(error) => return Err(fail(error)),
+        }
+        return Ok(folder);
+    }
+    let Some(home) = crate::platform::home_dir() else {
+        let message = "the session host has no home folder for worktrees";
+        return Err(refused(OPERATION, "no_home", message, Value::Null));
+    };
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
+        refused(OPERATION, "no_worktree_root", message, Value::Null)
+    })?;
+    Ok(root.join(project(common_dir)))
+}
+
 /// The base, and the first free name in this project's worktree folder.
 fn plan(
     repository: &Repository,
-    common_dir: &Path,
+    folder: &Path,
     fields: &Map<String, Value>,
 ) -> Result<Attempt, ResourceError> {
     let base = match fields.get("base").and_then(Value::as_str) {
@@ -120,15 +184,6 @@ fn plan(
     // A branch is recorded by name, so the later diff follows it; anything
     // else (`HEAD~1`, a tag that may move) by the commit it names now.
     let base = if repository.branch_ref(&base).is_some() { base } else { base_commit.clone() };
-    let Some(home) = crate::platform::home_dir() else {
-        let message = "the session host has no home folder for worktrees";
-        return Err(refused(OPERATION, "no_home", message, Value::Null));
-    };
-    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
-        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
-        refused(OPERATION, "no_worktree_root", message, Value::Null)
-    })?;
-    let folder = root.join(project(common_dir));
     let name = fields
         .get("name")
         .and_then(Value::as_str)
@@ -155,14 +210,25 @@ fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it.
+/// reply's run already made it in the repository whose git folder is
+/// `common_dir` ([`made`]). A success of `git worktree add` is not enough:
+/// the folder is given only when this repository keeps it as its worktree
+/// ([`kept`]), else the create is refused with `git_failed`. The folder and
+/// the branch that git made stay, and the message names them.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
+    common_dir: &Path,
 ) -> Result<(), ResourceError> {
-    if !made(attempt) {
+    if let Some(why) = not_made(attempt, common_dir) {
         if attempt.root.exists() {
+            // The reply names no cause; the session host's log has it.
+            eprintln!(
+                "cmux-tui: {}: not a finished worktree on {}: {why}",
+                attempt.root.display(),
+                attempt.branch
+            );
             let message = format!(
                 "{} exists and is not a finished worktree on {}",
                 attempt.root.display(),
@@ -187,8 +253,16 @@ fn create(
             vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
         };
         let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
-        if !run.success && !made(attempt) {
+        if !run.success && !made(attempt, common_dir) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if run.success && !kept(attempt, common_dir) {
+            let message = format!(
+                "git worktree add ended, and {root} is not a worktree that this repository keeps; \
+                 the folder and the branch {} stay",
+                attempt.branch
+            );
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -203,18 +277,96 @@ fn create(
     Ok(())
 }
 
+/// Starts the new worktree's setup from the project's recipe; what the
+/// reply says of it. The ports of the worktree are in `common_dir`, the
+/// repository's git folder. No setup starts and no port is given when the
+/// folder that the worktree's `.git` file names is not the git folder that
+/// this repository keeps for the worktree
+/// ([`worktree_setup::Place::is_of`]): a line on stderr says so, or it gives
+/// the kind of the error of the open when the place did not open that
+/// folder. The check is of the folder that the place opened, and the setup
+/// keeps that folder.
+fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
+    let main = main_root(common_dir).map(Path::to_path_buf);
+    let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
+    let root = worktree_setup::resolved(&attempt.root);
+    let place = worktree_setup::Place::new(root, main, &git_dir, common_dir);
+    if !place.is_of(common_dir) {
+        let why = match place.not_opened() {
+            Some(kind) => format!("is not open ({kind})"),
+            None => format!(
+                "is not the git folder that {} keeps for this worktree",
+                common_dir.display()
+            ),
+        };
+        eprintln!(
+            "cmux-tui: {}: no setup starts: the folder that the `.git` file names {why}",
+            attempt.root.display()
+        );
+        return json!({"state": "none"});
+    }
+    let main = place.main_root.as_deref();
+    let resolved = worktree_recipe::resolve(mux, main, main.unwrap_or(common_dir));
+    let consent = resolved.consent();
+    worktree_setup::start(place, resolved.recipe, consent)
+}
+
+/// A linked worktree's own git folder, from its `.git` file. The file is
+/// read as a file that cmux keeps in a git folder is read
+/// ([`worktree_setup::read_small`]): a regular file only, at most 1 MiB of
+/// it, with no wait, and a link in its place is not followed.
+pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
+    let link = String::from_utf8(worktree_setup::read_small(root, ".git")?).ok()?;
+    let admin = link.trim().strip_prefix("gitdir:")?.trim();
+    let admin = root.join(admin);
+    admin.is_dir().then_some(admin)
+}
+
+/// The repository whose git folder is `common_dir` keeps the attempt's folder
+/// as its worktree, by the check that the setup of the worktree has
+/// ([`worktree_setup::keeps`]).
+fn kept(attempt: &Attempt, common_dir: &Path) -> bool {
+    admin_dir(&attempt.root)
+        .is_some_and(|admin| worktree_setup::keeps(&admin, &attempt.root, common_dir))
+}
+
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
-/// it while it checks the files out).
-fn made(attempt: &Attempt) -> bool {
-    let Ok(link) = std::fs::read_to_string(attempt.root.join(".git")) else { return false };
-    let Some(admin) = link.trim().strip_prefix("gitdir:").map(str::trim) else { return false };
-    if Path::new(admin).join("locked").exists() {
-        return false;
+/// it while it checks the files out). The worktree is of the repository
+/// whose git folder is `common_dir`, by the check that its setup has
+/// ([`worktree_setup::keeps`]): a folder that is a worktree of a different
+/// repository on the same branch is not the worktree of this create. The
+/// check and the look for the lock are at one open of the administrative
+/// folder ([`worktree_setup::kept`]). When a create finds a folder that is
+/// not a made worktree, a line on stderr says which of these it is
+/// ([`not_made`]).
+fn made(attempt: &Attempt, common_dir: &Path) -> bool {
+    not_made(attempt, common_dir).is_none()
+}
+
+/// Why the attempt's folder is not a made worktree ([`made`]); `None` for a
+/// made worktree. The text is for a line on stderr, not for a reply.
+fn not_made(attempt: &Attempt, common_dir: &Path) -> Option<String> {
+    let Some(admin) = admin_dir(&attempt.root) else {
+        return Some("it has no `.git` file that names a git folder".to_string());
+    };
+    let named = "the folder that its `.git` file names";
+    let why = match worktree_setup::kept(&admin, &attempt.root, common_dir) {
+        worktree_setup::Kept::Yes => None,
+        worktree_setup::Kept::Locked => Some("git has its lock on the worktree".to_string()),
+        worktree_setup::Kept::No => {
+            let keeper = common_dir.display();
+            Some(format!("{named} is not the git folder that {keeper} keeps for this worktree"))
+        }
+        worktree_setup::Kept::NotOpened(kind) => Some(format!("{named} is not open ({kind})")),
+    };
+    if why.is_some() {
+        return why;
     }
     let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];
-    run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
-        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch)
+    let on_branch = run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch);
+    (!on_branch).then(|| "its HEAD is not on the branch".to_string())
 }
 
 fn described(attempt: &Attempt, common_dir: &Path) -> Value {
@@ -270,3 +422,6 @@ fn generated_name() -> String {
     }
     format!("chat-{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2])
 }
+
+#[cfg(test)]
+mod tests;

@@ -44,6 +44,8 @@ struct WorkspaceServiceInner {
     queries: Arc<WorkspaceQueryService>,
     routes: RouteManager,
     computer_capabilities: Vec<ComputerUseCapability>,
+    /// `secrets-v1`, on a daemon that knows its machine id.
+    secrets: Option<Arc<crate::secrets::MachineSecrets>>,
     request_control: StdMutex<RequestControlState>,
     activity_changed: Notify,
 }
@@ -190,6 +192,18 @@ impl WorkspaceService {
     }
 
     pub fn with_computer_capabilities(computer_capabilities: Vec<ComputerUseCapability>) -> Self {
+        Self::with_options(computer_capabilities, None)
+    }
+
+    /// A service that also answers `secrets-v1` with `secrets`.
+    pub fn with_secrets(secrets: crate::secrets::MachineSecrets) -> Self {
+        Self::with_options(Vec::new(), Some(Arc::new(secrets)))
+    }
+
+    fn with_options(
+        computer_capabilities: Vec<ComputerUseCapability>,
+        secrets: Option<Arc<crate::secrets::MachineSecrets>>,
+    ) -> Self {
         Self {
             inner: Arc::new(WorkspaceServiceInner {
                 catalog: RwLock::new(WorkspaceCatalog::default()),
@@ -199,6 +213,7 @@ impl WorkspaceService {
                 queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities,
+                secrets,
                 request_control: StdMutex::new(RequestControlState::default()),
                 activity_changed: Notify::new(),
             }),
@@ -461,6 +476,10 @@ impl WorkspaceService {
                     capabilities.push(RemoteCapability::TerminalViewerSizePriorityV1);
                     capabilities
                 };
+                let mut capabilities = capabilities;
+                if self.inner.secrets.is_some() {
+                    capabilities.push(RemoteCapability::SecretsV1);
+                }
                 Ok(WorkspaceResponse::Capabilities { capabilities })
             }
             WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
@@ -633,7 +652,21 @@ impl WorkspaceService {
             WorkspaceRequest::CancelComputerUse { invocation } => {
                 Ok(WorkspaceResponse::ComputerUseCanceled { invocation, accepted: false })
             }
+            WorkspaceRequest::ReplaceMachineSecrets { items } => {
+                let secrets = self.secrets()?;
+                self.inner
+                    .blocking
+                    .run("secrets-v1", move || secrets.replace_machine_secrets(&items))
+                    .await
+                    .map(|count| WorkspaceResponse::MachineSecretsReplaced { count })
+            }
         }
+    }
+
+    fn secrets(&self) -> Result<Arc<crate::secrets::MachineSecrets>, RpcError> {
+        self.inner.secrets.clone().ok_or_else(|| {
+            RpcError::new("unsupported", "this daemon does not know its machine id: no secrets-v1")
+        })
     }
 
     /// Subscribe to retained and live process events. The remote session layer

@@ -1,9 +1,13 @@
+import type { ChipFace } from "./chipFace";
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
-import type { Choice, Combo } from "./ComposerPickers";
+import type { Choice, Combo } from "./composerPickerModel";
 import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { QuickSetup, UsedLook } from "./quickModelMenuModel";
+import type { SetupPick } from "./harnessSetup";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -30,6 +34,10 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// The chip's logo, name and effort as one value (chipFace.ts). When given, it is what the chip
+  /// draws (a switch to another harness still draws that harness); `label`, `detail` and
+  /// `detailShort` then only feed the menu.
+  face?: ChipFace;
   /// How much of the context window the chat has used ("42% of context used"), shown in the
   /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
   usage?: string;
@@ -51,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -68,19 +77,35 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
+  /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
+  /// composer installs it in place, signs it in and then starts the chat on the model
+  /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their
+  /// rows are inert and their tab offers Install… or Log In.
+  onSetUpPick?(pick: SetupRequest): void;
+  /// What that setup is doing: the compact menu's setup strip.
+  setup?: QuickSetup;
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the chat's
-  /// own models and offers Fork to for the eligible profile IDs in `targets` (continueTargets).
-  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
-  fork?: { to(harness: string): void; ready: boolean; targets: ReadonlySet<string> };
+  /// able to switch to different harnesses, can expose as fork"). The menus then list the models of
+  /// the chat's own harness and of each profile in `targets` (continueTargets), browsable and
+  /// pickable as a New Tab's (Leo 2026-11-06: "it should only need to necessarily fork when you
+  /// enter a message on that new model"): a pick of another harness's model goes through
+  /// `onCombo`, which holds it for the next message (forkHold.ts), and a launch route (another
+  /// account of any harness) through `hold`, with the acpmux profile id. `held`: the held pick,
+  /// which the chip draws with a fork mark and the menus check, `harness` its acpmux id, `name` its
+  /// harness's name. `used`: how the menus mark what the chat ran (QuickModelMenu UsedMark); the
+  /// gallery compares versions, the composer draws `glyph`.
+  fork?: {
+    targets: ReadonlySet<string>;
+    /// `name`: the launch route's label in the menu, for a profile with no catalog entry of its own.
+    hold(harness: string, name?: string): void;
+    held?: { harness: string; model?: string; effort?: string; fast?: boolean; name: string };
+    used?: UsedLook;
+  };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
   /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
@@ -92,11 +117,16 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// With no Claude connection that serves Cloud, the Claude section's Connect row
+  /// (ClaudeConnectRow.tsx, claudeConnect.ts); the composer holds its dialog.
+  claudeConnect?: ClaudeConnectRowProps;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
@@ -140,3 +170,7 @@ export function pickerHeightBounds(
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
 }
+
+/// A pick ``ModelPickerProps.onSetUpPick`` gets: the model and its harness, whether the harness is
+/// installed here, and the login acpmux named for it when it found it signed out.
+export type SetupRequest = SetupPick & { notInstalled: boolean; login?: string };

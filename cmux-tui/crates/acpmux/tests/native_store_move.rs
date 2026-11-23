@@ -94,7 +94,8 @@ fn pi_session_moves_into_the_target_folders_session_dir() {
 }
 
 /// A stand-in `opencode` CLI: `export ID` prints a session, `import FILE` records its argument
-/// and folder.
+/// and folder. A `/bin/sh` script, so Unix only.
+#[cfg(unix)]
 fn fake_opencode(dir: &Path, exported_id: &str) -> PathBuf {
     let cli = dir.join("opencode");
     let log = dir.join("import.log");
@@ -111,6 +112,7 @@ fn fake_opencode(dir: &Path, exported_id: &str) -> PathBuf {
     cli
 }
 
+#[cfg(unix)]
 #[test]
 fn opencode_session_is_exported_and_imported_in_the_target_folder() {
     let tools = tempfile::tempdir().unwrap();
@@ -132,6 +134,7 @@ fn opencode_session_is_exported_and_imported_in_the_target_folder() {
     assert!(native::guarded_plan(bundle.path(), &there).unwrap().is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn opencode_export_of_another_session_is_refused() {
     let tools = tempfile::tempdir().unwrap();

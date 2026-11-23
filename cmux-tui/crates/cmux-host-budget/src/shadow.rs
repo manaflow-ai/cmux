@@ -215,6 +215,11 @@ pub struct ShadowVerdict {
     pub next: ShadowState,
     /// `fnv1a64:` and 16 hex digits over the inputs without `now_ms`.
     pub inputs_digest: String,
+    /// `fnv1a64:` and 16 hex digits over only the readings that decide the
+    /// verdict: no clock, no sample time, no `previous` (`pressure_digest.rs`).
+    pub pressure_digest: String,
+    /// The host up to its first dot, lowercased (`host_short`).
+    pub host_short: String,
 }
 
 /// How one sample reads for one signal (module docs).
@@ -318,6 +323,8 @@ pub fn shadow_verdict(inputs: &ShadowInputs) -> ShadowVerdict {
         fits,
         next,
         inputs_digest: inputs_digest(inputs),
+        pressure_digest: crate::pressure_digest(inputs),
+        host_short: crate::host_short(&inputs.host),
     }
 }
 

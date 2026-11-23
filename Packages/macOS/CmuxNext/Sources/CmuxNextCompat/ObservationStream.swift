@@ -27,6 +27,15 @@ internal import os
 /// 4. Cancellation of the iterating task resumes a waiting `next()`, which
 ///    then returns nil; a cancelled task always gets nil.
 ///
+/// On both paths each evaluation of `emit` (the first value, every
+/// re-evaluation, a primed `current(_:)` value) runs as one task of the app's
+/// main-thread scheduler (``ObservationSite/evaluations``, installed at the
+/// composition root): a visible task owned by the stream's site
+/// (`#fileID:#line`), so the stall watchdog names it and its time is charged
+/// to the frame (plans/cmux-next/main-thread-scheduling.md, G1). The hop to
+/// the main actor stays where it is (inside Apple's `Observations` on the
+/// system path), so this adds no delay and keeps one re-evaluation per burst.
+///
 /// Unlike the system type, a stream whose `Element` is `Equatable` emits
 /// only values that differ from the last one it emitted (perf-speed-of-light.md
 /// I1): a re-evaluation that gives an equal value wakes no consumer. The
@@ -150,7 +159,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         // The system-iterator path (NativeIterator) traps at launch on macOS 27
         // (exit 133); every OS uses the withObservationTracking path until it is fixed.
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
-            return Iterator(native: NativeIterator(emit), equality: equality)
+            return Iterator(native: NativeIterator(emit, site: site), equality: equality)
         }
         return Iterator(legacy: LegacyIterator(emit: emit, site: site), equality: equality)
     }
@@ -253,8 +262,10 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     fileprivate final class NativeIterator {
         private var base: Observations<Element, Never>.Iterator
 
-        init(_ emit: @escaping @MainActor @Sendable () -> Element) {
-            base = Observations<Element, Never>(emit).makeAsyncIterator()
+        /// Each evaluation the system type makes runs as a scheduled task of `site` (``ObservationSite/evaluate(_:)``);
+        /// the system type's own hop and tracking are unchanged.
+        init(_ emit: @escaping @MainActor @Sendable () -> Element, site: ObservationSite) {
+            base = Observations<Element, Never>({ @MainActor in site.evaluate { emit() } }).makeAsyncIterator()
         }
 
         func next(isolation iteratorIsolation: isolated (any Actor)?) async -> Element? {
@@ -304,18 +315,21 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
             state.cancel()
         }
 
-        /// Evaluates `emit` with fresh tracking. The `await` at the call site
-        /// is the hop to the main actor (no hop when the iterator already runs
-        /// there, as with the system type).
+        /// Evaluates `emit` with fresh tracking, as one scheduled task of the stream's site
+        /// (``ObservationSite/evaluate(_:)``: the tracking's own cost is in the task's time). The `await`
+        /// at the call site is the hop to the main actor (no hop when the iterator already runs there, as
+        /// with the system type).
         @MainActor
         static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
-            state.site.tracking {
-                withObservationTracking {
-                    emit()
-                } onChange: { [state] in
-                    state.site.woke()
-                    ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
-                    state.changed()
+            state.site.evaluate {
+                state.site.tracking {
+                    withObservationTracking {
+                        emit()
+                    } onChange: { [state] in
+                        state.site.woke()
+                        ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
+                        state.changed()
+                    }
                 }
             }
         }

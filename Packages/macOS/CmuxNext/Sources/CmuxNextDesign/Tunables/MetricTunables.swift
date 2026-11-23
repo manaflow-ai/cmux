@@ -21,6 +21,13 @@ public nonisolated struct MetricTunable: Sendable {
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
     @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: name, glyph: glyph))) }
+    /// The value set for this metric by a Debug Settings override, `appearance.metrics.*` (`key`) or the density's
+    /// own `tokens[name]`, at the UI scale; nil when it follows the density's compact and comfortable pair. A metric
+    /// whose default is a sum of other metrics (the tab strip's inactive minimum) uses that sum when this is nil.
+    @MainActor public var explicitValue: CGFloat? {
+        let set = tunable.override ?? key.flatMap { DesignSettings.shared.overrides[$0] } ?? Metrics.tokens.tokens[name].map { CGFloat($0) }
+        return set.map { Metrics.scale($0) }
+    }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
@@ -63,6 +70,9 @@ public nonisolated enum MetricTunables {
 
     public static let tabStripHeight = MetricTunable.make("tabStripHeight", .tabs, "Tab strip height", help: "Height of a pane's tab strip.",
                                                           compact: 28, comfortable: 36, tight: 26, key: .tabStripHeight)
+    /// The density's own tab pill: the strip's room around a pill is `tabStripHeight` less this. A
+    /// pill follows the sidebar's one-line row (``Metrics/chromeRowHeight``) unless set, or 22 under
+    /// Compact tabs.
     public static let tabHeight = MetricTunable.make("tabHeight", .tabs, "Tab height", help: "Height of a tab inside the strip.",
                                                      compact: 24, comfortable: 30, tight: 22)
     /// Fields and small controls (the strip's +, toolbar and editor fields): the default tab height,
@@ -82,7 +92,9 @@ public nonisolated enum MetricTunables {
     /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
     /// target), trailing inset 4. Plus `TabStripMetrics.crowdedTitleRoom` (24) so a crowded tab keeps the start
     /// of its title, faded (Lawrence msg 19596, 26 tabs: "all here is … which is not very helpful"); past
-    /// that the strip scrolls. A test keeps these equal to the sum.
+    /// that the strip scrolls. A test keeps these equal to the sum. Unset, `TabStripMetrics` takes the sum itself
+    /// (`explicitValue` nil), so a density between the two (Default, level 0.5) gets its own parts' sum, not this pair's
+    /// midpoint.
     public static let tabMinInactiveWidth = MetricTunable.make(
         "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon, a few title characters and the close button.",
         compact: 72, comfortable: 74, tight: 70, key: .tabMinInactiveWidth, range: 16...320)

@@ -14,8 +14,11 @@
  *     bun scripts/smoke-product.ts
  *
  * Without CMUX_VM_SMOKE_IMAGE it boots the first image GET /v1/vm-images lists for the caller. The VM is deleted
- * by its exact id, also when a step fails. No token is ever printed.
+ * by its exact id, also when a step fails. No token is ever printed. In GitHub Actions the step output boot_image
+ * names the image the create's receipt confirmed.
  */
+import { appendFileSync } from "node:fs";
+
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
 const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
 const tokenRequestToken = process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] ?? "";
@@ -139,6 +142,9 @@ try {
     throw new Error(`create receipt names boot image ${JSON.stringify(bootImage)}, not ${image.id}@${image.revision}`);
   }
   console.log("ok  boot image receipt");
+  // The step output boot_image: what cmux-vm.yml's image-roll-settle checks a roll or rollback booted.
+  const githubOutput = process.env["GITHUB_OUTPUT"] ?? "";
+  if (githubOutput !== "" && /^[a-z][a-z0-9-]{0,62}$/u.test(image.id)) appendFileSync(githubOutput, `boot_image=${image.id}\n`);
   // The CI trust row's backstop (the Worker forces it and its tests check the provider request): if this job dies
   // before its cleanup, the VM pauses within the run cap and is deleted. Reported, not asserted: the receipt shows
   // what the provider echoes.
@@ -161,6 +167,9 @@ try {
   if (field(exec.body, "exitCode") !== 0 || field(exec.body, "stdout") !== "cmux-vm-product-smoke\n") {
     throw new Error(`exec returned ${JSON.stringify(exec.body)}`);
   }
+  // The step output done_at: when a production machine ran the image, the roll record's smoke_done_at (goal
+  // cloud-fix-to-machine). Before the delete below, which is cleanup, not rollout.
+  if (githubOutput !== "") appendFileSync(githubOutput, `done_at=${new Date().toISOString().replace(/\.\d{3}Z$/u, "Z")}\n`);
 } catch (error) {
   failed = true;
   console.error(`FAIL ${error instanceof Error ? error.message : String(error)}`);

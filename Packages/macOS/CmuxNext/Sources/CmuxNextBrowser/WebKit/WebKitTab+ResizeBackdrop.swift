@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import WebKit
 
 /// A resize gap in the page's own color, the WebKit half of `CEFTab+ResizeBackdrop` (#36520). When a WebKit page's pane
@@ -15,30 +15,13 @@ extension WebKitTab {
     // crash-allow: a string selector traps only when sent unanswered; every send below checks responds(to:) first and skips it on a WebKit without the setter (as WebKitGestureFreeEvaluation).
     private static var setBackgroundColor: Selector { NSSelectorFromString("_setBackgroundColor:") }
 
-    /// The document's background as `[r, g, b]` (0-255): the root element's, else the body's; null when neither has one
-    /// (WebKit's own default is the page's canvas then, white or dark with the page's color scheme, so the gap keeps it)
-    /// or when the first one set is translucent. `CEFTab.pageBackdropScript` without its white fallback.
-    static let pageBackdropScript = """
-    (() => {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = 1;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      for (const element of [document.documentElement, document.body]) {
-        if (!element) continue;
-        context.clearRect(0, 0, 1, 1);
-        context.fillStyle = 'rgba(0, 0, 0, 0)';
-        context.fillStyle = getComputedStyle(element).backgroundColor;
-        context.fillRect(0, 0, 1, 1);
-        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
-        if (a === 0) continue;
-        return a === 255 ? [r, g, b] : null;
-      }
-      return null;
-    })()
-    """
+    /// The document's background read (`PageBackground.backdropScript`, as Chromium's): `[r, g, b]` for its own,
+    /// `"dark"` or `"light"` for none (the web view keeps WebKit's own default then, which is the page's canvas, so the
+    /// gap keeps it), null when translucent.
+    static let pageBackdropScript = PageBackground.backdropScript
 
     /// Reads the document's background (`pageBackdropScript`, in the isolated world: a page cannot patch what it reads)
-    /// and gives it to the web view.
+    /// and gives it to the web view: when the document loads, when a key resize starts and when the appearance changes.
     func samplePageBackdrop() {
         guard !isClosed, !PageBackground.isBlank(webView.url),
               webView.responds(to: Self.setBackgroundColor) else { return }
@@ -47,6 +30,8 @@ extension WebKitTab {
             guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .isolated, gesture: .cmux) else { return }
             // A navigation since the read: the next document reads its own.
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
+            self.pageCanvasDark = PageBackground.canvasDark(from: value) ?? false
+            self.pageBackdropAnswered = document
             self.applyPageBackdrop(CEFTab.backdropARGB(from: value))
         }
     }
@@ -55,6 +40,7 @@ extension WebKitTab {
     /// never show the previous page's color).
     func resetPageBackdrop() {
         pageBackdropDocument += 1
+        pageCanvasDark = false
         applyPageBackdrop(nil)
     }
 
@@ -62,10 +48,26 @@ extension WebKitTab {
     private func applyPageBackdrop(_ argb: UInt32?) {
         guard argb != pageBackdropARGB, webView.responds(to: Self.setBackgroundColor) else { return }
         pageBackdropARGB = argb
-        let color = argb.map { argb in
-            NSColor(srgbRed: CGFloat((argb >> 16) & 0xFF) / 255, green: CGFloat((argb >> 8) & 0xFF) / 255,
-                    blue: CGFloat(argb & 0xFF) / 255, alpha: 1)
-        }
-        webView.perform(Self.setBackgroundColor, with: color)
+        webView.perform(Self.setBackgroundColor, with: argb.map(Self.pageColor))
+    }
+
+    /// The ground the page's pane shows when it closes (CLOSE MOTION 2 case 3, CLOSE GROUND FIX): what the page area
+    /// paints, by the rule Chromium's tab uses (`PageBackground.closingGroundARGB`). No real page, or the loading hold
+    /// (WebKit draws no background, so the chrome shows), or no read answered yet for this document: nil, the chrome's
+    /// ground. Then the document's background as read, else WebKit's canvas (white, dark under a dark color scheme),
+    /// never the window's color.
+    public var pageGround: CGColor? {
+        PageBackground.closingGroundARGB(
+            realPage: !PageBackground.isBlank(webView.url),
+            settled: !pageBaseHold.isScheduled && pageBackdropAnswered == pageBackdropDocument, loading: nil,
+            document: pageBackdropARGB,
+            canvas: pageCanvasDark ? PageBackground.webKitDarkCanvasARGB : PageBackground.engineDefaultARGB
+        ).map(PageBackground.cgColor)
+    }
+
+    /// Opaque 0xAARRGGBB as an sRGB color.
+    nonisolated static func pageColor(_ argb: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((argb >> 16) & 0xFF) / 255, green: CGFloat((argb >> 8) & 0xFF) / 255,
+                blue: CGFloat(argb & 0xFF) / 255, alpha: 1)
     }
 }

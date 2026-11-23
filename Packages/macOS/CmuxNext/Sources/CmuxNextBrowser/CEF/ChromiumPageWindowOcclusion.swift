@@ -23,8 +23,10 @@ import ObjectiveC
 /// when the pinned CEF has it.
 nonisolated enum ChromiumPageWindowOcclusion {
     /// Chromium's `NSWindow` category method that the checker asks.
+    // crash-allow: only looked up with class_getInstanceMethod, which returns nil (no install) when it is missing.
     static let selector = NSSelectorFromString("containsWebContentsViewCocoa")
     /// The fork's `CefNSWindow` getter for an embedded page window.
+    // crash-allow: only looked up with class_getInstanceMethod, which returns nil (no install) when it is missing.
     static let embeddedSelector = NSSelectorFromString("isEmbeddedInParentView")
 
     private typealias Query = @convention(c) (AnyObject, Selector) -> Bool

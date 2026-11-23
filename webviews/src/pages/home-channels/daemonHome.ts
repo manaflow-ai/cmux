@@ -11,8 +11,16 @@
 import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
 import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
-import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
+import { CloudHome, WS_CLOUD_CAPABILITY, cloudReason } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
+import {
+  fixtureRank,
+  PALETTE_RANK_V1,
+  PALETTE_RANK_V2,
+  rankPalette,
+  type PaletteRankBatchReply,
+  type PaletteRankEntry,
+} from "./paletteRank";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
@@ -27,13 +35,21 @@ import {
   type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
+  type HomeLinkPreviewPart,
+  type HomeLocation,
+  type HomeWidgetPart,
   type HomePart,
+  type HomeQuestion,
+  type HomeQuestionItem,
+  type HomeQuestionOption,
+  type HomeQuestionState,
   type HomeReaction,
   type HomeResolvedLink,
   type HomeRun,
   type HomeRunStep,
   type HomeThreadObject,
   type HomeThreadStats,
+  type HomeScheduled,
 } from "./types";
 
 type Json = Record<string, unknown>;
@@ -47,6 +63,9 @@ const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
 /** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
  * pins and marks) once for every view; the page shows them instead of projecting summaries. */
 const HOME_INBOX_CAPABILITY = "home-inbox-v1";
+/** Send Later on the local owner: `conversation-scheduled-list`, `conversation-scheduled-op` and
+ * `conversation-scheduled-changed` (only my own messages, local conversations only). */
+const SCHEDULED_CAPABILITY = "conversation-scheduled-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -87,6 +106,10 @@ export const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
+/** The local owner ranks palette rows (`palette.rank`, the shared palette ranker). */
+const PALETTE_RANK_CAPABILITY = "palette-rank-v1";
+/** `palette.rank` with `typoPass`, `strictMatches` and caps that hold any title and name. */
+const PALETTE_RANK_V2_CAPABILITY = "palette-rank-v2";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -125,17 +148,132 @@ function part(raw: Json): HomePart {
       return {
         type: "work",
         title: String(raw.session ?? ""),
+        session: String(raw.session ?? ""),
         status: status as "running",
         preview: raw.preview as string | undefined,
       };
     }
     case "attachment":
       return attachmentPart(raw);
-    case "link_preview":
-      return { type: "other", text: String(raw.url ?? "") };
+    case "question":
+      // The owner's question part (spec/commands.md `Question`; Swift `AgentQuestion(conversationPart:)`).
+      return questionPart(raw) ?? { type: "other", text: "question" };
+    case "link_preview": {
+      const link: HomeLinkPreviewPart = { type: "link_preview", url: String(raw.url ?? "") };
+      if (typeof raw.title === "string" && raw.title) link.title = raw.title;
+      if (typeof raw.site === "string" && raw.site) link.site = raw.site;
+      const image = derivedImage(raw.image);
+      if (image) link.image = image;
+      return link;
+    }
+    case "location": {
+      if (typeof raw.latitude !== "number" || typeof raw.longitude !== "number")
+        return { type: "other", text: "location" };
+      const place: HomeLocation = { type: "location", latitude: raw.latitude, longitude: raw.longitude };
+      if (typeof raw.label === "string" && raw.label) place.label = raw.label;
+      return place;
+    }
+    case "widget":
+      return widgetPart(raw);
     default:
-      return { type: "other", text: String(raw.type ?? "") };
+      return { type: "other", text: unknownPartText(raw) };
   }
+}
+
+/** A stored `widget` part (Swift `HomeWireMapping` "widget"): without an app or a fallback it reads
+ * as its fallback, else its link, as text. */
+export function widgetPart(raw: Json): HomePart {
+  const fallback = typeof raw.fallback === "string" ? raw.fallback : "";
+  const url = typeof raw.url === "string" && raw.url ? raw.url : undefined;
+  if (typeof raw.app !== "string" || !raw.app || !fallback) return { type: "other", text: fallback || url || "" };
+  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? (raw.props as Json) : {};
+  const widget: HomeWidgetPart = {
+    type: "widget",
+    app: raw.app,
+    widget: typeof raw.widget === "string" && raw.widget ? raw.widget : "cmux.chat.widget/1",
+    props,
+    fallback,
+  };
+  if (url) widget.url = url;
+  return widget;
+}
+
+/** A part type this page does not draw, as native showed it (HomeCoreMapping): by its link when it
+ * carries one, else its type (ConversationPart.plainText). A widget is `widgetPart`'s. */
+export function unknownPartText(raw: Json): string {
+  if (typeof raw.url === "string" && raw.url) return raw.url;
+  return String(raw.type ?? "");
+}
+
+const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);
+const PREVIEW_FORMATS = new Set(["monospace", "markdown", "html"]);
+
+/** A stored `question` part, or undefined when it is not one (no session, no readable item). */
+export function questionPart(raw: Json): HomeQuestion | undefined {
+  const session = optStr(raw.session);
+  if (session === undefined || !Array.isArray(raw.items)) return undefined;
+  const items: HomeQuestionItem[] = [];
+  for (const entry of raw.items as unknown[]) {
+    if (!entry || typeof entry !== "object") continue;
+    const item = entry as Json;
+    const id = optStr(item.id);
+    const prompt = optStr(item.prompt);
+    if (id === undefined || prompt === undefined) continue;
+    const options: HomeQuestionOption[] = [];
+    for (const value of Array.isArray(item.options) ? (item.options as unknown[]) : []) {
+      if (!value || typeof value !== "object") continue;
+      const option = value as Json;
+      const optionId = optStr(option.id);
+      const label = optStr(option.label);
+      if (optionId === undefined || label === undefined) continue;
+      const out: HomeQuestionOption = { id: optionId, label };
+      if (optStr(option.detail) !== undefined) out.detail = String(option.detail);
+      const preview = option.preview as Json | undefined;
+      if (preview && typeof preview === "object" && typeof preview.text === "string") {
+        const format = PREVIEW_FORMATS.has(String(preview.format)) ? preview.format : "monospace";
+        out.preview = { text: preview.text, format: format as "monospace" };
+      }
+      options.push(out);
+    }
+    const shown: HomeQuestionItem = {
+      id,
+      prompt,
+      options,
+      multiSelect: item.multi_select === true,
+      allowsOther: item.allows_other !== false,
+    };
+    if (optStr(item.header) !== undefined) shown.header = String(item.header);
+    items.push(shown);
+  }
+  if (!items.length) return undefined;
+  const question: HomeQuestion = {
+    type: "question",
+    harness: (HARNESSES.has(String(raw.harness)) ? raw.harness : "chief") as HomeQuestion["harness"],
+    session,
+    items,
+    state: questionState(raw.state),
+  };
+  if (optStr(raw.permission) !== undefined) question.permission = String(raw.permission);
+  if (optStr(raw.agent) !== undefined) question.agent = String(raw.agent);
+  return question;
+}
+
+function questionState(raw: unknown): HomeQuestionState {
+  const state = raw && typeof raw === "object" ? (raw as Json) : {};
+  if (state.kind === "cancelled") return { kind: "cancelled" };
+  if (state.kind !== "answered") return { kind: "pending" };
+  const answer = state.answer && typeof state.answer === "object" ? (state.answer as Json) : {};
+  const selections: Record<string, { optionIds: string[]; other?: string }> = {};
+  const raws = answer.selections && typeof answer.selections === "object" ? (answer.selections as Json) : {};
+  for (const [item, value] of Object.entries(raws)) {
+    const selection = value && typeof value === "object" ? (value as Json) : {};
+    const ids = Array.isArray(selection.option_ids)
+      ? (selection.option_ids as unknown[]).filter((id) => typeof id === "string")
+      : [];
+    selections[item] = { optionIds: ids as string[] };
+    if (typeof selection.other === "string") selections[item].other = selection.other;
+  }
+  return { kind: "answered", selections };
 }
 
 function derivedImage(raw: unknown): HomeDerivedImage | undefined {
@@ -447,6 +585,8 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   if (result.pinned && typeof raw.pin_position === "number") result.pinPosition = raw.pin_position;
   if (raw.marked_unread === true) result.markedUnread = true;
+  const readers = Object.entries(cursors).filter(([id, seq]) => id !== me && typeof seq === "number" && seq > 0);
+  if (readers.length > 0) result.readCursors = Object.fromEntries(readers.map(([id, seq]) => [id, { seq }]));
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
   // The last message's time orders the list even when it was deleted (a read never moves a row).
@@ -505,6 +645,27 @@ function chiefNames(params: Json): HomeChiefNames {
     return value;
   };
   return { name: text("name", 100), role: text("role", 200) };
+}
+
+/** The owner's scheduled message (`conversation-scheduled-v1`) as the page shows it. */
+function scheduledMessage(value: Json): HomeScheduled {
+  const op = (value.op ?? {}) as Json;
+  const parts = (op.parts as Json[] | undefined) ?? [];
+  const text = parts
+    .filter((part) => part.type === "text")
+    .map((part) => String(part.text ?? ""))
+    .join("\n");
+  const scheduled: HomeScheduled = {
+    id: String(value.id),
+    conversation: String(value.conversation),
+    text,
+    sendAt: num(value.send_at_ms),
+    state: value.state === "failed" ? "failed" : "waiting",
+    attachments: parts.filter((part) => part.type !== "text").length,
+  };
+  if (typeof value.failure === "string") scheduled.failure = value.failure;
+  if (typeof op.thread_root === "string") scheduled.threadRoot = op.thread_root;
+  return scheduled;
 }
 
 function str(params: Json, field: string, max = 256): string {
@@ -720,13 +881,24 @@ export class DaemonHomeClient implements PageClient {
           const home = await this.local.request<{ me?: string; rows?: Json[] }>("home-inbox").catch(() => undefined);
           if (home && home.me === this.me) for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
         }
-        // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
-        const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
+        // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one,
+        // nor the last good Cloud rows: it is said with its reason (`cloudError`), never as signed out.
+        let cloud: HomeConversation[];
+        let cloudError: string | undefined;
+        try {
+          cloud = await this.cloud.inbox(await this.cloudReady());
+          cloudError = this.cloud.failure() ?? undefined;
+        } catch (error) {
+          cloud = this.cloud.rows();
+          cloudError = cloudReason(error);
+          console.warn(`[home-channels] Cloud inbox read failed: ${cloudError}`);
+        }
         return {
           me,
           conversations: [...summaries.map((entry) => this.localRow(entry)), ...cloud],
           rev: Math.max(0, ...summaries.map((entry) => num(entry.rev))),
           inboxState: await this.capable(INBOX_STATE_CAPABILITY),
+          ...(cloudError ? { cloudError } : {}),
         };
       }
       case HomeOps.page: {
@@ -875,8 +1047,12 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.pin: {
         const pinned = params.pinned === true;
-        // The pin time orders my pins across both owners (one merged list).
-        const op: Json = pinned ? { kind: "inbox.pin", pinned, position: Date.now() } : { kind: "inbox.pin", pinned };
+        // The pin time orders my pins across both owners (one merged list); a drag gives its own.
+        const position =
+          typeof params.position === "number" && Number.isSafeInteger(params.position) && params.position >= 0
+            ? params.position
+            : Date.now();
+        const op: Json = pinned ? { kind: "inbox.pin", pinned, position } : { kind: "inbox.pin", pinned };
         return this.inboxOp(str(params, "conversation"), this.key(params, options), op);
       }
       case HomeOps.markUnread:
@@ -990,13 +1166,44 @@ export class DaemonHomeClient implements PageClient {
           invite: true,
           chiefs: await this.people.managesChiefs(),
           chiefWork: await this.capable("chief-work-v1"),
+          sendLater: await this.capable(SCHEDULED_CAPABILITY, this.local),
         };
+      case HomeOps.scheduled: {
+        const id = str(params, "conversation");
+        // Only the local owner keeps a Send Later queue; an older one has none.
+        if (this.cloud.owns(id) || !(await this.capable(SCHEDULED_CAPABILITY, this.local))) return { scheduled: [] };
+        const list = await this.local.request<Json>("conversation-scheduled-list", { conversation: id });
+        return { scheduled: ((list.scheduled as Json[] | undefined) ?? []).map(scheduledMessage) };
+      }
+      case HomeOps.schedule:
+        return this.scheduleOp(params, options);
       case HomeOps.chiefWork:
         // The owner resolves this Chief and scopes the inventory; the page never requests a
         // machine-wide session/process list. Unsupported owners fail rather than invent an empty list.
         if (!(await this.capable("chief-work-v1")))
           throw pageError("cmux.page.unavailable", "Chief work is unavailable on this owner");
         return this.local.request("chief-work", { chief: params.chief });
+      case HomeOps.paletteRank: {
+        const request = {
+          entries: Array.isArray(params.entries) ? (params.entries as PaletteRankEntry[]) : [],
+          query: typeof params.query === "string" ? params.query : "",
+          keepsSectionOrder: params.keepsSectionOrder === true,
+        };
+        // A daemon from before palette-rank-v1 has no ranker to ask: the plain substring filter.
+        if (!(await this.capable(PALETTE_RANK_CAPABILITY))) return fixtureRank(request);
+        // Every row, in as many requests as the daemon's caps need; a v1 daemon keeps its own caps.
+        const contract = (await this.capable(PALETTE_RANK_V2_CAPABILITY)) ? PALETTE_RANK_V2 : PALETTE_RANK_V1;
+        return rankPalette(
+          request,
+          (batch) =>
+            this.local.operation<PaletteRankBatchReply>("palette.rank", {
+              machine: "current",
+              session: "current",
+              ...batch,
+            }),
+          contract,
+        );
+      }
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {
@@ -1077,6 +1284,63 @@ export class DaemonHomeClient implements PageClient {
 
   /** My own list state of one conversation, on its owner: the local owner keeps it beside the
    * conversation, a Cloud owner in my UserDO inbox (through the daemon). */
+  /** One change of my Send Later queue (`HomeScheduleChange`) on the local owner. */
+  private async scheduleOp(params: Json, options: PageCallOptions | undefined): Promise<unknown> {
+    if (!(await this.capable(SCHEDULED_CAPABILITY, this.local)))
+      throw pageError("cmux.page.unavailable", "this cmux instance has no Send Later");
+    const sendAt = (field: string): number => {
+      const value = params[field];
+      if (typeof value !== "number" || !Number.isFinite(value)) throw pageError("cmux.page.invalid_params", field);
+      return Math.round(value);
+    };
+    let op: Json;
+    switch (params.kind) {
+      case "create": {
+        const conversation = str(params, "conversation");
+        if (this.cloud.owns(conversation))
+          throw pageError("cmux.page.unavailable", "Send Later is for conversations on this Mac");
+        const text = String(params.text ?? "").trim();
+        const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
+        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
+        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        const send: Json = {
+          kind: "message.send",
+          client_msg_id: this.key(params, options),
+          parts: [...(text ? [{ type: "text", text }] : []), ...files],
+        };
+        if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+        if (typeof params.replyTo === "string" && params.replyTo)
+          send.reply_to = { message_id: params.replyTo, part_index: 0 };
+        op = { kind: "scheduled.create", conversation, send_at_ms: sendAt("sendAt"), send };
+        break;
+      }
+      case "update": {
+        op = { kind: "scheduled.update", id: str(params, "id") };
+        if (params.sendAt !== undefined) op.send_at_ms = sendAt("sendAt");
+        if (typeof params.text === "string") {
+          const text = params.text.trim();
+          if (!text || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+          // New text replaces the text only: the message keeps its files.
+          const list = await this.local.request<Json>("conversation-scheduled-list", {});
+          const held = ((list.scheduled as Json[] | undefined) ?? []).find((entry) => entry.id === op.id);
+          const parts = ((held?.op as Json | undefined)?.parts as Json[] | undefined) ?? [];
+          op.parts = [{ type: "text", text }, ...parts.filter((part) => part.type !== "text")];
+        }
+        break;
+      }
+      case "cancel":
+        op = { kind: "scheduled.cancel", id: str(params, "id") };
+        break;
+      case "sendNow":
+        op = { kind: "scheduled.send_now", id: str(params, "id") };
+        break;
+      default:
+        throw pageError("cmux.page.invalid_params", "kind");
+    }
+    const reply = await this.local.request<Json>("conversation-scheduled-op", { op });
+    return reply.scheduled ? { scheduled: scheduledMessage(reply.scheduled as Json) } : {};
+  }
+
   private async inboxOp(conversationId: string, key: string, op: Json): Promise<unknown> {
     const owner = this.cloud.owns(conversationId) ? this.daemon : this.local;
     if (!(await this.capable(INBOX_STATE_CAPABILITY, owner)))
@@ -1330,6 +1594,9 @@ export class DaemonHomeClient implements PageClient {
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
+      } else if (event.event === "conversation-scheduled-changed") {
+        // My own Send Later queue changed (the daemon sends only mine): the page reads it again.
+        deliver((batch) => (batch.scheduled ??= []).push(String(event.conversation)));
       } else if (event.event === "conversation-inbox-changed") {
         // My own pin or mark (the daemon sends only mine).
         deliver((batch) => {

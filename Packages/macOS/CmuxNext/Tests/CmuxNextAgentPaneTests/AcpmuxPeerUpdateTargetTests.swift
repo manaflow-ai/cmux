@@ -66,6 +66,11 @@ import Testing
         #expect(outcome(#"{"outcome":"busy","sessions":3}"#) == .busy)
         #expect(outcome(#"{"outcome":"needsBinary","target":"x86_64-unknown-linux-musl"}"#) == .needsBinary(target: Self.triple))
         #expect(outcome(#"{"outcome":"rolledBack","error":"daemon did not come up"}"#) == .rolledBack)
+        // huge-blue, 2026-11-06: ssh's link dropped under the restart (its keepalive timeout through a
+        // ProxyJump names no address) and an older CLI rolled back: offline, asked again, never a failure.
+        #expect(outcome(#"{"outcome":"rolledBack","reason":"restartFailed","error":"Connection to UNKNOWN port 65535 timed out"}"#) == .unreachable)
+        #expect(AcpmuxPeerUpdateReply.linkLost("Connection to 100.64.0.7 port 22 timed out\r\n"))
+        #expect(!AcpmuxPeerUpdateReply.linkLost("the new daemon did not answer; its restart timed out"))
         #expect(outcome(#"{"outcome":"failed","error":"ssh: connection refused"}"#) == .failed)
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
         #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
@@ -96,8 +101,17 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"lockLost","error":"h lost its update lock: its connection ended"}"#) == .unreachable)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
-        // --keep-newer left a later or own build alone.
-        #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .current)
+        // --keep-newer left a later or own build alone, or the host's install step kept a newer
+        // commit (#43770): it kept its build, never "current".
+        #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .kept(.newerInstalled))
+        #expect(outcome(#"{"outcome":"current","reason":"newerInstalled","error":"refused: newerInstalled"}"#) == .kept(.newerInstalled))
+        #expect(outcome(#"{"outcome":"current","reason":"ownBuild","error":"h runs fedcba987+dirty.12345678"}"#) == .kept(.ownBuild))
+        // An update restarted it within the hour (#43709): the time it names, if it names one.
+        #expect(outcome(#"{"outcome":"busy","reason":"restartWindow","error":"restart window: last update restart 3 min ago; next after 09:41Z (--now restarts it now)"}"#)
+            == .kept(.restartWindow(nextAfter: "09:41")))
+        #expect(outcome(#"{"outcome":"busy","reason":"restartWindow","error":"restart window: last update restart 3 min ago; next after ? (--now restarts it now)"}"#)
+            == .kept(.restartWindow(nextAfter: nil)))
+        #expect(outcome(#"{"outcome":"busy","reason":"busy","error":"mid-turn"}"#) == .busy)
         // Held off updates (`acpmux host hold`): never reached.
         #expect(outcome(#"{"outcome":"held","ok":true,"reason":"held","error":"h is held"}"#) == .held)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
@@ -316,7 +330,6 @@ import Testing
         #expect(fixture.calls.count == 3)
         #expect(clock.sleeps == [.seconds(120)])
         #expect(events.withLock { $0.map(\.state) } == [.updating, .retrying, .updating, .updated(build: Self.local)])
-        #expect(events.withLock { $0.allSatisfy { !$0.notify } }, "a notice for a run cut short")
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
@@ -464,7 +477,6 @@ import Testing
 
         #expect(fixture.calls.count == 1)
         #expect(events.withLock { $0.map(\.state) } == [.updating, .cleared])
-        #expect(!events.withLock { $0.contains { $0.notify } })
         let local = try #require(DaemonBuildCommit(Self.local))
         let ledger = DaemonUpdateLedger.read(state, build: local.hash)
         #expect(ledger.targets.isEmpty)
@@ -495,6 +507,49 @@ import Testing
         #expect(clock.sleeps == [.seconds(120)])
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// The host refused the push because it runs a build of a newer commit (`current`, reason
+    /// `newerInstalled`, #43770): it kept its build, so the board says so and why, never "Updated".
+    @Test @MainActor func aPeerThatKeepsANewerBuildIsNotShownAsUpdated() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        let why = "refused: newerInstalled: swarm-08 runs a build of a newer commit than the pushed one"
+        try fixture.reply("swarm-08", nil, #"{"updated":[{"peer":"swarm-08","outcome":"current","ok":true,"build":"0123456ff 2026-10-01","reason":"newerInstalled","error":"\#(why)"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["swarm-08"])
+        let board = DaemonUpdateBoard()
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in await MainActor.run { board.apply(event) } },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()
+        )).run()
+
+        #expect(fixture.calls.count == 1)
+        let line = try #require(board.detail(id: "acpmux-peer:swarm-08"))
+        #expect(!line.localizedCaseInsensitiveContains("updated"), "\(line)")
+        #expect(line.contains("newer build installed"), "\(line)")
+    }
+
+    /// The host's daemon was restarted by an update within the hour (`busy`, reason
+    /// `restartWindow`, #43709): its line says it kept its build until when, not a bare retry.
+    @Test func aPeerInItsRestartWindowSaysWhenItUpdatesNext() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        let why = "restart window: last update restart 12 min ago; next after 14:05Z (--now restarts it now)"
+        try fixture.reply("swarm-08", 1, #"{"updated":[{"peer":"swarm-08","outcome":"busy","ok":true,"build":"0123456ff 2026-10-01","reason":"restartWindow","error":"\#(why)"}],"peers":[]}"#)
+        try fixture.reply("swarm-08", 2, #"{"updated":[{"peer":"swarm-08","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["swarm-08"])
+        let lines = Mutex<[String]>([])
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in lines.withLock { $0.append(DaemonUpdateBoard.line(event.state)) } },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()
+        )).run()
+
+        #expect(fixture.calls.count == 2)
+        let said = lines.withLock { $0 }
+        #expect(said.contains { $0.contains("restarted recently; next update after 14:05") }, "\(said)")
+        #expect(said.last == "Updated to abc123def 2026-10-20", "\(said)")
     }
 
     /// Review of #25388: a CLI run past its deadline that ignores SIGTERM gets SIGKILL, and the

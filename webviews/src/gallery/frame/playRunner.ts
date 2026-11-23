@@ -4,9 +4,13 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  frameIsOfStep,
+  LONG_FRAME_PARTS,
+  longFramePart,
   overall,
   rectDelta,
   resolveTarget,
+  type LongFrameEntry,
   type Play,
   type PlayAction,
   type PlayChecks,
@@ -19,7 +23,10 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
-import { startBoxTracker } from "../shift";
+import { isExpansionShift, startBoxTracker } from "../shift";
+import { declareMove, type MotionEvent } from "../../layout/motionContract";
+import type { JudgeDeclaration } from "../../layout/motionJudge";
+import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -109,6 +116,16 @@ const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(r
 
 let actionSequence = 0;
 
+/** What the play clicked itself (a plain `element.click()` on a toggle, not `ctx.click`) since the
+ *  last step started: those folds play inside the next measured step, often a `waitFor` with no
+ *  target of its own, so they are its targets as well, and the rows they push down are theirs (the
+ *  rules of shift.ts). A step that starts takes them, and what is clicked while it runs joins it. */
+let clicked: Element[] = [];
+const noteClick = (event: Event) => {
+  const element = event.composedPath()[0];
+  if (element instanceof Element) clicked.push(element);
+};
+
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
   await nextFrame();
@@ -121,30 +138,46 @@ async function settle(): Promise<void> {
   ]);
 }
 
-function synthetic(element: Element, kind: string): void {
+/** Whether the shell's pointer is pressed: a person's moves between down and up hold the button. */
+let pointerHeld = false;
+
+export function syntheticPointer(element: Element, kind: string): void {
   const { x, y } = (() => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   })();
-  const init = {
+  const init = (buttons: number) => ({
     bubbles: true,
     cancelable: true,
     composed: true,
     clientX: x,
     clientY: y,
+    // Screen coordinates too: drags that follow the pointer across views read screen deltas.
+    screenX: x + window.screenX,
+    screenY: y + window.screenY,
     button: kind === "contextmenu" ? 2 : 0,
-    buttons: kind === "contextmenu" ? 2 : 0,
+    buttons,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
-  };
-  const fire = (type: string) =>
-    element.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, init) : new MouseEvent(type, init));
+  });
+  const fire = (type: string, buttons = kind === "contextmenu" ? 2 : pointerHeld ? 1 : 0) =>
+    element.dispatchEvent(
+      type.startsWith("pointer") ? new PointerEvent(type, init(buttons)) : new MouseEvent(type, init(buttons)),
+    );
   if (kind === "hover")
-    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach(fire);
-  if (kind === "down" || kind === "click") ["pointerdown", "mousedown"].forEach(fire);
-  if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
-  if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
+    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach((type) =>
+      fire(type),
+    );
+  if (kind === "down" || kind === "click") {
+    pointerHeld = true;
+    ["pointerdown", "mousedown"].forEach((type) => fire(type));
+  }
+  if (kind === "move") ["pointermove", "mousemove"].forEach((type) => fire(type));
+  if (kind === "up" || kind === "click") {
+    pointerHeld = false;
+    ["pointerup", "mouseup"].forEach((type) => fire(type));
+  }
   if (kind === "click") fire("click");
   if (kind === "contextmenu") fire("contextmenu");
 }
@@ -301,7 +334,12 @@ function measurePopups(): PopupMeasure[] {
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
   const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
-  return outermost.map((popup) => {
+  // A tooltip draws no hit target (pointer-events: none), so elementFromPoint sees what is under it;
+  // each takes hits for the sampling only, to tell a covered tooltip from one on top. Every popup is
+  // switched before any is read and restored after, so the sampling forces one layout, not one each.
+  const hitTestable = outermost.map((popup) => (popup as HTMLElement).style.pointerEvents);
+  for (const popup of outermost) (popup as HTMLElement).style.pointerEvents = "auto";
+  const measures = outermost.map((popup) => {
     const rect = popup.getBoundingClientRect();
     const inset = 3;
     const points: [string, number, number][] = [
@@ -345,6 +383,46 @@ function measurePopups(): PopupMeasure[] {
       clippedBy,
     };
   });
+  outermost.forEach((popup, index) => ((popup as HTMLElement).style.pointerEvents = hitTestable[index]!));
+  return measures;
+}
+
+/**
+ * The moves a step's own act declares (schemas/layout-motion/contract.json): a press, key or click
+ * opens what it targets (an expand of its targets) and may open a menu; a key or typing may grow the
+ * composer; a resize lays every box out once; a scroll moves everything in the scroller. A wait
+ * declares nothing: what lands while the play waits must not move what is on screen, unless the play
+ * declared it (`ctx.declare`).
+ */
+let declarationKey = 0;
+function stepDeclarations(action: PlayAction): JudgeDeclaration[] {
+  const by = `play ${action}`;
+  const next = () => -1_000_000 - ++declarationKey;
+  switch (action) {
+    case "click":
+    case "context-menu":
+    case "press-drag":
+    case "hover":
+    case "focus":
+    case "select":
+      return [
+        { key: next(), event: "expand", scope: "targets", by },
+        { key: next(), event: "menu", scope: "all", by },
+      ];
+    case "key":
+    case "type":
+      return [
+        { key: next(), event: "expand", scope: "targets", by },
+        { key: next(), event: "menu", scope: "all", by },
+        { key: next(), event: "composer-growth", scope: "all", by },
+      ];
+    case "resize":
+      return [{ key: next(), event: "resize", scope: "all", once: true, by }];
+    case "scroll":
+      return [{ key: next(), event: "user-scroll", scope: "all", by }];
+    case "wait":
+      return [];
+  }
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
@@ -359,23 +437,34 @@ async function measured(
   if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
-  // A scroll moves every row on purpose; its box shift is not measured.
-  const boxes =
-    action === "scroll"
-      ? undefined
-      : startBoxTracker(document, {
-          target: targeted,
-          extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
-          firstMoveFree: action === "resize",
-          restedAtStart: true,
-        });
+  const targets = targeted ? [targeted, ...clicked] : clicked;
+  clicked = targets;
+  // A scroll moves every row on purpose; its box shift is not scored, but its moves are still judged
+  // against the layout-motion contract, as a declared user scroll.
+  const declared = stepDeclarations(action);
+  const boxes = startBoxTracker(document, {
+    target: targets,
+    extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
+    firstMoveFree: action === "resize",
+    restedAtStart: true,
+    declared: () => declared,
+  });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
+  const longFrameParts: string[] = [];
+  const stepStart = performance.now();
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
-  const observers: PerformanceObserver[] = [];
+  // Each observer of the step, with how it reads a list of reports: the step's end reads the reports
+  // the engine has queued and not delivered yet (`takeRecords()`) by the same rule as the delivered ones.
+  const hearing: { observer: PerformanceObserver; read: (entries: PerformanceEntryList) => void }[] = [];
+  const hear = (type: string, read: (entries: PerformanceEntryList) => void) => {
+    const observer = new PerformanceObserver((list) => read(list.getEntries()));
+    observer.observe({ type, buffered: false });
+    hearing.push({ observer, read });
+  };
   if (PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as (PerformanceEntry & {
+    hear("layout-shift", (entries) => {
+      for (const entry of entries as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
         sources?: {
@@ -390,6 +479,9 @@ async function measured(
         // ignore it only when every reported source moved by less than half a CSS pixel. Real
         // shifts (including the composer's one-slot Send change) retain their normal CLS value.
         if (isSubpixelLayoutShift(sources)) continue;
+        // What the step opened pushing the rows under it is the step's transition, not a shift
+        // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
+        if (isExpansionShift(sources, targets)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {
@@ -406,16 +498,17 @@ async function measured(
         });
       }
     });
-    observer.observe({ type: "layout-shift", buffered: false });
-    observers.push(observer);
   }
   let rafRunning = !loafSupported;
   if (loafSupported) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) if (entry.duration > 16.7) longFrames.push(entry.duration);
+    hear("long-animation-frame", (entries) => {
+      for (const entry of entries) {
+        if (entry.duration <= 16.7 || !frameIsOfStep(entry, stepStart)) continue;
+        longFrames.push(entry.duration);
+        if (longFrameParts.length < LONG_FRAME_PARTS)
+          longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
+      }
     });
-    observer.observe({ type: "long-animation-frame", buffered: false });
-    observers.push(observer);
   } else {
     void (async () => {
       let last = await nextFrame();
@@ -433,15 +526,16 @@ async function measured(
   await run();
   await settle();
   performance.mark(endMark);
+  clicked = [];
   const timing = performance.measure(mark, startMark, endMark);
   const settleMs = Math.round(timing.duration * 10) / 10;
   performance.clearMarks(startMark);
   performance.clearMarks(endMark);
   performance.clearMeasures(mark);
   rafRunning = false;
-  const boxShift = boxes?.stop();
-  for (const observer of observers) {
-    observer.takeRecords();
+  const boxShift = boxes.stop();
+  for (const { observer, read } of hearing) {
+    read(observer.takeRecords());
     observer.disconnect();
   }
   const anchorMoves = before
@@ -466,8 +560,10 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
-    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
+    ...(action !== "scroll" ? { boxShift: boxShift.score, boxMoves: boxShift.moves, boxFollow: boxShift.follow } : {}),
+    ...(boxShift.motion ? { undeclared: boxShift.motion.undeclared, undeclaredMoves: boxShift.motion.moves } : {}),
     longFrames,
+    ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
     popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
@@ -478,6 +574,10 @@ export async function runPlay(
   play: Play,
   options: { anchors?: PlayTarget[]; checks?: PlayChecks },
 ): Promise<PlayReport> {
+  // A play starts with the pointer up, whatever the last one left.
+  pointerHeld = false;
+  clicked = [];
+  document.addEventListener("click", noteClick, true);
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -501,7 +601,7 @@ export async function runPlay(
     if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
-      else synthetic(element, kind);
+      else syntheticPointer(element, kind);
     }).then(record);
   };
   const gesture = async (
@@ -516,19 +616,33 @@ export async function runPlay(
       }),
     );
   };
+  const declarations: (() => void)[] = [];
   const ctx: PlayContext = {
     document,
     motion,
     find,
+    declare: (event: MotionEvent, options = {}) => {
+      const end = declareMove({
+        event,
+        scope: options.targets ? "targets" : "all",
+        targets: options.targets?.map(find),
+        by: "play",
+      });
+      declarations.push(end);
+      return end;
+    },
     click: (target) => input("click", target),
     contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       await record(
-        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
-          element.focus(),
-        ),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () => {
+          element.focus();
+          // FOCUS-RING: a staged focus stands in for the person's key, so its ring may show (a
+          // code focus alone earns none, and every "focused" stage would match its rest stage).
+          earnFocusRing(element.ownerDocument);
+        }),
       );
     },
     scroll: async (target, position) => {
@@ -643,5 +757,9 @@ export async function runPlay(
       motion: motion.stop(),
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    for (const end of declarations) end();
+    document.removeEventListener("click", noteClick, true);
+    clicked = [];
   }
 }

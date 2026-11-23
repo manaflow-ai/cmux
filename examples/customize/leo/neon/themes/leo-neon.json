@@ -1,0 +1,70 @@
+// Leo Neon: the Leo collection's look turned up. Hot pink and cyan on near-black glass over a
+// night of fireworks, and the same tones in every collection extension (accent, success, warning,
+// danger). Edit and save: the running app repaints at once.
+{
+  "name": "Leo Neon",
+  "description": "Hot pink and cyan on black glass over a night of fireworks.",
+
+  // The terminal theme and its colors. ANSI 1, 2, 3 and 4 become the danger, success, warning and
+  // highlight tones every extension draws with; colors.accent is the accent.
+  "appearance.theme": "Synthwave",
+  "colors": {
+    "background": "#0b0714",
+    "foreground": "#f4ecff",
+    "cursor": "#00e5ff",
+    "selection": "#ff85e6",
+    "accent": "#ff4fd8",
+    "0": "#160d26",
+    "1": "#ff3b6b",
+    "2": "#3dff9e",
+    "3": "#ffd23d",
+    "4": "#3d8bff",
+    "5": "#ff4fd8",
+    "6": "#00e5ff",
+    "7": "#d9ccf2",
+    "8": "#62528a",
+    "9": "#ff6b8f",
+    "10": "#7affbe",
+    "11": "#ffe27a",
+    "12": "#7ab0ff",
+    "13": "#ff85e6",
+    "14": "#6ff3ff",
+    "15": "#ffffff"
+  },
+  "appearance.accent": "theme",
+  "appearance.saturation": 1.3,
+
+  // Fireworks behind dark glass. Popovers keep their own see-through material.
+  "appearance.background": "whistler-falling-rocket",
+  "appearance.backgroundOpacity": 0.8,
+
+  // A black sidebar with a hairline edge, its sections split by lines with icons.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#07040e",
+  "appearance.surfaces.sidebar.opacity": 0.78,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "linesIcons",
+  "appearance.surfaces.terminal.color": "#0b0714",
+  "appearance.surfaces.terminal.opacity": 0.84,
+  "appearance.surfaces.agentPane.color": "#0b0714",
+  "appearance.surfaces.agentPane.opacity": 0.88,
+  "appearance.surfaces.newTabPage.color": "#0b0714",
+  "appearance.surfaces.newTabPage.opacity": 0.6,
+
+  // Work shows as a cyan braille spinner.
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.color": "#00e5ff",
+
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.density": "cozy",
+
+  // Neon tubes: capsule tabs and sidebar rows, a roomier sidebar, detailed status marks.
+  "density": {
+    "tokens": {
+      "tabCornerRadius": 14, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 10,
+      "tabGap": 4, "sidebarRowGap": 2, "sidebarWidth": 280
+    }
+  },
+  "sidebar.detailedStatusIcons": true,
+  "focus.inactiveTabStyle": "quiet"
+}

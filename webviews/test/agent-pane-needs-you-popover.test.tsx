@@ -11,7 +11,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import { needsYouItems } from "../src/agent-session/acpmux/needsYou/model";
-import { NeedsYouPanel, type NeedsYouMode } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { NeedsYouPanel } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import type { NeedsYouMode } from "../src/agent-session/acpmux/needsYou/needsYouModel";
 
 const css = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/needsYou/needsYou.css"), "utf8");
 /** The sheet's top-level rules: comments and `@media` blocks (a touch screen's, Reduce Motion's) dropped. */

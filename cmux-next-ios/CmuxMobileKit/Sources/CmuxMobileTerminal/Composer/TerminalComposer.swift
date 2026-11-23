@@ -3,17 +3,24 @@ import AVFoundation
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
-/// glass circles, then the growing field in a rounded glass container with the send
-/// circle inside it, riding the last line. Send delivers the draft as one
+/// The composer row: a + menu (Photo Library, Choose Files, Paste, Camera)
+/// in a 40 pt glass circle, then the growing field in a rounded glass
+/// container with the send circle inside it, riding the last line. Picked
+/// attachments sit inside the field, above the text and starting where it
+/// starts (Messages, ChatGPT, Claude). Voice mode has no button unless the
+/// user turns one on (Settings → Composer; Leo, 2026-11-22: "im hiding
+/// this by default"); then it is the send circle while the draft is empty, or
+/// a circle left of the field. Why each control is here, with sources:
+/// cmuxterm-hq docs/design/ios-composer-controls.md. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
+/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
@@ -22,23 +29,6 @@ struct TerminalComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if model.isScrolledUp {
-                // In the stack, not over the rows: a floating button hid the
-                // end of the lines under it (Codex QA F3).
-                Button {
-                    model.scrollToBottom()
-                } label: {
-                    Label("Jump to bottom", systemImage: "arrow.down")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("Scroll to bottom")
-                .transition(.opacity)
-            }
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
@@ -46,6 +36,10 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
+            // No connection line here: a reattach takes no row (Leo,
+            // 2026-11-17: "The reconnect takes an extra line"). The state is
+            // the title pill's subtitle and Reconnect is in the page menu,
+            // both only past the quiet bound (`TerminalModel.connectionLine`).
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -53,32 +47,39 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
-            if !model.attachments.isEmpty {
-                AttachmentStrip(model: model)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
+                    if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
                     fieldContainer
                 }
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Always its own height, never the hosting view's current one (kept
+        // from #41900): the hosting view takes a taller row's height a pass
+        // after SwiftUI measures it, and a min-height frame offered less
+        // takes the offer. The draft that ran below the field (user reports
+        // 2026-11-12 and 2026-11-13) came from the text view's old sizing,
+        // which `ComposerReturnTextView.fittingSize` replaced;
+        // ComposerGrowUpUITests holds the field's bottom edge in place.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
+        // Measured here, on the card, before the frame below.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
-        .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        // Grows up from the keyboard: the frame takes the hosting view's
+        // height, so until the view takes a taller card's height (the pass
+        // after it is measured) the card overflows upward from the bottom
+        // edge, never centered half below it over the keyboard (Leo,
+        // 2026-11-12: "whoa it go down"). With no height offered (the
+        // intrinsic size) the frame is the card's own height.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
-        // Shown with a fade; gone at once when following starts (a Jump to
-        // bottom tap: qa11 wt-fling-c, the row still drawn after the page
-        // reached the bottom, and the card shrinking over 0.2 s moved the
-        // page's inset on every frame of the jump).
-        .animation(model.isScrolledUp ? .smooth(duration: 0.2) : nil, value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -100,8 +101,16 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Classic's order: Photo Library, Choose Files, Paste; then Camera,
-    /// which cmux NEXT offers as well.
+    /// The terminal's agent, when voice mode can run on it.
+    private var voiceSource: (any AgentVoiceSource)? {
+        guard let source = model.voiceSource, source.voiceAvailable else { return nil }
+        return source
+    }
+
+    /// + as in Messages, Slack, ChatGPT, Claude and Discord: the menu adds
+    /// photos, files, a paste and the camera, not only files (a paperclip
+    /// reads as "attach a file", Mail's meaning). Classic's order: Photo
+    /// Library, Choose Files, Paste; then Camera.
     private var attachMenu: some View {
         Menu {
             Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
@@ -119,9 +128,9 @@ struct TerminalComposer: View {
                 }
             }
         } label: {
-            ComposerCircleLabel(systemImage: "paperclip")
+            ComposerCircleLabel(systemImage: "plus")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
     }
@@ -139,7 +148,7 @@ struct TerminalComposer: View {
                                 tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("terminal.composer.voice")
     }
@@ -147,6 +156,43 @@ struct TerminalComposer: View {
     /// The field and its send circle share one rounded glass container; the
     /// circle rides the last line as the field grows (classic, iMessage).
     private var fieldContainer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Inside the field, where the text starts: one attachment sits
+            // over the draft's first letter, never in the far corner from send.
+            if !model.attachments.isEmpty {
+                AttachmentStrip(model: model)
+                    .padding(.leading, -AttachmentStrip.edgeInset)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            fieldRow
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, TerminalDockMetrics.fieldPadding)
+        // No vertical padding around the text: the text view runs from the
+        // field's top edge to its bottom edge (`textVerticalInset` keeps the
+        // text off them), so a scrolled draft is cut exactly at the edge. The
+        // rounded shape clips the cut lines at the corners too.
+        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // The terminal theme's own background with a hairline border, not
+        // glass: glass lifted the field lighter than the pane (Leo,
+        // 2026-11-22: "dont draw unnecessary attention by making it light";
+        // the border alone marks it). A flat fill also looks the same at
+        // every height (Leo, 2026-11-21: "the composer brightening up when
+        // you have >3 lines"; TerminalComposerLookUITests: 1, 3, 4, 8 lines).
+        .background(themeBackground, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
+                .strokeBorder(ComposerChrome.border, lineWidth: 1)
+        }
+    }
+
+    /// The pane's background: the Mac's terminal theme, else the app default.
+    private var themeBackground: Color {
+        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
+    }
+
+    private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ComposerTextView(
                 text: $model.composerText,
@@ -164,13 +210,38 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
+            primaryButton
+                .padding(.vertical, TerminalDockMetrics.fieldPadding)
+        }
+    }
+
+    /// Send, or with "In Send Button" and nothing to send, voice mode (the
+    /// ChatGPT composer): one circle, never a disabled send beside a mic.
+    @ViewBuilder private var primaryButton: some View {
+        let empty = model.composerText.isEmpty && model.attachments.isEmpty
+        if voice.placement == .sendButton, let source = voiceSource,
+           (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
+            sendCircleVoiceButton(source)
+        } else {
             sendButton
         }
-        .padding(.leading, 14)
-        .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
-        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+    }
+
+    private func sendCircleVoiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color.cmuxMobileOnAccent)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
+                .cmuxMobilePressBackground(Color.cmuxMobileAccent, in: Circle())
+        }
+        .buttonStyle(.cmuxPressFillInLabel)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     private var sendButton: some View {
@@ -181,7 +252,7 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(Color.cmuxMobileOnAccent)
+                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.small)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
@@ -190,15 +261,17 @@ struct TerminalComposer: View {
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: glass tinted with the
-            // monochrome accent, never blue (design/ios.md); empty, plain glass.
-            // Empty (disabled): plain glass that does not react to a touch.
-            .glassEffect(failed ? .regular.tint(.red).interactive()
-                         : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
-                         : .regular, in: .circle)
-            .animation(.smooth(duration: 0.2), value: canSend)
+            // ↑ (send) is the primary action: a solid disc of the accent (the
+            // Mac's when Match Mac is on), as the Mac composer's send. Tinted
+            // glass washed it out to a pale disc (Leo, 2026-11-22: "the send
+            // button is themed/coloured slightly oddly"). Empty (disabled): a
+            // faint disc of the text color.
+            .cmuxMobilePressBackground(failed ? AnyShapeStyle(Color.red)
+                                       : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileAccent)
+                                       : AnyShapeStyle(ComposerChrome.idleFill), in: Circle())
+            .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
@@ -313,7 +386,7 @@ struct TerminalComposer: View {
     }
 }
 
-/// A 40 pt glass circle with an icon: the composer's paperclip and mic (classic).
+/// A 40 pt glass circle with an icon: the composer's + and, when turned on, voice.
 struct ComposerCircleLabel: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
@@ -325,9 +398,20 @@ struct ComposerCircleLabel: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            // Off: the pane shows through, ringed like the field (no lighter
+            // glass disc, Leo 2026-11-22). On: a solid accent disc, as send.
+            .cmuxMobilePressBackground(tint ?? Color.clear, in: Circle())
+            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1) }
             .contentShape(.circle)
     }
+}
+
+/// The composer's quiet chrome on the terminal theme's background.
+enum ComposerChrome {
+    /// The field's and the + circle's hairline: it alone marks them.
+    static let border = Color.primary.opacity(0.16)
+    /// The disabled send disc.
+    static let idleFill = Color.primary.opacity(0.08)
 }
 
 extension View {
@@ -359,6 +443,8 @@ struct MovieFile: Transferable {
 /// chips for files, each with a 20 pt remove badge.
 struct AttachmentStrip: View {
     let model: TerminalModel
+    /// The strip's own inset around its tiles (room for the remove badges).
+    static let edgeInset: CGFloat = 8
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -385,14 +471,14 @@ struct AttachmentStrip: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressGlass)
                             .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, 8)
+            .padding(.top, Self.edgeInset + 4)
+            .padding(.horizontal, Self.edgeInset)
         }
         .scrollIndicators(.hidden)
     }

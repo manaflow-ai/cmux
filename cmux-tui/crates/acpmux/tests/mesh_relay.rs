@@ -4,7 +4,7 @@
 //! a relayed message runs as a peer's and reads none of this host's peers; control messages go to
 //! the hook; a message for another host or daemon never runs here; the heartbeat lists the
 //! sessions here; with no hub nothing changes; no loop calls a failing or impatient hub in a busy
-//! loop, and the relay ends when the daemon stops or the mesh hub refuses it.
+//! loop, and the relay ends when the daemon stops; a refusal from the mesh hub only pauses it.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -39,6 +39,8 @@ fn config() -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
+        // A failed turn's held prompts wait for Resume (`queue.rs` `waits_for_resume`).
+        "autoResumeDelaysMs": [],
         "permissionPolicy": "approve-all"
     }))
     .unwrap();
@@ -59,7 +61,9 @@ fn quick() -> RelayOptions {
         min_poll_gap: Duration::from_millis(100),
         backoff_first: Duration::from_millis(100),
         backoff_cap: Duration::from_millis(400),
+        refused_retry: Duration::from_millis(300),
         max_in_flight: 4,
+        on_reconnect: None,
     }
 }
 
@@ -91,6 +95,8 @@ struct State {
     acks: Vec<(String, Ack)>,
     inbox_calls: usize,
     heartbeats: Vec<Heartbeat>,
+    /// When each heartbeat came, on tokio's clock.
+    beat_at: Vec<tokio::time::Instant>,
     /// Idempotency key to message id.
     keys: HashMap<String, String>,
     receipts: HashMap<String, Receipt>,
@@ -112,12 +118,16 @@ struct FakeHub {
     down: bool,
     /// The inbox answers at once, never long-polling.
     impatient: bool,
-    /// Every call is refused for good (a bad credential).
+    /// Every call is refused (a bad credential).
     refusing: bool,
-    /// Only inbox calls are refused for good; heartbeats are taken.
+    /// Only inbox calls are refused; heartbeats are taken.
     refusing_inbox: bool,
+    /// The heartbeats refused before the hub takes this daemon (a hub deploy, a proxy's 403).
+    refused_beats: std::sync::atomic::AtomicUsize,
     /// The inbox long-polls for a minute, far past the test's wait.
     long: bool,
+    /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
+    ttl_seconds: Option<u64>,
 }
 
 impl FakeHub {
@@ -133,7 +143,12 @@ impl FakeHub {
 
     /// Waits up to 30 s for `done` to hold.
     async fn until(&self, what: &str, done: impl Fn(&State) -> bool) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        self.until_within(Duration::from_secs(30), what, done).await;
+    }
+
+    /// Waits up to `limit` for `done` to hold.
+    async fn until_within(&self, limit: Duration, what: &str, done: impl Fn(&State) -> bool) {
+        let deadline = tokio::time::Instant::now() + limit;
         loop {
             let changed = self.changed.notified();
             if done(&self.state.lock().unwrap()) {
@@ -194,11 +209,21 @@ impl MeshHub for FakeHub {
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
         Box::pin(async move {
-            self.with(|s| s.heartbeats.push(beat.clone()));
+            self.with(|s| {
+                s.heartbeats.push(beat.clone());
+                s.beat_at.push(tokio::time::Instant::now());
+            });
             if self.refusing {
                 return Err(HubError::refused("401 mesh.unauthorized"));
             }
-            Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 })
+            let left = std::sync::atomic::Ordering::SeqCst;
+            if self.refused_beats.fetch_update(left, left, |n| n.checked_sub(1)).is_ok() {
+                return Err(HubError { status: Some(403), ..HubError::refused("403 forbidden") });
+            }
+            Ok(HeartbeatReply {
+                daemon_id: "inst_b".into(),
+                ttl_seconds: self.ttl_seconds.unwrap_or(90),
+            })
         })
     }
 
@@ -386,6 +411,39 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     relay.stop().await;
 }
 
+/// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
+/// carries is the sending daemon's, which this one cannot confirm, so it is dropped.
+#[tokio::test]
+async fn a_relayed_message_keeps_its_senders_claim_as_self_reported() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-claim", "dep-land", Kind::Prompt);
+    sent.from.claim = Some(json!({
+        "harness": "claude-code", "entrypoint": "claude-desktop",
+        "checked": {"harness": "claude-code", "app": "Claude.app"},
+    }));
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-claim").is_empty()).await;
+    let mut claim = Value::Null;
+    for _ in 0..600 {
+        let events = hub.events(&session, 0, 1000).unwrap();
+        if let Some(e) = events.iter().find(|e| e.kind == "sender_claim") {
+            claim = e.msg.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(claim["promptId"], "msg-claim", "{claim}");
+    assert_eq!(claim["claimed"]["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["claimed"]["entrypoint"], "claude-desktop", "{claim}");
+    assert_eq!(claim["claimed"]["selfReported"], true, "{claim}");
+    assert!(claim.get("checked").is_none(), "{claim}");
+    relay.stop().await;
+}
+
 #[tokio::test]
 async fn a_relayed_message_reads_no_peer_here_and_is_never_forwarded_to_one() {
     let hub = hub();
@@ -439,10 +497,26 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
+    // The prompt ids in the chat's records: a turn's or an inbox item's. Another agent's message
+    // to a chat that already ran a turn goes to its inbox, not a turn of its own (`hub/inbox.rs`),
+    // so the chat's turn count says nothing about what reached it.
+    async fn held(local: &mut Client, session: &str) -> Vec<String> {
+        let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+        let mut ids: Vec<String> = page
+            .pointer("/result/events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["msg"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
     let own = acpmux::pairing::machine_name();
-    let mut ran = 0;
+    let mut ran: Vec<String> = Vec::new();
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run.
+        // Its own host, as a field and as a prefix, is this one: those reach the chat.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -451,20 +525,19 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
-            ran += 1;
+            ran.push(id.to_owned());
         }
     }
-    let mut info = Value::Null;
+    ran.sort();
+    let mut got = Vec::new();
     for _ in 0..600 {
-        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+        got = held(&mut local, &session).await;
+        if got.len() >= ran.len() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    assert_eq!(got, ran, "a message for elsewhere reached the chat here, or one for here did not");
     relay.stop().await;
 }
 
@@ -480,7 +553,7 @@ async fn ends(relay: &MeshRelay, what: &str) {
 }
 
 #[tokio::test]
-async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
+async fn the_relay_ends_when_the_daemon_stops_and_a_refusal_only_pauses_it() {
     // The daemon stops (as `_acpmux/shutdown` does) while the inbox is long-polling an empty
     // inbox: both loops end at once instead of polling on, the heartbeat with an empty one.
     let stopping = hub();
@@ -495,26 +568,57 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refused heartbeat (a bad credential) is not retried, and the inbox, which waits for the
-    // hub to name this daemon, never polls: one call in all, then the relay is off.
+    // A refused heartbeat (a bad credential) is tried again, never sooner than the heartbeat
+    // floor (2.5 s, above the test's `refused_retry`), and the inbox, which waits for the hub to
+    // name this daemon, never polls; the relay keeps running.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused heartbeat").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (0, 1));
+    fake.until_within(Duration::from_secs(10), "a second refused heartbeat", |s| {
+        s.heartbeats.len() >= 2
+    })
+    .await;
+    assert!(!relay.is_finished(), "a refused heartbeat ended the relay");
+    let (inbox_calls, gap) = fake.with(|s| (s.inbox_calls, s.beat_at[1] - s.beat_at[0]));
+    assert_eq!(inbox_calls, 0);
+    assert!(gap >= Duration::from_millis(2400), "refused heartbeats {gap:?} apart");
     relay.stop().await;
 
-    // The hub takes heartbeats but refuses the inbox: both loops end, the heartbeat with an
-    // empty one, so the address book does not list sessions no message can reach.
+    // The hub takes heartbeats but refuses the inbox: the heartbeat lists no session, so the
+    // address book does not list sessions no message can reach, and the inbox is tried again
+    // every `refused_retry`.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing_inbox: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused inbox").await;
-    let beats = fake.with(|s| s.heartbeats.len());
+    fake.until("a second refused inbox", |s| s.inbox_calls >= 2).await;
+    assert!(!relay.is_finished(), "a refused inbox ended the relay");
     assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, beats));
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let calls = fake.with(|s| s.inbox_calls);
+    assert!((3..=8).contains(&calls), "{calls} refused inbox calls");
+    relay.stop().await;
+}
+
+/// The coordinator chats that stopped hearing from other machines: a hub that refused this
+/// daemon's heartbeats for a while (a deploy, a proxy's 403) switched its relay off until the
+/// daemon restarted. Once the hub takes it again, the sessions here are listed and a message
+/// waiting for one is delivered.
+#[tokio::test]
+async fn a_daemon_the_hub_refused_for_a_while_is_listed_and_delivered_to_again() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    local.new_session("coordinator").await;
+    let fake = Arc::new(FakeHub { refused_beats: 3.into(), ..FakeHub::default() });
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-after-refusal", "coordinator", Kind::Prompt));
+    fake.until("the message after the refusals", |s| !s.acked("msg-after-refusal").is_empty())
+        .await;
+    assert_eq!(
+        fake.with(|s| s.acked("msg-after-refusal")),
+        vec![Ack::delivered("msg-after-refusal", None)]
+    );
+    assert!(fake.with(|s| s.heartbeats.iter().any(|b| !b.sessions.is_empty())));
+    assert!(!relay.is_finished());
     relay.stop().await;
 }
 
@@ -1069,14 +1173,15 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
-    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    // A class but result has no field on the hub's message: it goes as the text's first line,
+    // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
     block["request"]["_meta"]["acpmux"]["class"] = json!("block");
     let block = sender.call("_acpmux/send_queue", block).await;
-    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
-    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
+    assert_eq!(block.pointer("/result/classInline"), Some(&json!("block")), "{block}");
+    let body = fake.with(|s| s.sent.last().unwrap().body.clone());
+    assert_eq!(body, "[block]\n\nfrom another machine");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a classified send did not reach the hub");
     relay.stop().await;
 }
 
@@ -1102,6 +1207,30 @@ async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     assert!(serde_json::to_value(&earlier).unwrap().get("leaving").is_none(), "omitted when false");
 }
 
+/// The heartbeat comes every third of the TTL the hub's reply names, so the hub tunes its liveness
+/// window without a daemon release: a 30 s TTL beats every 10 s, a 90 s one every 30 s (capped at
+/// `heartbeat_every`), and a reply with no TTL falls back to `heartbeat_every`.
+#[tokio::test(start_paused = true)]
+async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
+    for (ttl, every) in [(30, 10), (90, 30), (0, 30)] {
+        let hub = hub();
+        let fake = Arc::new(FakeHub { ttl_seconds: Some(ttl), ..FakeHub::default() });
+        let options = RelayOptions { heartbeat_every: Duration::from_secs(30), ..quick() };
+        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+        fake.until_within(Duration::from_secs(120), "three heartbeats", |s| s.beat_at.len() >= 3)
+            .await;
+        relay.stop().await;
+        let at = fake.with(|s| s.beat_at.clone());
+        for gap in at[..3].windows(2).map(|w| w[1] - w[0]) {
+            assert!(
+                gap >= Duration::from_secs(every)
+                    && gap < Duration::from_secs(every) + Duration::from_millis(500),
+                "ttl {ttl}: heartbeats {gap:?} apart, not every {every} s"
+            );
+        }
+    }
+}
+
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
 /// request claims.
 #[tokio::test]
@@ -1116,6 +1245,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         state: "ready".into(),
         stuck_reason: None,
         team_address: None,
+        cwd: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1132,6 +1262,98 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     let from = fake.with(|s| s.sent.last().unwrap().from.clone());
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+}
+
+/// The sender of a direct `HOST/NAME` send through the hub reads its own status, though the hub
+/// stamps `startWork` on every receipt and team messaging is off; another session does not
+/// (2026-11-19: `acpmux send --status mesh:msg_…` answered "team message is not addressed to
+/// this session" to the session that sent it).
+#[tokio::test]
+async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_other_session_does() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let other = Client::local(&a).new_session("lane-c").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let proven = |session: &str| {
+        let token = acpmux::hub::person::caller_token(session);
+        json!({"protocolVersion": 1,
+               "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}})
+    };
+    // As the hub answers every receipt: with its start-work decision.
+    let stamp = |delivery: &str| {
+        let message = delivery.trim_start_matches("mesh:").to_owned();
+        fake.with(|s| {
+            s.receipts.get_mut(&message).unwrap().start_work =
+                Some(acpmux::mesh::StartWork::Information)
+        });
+    };
+    let mut as_lane = Client::local(&a);
+    as_lane.call("initialize", proven(&lane)).await;
+    let queued = as_lane.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-1")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = as_lane.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+    assert_eq!(status.pointer("/result/target"), Some(&json!("b/dep-land")), "{status}");
+    let mut as_other = Client::local(&a);
+    as_other.call("initialize", proven(&other)).await;
+    let refused = as_other.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert!(refused.get("error").is_some(), "another session read it: {refused}");
+
+    // A send from the person's own terminal, no session proven: its status reads the same.
+    let mut terminal = Client::local(&a);
+    let queued =
+        terminal.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-2")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = terminal.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+}
+
+/// A send through the hub carries its sender claim on the wire, so the receiving machine can
+/// show where it came from.
+#[tokio::test]
+async fn a_send_through_the_hub_carries_its_sender_claim() {
+    let a = hub();
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let mut client = Client::local(&a);
+    client.call("initialize", json!({"protocolVersion": 1})).await;
+    let mut request = send_queue("dep-land", "prompt-claim-2");
+    request["request"]["_meta"]["acpmux"]["senderHarness"] =
+        json!({"harness": "claude-code", "entrypoint": "claude-desktop", "bogus": "x"});
+    let queued = client.call("_acpmux/send_queue", request).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    let claim = from.claim.unwrap_or_default();
+    assert_eq!(claim["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["entrypoint"], "claude-desktop", "{claim}");
+    assert!(claim.get("bogus").is_none() && claim.get("checked").is_none(), "{claim}");
 }
 
 #[tokio::test]

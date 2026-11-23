@@ -102,7 +102,7 @@ public final class RemoteViewPageSession {
     /// control and Hand back in view (`RemoteModeControl.takeOver`).
     private init(record: RemoteViewTabRecord, first: RemoteRdStreamTransport,
                  make: @escaping @MainActor (_ control: Bool) -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void,
-                 displayName: String? = nil) {
+                 displayName: String? = nil, personInput: (@MainActor () -> Void)? = nil) {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
@@ -120,7 +120,10 @@ public final class RemoteViewPageSession {
             rdSource.transport.stop()
         }
         pane.handlers.reconnect = { [weak self] in self?.reconnect() }
+        // A Cloud desktop whose path closed comes back by itself (conn-quiet): no Connection lost card first.
+        pane.autoReconnectsLost = record.cloudDesktop
         pane.handlers.close = closeTab
+        if let personInput { pane.handlers.personInput = personInput }
         if record.cloudDesktop {
             pane.handlers.selectMode = { [weak self] mode in self?.switchMode(control: mode == .control) }
         }
@@ -241,7 +244,7 @@ public final class RemoteViewPageSession {
     public var focusTarget: NSView { pane.view.focusView }
 
     /// `debug.remote_view` state of this session: the source, the session
-    /// state and the decode counters.
+    /// state, why it ended (`end_reason`, null while live) and the decode counters.
     public func debugState() async -> JSONValue {
         let stats = await pane.decodeStats()
         let state = pane.state
@@ -262,6 +265,7 @@ public final class RemoteViewPageSession {
             "decode_errors": stats.map { .number(Double($0.decodeErrors)) } ?? .null,
             "hardware": stats.map { .bool($0.hardware) } ?? .null,
             "upstream_offered": .bool(state.status?.upstream.offered ?? false),
+            "end_reason": state.status?.endReason.map { .string($0) } ?? .null,
             "mode": .string(state.requestedMode.rawValue),
         ])
     }
@@ -335,14 +339,15 @@ public final class RemoteViewPageSession {
 
     /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the
     /// transports of a Cloud machine's desktop (`via=cloud`) over the app's Cloud tunnel; nil, or
-    /// nil for that machine (signed out, no address), shows "not available".
+    /// nil for that machine (signed out, no address), shows "not available". `personInput` hears the
+    /// person's input to a Cloud machine's `cmux-rd` desktop (it keeps their hold on its computer).
     public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void,
                             cloudTransport: CloudDesktopTransport? = nil, cloudRd: CloudRdTransport? = nil,
-                            displayName: String? = nil) -> RemoteViewPageSession? {
+                            displayName: String? = nil, personInput: (@MainActor () -> Void)? = nil) -> RemoteViewPageSession? {
         if record.cloudRd {
             guard RemoteViewAvailability().isCloudRdAvailable, let make = cloudRd?(record.host),
                   let first = make(startsInControl(record)) else { return nil }
-            return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab, displayName: displayName)
+            return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab, displayName: displayName, personInput: personInput)
         }
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }

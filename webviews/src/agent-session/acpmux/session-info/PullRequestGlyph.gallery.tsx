@@ -9,7 +9,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionSummary } from "../summary/sessionSummary";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
-import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "./PullRequestGlyph";
+import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "./pullRequestGlyphModel";
 import { SessionInfo, SessionInfoPanel } from "./SessionInfo";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 

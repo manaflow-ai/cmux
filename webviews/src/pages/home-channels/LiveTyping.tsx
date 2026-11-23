@@ -9,6 +9,7 @@ import { liveReply, tail, useLiveInConversation, type LiveBook, type LiveRun } f
 import type { RunBook } from "./runs";
 import { useNow } from "./RunCard";
 import type { HomeParticipant, HomeRun } from "./types";
+import { Clock } from "../../ui/Typography";
 
 /** How much of a streaming reply the row shows: its end, one line. */
 const ROW_LIVE_CHARS = 160;
@@ -61,7 +62,7 @@ export function LiveTyping({ conversation, live, runs, people, typing, draftTurn
           )}
           {activity && (
             <span className="lg-live-activity">
-              {activity.line} · {formatDuration(Math.max(0, now - activity.since))}
+              {activity.line} · <Clock text={formatDuration(Math.max(0, now - activity.since))} />
             </span>
           )}
         </button>

@@ -17,21 +17,14 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import {
-  nextAsk,
-  NeedsYouPill,
-  pillAsks,
-  type TranscriptNeedsYou,
-} from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { NeedsYouPill, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { nextAsk, pillAsks } from "../src/agent-session/acpmux/needsYou/jumpPillModel";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import {
-  NeedsYouPanel,
-  needsYouMode,
-  sideQuestionPrompt,
-  type NeedsYouActions,
-} from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
 import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { settleReact } from "./support/domTeardown";
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -530,6 +523,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -540,8 +534,14 @@ afterEach(async () => {
 });
 
 const click = (element: Element) => element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
+/// A button's name as read aloud: its text without what it hides from assistive tech (a keycap).
+const readName = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent;
+};
 const buttonNamed = (host: HTMLElement, name: string) =>
-  [...host.querySelectorAll("button")].find((button) => button.textContent === name);
+  [...host.querySelectorAll("button")].find((button) => readName(button) === name);
 
 test("the panel lists each ask with who asked, answers it, and hides it once sent", async () => {
   const host = installDom();
@@ -917,11 +917,14 @@ test("an expanded question shows every option and takes a typed answer, sent in 
   expect(host.querySelectorAll(".acpmux-needs-you-item")).toHaveLength(0);
 });
 
-test("an expanded answer for another chat's question opens that chat; this chat's goes out as its card's", async () => {
+// Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is bad ui".
+test("an expanded answer for another chat's question goes to the host, else opens that chat; this chat's goes out as its card's", async () => {
   const host = installDom();
   const calls: string[] = [];
+  let unsupportedAnswer = false;
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
     calls.push(`${method}:${String(params?.sessionId ?? "")}:${String(params?.where ?? "")}`);
+    if (method === "chat.asks.answer" && unsupportedAnswer) throw new NativeError({ code: "unsupported" });
     return undefined;
   }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   let actions: NeedsYouActions | undefined;
@@ -959,8 +962,14 @@ test("an expanded answer for another chat's question opens that chat; this chat'
   await actions!.reply!(here!, reply);
   expect(calls).toEqual(["chat.permission:here:"]);
   calls.length = 0;
+  // Another chat's on this Mac: the host answers it in place, with the card's reply.
+  await actions!.reply!(other!, { ...reply, session: "other" });
+  expect(calls).toEqual(["chat.asks.answer:other:"]);
+  // A host that can't opens that chat on the right, and the row stays.
+  calls.length = 0;
+  unsupportedAnswer = true;
   await expect(actions!.reply!(other!, { ...reply, session: "other" })).rejects.toThrow();
-  expect(calls).toEqual(["chat.asks.open:other:"]);
+  expect(calls).toEqual(["chat.asks.answer:other:", "chat.asks.open:other:"]);
   // The places: the right is sent with no `where`, so an older host reads it the same.
   calls.length = 0;
   actions!.open!(other!, "right");

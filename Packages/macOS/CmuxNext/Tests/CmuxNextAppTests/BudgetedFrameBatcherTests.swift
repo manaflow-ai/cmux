@@ -47,7 +47,7 @@ import CmuxNextWakeupsTestSupport
         #expect(queue.stats.pending == 0)
         #expect(frame >= 4, "the backlog took several frames (\(frame))")
         #expect(links.made == 1, "the budgeted link was rebuilt \(links.made - 1) times over \(Int(frame)) frames of backlog")
-        #expect(!work.frames.hasLink, "the link goes away with the backlog")
+        #expect(!work.frames.isRunning, "the link still runs after the backlog")
     }
 }
 

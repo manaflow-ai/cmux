@@ -5,14 +5,22 @@
 // room) or the Chief's state. Unread rows (or rows I marked unread) have a dot in the gutter and a
 // bright name; mentions show a count. A right-click on a row, or Shift-F10 / the context-menu key
 // on a focused row, opens its menu: Pin or Unpin, Mark as Read or Unread, Copy Link. The list is
-// transparent over the window.
+// transparent over the window. Under the search field, New Cloud Machine runs the app's own action
+// (the Cloud machine sheet), so a remote computer has a visible way in from Home.
 import { useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import { Avatar, ChannelMark } from "./Avatar";
 import { HomeIcon } from "./icons";
 import { activityAt, chiefState, conversationName, isUnread, listOrder, type ChiefState } from "./model";
 import { chiefBackendChip, type HomeChief, type HomeConversation, type HomeParticipant } from "./types";
+import { intl } from "../../ui/intl";
+
+/** Where the list shows New Cloud Machine: a labeled row under the search field (`row`, the page's),
+ * an icon in the header beside New Message and New Chief (`header`), or a labeled row at the foot of
+ * the list (`footer`). The gallery shows all three. */
+export type CloudEntryLook = "row" | "header" | "footer";
 
 /** What a row's menu does; the page owns the actions. */
 export interface ListRowActions {
@@ -38,9 +46,15 @@ export interface ConversationListProps {
   onCompose?(): void;
   /** New Chief: opens the page's #/new/chief page (absent: the owner has no Chief registry). */
   onNewChief?(): void;
+  /** New Cloud Machine: runs the app's `newCloudMachine` action (absent: no app host to run it). */
+  onNewCloudMachine?(): void;
+  cloudEntry?: CloudEntryLook;
   actions: ListRowActions;
   /** The Chief records by id: a Chief's row names its engine when it is not the default. */
   chiefs?: ReadonlyMap<string, HomeChief>;
+  /** Why the last Cloud inbox read failed: the Cloud rows stay (the last good list) and this says
+   * so in the list's own note line while the page reads again. */
+  cloudError?: string;
 }
 
 export function ConversationList({
@@ -55,10 +69,27 @@ export function ConversationList({
   onOpenPalette,
   onCompose,
   onNewChief,
+  onNewCloudMachine,
+  cloudEntry = "row",
   actions,
   chiefs,
+  cloudError,
 }: ConversationListProps) {
-  const { t } = strings;
+  const { t, format } = strings;
+  const cloudRow = (look: CloudEntryLook) =>
+    onNewCloudMachine &&
+    cloudEntry === look && (
+      <button
+        type="button"
+        className="lg-nav-row"
+        data-look={look}
+        data-new-cloud-machine=""
+        onClick={onNewCloudMachine}
+      >
+        <HomeIcon name="cloud" size={14} />
+        <span>{t("action.newCloudMachine")}</span>
+      </button>
+    );
   const { pinned, rest } = useMemo(() => listOrder(conversations.values()), [conversations]);
   const stamp = useStamp(strings.language);
   const renderRow = (row: HomeConversation) => {
@@ -110,12 +141,30 @@ export function ConversationList({
             <HomeIcon name="chiefAdd" size={16} />
           </button>
         )}
+        {onNewCloudMachine && cloudEntry === "header" && (
+          <button
+            type="button"
+            className="hc-icon-button"
+            aria-label={t("action.newCloudMachine")}
+            title={t("action.newCloudMachine")}
+            data-new-cloud-machine=""
+            onClick={onNewCloudMachine}
+          >
+            <HomeIcon name="cloud" size={16} />
+          </button>
+        )}
       </header>
       <button type="button" className="lg-search" onClick={onOpenPalette}>
         <HomeIcon name="search" size={14} />
         <span>{t("list.search")}</span>
         <kbd>⌘K</kbd>
       </button>
+      {cloudRow("row")}
+      {cloudError && (
+        <output className="lg-list-empty lg-cloud-error selectable" data-cloud-error="">
+          {format("cloud.unreachable", cloudError)}
+        </output>
+      )}
       {pinned.length + rest.length === 0 && <p className="lg-list-empty">{t("rail.empty")}</p>}
       <div className="lg-list-rows">
         {pinned.length > 0 && (
@@ -130,6 +179,16 @@ export function ConversationList({
         )}
         <ul className={`lg-list-group${pinned.length > 0 ? " after-pinned" : ""}`}>{rest.map(renderRow)}</ul>
       </div>
+      {cloudRow("footer")}
+      {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); the page's grid reads the width. */}
+      <SplitEdge
+        side="end"
+        property="--home-channels-list-width"
+        storageKey="cmux.homeChannels.list.width"
+        min={200}
+        max={480}
+        on="parent"
+      />
     </nav>
   );
 }
@@ -137,9 +196,9 @@ export function ConversationList({
 /** Short times on one grid: "14:02" today, "Mon" this week, "Oct 3" before. */
 export function useStamp(language: string): (at: number) => string {
   return useMemo(() => {
-    const clock = new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" });
-    const weekday = new Intl.DateTimeFormat(language, { weekday: "short" });
-    const date = new Intl.DateTimeFormat(language, { month: "short", day: "numeric" });
+    const clock = intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" });
+    const weekday = intl.DateTimeFormat(language, { weekday: "short" });
+    const date = intl.DateTimeFormat(language, { month: "short", day: "numeric" });
     return (at: number) => {
       if (!at) return "";
       const now = new Date();

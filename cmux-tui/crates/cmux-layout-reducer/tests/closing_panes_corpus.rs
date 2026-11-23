@@ -54,6 +54,7 @@ impl<'a> Fields<'a> {
                 vy: self.float(),
                 vw: self.float(),
                 vh: self.float(),
+                scrolls: self.flag(),
             })
             .collect()
     }
@@ -82,6 +83,7 @@ fn call(line: &str, closing: &mut ClosingPanes) -> String {
             let shown = f.edges();
             let max_gap = f.float();
             let view_shift = f.optional();
+            let strip_shift = f.float();
             let panes: Vec<PaneFact> = (0..f.id())
                 .map(|_| PaneFact {
                     id: f.id(),
@@ -110,7 +112,7 @@ fn call(line: &str, closing: &mut ClosingPanes) -> String {
                     column: f.id(),
                 })
                 .collect();
-            if closing.begin(pane, shown, &panes, &handles, max_gap, view_shift) {
+            if closing.begin(pane, shown, &panes, &handles, max_gap, view_shift, strip_shift) {
                 "1"
             } else {
                 "0"
@@ -127,8 +129,9 @@ fn call(line: &str, closing: &mut ClosingPanes) -> String {
         "R" => {
             let frames = f.frames();
             let rows = f.rows();
+            let (strip, rest_strip) = (f.float(), f.float());
             let placed: Vec<String> = closing
-                .rects(&frames, &rows)
+                .rects(&frames, &rows, strip, rest_strip)
                 .iter()
                 .map(|(pane, r)| format!("{pane}:{}", rect(*r)))
                 .collect();
@@ -151,7 +154,8 @@ fn call(line: &str, closing: &mut ClosingPanes) -> String {
         "X" => {
             let pane = f.id();
             let frames = f.frames();
-            closing.remove(pane, &frames).map_or_else(
+            let strip = f.float();
+            closing.remove(pane, &frames, strip).map_or_else(
                 || "-".to_owned(),
                 |t| format!("{},{}", rect(t.rect), [t.vx, t.vw, t.vy, t.vh].map(hex).join(",")),
             )

@@ -60,5 +60,9 @@ pub(super) fn settles_mutation(error: &Value) -> bool {
                 | "origin.forbidden"
                 | "operation.unsupported"
                 | "resource.not_found"
+                // An older or newer daemon refused the envelope (cli/older_daemon.rs).
+                | "daemon.outdated"
+                | "cli.outdated"
+                | "daemon.build_mismatch"
         )
 }

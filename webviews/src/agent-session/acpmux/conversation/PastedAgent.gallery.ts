@@ -2,12 +2,11 @@
 // A paste that reads as another agent's output, in the person's message (ask-fa4c523fa8; Leo,
 // 2026-11-06: "it should be automatically attributable, so it doesn't just pass off as one of my
 // messages"): the person pasted a Codex handoff that says "Do not merge or deploy" under their own
-// line. The card names the agent the paste reads as (agentText.ts); the person's line stays theirs.
-// Compare the arms (`pasted-agent-look`: rule, label, badge); each keeps the card's height.
+// line. The paste stands apart from their words as its own lines under a quiet "Pasted from Codex"
+// line (agentText.ts), with no card (ask-14d16a6247); the person's line stays theirs.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
-import { pastedAgentLook } from "./pastedAgentLook.experiment";
 
 const MINE = "No, merge and deploy whenever you want. That handoff below is theirs, not mine.";
 const HANDOFF = [
@@ -37,8 +36,9 @@ const typedHandoff = () =>
     summary(8.5, { seq: 3, status: "completed" }),
   ]);
 
+// A paste draws as the bubble's own text, a handoff with its "Pasted from" line over it.
 const drawn = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste-card, .cv-user__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble, .cv-user__status"));
 };
 
 export default agentPaneEntry({
@@ -51,12 +51,12 @@ export default agentPaneEntry({
   keywords: ["paste", "pasted", "agent", "handoff", "attribution", "from another agent"],
   variants: {
     "pasted-handoff": {
-      note: "The person's line, then the Codex handoff they pasted: its card names Codex, set apart from their own words.",
+      note: "The person's line, then the Codex handoff they pasted: its own lines under a quiet Pasted from Codex line, set apart from their own words, no card.",
       snapshot: pasted(MINE, HANDOFF),
       play: drawn,
     },
     "pasted-log": {
-      note: "A pasted log with no agent signal: still a pasted card, labelled Pasted text, never the person's typed words.",
+      note: "A pasted log with no agent signal: part of the message's one body, as the person pasted it.",
       snapshot: pasted("Why does this fail?", LOG),
       play: drawn,
     },
@@ -65,9 +65,5 @@ export default agentPaneEntry({
       snapshot: typedHandoff(),
       play: drawn,
     },
-  },
-  experiment: {
-    definition: pastedAgentLook,
-    script: [{ name: "Draw the message", run: drawn }],
   },
 });

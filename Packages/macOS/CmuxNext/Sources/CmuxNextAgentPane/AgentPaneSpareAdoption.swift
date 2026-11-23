@@ -1,3 +1,4 @@
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 public import Foundation
 
@@ -27,6 +28,30 @@ public nonisolated struct AgentPaneSpareAdoption: Sendable, Equatable {
         guard thisMac, let session, !session.isEmpty, !newTabPage, !seeded, !wake, !chiefKeeps(session) else { return nil }
         return session
     }
+
+    /// ``adopted(chiefKeeps:)``, counting an existing chat's open that may not ask the spare as a cold build with
+    /// its reason in `sources` (every build). An open that may ask and gets no spare is counted by the
+    /// spare's own outcome (empty, unready, refused): cold builds in all are `cold` plus those three.
+    @MainActor
+    public func adoptedCounting(relaunchWake: Bool, chiefKeeps: (String) -> Bool, into sources: AgentPageSources) -> String? {
+        let adopted = adopted(chiefKeeps: chiefKeeps)
+        if adopted == nil, let session, !session.isEmpty {
+            sources.record(.cold(coldReason(relaunchWake: relaunchWake, chiefKeeps: chiefKeeps)))
+        }
+        return adopted
+    }
+
+    /// Why an open of an existing chat (a session is set) builds its page cold rather than asking the spare, in
+    /// ``adopted(chiefKeeps:)``'s order. `relaunchWake`: the wake is the relaunch's (``wake`` holds it too).
+    /// ``AgentPageColdReason/spareNotTaken`` when the adoption says yes and the spare was not taken.
+    public func coldReason(relaunchWake: Bool, chiefKeeps: (String) -> Bool) -> AgentPageColdReason {
+        if !thisMac { return .notThisMac }
+        if newTabPage { return .newTabPage }
+        if seeded { return .seeded }
+        if wake { return relaunchWake ? .relaunchWake : .wakeState }
+        if let session, !session.isEmpty, chiefKeeps(session) { return .chiefKeeps }
+        return .spareNotTaken
+    }
 }
 
 /// Whether the parked spare may serve a tab opening an existing chat (``AgentPaneSpareAdoption``):
@@ -54,14 +79,17 @@ extension AgentPaneModel {
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
         AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                lowPower: LowPowerMode.system.isEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 
     /// Why this page refused to become an existing chat (``adoptSpareSession(_:)``), for the open's trace.
-    public var spareRefusal: String {
-        sessionId != nil ? "has a session" : newTab == nil ? "no new tab page" : !hasHandshake ? "no handshake"
-            : userTouched ? "touched by \(touchedBy ?? "?")" : remoteChat ? "remote chat" : neverPooled ? "never pooled" : "?"
+    public var spareRefusal: String { spareRefusalReason.text }
+
+    /// The refusal's reason (``spareRefusal`` is its trace text; the Release counts key on it).
+    public var spareRefusalReason: AgentPaneSpareRefusalReason {
+        sessionId != nil ? .hasSession : newTab == nil ? .noNewTabPage : !hasHandshake ? .noHandshake
+            : userTouched ? .touched(by: touchedBy ?? hostTouch.by ?? "?") : remoteChat ? .remoteChat : neverPooled ? .neverPooled : .unknown
     }
 }
 
@@ -71,7 +99,15 @@ public enum AgentPaneSpareOutcome: Sendable {
 
     /// The chat-open trace's account of this outcome (bench and debug builds only; a no-op in
     /// Release, which has no `ChatOpenTrace`).
-    public func trace(note: @autoclosure () -> String? = nil) {
+    /// Also counts the outcome in `sources`, every build; `why` is a refusal's reason.
+    @MainActor
+    public func trace(note: @autoclosure () -> String? = nil, why: AgentPaneSpareRefusalReason = .unknown, into sources: AgentPageSources) {
+        switch self {
+        case .adopted: sources.record(.spareAdopted)
+        case .empty: sources.record(.spareEmpty)
+        case .unready: sources.record(.spareUnready)
+        case .refused: sources.record(.spareRefused(why))
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         let mark: ChatOpenTrace.Mark = switch self {
         case .adopted: .spareAdopted
@@ -127,10 +163,12 @@ public nonisolated struct AgentPaneSpareSlot<Spare> {
 public nonisolated enum AgentPaneSpareRefill: Sendable {
     /// On the next main-actor turn: a New Tab or new workspace, so the next Cmd-T finds one.
     case now
-    /// Once input is quiet (the pool's idle-input wait): an existing chat took it, and its page is
-    /// still attaching that chat. A new page's load on the main thread would land in that open,
-    /// and in the next clicks of someone going down the sidebar.
-    case whenQuiet
+    /// After the page drew the chat, then the refill's settle, as one background task
+    /// (``AgentPaneSpareRefiller/afterPaint(of:)``): an existing chat took it, and its page is still
+    /// attaching that chat, so a new page's load on the main thread now would land in that open.
+    /// Input does not push it back: the pool's quiet-input wait alone kept the pool empty for
+    /// someone who went on scrolling and clicking down the sidebar (decision 2026-11-16).
+    case afterPaint
     /// After the frame commit and the settle, with no open to wait for: idle work took it (the next Cmd-N's
     /// reserved workspace), and its page shows nowhere until that key. Mounted hidden, it draws no frame, so a
     /// wait for its next frame would hold the refill until the idle-input backstop, which typing pushes back.

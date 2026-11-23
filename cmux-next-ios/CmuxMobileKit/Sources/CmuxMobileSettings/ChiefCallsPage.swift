@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -93,6 +94,7 @@ struct ChiefCallsPage: View {
         .settingsPage("Chief Calls")
         .confirmationDialog("Remove your OpenAI API key?", isPresented: $confirmsRemove, titleVisibility: .visible) {
             Button("Remove Key", role: .destructive) { keys.remove() }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Chief calls stop working on this iPhone until you add a key again.")
         }
@@ -116,7 +118,7 @@ struct ChiefCallsPage: View {
                 } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFillTinted)
                 .accessibilityLabel("Paste")
                 .accessibilityIdentifier("settings.chiefCalls.paste")
             }
@@ -126,11 +128,11 @@ struct ChiefCallsPage: View {
                         replacing = false
                         draft = ""
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                 }
                 Spacer()
                 if keys.isChecking {
-                    ProgressView()
+                    CmuxSpinner()
                         .accessibilityLabel("Checking with OpenAI")
                 } else {
                     // The page's neutral tint is the label color (white in dark mode):
@@ -163,7 +165,7 @@ struct ChiefCallsPage: View {
                 SettingsLabel("Check Key", symbol: "checkmark.shield")
                 if keys.isChecking {
                     Spacer()
-                    ProgressView()
+                    CmuxSpinner()
                 }
             }
         }

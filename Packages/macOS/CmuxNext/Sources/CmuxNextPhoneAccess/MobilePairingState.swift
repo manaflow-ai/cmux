@@ -3,34 +3,19 @@ public import CmuxNextMobile
 /// What the Mobile Pairing page (`palette.mobileConnect`) tells the person:
 /// the one step between this Mac and a phone that can reach it.
 ///
-/// Pairing is the v2 same-account gate (plans/cmux-next/cloud-ios.md 2.2):
-/// a phone signed in to the same cmux account finds this Mac once phone
-/// access is on and the listener is up. The page adds a QR code with this
-/// Mac's attach URL so a phone camera opens cmux on this Mac directly.
+/// The phone is cmux on iPhone, which connects through the iPhone host
+/// (`IPhoneHostService`, Settings > Mobile, `mobile.allowIPhoneConnections`).
 public nonisolated enum MobilePairingState: Sendable, Equatable {
     /// No cmux account on this Mac: phones have no account to match.
     case signedOut
-    /// Settings > Accounts > Phone Access (`phone.allowConnections`) is off.
+    /// iPhone connections (`mobile.allowIPhoneConnections`) are off.
     case accessOff
-    /// Signed in and allowed; the listener is provisioning or finding a relay.
+    /// Signed in and allowed; the host is starting, registering or retrying.
     case preparing
-    /// The listener is up: a phone on the same account can connect now.
+    /// The host is online: a phone on the same account can connect now.
     case ready
-    /// The listener could not start; the text is for logs and the page's detail line.
+    /// The host could not run; the text is for logs and the page's detail line.
     case failed(String)
-
-    /// The state for the account, the setting and the listener's phase
-    /// (nil while no listener exists yet).
-    public static func resolve(signedIn: Bool, allowed: Bool, phase: MobileIrxHost.Phase?) -> MobilePairingState {
-        guard signedIn else { return .signedOut }
-        guard allowed else { return .accessOff }
-        switch phase {
-        case .listening: return .ready
-        case .failed(let reason): return .failed(reason)
-        // A restart (new account, phone access toggled) passes through stopped and idle.
-        case nil, .idle, .provisioning, .waitingForRelay, .stopped: return .preparing
-        }
-    }
 
     /// The state for the iPhone host (`IPhoneHostService`, the bundled `cmux-mobile-host` that
     /// cmux on iPhone connects through): the account, `mobile.allowIPhoneConnections` and hostd's

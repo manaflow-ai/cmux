@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
-import { ShellActionsContext, ShellRow, type ShellActions } from "./ShellRow";
+import { ShellRow } from "./ShellRow";
+import { ShellActionsContext, type ShellActions } from "./shellRowModel";
 import type { ShellRun } from "./shellRuns";
 
 const run = (overrides: Partial<ShellRun> = {}): ShellRun => ({

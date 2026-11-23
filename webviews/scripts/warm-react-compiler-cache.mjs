@@ -15,7 +15,7 @@ if (!process.env.CMUX_VITE_TRANSFORM_CACHE) {
 }
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entries = process.argv.slice(2);
-if (entries.length === 0) entries.push("src/agent-session/acpmux/dev.tsx", "src/agent-session/acpmux/mount.tsx");
+if (entries.length === 0) entries.push("src/agent-session/acpmux/dev.tsx", "src/agent-session/acpmux/mountModel.tsx");
 const started = performance.now();
 const server = await createServer({
   configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),

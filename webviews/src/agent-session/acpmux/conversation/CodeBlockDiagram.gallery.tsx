@@ -6,7 +6,7 @@
 // `normal` lets a fallback glyph (↓) make its line taller; 20px is the old card, gaps between every │.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { UnlabeledHeaderLookContext, type UnlabeledHeaderLook } from "./CodeHeader";
+import { UnlabeledHeaderLookContext, type UnlabeledHeaderLook } from "./codeHeaderModel";
 import { Markdown } from "./Markdown";
 
 type Lines = "snug" | "normal" | "tall";

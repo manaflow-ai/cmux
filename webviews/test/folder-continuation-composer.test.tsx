@@ -3,6 +3,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { teardownDom } from "./support/domTeardown";
 const dom = new JSDOM("<!doctype html><div id=composer></div>", {
   url: "https://cmux.test/",
   pretendToBeVisual: true,
@@ -72,12 +73,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
   daemonDrafts.clear();
 });
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 const attachment: ComposerAttachment = {
   id: "file-one",

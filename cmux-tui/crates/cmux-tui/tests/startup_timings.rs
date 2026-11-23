@@ -154,6 +154,50 @@ fn step_names(line: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
+/// The parts of the `mux.build` step that a start names on their own. The
+/// entry `mux.build` is the rest of the step.
+const MUX_BUILD_PARTS: [&str; 6] = [
+    "mux.build.committed_snapshots_open",
+    "mux.build.command_history",
+    "mux.build.output_store.prune",
+    "mux.build.output_store.snapshot_scan",
+    "mux.build.output_store.parked_trim",
+    "mux.build.output_store.stream_ends",
+];
+
+/// A start names each part of `mux.build` one time, before the entry of the
+/// step itself, so a slow `mux.build` names its part. Names and counts only:
+/// no time is compared.
+#[test]
+fn a_start_names_each_part_of_the_mux_build_step_one_time() {
+    let dir = state_dir("parts");
+    let session = "startup-parts";
+
+    let owner = Owner::start(&dir.0, session);
+    let pid = owner.pid();
+    let lines = timing_lines(&dir.0, session, 1);
+    owner.stop();
+    let line = lines.last().unwrap();
+    assert_eq!(line["pid"].as_u64(), Some(u64::from(pid)), "{line}");
+    let names = step_names(line);
+    let times = |wanted: &str| names.iter().filter(|name| *name == wanted).count();
+    let place = |wanted: &str| names.iter().position(|name| name == wanted);
+
+    assert_eq!(times("mux.build"), 1, "mux.build is not in {names:?} one time");
+    for part in MUX_BUILD_PARTS {
+        assert_eq!(times(part), 1, "{part} is in {names:?} {} time(s)", times(part));
+        assert!(place(part) < place("mux.build"), "{part} is after mux.build in {names:?}");
+    }
+    // The parked trim says how many rewrites of a snapshot file it ran: a count.
+    let trim = line["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["step"] == "mux.build.output_store.parked_trim")
+        .unwrap();
+    assert!(trim["rows"].as_u64().is_some(), "the parked trim entry has no count: {trim}");
+}
+
 #[test]
 fn each_owner_start_records_its_named_startup_steps() {
     let dir = state_dir("record");
@@ -177,8 +221,13 @@ fn each_owner_start_records_its_named_startup_steps() {
     ] {
         assert!(names.iter().any(|name| name == expected), "no {expected} step in {names:?}");
     }
-    // Startup order: the socket first, the attach (the first answer) last.
-    assert_eq!(names.first().map(String::as_str), Some("socket.bind"), "{names:?}");
+    // Startup order: the process's own steps, then the socket, the attach
+    // (the first answer) last.
+    let bind = names.iter().position(|name| name == "socket.bind").unwrap();
+    assert!(names[..bind].iter().all(|name| name.starts_with("process.")), "{names:?}");
+    for expected in ["process.args", "process.owner_prepare", "process.server_setup"] {
+        assert!(names[..bind].iter().any(|name| name == expected), "no {expected} in {names:?}");
+    }
     assert_eq!(names.last().map(String::as_str), Some("server.attach"), "{names:?}");
     let total = line["total_ms"].as_f64().expect("total_ms is a number");
     let sum: f64 = line["steps"]

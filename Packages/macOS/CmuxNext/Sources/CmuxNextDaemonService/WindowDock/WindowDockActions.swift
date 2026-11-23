@@ -3,15 +3,28 @@ import CmuxNextLayout
 
 /// The window frame's dock actions (plans/cmux-next/docked-workspace-DESIGN.md): Dock Workspace
 /// Left/Right/Top/Bottom, Undock Workspace, Float Docked Workspace, Toggle Left/Right/Top/Bottom Dock and Toggle
-/// Dock Corners, and the window dock's (user 2026-11-05) Open Chief Dock (Cmd-I), Move Pane to Dock, Move Dock to
-/// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar and Focus Dock. Every entry point (palette,
+/// Dock Corners, and the window dock's (user 2026-11-05) Show/Hide Chief (Cmd-I) and its system-wide key, Move Pane to Dock, Move Dock to
+/// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar and Focus Dock. Home never docks as a workspace
+/// (user 2026-11-06): Dock Workspace on Home docks the Chief panel (a Chief-only pane, never over Home), and Undock
+/// floats it again. Every entry point (palette,
 /// keyboard, CLI verb, MCP, `action.run`) ends in one ``WindowDockFrame`` operation, which changes window view
 /// state in this turn: no await, no daemon round trip (a dock on an empty edge, Move Pane to Dock with no dock and
-/// Open Chief Dock with no Home yet make their workspace in tracked background work). Off (Debug Settings
-/// `window.dockedWorkspaces`), each refuses with that reason.
+/// Show/Hide Chief with no Home yet make their workspace in tracked background work). Off (Debug Settings
+/// `window.dockedWorkspaces`), every one leaves the palette and menus and its key does nothing; only a CLI or
+/// MCP run is answered, with that reason (`ActionRegistry.addSettingOffReason`).
 @MainActor
 public struct WindowDockActions {
     let host: any WindowDockHost
+
+    /// The actions that exist only while `window.dockedWorkspaces` is on.
+    static let actionIDs: Set<ActionID> = [
+        "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom",
+        "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
+        "workspace.undock", "workspace.toggleDockFloating", "window.toggleDockOrientation",
+        "home.openChiefDock", "home.undockChief", "home.showHideChiefFromAnyApp", "window.movePaneToDock",
+        "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
+        "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+    ]
 
     /// - Parameter host: The app's windows, Home and tab moves (`AppServices`).
     public init(host: any WindowDockHost) { self.host = host }
@@ -20,17 +33,19 @@ public struct WindowDockActions {
     public func bind(into registry: ActionRegistry) {
         bindDockedWorkspaces(into: registry)
         bindWindowDock(into: registry)
+        registry.addSettingOffReason(Self.actionIDs) {
+            LayoutTunables.dockedWorkspaces.value ? nil : RefusalStrings.dockedWorkspacesOff
+        }
     }
 
-    /// A link clicked in the Chief (a workspace, tab or subagent link, or a subagent pill; user 2026-11-05: "bring
-    /// me to workspace, but with the chief still on the left"): with `home.chiefDock.openBeside` on, `frame` (the
-    /// window showing Home) arms its Chief dock first (``WindowDockFrame/armChiefDock(home:edge:now:)``), so the
-    /// workspace the link shows goes on the stage while Home stays docked, its view and state untouched. A link
+    /// A link clicked in the Chief (the open-workspace indicator: a workspace, tab or subagent link, or a subagent
+    /// pill): with `home.chiefDock.openBeside` on (off by default, cmux#45889: a link opens only its target), `frame` (the window showing Home) arms its Chief panel, so the
+    /// workspace the link shows opens with the Chief floating over it (user 2026-11-06), the workspace's layout
+    /// untouched. Only this path opens the panel by itself: a workspace opened any other way shows no Chief. A link
     /// that shows nothing else in this window (a tab right of Home, another window) leaves the arm to lapse.
     public func chiefLinkWillOpen(in frame: (any WindowDockFrame)?) {
-        guard host.chiefDockOpensBeside, let frame, let shown = frame.frameShownWorkspaceID,
-              host.chiefHome(in: frame.frameWindowID) == shown else { return }
-        frame.armChiefDock(home: shown, edge: host.chiefDockEdge)
+        guard host.chiefDockOpensBeside, let frame, let shown = frame.frameShownWorkspaceID, frame.frameHome == shown else { return }
+        frame.armChiefPanel()
     }
 
     private func bindDockedWorkspaces(into registry: ActionRegistry) {
@@ -41,13 +56,12 @@ public struct WindowDockActions {
         ]
         for (edge, dock, toggle) in edges {
             registry.bindEffect(dock) { invocation in
-                guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
                 guard let (id, frame) = Self.owner(invocation, host) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
-                frame.dockWorkspace(id, at: edge)
+                // Home is the Chief's own place: its Chief docks as a Chief-only pane instead (never Home's other panes).
+                if id == frame.frameHome { frame.dockChiefPanel(at: edge) } else { frame.dockWorkspace(id, at: edge) }
                 return .done
             }
             registry.bindEffect(toggle) { invocation in
-                guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
                 guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
                 frame.toggleDock(edge, cwd: invocation["cwd"]?.stringValue)
                 return .done
@@ -57,14 +71,13 @@ public struct WindowDockActions {
             }
         }
         registry.bindEffect("workspace.undock") { invocation in
-            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let (id, frame) = Self.owner(invocation, host) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+            if id == frame.frameHome { return frame.floatChiefPanel() ? .done : .refused(RefusalStrings.workspaceNotDocked) }
             // A person sees it on the stage; automation never moves the view (socket focus policy).
             guard frame.undockWorkspace(id, show: invocation.origin == .user) else { return .refused(RefusalStrings.workspaceNotDocked) }
             return .done
         }
         registry.bindEffect("workspace.toggleDockFloating") { invocation in
-            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let (id, frame) = Self.owner(invocation, host) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
             guard frame.toggleDockFloating(id) != nil else { return .refused(RefusalStrings.workspaceNotDocked) }
             return .done
@@ -77,12 +90,26 @@ public struct WindowDockActions {
     private func bindWindowDock(into registry: ActionRegistry) {
         let host = host
         registry.bindEffect("home.openChiefDock") { invocation in
-            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
-            return Self.openChiefDock(in: frame, host, registry)
+            return Self.openChiefDock(in: frame, host, registry, origin: invocation.origin)
+        }
+        // Undock Chief (cmux#37372): a docked Chief panel floats again over the stage, shown.
+        registry.bindEffect("home.undockChief") { invocation in
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            return frame.undockChiefPanel() ? .done : .refused(RefusalStrings.chiefNotDocked)
+        }
+        // Show/Hide Chief from Any App (Option-Shift-Space): the floating Chief (its own window over every app) shows
+        // or hides where the person is, cmux staying behind. Else cmux comes forward; a Chief already showing there
+        // takes the keys, else Show/Hide Chief runs (it hides the panel only when cmux was in front).
+        registry.bindEffect("home.showHideChiefFromAnyApp") { invocation in
+            if !host.chiefHomeIsClassic, let frame = host.dockFrame(invocation), frame.frameChiefPanel.dockedEdge == nil,
+               frame.toggleChiefPanel() { return .done }
+            let wasBehind = host.chiefBringAppForward()
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            if wasBehind, frame.frameChiefPanelShown { frame.frameFocusChiefPanel(); return .done }
+            return Self.openChiefDock(in: frame, host, registry, origin: invocation.origin)
         }
         registry.bindEffect("window.movePaneToDock") { invocation in
-            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let source = host.dockPaneWorkspace(invocation) else { return .refused(RefusalStrings.noPaneForDock) }
             guard let frame = host.dockFrame(owning: source) else { return .refused(RefusalStrings.noWindowOpen) }
             return Self.movePane(invocation, from: source, in: frame, host, registry)
@@ -112,25 +139,31 @@ public struct WindowDockActions {
         }
     }
 
-    /// Open Chief Dock in `frame`: its Home docks and its composer takes the keys. With no Home yet, the Home is
-    /// made in tracked background work and docks when it exists. Classic Home has no Home workspace to dock: Go to
-    /// Home runs instead.
-    private static func openChiefDock(in frame: any WindowDockFrame, _ host: any WindowDockHost, _ registry: ActionRegistry) -> ActionEffect {
+    /// Show/Hide Chief (Cmd-I) in `frame`: the Chief panel hides when it shows, else it opens (floating, or docked
+    /// when the person docked it) and its message box takes the keys. It always shows the Chief (David Beyer, Nov 20:
+    /// "Show Chief" did not show it unless he went to Home): on the Chief's page (Home) the Chief's own conversation
+    /// opens (`home.openChief`), not the last chat; with no Home yet, Home is made in tracked background work and the
+    /// Chief opens over the workspace the window shows (its page only in a window that shows nothing). Classic Home
+    /// has no Home workspace: Go to Home runs instead.
+    private static func openChiefDock(in frame: any WindowDockFrame, _ host: any WindowDockHost, _ registry: ActionRegistry,
+                                      origin: ActionOrigin) -> ActionEffect {
         guard !host.chiefHomeIsClassic else {
             return host.chiefShowHome() ? .done : .refused(RefusalStrings.chiefDockUnavailable, quiet: true)
         }
-        let edge = host.chiefDockEdge
-        if let home = host.chiefHome(in: frame.frameWindowID) {
-            frame.openChiefDock(home, edge: edge)
+        if frame.toggleChiefPanel() { return .done }
+        if let home = frame.frameHome ?? host.chiefHome(in: frame.frameWindowID) {
+            if frame.frameShownWorkspaceID != home { frame.frameShow(home, thisWindow: true) }
+            _ = registry.perform("home.openChief", invocation: ActionInvocation(origin: origin))
             host.chiefFocusComposer()
             return .done
         }
-        // task-owner: one Home for this window (one daemon round trip), then the dock; nothing to show before it.
+        // task-owner: one Home for this window (one daemon round trip), then the Chief shows; nothing to show before it.
         registry.track(Task { [weak frame] in
             guard let frame, let made = await host.chiefMakeHome(in: frame.frameWindowID) else {
                 return ActionWorkFailure(RefusalStrings.chiefDockUnavailable)
             }
-            frame.openChiefDock(made, edge: edge)
+            if frame.toggleChiefPanel() { return nil }
+            frame.frameShow(made, thisWindow: true)
             host.chiefFocusComposer()
             return nil
         })
@@ -170,7 +203,6 @@ public struct WindowDockActions {
     /// Runs `body` on the targeted window (default: the active one).
     private static func withFrame(_ invocation: ActionInvocation, _ host: any WindowDockHost,
                                   _ body: (any WindowDockFrame) -> Void) -> ActionEffect {
-        guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
         guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
         body(frame)
         return .done
@@ -179,7 +211,6 @@ public struct WindowDockActions {
     /// Runs `body` on the targeted window; refused when it has no dock (`body` answers false).
     private static func withDock(_ invocation: ActionInvocation, _ host: any WindowDockHost,
                                  _ body: (any WindowDockFrame) -> Bool) -> ActionEffect {
-        guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
         guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
         return body(frame) ? .done : .refused(RefusalStrings.windowHasNoDock)
     }

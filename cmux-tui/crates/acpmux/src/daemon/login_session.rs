@@ -90,9 +90,53 @@ fn gui_domain() -> String {
     format!("gui/{}", unsafe { libc::getuid() })
 }
 
-/// Whether the user has a GUI login now (its launchd domain exists).
-fn gui_domain_up(domain: &str) -> bool {
-    launchctl(&["print", domain], LAUNCHCTL_BUDGET).is_ok_and(|(ok, _)| ok)
+/// The user's GUI launchd domain as `launchctl print` shows it, or None: no GUI login now (the
+/// domain does not exist) or launchd did not answer.
+fn gui_domain_print(domain: &str) -> Option<String> {
+    launchctl(&["print", domain], LAUNCHCTL_BUDGET).ok().and_then(|(ok, out)| ok.then_some(out))
+}
+
+/// Boots out this user's daemon jobs (other homes' too) that ended and whose program is gone:
+/// each per-build home has its own label, so a deleted app copy's job would sit loaded, `not
+/// running`, forever. A job running, or whose program is there, is never touched. The job's
+/// home's start lock is held (never waited for) from the recheck through the bootout, so no
+/// start of that home can bootstrap the label in between and lose its new daemon.
+fn sweep_stale_jobs(domain: &str, domain_print: &str, keep: &[&str]) {
+    use super::login_placement::{job_home, stale_daemon_labels, stale_job_program};
+    let print = |target: &str| match launchctl(&["print", target], LAUNCHCTL_BUDGET) {
+        Ok((true, out)) => Some(out),
+        _ => None,
+    };
+    for label in stale_daemon_labels(domain_print) {
+        if keep.contains(&label.as_str()) {
+            continue;
+        }
+        let target = format!("{domain}/{label}");
+        let Some(first) = print(&target) else { continue };
+        if stale_job_program(&first, |p| p.exists()).is_none() {
+            continue;
+        }
+        // No home to lock (its plist is not where a start writes it, or the home is gone):
+        // left alone, as a start of it could not be fenced off.
+        let Some(home) = job_home(&first) else { continue };
+        let Ok(lock) = crate::config::private_state_rw(&home.join("daemon-login-session.lock"))
+        else {
+            continue;
+        };
+        // SAFETY: flock on a descriptor this function owns; released when `lock` drops.
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&lock);
+        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            continue; // That home is starting: its own start handles its job.
+        }
+        let Some(program) = print(&target).and_then(|p| stale_job_program(&p, |p| p.exists()))
+        else {
+            continue;
+        };
+        if let Ok((true, _)) = launchctl(&["bootout", &target], LAUNCHCTL_BUDGET) {
+            tracing::info!(%target, program = %program.display(), "booted out a stale daemon job");
+        }
+        drop(lock);
+    }
 }
 
 /// What [`start_in_login_session`] did.
@@ -138,7 +182,9 @@ pub(crate) fn start_in_login_session(
     let (here, own) = (in_login_session(), own_home(home, &crate::config::default_home()));
     let domain = gui_domain();
     // Only asked when it decides anything (one `launchctl print`).
-    let gui_login = here != Some(true) && own && !keyed && gui_domain_up(&domain);
+    let domain_print =
+        (here != Some(true) && own && !keyed).then(|| gui_domain_print(&domain)).flatten();
+    let gui_login = domain_print.is_some();
     match placement(here, own, gui_login, keyed) {
         Placement::InPlace => return Ok(Started::No),
         Placement::KeyedInPlace => return Ok(Started::KeyedInPlace),
@@ -156,6 +202,19 @@ pub(crate) fn start_in_login_session(
     let target = format!("{domain}/{label}");
     if job_running(&target, LAUNCHCTL_BUDGET) {
         return Ok(Started::Running);
+    }
+    // The label an older build gave this home: its daemon running is this home's daemon (no
+    // second one); ended, its job is removed so the home keeps one.
+    let legacy = super::login_placement::legacy_job_label(home);
+    if legacy != label {
+        let legacy_target = format!("{domain}/{legacy}");
+        if job_running(&legacy_target, LAUNCHCTL_BUDGET) {
+            return Ok(Started::Running);
+        }
+        let _ = launchctl(&["bootout", &legacy_target], LAUNCHCTL_BUDGET);
+    }
+    if let Some(print) = &domain_print {
+        sweep_stale_jobs(&domain, print, &[&label, &legacy]);
     }
     let mut argv = vec![this.exe.to_string_lossy().into_owned()];
     argv.extend(this.args_lossy(&["daemon", "run"]));

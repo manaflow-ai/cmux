@@ -4,20 +4,13 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
+import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
+import { LastKnown } from "../../../lastKnown";
 
 export type CloudRepo = {
   fullName: string;
   private?: boolean;
   source?: "local" | "recent" | "installation";
-};
-
-export type AttachedCloudRepo = { repo: string; folder?: string; head?: string };
-export type PendingCloudRepo = {
-  repo: string;
-  state?: string;
-  phase?: string;
-  progress?: { received_bytes?: number; objects?: number; total_objects?: number };
-  notes?: string[];
 };
 
 type ListReply = { repos?: CloudRepo[]; connect?: { install_url?: string } };
@@ -44,6 +37,24 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
     // Older hosts do not expose the local catalog. The machine's persisted catalog remains usable.
     return undefined;
   }
+}
+
+type KnownRepos = { repos: CloudRepo[]; connectUrl?: string };
+
+/// The last list each chat's search answered (by chat and query), per request function (the host's
+/// `postNative`; a gallery's or test's own stub keeps its own lists): the picker opened again draws
+/// it at once, with no "Searching" line, and lists again behind it.
+let lastReposByRequest = new WeakMap<object, LastKnown<KnownRepos>>();
+
+function knownRepos(request: object): LastKnown<KnownRepos> {
+  let known = lastReposByRequest.get(request);
+  if (!known) lastReposByRequest.set(request, (known = new LastKnown<KnownRepos>(16)));
+  return known;
+}
+
+/// Drops every last-known list (tests).
+export function resetLastKnownReposForTests(): void {
+  lastReposByRequest = new WeakMap();
 }
 
 function reposOf(value: unknown): CloudRepo[] {
@@ -112,9 +123,19 @@ export function CloudRepositoryPicker({
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
+    const key = `${session}\u0000${query.trim()}`;
+    const lastRepos = knownRepos(request);
+    const known = lastRepos.get(key);
+    if (known) {
+      setRepos(known.repos);
+      setConnectUrl(known.connectUrl);
+      setError(undefined);
+      // An earlier query's read may still be out: the known list shows, not its "Searching" line.
+      setLoading(false);
+    }
     const timer = window.setTimeout(
       () => {
-        setLoading(true);
+        if (!known) setLoading(true);
         setError(undefined);
         void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
           .then((syncedInstallUrl) =>
@@ -125,11 +146,15 @@ export function CloudRepositoryPicker({
           )
           .then(({ reply, syncedInstallUrl }) => {
             if (id !== generation.current) return;
-            setRepos(reposOf(reply));
-            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+            const repos = reposOf(reply);
+            const connectUrl = githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl);
+            lastRepos.set(key, { repos, ...(connectUrl ? { connectUrl } : {}) });
+            setRepos(repos);
+            setConnectUrl(connectUrl);
           })
           .catch(() => {
-            if (id === generation.current) setError(t("cloudRepository.loadFailed"));
+            // A last-known list stays; the read is tried again on the next open.
+            if (id === generation.current && !known) setError(t("cloudRepository.loadFailed"));
           })
           .finally(() => {
             if (id === generation.current) setLoading(false);
@@ -230,20 +255,5 @@ export function CloudRepositoryPicker({
         )}
       </div>
     </Popover>
-  );
-}
-
-export function loadAttachedCloudRepos(
-  _session: string,
-): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then(
-    (reply) => ({
-      repos: Array.isArray(reply?.repos)
-        ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-      pending: Array.isArray(reply?.pending)
-        ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-    }),
   );
 }

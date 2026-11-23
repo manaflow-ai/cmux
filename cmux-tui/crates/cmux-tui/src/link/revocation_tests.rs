@@ -68,9 +68,11 @@ async fn open_daemon_with(subscription: Option<Revocations>) -> OpenDaemon {
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             None,
+            &super::acpmux::AcpmuxTarget::Off,
             Some(subscription.unwrap_or(Revocations { view: receiver, open: Arc::default() })),
+            None,
         )
         .await
     });
@@ -207,9 +209,11 @@ async fn a_stale_pairing_snapshot_cannot_reopen_a_revoked_daemon_or_owner() {
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             Some(&owner),
+            &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
+            None,
         ))
         .await;
         if served != Err(InboundRefused::UnknownPeer)
@@ -256,9 +260,11 @@ async fn revocation_during_owner_identification_closes_the_probe_before_session_
             [2; 32],
             address(),
             &pairings(),
-            &session,
+            Some(session.as_path()),
             Some(&owner),
+            &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
+            None,
         )
         .await
     });
@@ -300,20 +306,6 @@ impl super::dial::Overlay for StagedOverlay {
         }
         Ok(())
     }
-    async fn set_cloud_peer(
-        &self,
-        _host: &str,
-        _key: [u8; 32],
-        _info: &cmux_link::connect_info::ConnectInfo,
-    ) -> std::io::Result<()> {
-        Ok(())
-    }
-    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
-        Ok(())
-    }
-    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
-        cmux_link::dial::PathState::Direct
-    }
 }
 
 #[tokio::test]
@@ -344,9 +336,11 @@ async fn failed_overlay_sync_never_restores_the_revoked_admission_view() {
         [2; 32],
         address(),
         &stale,
-        &directory.path().join("s.sock"),
+        Some(directory.path().join("s.sock").as_path()),
         None,
+        &super::acpmux::AcpmuxTarget::Off,
         Some(peers.revocations()),
+        None,
     ))
     .await;
     assert_eq!(result, Err(InboundRefused::UnknownPeer));
@@ -452,6 +446,7 @@ async fn an_accepted_stream_is_registered_before_its_handler_first_polls() {
         peers.clone(),
         Some(directory.path().join("s.sock")),
         None,
+        super::acpmux::AcpmuxTarget::Off,
     );
     tokio::pin!(serving);
     // Poll acceptance in this task; the spawned handler has not run yet.

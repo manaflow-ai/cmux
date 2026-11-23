@@ -62,6 +62,101 @@ pub struct EngineChoice {
     /// on or off; None: the turn's (or OPTCHAT_SUBAGENT_HARNESS, which wins).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_harness: Option<String>,
+    /// The Cloud machine a Chief on this Mac does computer use on
+    /// (`machine:<id>`, cmux issue 36047): the owner attaches one in the
+    /// Chief's card. None: computer use stays on this Mac. Read at each turn
+    /// start, like the turn fields; the turn gets one line naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
+    /// The permission mode the Chief's own Claude turns run in
+    /// (`chief engine set --mode`, [`PERMISSION_MODES`]); None: the user's
+    /// cmux-next.json `chief.permissionMode`, else `bypassPermissions`
+    /// (cmux#37392). The user's setting caps it ([`permission_mode`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    /// The model gateway an open-source brain (Hermes, OpenClaw: brain_home.rs) sends its model
+    /// calls to, an OpenAI-compatible base URL; None: the team subrouter. Applies at the next
+    /// host start, which writes the brains' homes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain_base_url: Option<String>,
+}
+
+/// The permission modes a Chief turn takes, widest first: Claude Code's
+/// `bypassPermissions` (no permission check, the default: the Chief never
+/// asks, Lawrence 2026-10-20), its own `auto` (a safety classifier judges
+/// each call) and `default` (Manual: Claude Code asks before each change,
+/// and the turn runs under acpmux's `ask`, so each ask is refused).
+pub const PERMISSION_MODES: &[&str] = &["bypassPermissions", "auto", "default"];
+
+/// The mode a Chief turn runs in when nothing chooses one (cmux#37392: "it
+/// should be default on that right?").
+pub const DEFAULT_PERMISSION_MODE: &str = "bypassPermissions";
+
+/// The user's cmux-next.json key for the Chief turns' permission mode.
+pub const PERMISSION_MODE_SETTING: &str = "chief.permissionMode";
+
+/// `value` as one of [`PERMISSION_MODES`] (also `bypass`, `yolo`,
+/// `full-access`, `manual`), or None.
+pub fn parse_permission_mode(value: &str) -> Option<&'static str> {
+    match value.trim() {
+        "bypassPermissions" | "bypass" | "yolo" | "full-access" | "fullAccess" => {
+            Some("bypassPermissions")
+        }
+        "auto" => Some("auto"),
+        "default" | "manual" | "ask" => Some("default"),
+        _ => None,
+    }
+}
+
+/// How widely a mode acts without asking: `default` 0, `auto` 1, bypass 2.
+fn breadth(mode: &str) -> usize {
+    PERMISSION_MODES.len()
+        - 1
+        - PERMISSION_MODES
+            .iter()
+            .position(|m| *m == mode)
+            .unwrap_or(2)
+}
+
+/// The Chief turns' permission mode and what chose it (`engine`, `settings`,
+/// `default`): engine.json's `permission_mode`, else the user's
+/// `chief.permissionMode` (`user`), else [`DEFAULT_PERMISSION_MODE`]. The
+/// user's setting is also a ceiling: a Chief's own `engine set --mode` (a
+/// turn can run it) never goes wider than the person chose in Settings. An
+/// unknown user value reads as `default` (never wider than they meant).
+pub fn permission_mode(choice: &EngineChoice, user: Option<&str>) -> (&'static str, &'static str) {
+    let user = user
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| parse_permission_mode(v).unwrap_or("default"));
+    let own = choice
+        .permission_mode
+        .as_deref()
+        .and_then(parse_permission_mode);
+    match (own, user) {
+        (Some(own), Some(cap)) if breadth(own) > breadth(cap) => (cap, "settings"),
+        (Some(own), _) => (own, "engine"),
+        (None, Some(user)) => (user, "settings"),
+        (None, None) => (DEFAULT_PERMISSION_MODE, "default"),
+    }
+}
+
+/// The user's `chief.permissionMode` string in the settings document `doc`.
+pub fn user_permission_mode(doc: Option<&serde_json::Value>) -> Option<String> {
+    doc.and_then(|d| crate::agent_memory::settings::value(d, PERMISSION_MODE_SETTING))
+        .and_then(|v| v.as_str().map(str::to_owned))
+}
+
+/// The user's `chief.permissionMode` from a settings read that may have
+/// failed: a file that is there but does not read or parse gives `default`
+/// (Manual), the narrowest mode, never the bypass default (cmux#37392).
+pub fn user_permission_mode_checked<E>(
+    doc: Result<Option<&serde_json::Value>, E>,
+) -> Option<String> {
+    match doc {
+        Ok(doc) => user_permission_mode(doc),
+        Err(_) => Some("default".to_owned()),
+    }
 }
 
 /// The values `subagent_routing` takes.
@@ -354,6 +449,7 @@ pub fn apply_flags(
         ("classifier-model", &mut choice.classifier_model),
         ("classifier-prompt", &mut choice.classifier_prompt),
         ("subagent-harness", &mut choice.subagent_harness),
+        ("brain-base-url", &mut choice.brain_base_url),
     ] {
         if let Some(value) = flags.value(key) {
             changed = true;
@@ -392,10 +488,35 @@ pub fn apply_flags(
         changed = true;
         choice.turn_routing = parse_turn_routing(value)?;
     }
+    if let Some(value) = flags.value("computer") {
+        changed = true;
+        choice.computer = parse_computer(value)?;
+    }
+    if let Some(value) = flags.value("mode") {
+        changed = true;
+        choice.permission_mode = parse_mode_flag(value)?;
+    }
     if !changed {
         return Err(USAGE.into());
     }
     Ok(choice)
+}
+
+/// `--mode` (and the brain control path's `permission_mode`): one of
+/// [`PERMISSION_MODES`]; `unset` (or empty) clears the field, since
+/// `default` is a mode here (Claude Code's Manual).
+pub fn parse_mode_flag(value: &str) -> Result<Option<String>, String> {
+    match value.trim() {
+        "" | "unset" => Ok(None),
+        v => parse_permission_mode(v)
+            .map(|m| Some(m.to_owned()))
+            .ok_or_else(|| {
+                format!(
+                    "--mode is one of {} or unset, not {v:?}",
+                    PERMISSION_MODES.join(", ")
+                )
+            }),
+    }
 }
 
 /// Shared validation for the CLI and the brain control path.
@@ -409,9 +530,91 @@ pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// A `computer` value: a Cloud machine as `machine:<id>` or its bare id, or
+/// the Chief's own Cloud computer as `chief:<id>` (Set Up Computer for a
+/// Chief on this Mac; `<id>` is its conversation id, 1 to 64 letters,
+/// digits, `-` and `_`, the id the app's `cloud.chiefComputer` and the
+/// backend's `/v1/local-chiefs/<id>/computer` take); `default`, `none` or
+/// empty clears it. The machine id is the Cloud machine id the app lists
+/// (`cmux cloud list-machines`): letters, digits, `-` and `_`, so the turn
+/// line that names it cannot carry anything else.
+pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if matches!(value, "" | "default" | "none") {
+        return Ok(None);
+    }
+    if let Some(id) = value.strip_prefix("chief:") {
+        let ok = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        return if ok {
+            Ok(Some(format!("chief:{id}")))
+        } else {
+            Err(format!(
+                "computer chief:<id> takes 1 to 64 letters, digits, - and _, not {value:?}"
+            ))
+        };
+    }
+    let id = value.strip_prefix("machine:").unwrap_or(value);
+    // Other machines' ids (`MachineRegistry`): `ssh-…` hosts, `server-…`
+    // paired servers and `local` are not Cloud machines.
+    let cloud = !id.starts_with("ssh-") && !id.starts_with("server-") && id != "local";
+    let ok = cloud
+        && !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok {
+        return Err(format!(
+            "computer is a Cloud machine (machine:<id>), none or default, not {value:?}"
+        ));
+    }
+    Ok(Some(format!("machine:{id}")))
+}
+
+/// The per-turn line that names the Chief's attached Cloud computer (it goes
+/// in the turn's tail, after the cached prompt, so attaching one never
+/// changes the cached system text); None without one.
+pub fn computer_line(choice: &EngineChoice) -> Option<String> {
+    // A hand edit of engine.json skips the set's check: check it again here,
+    // so the line can only ever carry a Cloud machine id.
+    let target = parse_computer(choice.computer.as_deref()?).ok()??;
+    if target.starts_with("chief:") {
+        return Some(format!(
+            "Your computer: you have your own Cloud computer {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default computer; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
+        ));
+    }
+    Some(format!(
+        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default machine; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
+    ))
+}
+
 pub const USAGE: &str = "chief engine show
 chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--computer machine:<id>|chief:<id>|none] [--mode bypassPermissions|auto|default|unset] [--brain-base-url URL]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode; --brain-base-url is the model gateway of the open-source brains, hermes and openclaw, from the next host start; `chief brains` lists them)";
+
+/// `engine show`'s permission mode line: the mode, what chose it, and when
+/// it applies.
+pub fn permission_mode_line(choice: &EngineChoice, user: Option<&serde_json::Value>) -> String {
+    permission_mode_line_for(choice, user_permission_mode(user).as_deref())
+}
+
+/// [`permission_mode_line`] for the user's `chief.permissionMode` string
+/// itself (`user_permission_mode_checked`: Manual for an unreadable file).
+pub fn permission_mode_line_for(choice: &EngineChoice, user: Option<&str>) -> String {
+    let (mode, source) = permission_mode(choice, user);
+    let source = match source {
+        "engine" => "chief engine set --mode",
+        "settings" => "Settings > Chief > Permission Mode (chief.permissionMode)",
+        _ => "default",
+    };
+    format!(
+        "permission mode: {mode} ({source}; Claude turns, from the next turn; acpmux runs bypassPermissions only while new chats start in Full Access, Settings > Agents)\n"
+    )
+}
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
@@ -440,6 +643,20 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 "turn routing: {}\n",
                 choice.turn_routing.as_deref().unwrap_or("off")
             ));
+            out.push_str(&format!(
+                "computer: {}\n",
+                choice.computer.as_deref().unwrap_or("this Mac")
+            ));
+            // The turns' own read (brain/reaction_wake.rs): an unreadable
+            // settings file shows Manual, as the turns run.
+            let user = match std::env::var_os("HOME") {
+                Some(h) => {
+                    crate::agent_memory::settings::document_checked(std::path::Path::new(&h))
+                }
+                None => Ok(None),
+            };
+            let user = user_permission_mode_checked(user.as_ref().map(Option::as_ref));
+            out.push_str(&permission_mode_line_for(&choice, user.as_deref()));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {
                 Some(r) => {

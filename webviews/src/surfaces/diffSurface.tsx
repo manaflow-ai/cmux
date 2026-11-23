@@ -8,11 +8,14 @@ import {
   setDiffChangeColors,
 } from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
+import { diffPageFontZoom } from "../diff-viewer/fontZoom";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
 import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
+import { appPopupHost } from "../pages/shared/pagePopupHost";
+import { UiProvider } from "../ui/UiProvider";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
 import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
@@ -44,6 +47,8 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
  */
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   markDiffOpen("boot");
+  // The chrome follows the app density (pages/shared/pageDensity.css, diff-viewer/density.ts).
+  document.documentElement.dataset.pageDensity = "";
   const embedded = readEmbeddedConfig();
   if (embedded) {
     return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
@@ -92,6 +97,8 @@ export async function renderDiffSurface(
   // Diff Colors seeds with the other display prefs; the stored prefs re-sync it after boot.
   setDiffChangeColors(sanitizeViewerPrefs(config.payload?.viewerOptions).colors);
   followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
+  // The code's size: the host's appearance size when it sends one, else the chat's (diff-viewer/fontZoom.ts).
+  diffPageFontZoom().setHostSize(config.payload?.appearance?.fontSize);
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;
@@ -104,5 +111,9 @@ export async function renderDiffSurface(
   applyDiffViewerStatusToDocument(initialStatus);
   const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
   markDiffOpen("render");
-  createRoot(rootElement).render(<RouterProvider router={router} />);
+  createRoot(rootElement).render(
+    <UiProvider container={rootElement} popupHost={appPopupHost(diffPageClient())}>
+      <RouterProvider router={router} />
+    </UiProvider>,
+  );
 }

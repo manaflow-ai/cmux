@@ -14,15 +14,19 @@ import { callChipHost } from "../chips/host";
 export type Browser = { id: string; name: string; icon?: string };
 
 /// `onOpenInPane` opens the URL in cmux's browser pane (the card's existing path). `onOpenChange`
-/// hears the menu open and close (a link's hover card stays up while its menu is open).
+/// hears the menu open and close (a link's hover card stays up while its menu is open). `chevron`
+/// draws the trigger as the chevron half of a split Open button (the hover card's, Leo 2026-11-07:
+/// "the open and open in, why don't we just combine both of those?"), named Open in for VoiceOver.
 export function OpenInMenu({
   url,
   onOpenInPane,
   onOpenChange: heard,
+  chevron,
 }: {
   url: string;
   onOpenInPane: (url: string) => void;
   onOpenChange?: (open: boolean) => void;
+  chevron?: boolean;
 }) {
   const t = useT();
   const [browsers, setBrowsers] = useState<Browser[] | undefined>();
@@ -37,8 +41,11 @@ export function OpenInMenu({
   };
   return (
     <Menu onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-review-changes acpmux-open-in" label={t("preview.openIn")}>
-        {t("preview.openIn")}
+      <MenuButton
+        className={chevron ? "acpmux-review-changes acpmux-open-in is-chevron" : "acpmux-review-changes acpmux-open-in"}
+        label={t("preview.openIn")}
+      >
+        {!chevron && t("preview.openIn")}
         <ChevronDown size={12} />
       </MenuButton>
       <MenuPopup align="end" className="acpmux-quick-menu">

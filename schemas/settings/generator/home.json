@@ -1,0 +1,15 @@
+{
+  "source": "schemas/settings/source/home.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Home.generated.swift",
+  "type": "HomeSettingsSchema",
+  "joined": "descriptors",
+  "lists": {
+    "messagesServer": ["serverRows", null],
+    "chiefChat": ["chiefChatRows", null],
+    "attachments": ["attachmentRows", null],
+    "sidebar": ["sidebarRows", null],
+    "chiefPet": ["chiefPetRows", null],
+    "chiefDock": ["chiefDockRows", null],
+    "chiefEngine": ["engineRows", null]
+  }
+}

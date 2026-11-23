@@ -24,6 +24,9 @@ public final class AgentPaneAttentionTabs {
     public var onOpen: ((String) -> Bool)?
     /// Hears each change of ``items`` (the App reloads an open Go to What Needs Me page).
     public var onChange: (() -> Void)?
+    /// The places a pasted cmux link names (``AgentPaneLinkPlaces``), app-wide like the marks and
+    /// pushed to the same pages.
+    public let places = AgentPaneLinkPlaces()
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
 

@@ -63,7 +63,7 @@ Settings are the `editor` section of the settings store, with Monaco's and VS Co
 | `editor.toolbar`, `editor.statusBar`                                        | `true`, `true`                                                                  |                                                                                      |
 | `editor.languages.<id>`                                                     | built-in: tabs for `make`, `go`; wrap for `markdown`; ruler 72 for `git-commit` | `tabSize`, `insertSpaces`, `detectIndentation`, `wordWrap`, `rulers`, `formatOnSave` |
 
-Every key except `keybindings` and `languages` is a row in Settings > Code Editor (`EditorSettingsSchema.swift`), so the toolbar's Word Wrap and Minimap toggles and Opt-Z write through the settings store (a key the schema does not list is refused).
+Every key except `keybindings` and `languages` is a row in Settings > Code Editor (`schemas/settings/source/editor.json`), so the toolbar's Word Wrap and Minimap toggles and Opt-Z write through the settings store (a key the schema does not list is refused).
 
 ### Defaults from VS Code or Zed
 
@@ -93,7 +93,6 @@ The editor page sets `codeEditorFocused` (the focused page is `cmux.editor`, or,
 | Opt-Cmd-F                  | `globalSearch` (yields)                                  | Monaco: replace                                                                    |
 | Cmd-I                      | `palette.newAgentChat` (yields)                          | Monaco: trigger suggest                                                            |
 | Cmd-L                      | `focusLocation` (yields)                                 | Monaco: expand line selection                                                      |
-| Shift-Cmd-I                | `feed.show`                                              | the app's (Monaco binds nothing there)                                             |
 | Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` (yield) | Monaco: insert line below, above                                                   |
 | Opt-Z                      | (none: not a Command chord)                              | the page's `editor.action.toggleWordWrap` (VS Code's id): writes `editor.wordWrap` |
 | Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`           | the app's (no symbol providers in the editor)                                      |

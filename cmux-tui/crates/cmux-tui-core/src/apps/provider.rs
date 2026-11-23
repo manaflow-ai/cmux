@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Out, Supervisor};
+use super::system_calendar;
 use super::timer::TimerId;
 use cmux_json::JsonSet as _;
 
@@ -64,13 +65,26 @@ pub const FAMILIES: &[&str] = &[
     // The Agent Memory app's search (`memory.search`), answered on the Mac
     // from the agent memory index (`optchat-chief agent-memory`).
     "memory",
+    // The agent chats the Mac app's sidebar shows (`agent_chat.list`), for
+    // a customize section's own thread list; read from the app's acpmux lanes.
+    "agent_chat",
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
+    // A browser tab's page in the Mac app (`page.read`, `page.hints`,
+    // `page.follow`): reader-mode extraction and link hints, run as page
+    // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
+    "page",
+    // The person's system calendar on the Mac (`system_calendar.events`,
+    // `system_calendar.request_access`), read through EventKit in the Mac app, which
+    // holds the calendar permission; the daemon has none. Not `calendar.*`,
+    // the Cloud's Google Calendar ops.
+    "system_calendar",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
-const WAITS_FOR_USER: &[&str] = &["fs.pick"];
+/// `system_calendar.request_access` waits on the system Calendars prompt.
+const WAITS_FOR_USER: &[&str] = &["fs.pick", system_calendar::REQUEST_ACCESS];
 /// Largest params a routed call may carry (the provider's control queue is
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
@@ -84,6 +98,9 @@ pub(super) enum Target {
     /// An app server's `relay.op` or `relay.session` line (`relay.rs`),
     /// answered on that server process's input.
     Relay { app: String, generation: u64, id: Value, session: bool },
+    /// A web pane's call (`page_calls.rs`): its responder waits in
+    /// `Inner::pages` under `waiter`.
+    Page(super::page_calls::PageTarget),
 }
 
 pub(super) struct ProviderCall {
@@ -91,6 +108,8 @@ pub(super) struct ProviderCall {
     pub op: String,
     pub target: Target,
     pub timer: TimerId,
+    /// The answer's `system_calendar` cache key (`system_calendar.rs`).
+    pub cache_key: Option<String>,
 }
 
 /// How a provider call ended.
@@ -279,6 +298,48 @@ impl Supervisor {
         origin: Origin,
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
+        let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
+        // A fresh granted calendar read answers at once (`system_calendar.rs`).
+        if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            if let Some(body) = system_calendar::cache_key(op, &normalized)
+                .and_then(|k| inner.system_calendar.hit(&k, std::time::Instant::now()))
+            {
+                if let Some(process) = inner.hosts.get(key).and_then(|h| h.process.as_ref()) {
+                    process.send(&ToHost::Resolve { cb, ok: true, body });
+                }
+                return Ok(vec![]);
+            }
+        }
+        let target = Target::Host { host: key.clone(), generation, cb };
+        let outs = self.send_to_provider_locked(
+            inner,
+            &key.app,
+            target,
+            op,
+            params,
+            origin,
+            idempotency_key,
+        )?;
+        if let Some(host) = inner.hosts.get_mut(key) {
+            host.inflight += 1;
+        }
+        Ok(outs)
+    }
+
+    /// Sends an app's call of `op` to the provider of its family; `target`
+    /// is who waits for the answer (`finish_locked`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn send_to_provider_locked(
+        &self,
+        inner: &mut Inner,
+        app: &str,
+        target: Target,
+        op: &str,
+        params: Value,
+        origin: Origin,
+        idempotency_key: Option<String>,
+    ) -> Result<Vec<Out>, Value> {
         // The credential relay serves app servers' relay lines only
         // (`relay.rs`), never an app host's call, whatever its scopes say.
         if !FAMILIES.contains(&family_of(op)) || family_of(op) == "credential" {
@@ -286,9 +347,17 @@ impl Supervisor {
                 json!({ "code": "operation.unsupported", "message": format!("{op} has no owner reachable from apps yet"), "details": { "op": op }, "retryable": false }),
             );
         }
+        // Calendar reads are bounded and normalized before the Mac app sees them.
+        let (params, cache_key) = if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            let key = system_calendar::cache_key(op, &normalized);
+            (normalized, key)
+        } else {
+            (params, None)
+        };
         let Some(&client) = inner.providers.get(family_of(op)) else { return Err(unavailable(op)) };
         let version =
-            inner.catalog.packages.get(&key.app).map(|p| p.version.clone()).unwrap_or_default();
+            inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
         if serde_json::to_vec(&params).map_or(usize::MAX, |b| b.len()) > MAX_PARAMS_BYTES {
             return Err(
                 json!({ "code": "validation.invalid", "message": "params are larger than 64 KiB", "retryable": false }),
@@ -299,7 +368,6 @@ impl Supervisor {
                 json!({ "code": "app.limit", "message": "the cmux app has too many calls outstanding", "retryable": true }),
             );
         }
-        let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
         let deadline = if WAITS_FOR_USER.contains(&op) {
             self.config.provider_user_deadline
         } else {
@@ -315,24 +383,16 @@ impl Supervisor {
         });
         inner.provider_calls.insert(
             request_id,
-            ProviderCall {
-                client,
-                op: op.to_string(),
-                target: Target::Host { host: key.clone(), generation, cb },
-                timer,
-            },
+            ProviderCall { client, op: op.to_string(), target, timer, cache_key },
         );
-        if let Some(host) = inner.hosts.get_mut(key) {
-            host.inflight += 1;
-        }
         let mut event = json!({
             "event": "apps-provider-request",
             "request_id": request_id,
-            "app": key.app,
+            "app": app,
             // The identity.md section 3 `app` actor (only the supervisor sets it).
             "actor": {
                 "kind": "app",
-                "id": key.app,
+                "id": app,
                 "host": crate::machine_name::machine_name(),
                 "version": version,
                 "on_behalf_of": { "kind": "user", "id": crate::conversation_store::LOCAL_USER },
@@ -400,18 +460,23 @@ impl Supervisor {
         call: &ProviderCall,
         ending: Ending,
     ) -> Vec<Out> {
+        let resolved = |ending: Ending| match ending {
+            Ending::Answer { ok, body } => (ok, body),
+            Ending::Timeout => (
+                false,
+                json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
+            ),
+            Ending::Gone => (false, unavailable(&call.op)),
+        };
         match &call.target {
             Target::Host { host, generation, cb } => {
-                let (ok, body) = match ending {
-                    Ending::Answer { ok, body } => (ok, body),
-                    Ending::Timeout => (
-                        false,
-                        json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
-                    ),
-                    Ending::Gone => (false, unavailable(&call.op)),
-                };
+                let (ok, body) = resolved(ending);
                 answer_locked(inner, host, *generation, ToHost::Resolve { cb: *cb, ok, body });
                 self.idle_check_locked(inner, host)
+            }
+            Target::Page(target) => {
+                let (ok, body) = resolved(ending);
+                Self::page_answer_locked(inner, target, ok, body)
             }
             Target::Relay { app, generation, id, session } => {
                 let reply = super::relay::relay_reply(id, *session, ending);
@@ -450,6 +515,15 @@ impl Supervisor {
             (true, false) => json!({ "value": body }),
             (false, _) => error_body(body),
         };
+        if family_of(&call.op) == system_calendar::FAMILY {
+            inner.system_calendar.record(
+                &call.op,
+                call.cache_key.as_deref(),
+                ok,
+                &body,
+                std::time::Instant::now(),
+            );
+        }
         let outs = self.finish_locked(&mut inner, &call, Ending::Answer { ok, body });
         drop(inner);
         self.emit(outs);
@@ -505,31 +579,5 @@ pub(super) fn deadline_ms(deadline: Duration) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn families_and_methods() {
-        assert_eq!(family_of("app.settings.set"), "app.settings");
-        assert_eq!(family_of("fs.pick"), "fs");
-        assert!(FAMILIES.contains(&family_of("agent_cli.list")));
-        let mut params = json!({ "provider": "github" });
-        normalize_method(&mut params);
-        assert_eq!(params["method"], "GET");
-        let mut post = json!({ "method": "post" });
-        normalize_method(&mut post);
-        assert_eq!(post["method"], "POST");
-    }
-
-    /// A new `app.*` op must be a decision: the supervisor keeps
-    /// `app.storage.*`; anything else in the catalog would silently go to
-    /// the provider's `app` family.
-    #[test]
-    fn every_app_op_in_the_scope_table_has_a_known_owner() {
-        for op in super::super::grants::ScopeTable::get().known_ops() {
-            if family_of(&op) == "app" {
-                assert!(op.starts_with("app.storage."), "{op}: decide its owner before adding it");
-            }
-        }
-    }
-}
+#[path = "provider_tests.rs"]
+mod tests;

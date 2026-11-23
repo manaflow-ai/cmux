@@ -20,16 +20,23 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Registry actions the page may run through `cmux.app.action.run` (`history.open`). A page
     /// runs nothing else, so a page bug cannot reach unrelated app actions.
     public let actions: Set<String>
+    /// Of ``actions``, those the person's own fresh click or key in the page view runs as theirs
+    /// (origin `user`, as the palette and menus run it), one gesture spent per run
+    /// (``PageGestureActionProvider``): an action whose handler only opens its setup sheet for the person
+    /// (`newCloudMachine` on Home). Page script alone, or a spent gesture, still runs it as `page`.
+    public let gestureActions: Set<String>
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
     /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
     /// host shows the native confirmation of that kind, then runs the op as the user's own
     /// (deleting data, money, publishing, signing in). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
-    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it.
+    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
+    /// another built-in page adds image sources.
     public let csp: PageCSP
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
-    /// build (the diff viewer in the one webviews-app build) names its own entry html.
+    /// build (the diff viewer in the one webviews-app build) names its own entry html. A nested
+    /// entry (`ui/index.html`, an extension's) is also the page URL's path (``url(route:)``).
     public let entry: String
     /// First path components the page instance's ``PageDynamicResourceSource`` answers
     /// (`__patch`); the scheme handler never serves a static file under one.
@@ -50,34 +57,63 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// navigation such a frame starts, or that would replace its document, is cancelled
     /// (``PageNavigation``). Off by default: other pages' frames keep their navigation hook.
     public let passiveFrames: Bool
+    /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
+    /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
+    public let followsChatZoom: Bool
+    /// The router serves this page its own host ops and streams with no descriptor entry: the title
+    /// bar double-click, the swipe's two, the heartbeat, popups, the context menu and the built-in
+    /// streams (``PageRouter``). False for an app page (``appPage(id:resource:namespaces:entry:)``):
+    /// every message it sends passes ``admits(_:)`` before anything runs, and its namespaces are its
+    /// own (`<host>.`), so it reaches none of them (next-review's BLOCK on #43033).
+    public let servesHostOps: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
+                actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
-                passiveFrames: Bool = false) {
+                passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
         self.nativeOps = nativeOps
         self.denied = denied.union(confirmedOps.keys)
         self.actions = actions
+        self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
-        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : .strict
-        // One file name inside the root, never a path.
-        self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
+        // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
+        // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
+        // and keeps no daemon access, while its own narrowing (inline script off) stands (review
+        // follow-up on #38075, F2); any other id gets the strict one.
+        self.csp = PageID.isFirstParty(id) ? csp
+            : PageID.isReserved(id) ? PageCSP(image: csp.image, inlineScript: csp.inlineScript) : .strict
+        // A file inside the root: a name or a nested path (`ui/index.html`, an app's entry), never
+        // an empty, `.`/`..` or dot-file component, a backslash or an absolute path.
+        self.entry = Self.isEntryPath(entry) ? entry : "index.html"
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
         self.passiveFrames = passiveFrames
+        self.followsChatZoom = followsChatZoom
+        self.servesHostOps = servesHostOps
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
     public func admits(_ op: String) -> Bool {
         guard !denied.contains(op) else { return false }
         return nativeOps.contains(op) || namespaces.contains { op.hasPrefix($0) && op.count > $0.count }
+    }
+
+    /// Whether the router may run its own host op or stream `op` for this page: always for a page
+    /// it serves them (``servesHostOps``), else only one the descriptor admits.
+    public func admitsHostOp(_ op: String) -> Bool {
+        servesHostOps || admits(op)
+    }
+
+    /// Whether `entry` names a file inside the page's root (``entry``).
+    static func isEntryPath(_ entry: String) -> Bool {
+        let parts = entry.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { !$0.isEmpty && !$0.hasPrefix(".") && !$0.contains("\\") }
     }
 
     /// `cmux-page://<id>`.
@@ -90,7 +126,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = id
-        components.path = "/"
+        // A nested entry loads at its own path, so its relative links resolve as in its folder.
+        components.path = entry.contains("/") ? "/" + entry : "/"
         if let route, !route.isEmpty {
             let fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route
             if fragment.removingPercentEncoding != nil, let encoded = fragment.addingPercentEncoding(withAllowedCharacters: Self.encodedFragmentCharacters) {
@@ -167,6 +204,9 @@ public extension PageDescriptor {
         actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
+            // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
+            // restore makes a machine from an archive (a money op, titled with the machine's name).
+            "cmux.cloud.machine.archive_delete": .delete, "cmux.cloud.snapshot.restore": .custom,
             "cmux.cloud.publication.delete": .delete, "cmux.cloud.firewall.delete": .delete,
             "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
@@ -190,20 +230,30 @@ public extension PageDescriptor {
                   "server.addServer",
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
+                  // Labs preview in Devices: reuse the remote host picker and workspace group.
+                  "remote.newGroup",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
+                  // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
+                  "computerUse.approval.forget", "computerUse.approval.set",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
-                  "import.card", "importFromBrowser"])
+                  "import.card", "importFromBrowser",
+                  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+                  "customize.open"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol"], ownsSearchField: true, acceptsFirstMouse: false)
+        gestureActions: ["remote.newGroup"],
+        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
-    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
-    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
+    /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``). A click on Open is the
+    /// person's own `app.open` (`gestureActions`): it opens the app as their Cmd-T would, where a page
+    /// script's run gets no view change (a real build: the Clock's Open opened nothing).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -234,7 +284,29 @@ public extension PageDescriptor {
     /// request drawn from the app's pull request cache, with no github.com page load. One tab per workspace, which
     /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
     /// in a page already running, never a new tab or a new web page.
-    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
+    /// Its only remote images are the ones GitHub's own rendering of a body points at (`bodyHTML`), which
+    /// go through GitHub's image proxy: camo for an outside image, so its host never sees the reader,
+    /// and the signed links of images people attached. No other host loads.
+    static let github = PageDescriptor(
+        id: "cmux.github", resource: "github", namespaces: ["cmux.github."], csp: PageCSP(image: githubImageSources))
+
+    static let githubImageSources = [
+        "https://camo.githubusercontent.com", "https://private-user-images.githubusercontent.com",
+        "https://user-images.githubusercontent.com", "https://avatars.githubusercontent.com",
+    ]
+
+    /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
+    /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
+    /// window's state; the page sends its commands and its content height.
+    static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
+    static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
+    static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
+    /// The browser's Import Cookies card (webviews/src/pages/cookie-import, its owner CmuxNextBrowser's
+    /// BrowserCookieImportCard through BrowserChromeWebHost), inside the card's native glass on the
+    /// window's overlay. `cmux.cookie-import.state` brings the card's lines; the page sends the
+    /// person's answer and its size. It takes the first click: the card's window is never key.
+    static let cookieImport = PageDescriptor(id: "cmux.cookie-import", resource: "cookie-import", namespaces: ["cmux.cookie-import."],
+                                             acceptsFirstMouse: true)
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
@@ -251,8 +323,30 @@ public extension PageDescriptor {
     static let files = PageDescriptor(
         id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
-    /// The History page (react-pages.md 2).
+    /// The Tasks page (webviews/src/pages/tasks, plans/cmux-next/tasks.md section 14). Its `cmux.tasks.` ops go
+    /// to the daemon, which relays them to the local Tasks owner (cmux-tui/spec/page-router.md, routed namespace
+    /// `tasks`); its only native op writes the pasteboard (Copy Command when no owner runs).
+    static let tasks = PageDescriptor(
+        id: "cmux.tasks", resource: "tasks", namespaces: ["cmux.tasks."], nativeOps: [PageNativeOp.clipboardWrite])
+
+    /// The History page (react-pages.md 2). Its `cmux.history.cookie_backups.` ops are the app's
+    /// (the Keychain-encrypted cookie backups); the rest are the daemon's history module.
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
+
+    /// The Feed page (plans/cmux-next/feed-page.md): the app shows only Chief Home's pinned
+    /// Needs you (`#/needs-you`); the Inbox tab (`#/inbox`) and the right sidebar's Feed
+    /// (`#/list`) have no entry point now. Its `cmux.feed.` ops go to the daemon's feed
+    /// client; it opens an item and runs a GitHub action through the host's actions, and Add
+    /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`).
+    static let feed = PageDescriptor(
+        id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed."],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        actions: ["feed.openItem", "feed.githubAction", "openSettings"])
+    /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
+    /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
+    static let stash = PageDescriptor(
+        id: "cmux.stash", resource: "stash", namespaces: ["cmux.stash."],
+        commands: PageNativeOp.commands.union(["open"]), ownsSearchField: true)
 }

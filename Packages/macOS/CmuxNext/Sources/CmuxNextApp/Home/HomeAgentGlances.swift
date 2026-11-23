@@ -1,7 +1,9 @@
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextTabs
 import CmuxNextSidebar
@@ -10,28 +12,24 @@ import CmuxNextSidebar
 struct HomeAgentGlances {
     let services: AppServices
 
-    /// The user's agents for the empty Chief conversation's glance
-    /// (`HomeFirstRunView`), machine by machine in each store's workspace order:
-    /// agent chat tabs, and terminals whose agent reported through a hook
-    /// while the terminal lives. A chat still on its New Tab page is not an
-    /// agent yet. Title and status come from `TabItemMapping`, the tab
-    /// strip's own mapping, so Home says what the strip and the sidebar show.
-    /// Reading this inside an `ObservationStream` tracks every value it
-    /// reads (the tab records, acpmux turn states, seen records).
-    var current: [HomeAgentGlance] {
-        let agentTabs = services.agentTabs
-        var glances: [HomeAgentGlance] = []
-        for (workspace, _) in services.machines.allWorkspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                let isChat = tab.agentSession != nil
-                guard isChat ? !RestoredNewTabPages.shows(tab, in: agentTabs) : tab.agent != nil && !tab.dead else { continue }
-                let glance = TabItemMapping.shared.glance(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
-                glances.append(HomeAgentGlance(id: tab.id, title: glance.title, icon: isChat ? .agentChat : .terminal,
-                                               status: glanceStatus(glance.status, working: StatusMapping.shared.isWorking(tabs: [tab])),
-                                               indicator: glance.indicator, indicatorStyle: glance.style))
-            }
+    /// One workspace's agents for the empty Chief conversation's glance (`HomeFirstRunView`): agent chat tabs, and
+    /// terminals whose agent reported through a hook while the terminal lives. A chat still on its New Tab page is not
+    /// an agent yet. Title and status come from `TabItemMapping`, the strip's own mapping, so Home says what it shows.
+    func glances(in workspace: WorkspaceModel) -> [HomeAgentGlance] {
+        workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> HomeAgentGlance? in
+            let isChat = tab.agentSession != nil
+            guard isChat ? !RestoredNewTabPages.shows(tab, in: services.agentTabs) : tab.agent != nil && !tab.dead else { return nil }
+            let glance = TabItemMapping.shared.glance(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
+            let status = glanceStatus(glance.status, working: StatusMapping.shared.isWorking(tabs: [tab]))
+            return HomeAgentGlance(id: tab.id, title: glance.title, icon: isChat ? .agentChat : .terminal, status: status, indicator: glance.indicator, indicatorStyle: glance.style)
         }
-        return glances
+    }
+
+    /// Each workspace's agents while `shows`, machine by machine in each store's workspace order (nil while not: then no
+    /// tab is read). One observation for each workspace: a tab that comes, goes or changes reads its own workspace again.
+    func feed(while shows: @escaping @MainActor @Sendable () -> Bool) -> ObservedItemsFeed<WorkspaceModel, [HomeAgentGlance]> {
+        ObservedItemsFeed(list: { [services] in shows() ? services.machines.allWorkspaces.map { $0.0 } : nil },
+                          id: { "\(ObjectIdentifier($0))" }, item: { [services] in HomeAgentGlances(services: services).glances(in: $0) })
     }
 
     /// The strip's status of an agent's tab as the glance's word: waiting

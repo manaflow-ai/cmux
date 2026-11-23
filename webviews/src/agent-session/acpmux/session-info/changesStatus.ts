@@ -26,7 +26,7 @@ import {
   subscribePullRequests,
   type PullRequestAnswer,
 } from "../chips/pullRequestStore";
-import type { ChangeKind, SessionInfoPullRequestStatus, LineCounts } from "./ChangesSection";
+import type { ChangeKind, SessionInfoPullRequestStatus, LineCounts } from "./changesSectionModel";
 
 /// The most links the host prefetches per `link.inspect` (AgentReplyPullRequests.maximumRegistered,
 /// AgentPaneReplyRequest.maximumInspect).

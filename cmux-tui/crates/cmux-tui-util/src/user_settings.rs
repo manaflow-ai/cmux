@@ -57,7 +57,9 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// and default as the app's `NewWorkspacePlacement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewWorkspacePlacement {
-    /// First, below the home workspace's row, above every group.
+    /// First, below the home workspace's row, above every group. The default
+    /// (Lawrence 2026-11-12: "by default all new workspaces should go to the
+    /// top"), for every client and creator.
     #[default]
     Top,
     /// Right after the session's active workspace, in its group (`Top`
@@ -94,6 +96,7 @@ impl NewWorkspacePlacement {
             return Self::default();
         };
         match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
+            Some("top") => Self::Top,
             Some("afterCurrent") => Self::AfterCurrent,
             Some("bottom") => Self::Bottom,
             _ => Self::default(),
@@ -195,6 +198,135 @@ pub fn resume_agents() -> bool {
             .unwrap_or(false),
         Ok(_) => false,
         Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Settings' Ultra Connection Mode (`remote.ultra`) for the WireGuard
+/// tunnels this Mac starts (Cloud, `wg hub`, the terminal client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UltraConnection {
+    /// No repair data.
+    Off,
+    /// The default: no extra data on a clean link; repair data within
+    /// about one round trip once packets are lost (cmux-wg `UltraChoice::Auto`).
+    #[default]
+    Auto,
+    /// Repair data on every connection, about 2-3x the bytes
+    /// (cmux-wg `UltraMode::SETTING`).
+    Always,
+}
+
+/// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
+/// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
+/// set to `true` is Always. Anything else, and a file that does not parse,
+/// is the default, Auto.
+pub fn ultra_from_config_text(text: &str) -> UltraConnection {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return UltraConnection::default();
+    };
+    match document.pointer("/remote/ultra").and_then(Value::as_str) {
+        Some("off") => UltraConnection::Off,
+        Some("always") => UltraConnection::Always,
+        Some("auto") => UltraConnection::Auto,
+        _ if document.pointer("/remote/ultraMode").and_then(Value::as_bool) == Some(true) => {
+            UltraConnection::Always
+        }
+        _ => UltraConnection::default(),
+    }
+}
+
+/// [`ultra_from_config_text`] of the settings file, read when a tunnel
+/// starts (a change applies to the next connection with no reload); Auto
+/// without a file, and always Auto in unit tests.
+pub fn ultra() -> UltraConnection {
+    if cfg!(test) {
+        return UltraConnection::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| ultra_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => UltraConnection::default(),
+    }
+}
+
+/// Settings-file `agents.cmuxMcp` ("cmux Tools for Agents in cmux"): whether
+/// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
+/// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
+/// `codex` shims, each launch) and the app's agent chats (acpmux, which reads
+/// the same key: `acpmux::agent_tools::agents_get_cmux`). Only through the
+/// launch: cmux never writes an agent's own config. On by default (cmux's
+/// tools come with the app); Settings > Agents turns it off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentsCmuxMcp {
+    /// The default (no value, `"on"`, or anything but `"off"`): agents cmux
+    /// starts get the server, and it serves them (as `"mcp": {"enabled":
+    /// true}` does, unless that key says otherwise).
+    #[default]
+    On,
+    /// The person turned it off: agents cmux starts get no `cmux` server.
+    Off,
+}
+
+impl AgentsCmuxMcp {
+    /// The dotted settings key.
+    pub const KEY: &'static str = "agents.cmuxMcp";
+
+    /// The value in the settings text, flat (`"agents.cmuxMcp"`) or nested
+    /// (`{"agents": {"cmuxMcp": …}}`), as the app's settings owner writes
+    /// either, under what an administrator set ([`cmux_config::managed::applied_to`]).
+    /// Only `"off"` is `Off`, and an `"off"` in either form wins over the
+    /// other; a file that does not parse is `On`.
+    pub fn from_config_text(text: &str) -> Self {
+        Self::applied(Self::file_value(text))
+    }
+
+    fn file_value(text: &str) -> Option<Value> {
+        let text = text.trim_start_matches('\u{feff}');
+        let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+        let flat = document.get(Self::KEY).cloned();
+        let nested = document.pointer("/agents/cmuxMcp").cloned();
+        let off = Value::String("off".into());
+        if flat.as_ref() == Some(&off) || nested.as_ref() == Some(&off) {
+            return Some(off);
+        }
+        flat.or(nested)
+    }
+
+    fn applied(file: Option<Value>) -> Self {
+        match cmux_config::managed::applied_to(Self::KEY, file).as_ref().and_then(Value::as_str) {
+            Some("off") => Self::Off,
+            _ => Self::On,
+        }
+    }
+
+    /// The value in the settings file at `path`; `On` without one.
+    pub fn from_config_file(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::from_config_text(&text),
+            Err(_) => Self::applied(None),
+        }
+    }
+
+    /// The value in the app's settings file ([`config_path`]), read at each
+    /// call so a change applies to the next agent launch with no reload.
+    pub fn current() -> Self {
+        Self::from_config_file(&config_path())
+    }
+
+    /// Whether the shims pass the cmux server to an agent launched in a cmux
+    /// terminal: unless the person turned it off.
+    pub fn injects(self) -> bool {
+        self == Self::On
+    }
+
+    /// The settings value (`on`, `off`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+        }
     }
 }
 
@@ -303,9 +435,69 @@ mod tests {
     }
 
     #[test]
+    fn agents_cmux_mcp_is_on_unless_the_file_says_off() {
+        use super::AgentsCmuxMcp as Choice;
+        assert_eq!(Choice::from_config_text(""), Choice::On);
+        assert_eq!(Choice::from_config_text("{}"), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "ask"}}"#), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "on"}}"#), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents.cmuxMcp": "off"}"#), Choice::Off);
+        assert_eq!(
+            Choice::from_config_text("{\n  // no\n  \"agents\": {\"cmuxMcp\": \"off\",},\n}"),
+            Choice::Off
+        );
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::On);
+        // Settings writes the nested key; an older flat value never outvotes its `off`.
+        assert_eq!(
+            Choice::from_config_text(r#"{"agents.cmuxMcp": "ask", "agents": {"cmuxMcp": "off"}}"#),
+            Choice::Off
+        );
+        assert_eq!(
+            Choice::from_config_text("\u{feff}{\"agents\": {\"cmuxMcp\": \"off\"}}"),
+            Choice::Off,
+            "a BOM reads as the settings owner reads it"
+        );
+        assert_eq!(
+            Choice::from_config_text("{not json"),
+            Choice::On,
+            "only an explicit off turns it off"
+        );
+        assert!(Choice::On.injects() && !Choice::Off.injects());
+        assert_eq!(
+            Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
+            Choice::On
+        );
+    }
+
+    #[test]
+    fn ultra_is_auto_unless_the_file_says_otherwise() {
+        use super::UltraConnection::{Always, Auto, Off};
+        use super::ultra_from_config_text as ultra;
+        assert_eq!(ultra(""), Auto);
+        assert_eq!(ultra("{}"), Auto);
+        assert_eq!(ultra(r#"{"remote": {"endSharingOnQuit": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "off"}}"#), Off);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "always"}}"#), Always);
+        assert_eq!(
+            ultra("{\n  // lossy hotel Wi-Fi\n  \"remote\": {\"ultra\": \"always\",},\n}"),
+            Always
+        );
+        assert_eq!(ultra(r#"{"remote": {"ultra": "auto", "ultraMode": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": true}}"#), Always, "the retired toggle on");
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": false}}"#), Auto, "and off: Auto");
+        assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
+        assert_eq!(ultra("{not json"), Auto);
+        assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {
         assert_eq!(Placement::from_config_text(""), Placement::Top);
         assert_eq!(Placement::from_config_text("{}"), Placement::Top);
+        assert_eq!(
+            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "top"}}"#),
+            Placement::Top
+        );
         assert_eq!(
             Placement::from_config_text(
                 "{\n  // order\n  \"workspaces\": {\"newPlacement\": \"bottom\",},\n}"

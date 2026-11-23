@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloudUI
 
 // The New Cloud Workspace progress in a window's content area (cx-lu8f).
 extension WindowController {
@@ -26,23 +27,43 @@ extension WindowController {
             return false
         }
         // The view in the content area is the creation's own record (no stored property).
-        if let shown = root.content as? CloudMachineProgressView, shown.creation === creation { return true }
+        if let shown = root.content as? CloudProgressHost, shown.source === creation { return true }
         parkContentForPage()
-        let view = CloudMachineProgressView(creation: creation, actions: CloudMachineProgressView.Actions(
-            retry: { [weak self] creation in
-                guard let self else { return }
+        let view = CloudProgressHost(source: creation, actions: .progress(
+            retry: { [weak self, weak creation] in
+                guard let self, let creation else { return }
                 CloudHandlers.creationFlow(AppActionContext(services: self.services)).retry(creation)
             },
-            dismiss: { [weak self] creation in
-                guard let self else { return }
+            dismiss: { [weak self, weak creation] in
+                guard let self, let creation else { return }
                 CloudHandlers.creationFlow(AppActionContext(services: self.services)).dismiss(creation, in: self.state)
             }))
+        creation.progressHost = view
         root.show(view)
-        // Keys typed before the terminal exists land on the view (it says so), not on a hidden pane.
+        // Keys typed before the terminal exists land on the page (it says so), not on a hidden pane.
         window?.makeFirstResponder(view)
         themeScope.show(nil)
         root.titlebar.title = CloudStrings.newCloudWorkspaceTitle
         services.windows.recordSaver.stateDidChange(state)
         return true
+    }
+}
+
+/// The progress page reads a creation as plain values (CloudUI knows no App type); its actions carry the App's copy.
+extension CloudMachineCreation: CloudProgressSource {
+    var progressStage: String { stage.name }
+    var progressStepIndex: Int? { stage.stepIndex }
+    var progressSteps: [String] { CloudMachineStage.steps.map(\.name) }
+    var progressFailure: String? { stage.failure }
+    var progressIdle: Bool { stage == .paused(idle: true) }
+    var progressMachine: String? { machineTitle }
+    var progressFinished: Bool { stage.isFinished }
+    func progressElapsed() -> Duration { elapsed() }
+    var progressChangeKey: String { "\(stage)|\(machineTitle ?? "")|\(workspaceID ?? "")" }
+}
+
+extension CloudProgressPageProvider.Actions {
+    static func progress(retry: @escaping @MainActor () -> Void, dismiss: @escaping @MainActor () -> Void) -> Self {
+        Self(retry: retry, dismiss: dismiss, copy: CloudPresenter.copy, personOnlyMessage: RefusalStrings.personOnlyFromPage)
     }
 }

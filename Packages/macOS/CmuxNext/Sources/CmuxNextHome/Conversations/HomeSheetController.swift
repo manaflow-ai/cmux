@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// The frame of the Home page's sheets (Invite, Invite to Team, New Chief): a
 /// title, the sheet's own content, a status line that says why an action
@@ -126,7 +127,7 @@ public class HomeSheetController: NSViewController {
         switch outcome {
         case .opened(let id): close(showing: id)
         case .invited(let id): close(showing: id)
-        default: show(HomeConversationStrings.outcome(outcome))
+        default: show(HomeModelStrings.outcome(outcome))
         }
     }
 

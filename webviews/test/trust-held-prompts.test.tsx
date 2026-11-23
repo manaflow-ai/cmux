@@ -6,6 +6,7 @@
 // trust refusal the rest wait for the next answer.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -31,13 +32,9 @@ type Held = ReturnType<typeof useTrustHeldPrompts>;
 type Entry = Parameters<Parameters<typeof useTrustHeldPrompts>[0]["send"]>[0];
 
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 /// A stand-in for acpmux: each prompt waits until the test takes or refuses it.

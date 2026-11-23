@@ -4,14 +4,11 @@ import QuartzCore
 
 /// A quiet icon button of the Home list's header (compose, the Unread toggle, the collapsed
 /// search), the composer chips' rule: no pill at rest, the theme's soft hover pill under the
-/// pointer, the pressed fill and a tiny shrink while held. The glyph is the theme's secondary
+/// pointer, the pressed fill while held and nothing else (design/pressed-state.md). The glyph is the theme's secondary
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
 /// A `glass` button sits on a glass circle its host lays under it (Messages' filter): its glyph
 /// is the theme's primary text, as Messages' white glyph on its glass.
 final class HomeHeaderButton: ClickableButton {
-    /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
-    static let pressScale: CGFloat = 0.94
-
     private let symbol: String
     /// The glyph while `isOn` (a toggle's filled glyph); nil for a plain button.
     private let onSymbol: String?
@@ -70,7 +67,7 @@ final class HomeHeaderButton: ClickableButton {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
         renderSymbol()
     }
 
@@ -93,10 +90,61 @@ final class HomeHeaderButton: ClickableButton {
         glyphSize = size
         glyphName = name
         glyphTint = tint
-        image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+        image = Self.centredSymbol(name, size: size)
         contentTintColor = tint
         needsDisplay = true
+    }
+
+    /// Symbol `name` at `size` with what it draws centred in its canvas, as a template (the tint
+    /// still applies). SF Symbols centre their layout box, not their ink: compose's pencil tip
+    /// lifts its box, so its square sat 1.75 pt below the other header glyphs. A new image
+    /// per call (only when the size, glyph or tint changes), so the button always redraws
+    /// (https://github.com/manaflow-ai/cmux/pull/24199).
+    static func centredSymbol(_ name: String, size: CGFloat) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular)) else { return nil }
+        var proposed = CGRect(origin: .zero, size: symbol.size)
+        guard let bitmap = symbol.cgImage(forProposedRect: &proposed, context: nil, hints: nil), let ink = inkBounds(bitmap) else {
+            return symbol
+        }
+        let scale = CGFloat(bitmap.width) / max(1, symbol.size.width)
+        // How far the ink's centre is from the canvas's, in points (x right, y down from the top).
+        let dx = (symbol.size.width / 2 - ink.midX / scale).snapped(scale: scale)
+        let dy = (symbol.size.height / 2 - ink.midY / scale).snapped(scale: scale)
+        // A canvas grown on both sides by the shift, so the moved ink is never clipped.
+        let canvas = NSSize(width: symbol.size.width + 2 * abs(dx), height: symbol.size.height + 2 * abs(dy))
+        let result = NSImage(size: canvas, flipped: true) { _ in
+            symbol.draw(in: NSRect(x: abs(dx) + dx, y: abs(dy) + dy, width: symbol.size.width, height: symbol.size.height),
+                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            return true
+        }
+        result.isTemplate = true
+        return result
+    }
+
+    /// The pixel rect (origin top-left) of `image`'s visible pixels, nil when it draws nothing.
+    static func inkBounds(_ image: CGImage) -> CGRect? {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            // The glyph's ink over white: a drawn pixel is a dark one.
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[y * width + x] < 224 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
     /// The glyph's colour in the view's theme scope (also on a theme or appearance change): the
@@ -128,7 +176,7 @@ final class HomeHeaderButton: ClickableButton {
         didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
     }
 
-    /// The press: the pressed fill and the shrink at once, both gone on release.
+    /// The press: the pressed fill, gone on release. The glyph never moves or shrinks.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         setPressed(true)
@@ -140,16 +188,6 @@ final class HomeHeaderButton: ClickableButton {
 
     private func setPressed(_ pressed: Bool) {
         hover.state.pressed = pressed
-        guard let layer else { return }
-        let w = bounds.width / 2, h = bounds.height / 2
-        let s = pressed ? Self.pressScale : 1
-        // The backing layer's anchor is its corner: scale about the centre.
-        let shrink = CATransform3DConcat(CATransform3DConcat(CATransform3DMakeTranslation(-w, -h, 0), CATransform3DMakeScale(s, s, 1)),
-                                         CATransform3DMakeTranslation(w, h, 0))
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.transform = pressed ? shrink : CATransform3DIdentity
-        CATransaction.commit()
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -165,4 +203,9 @@ final class HomeHeaderButton: ClickableButton {
                 "layerContents": layer?.contents != nil, "needsDisplay": needsDisplay]
     }
     #endif
+}
+
+private extension CGFloat {
+    /// Rounded to the nearest device pixel at `scale` (pixels per point).
+    func snapped(scale: CGFloat) -> CGFloat { scale > 0 ? (self * scale).rounded() / scale : self }
 }

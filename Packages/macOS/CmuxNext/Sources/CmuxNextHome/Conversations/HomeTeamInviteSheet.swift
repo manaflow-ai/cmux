@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// "Invite to <team>": one email address, and what a join costs the team before Send.
 ///
@@ -93,7 +94,7 @@ public final class HomeTeamInviteSheet: HomeSheetController, NSTextFieldDelegate
 
     override func submit() {
         guard let address else {
-            show(HomeConversationStrings.outcome(.invalidAddress(email.stringValue)))
+            show(HomeModelStrings.outcome(.invalidAddress(email.stringValue)))
             return
         }
         let send = onSend

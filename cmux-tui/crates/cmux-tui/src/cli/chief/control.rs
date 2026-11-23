@@ -74,6 +74,10 @@ pub(super) fn engine_line(report: &Value) -> String {
     if engine.get("speed").and_then(Value::as_str) == Some("fast") {
         line.push_str(" · fast");
     }
+    // The permission mode the next Claude turn runs in (cmux#37392).
+    if let Some(mode) = engine.get("permission_mode").and_then(Value::as_str) {
+        line.push_str(&format!(" · {mode}"));
+    }
     line
 }
 

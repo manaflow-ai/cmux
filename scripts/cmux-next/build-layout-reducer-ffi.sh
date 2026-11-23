@@ -40,7 +40,9 @@ for target in "${targets[@]}"; do
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
   obj="$out_root/slices/$target.o"; out="$out_root/slices/$target.a"
   exports="$out_root/slices/$target.exports"
-  grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' "$crate_dir/include/cmux_layout_reducer_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$exports"
+  # Every C function the header declares (cmux_layout_reducer_*, cmux_sidebar_*, cmux_focus_* and the rest), as
+  # build-app-ffi.sh exports them: a prefix list left the typed calls out of this artifact.
+  grep -oE '\bcmux_[a-z0-9_]+\(' "$crate_dir/include/cmux_layout_reducer_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$exports"
   clang -target "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" -r -nostdlib -Wl,-force_load,"$lib" -Wl,-exported_symbols_list,"$exports" -o "$obj"
   libtool -static -o "$out" "$obj"; libs+=("$out")
 done

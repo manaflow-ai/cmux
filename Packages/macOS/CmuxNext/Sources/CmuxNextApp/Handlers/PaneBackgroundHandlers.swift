@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextBridge
+import CmuxNextWindowRules
 
 /// Appearance per window, workspace, pane and tab (plans/cmux-next/appearance-scopes-DESIGN.md):
 /// `appearance.set|reset` (every level and property) and the menu rows `pane.setBackground`,
@@ -17,8 +18,10 @@ struct PaneBackgroundHandlers {
             if !saved { ctx.refuse(PaneBackgroundStrings.noDurablePane) }
         }
 
-        func reset(_ target: AppearanceTarget, properties: [AppearanceProperty]) -> Bool {
-            properties.filter { $0.levels.contains(target.level) }
+        /// Clears `target`'s own values of the properties a reset verb names (Rust names only those set
+        /// at the level).
+        func reset(_ target: AppearanceTarget, _ verb: WindowRules.AppearanceVerb) -> Bool {
+            (verb.properties ?? []).compactMap(AppearanceProperty.init(rawValue:))
                 .allSatisfy { ctx.services.themes.setOwnValue(nil, $0, of: target) }
         }
 
@@ -30,11 +33,19 @@ struct PaneBackgroundHandlers {
             return .some(tint.id)
         }
 
-        func levelAndProperty(_ invocation: ActionInvocation) -> (AppearanceLevel, AppearanceProperty?)? {
-            guard let level = invocation["scope"]?.stringValue.flatMap(AppearanceLevel.init(name:)), level != .app, level != .rule else { return nil }
-            guard let raw = invocation["property"]?.stringValue else { return (level, nil) }
-            guard let property = AppearanceProperty(rawValue: raw) else { return nil }
-            return (level, property)
+        /// What `appearance.set|reset` does: the level and property it names, whether the property is
+        /// set there, and which theme action a level's theme goes through (cmux-window-rules `appearance`).
+        func appearanceVerb(scope: String?, property: String?, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
+            let ask = WindowRules.AppearanceAsk(scope: scope, property: property, set: set)
+            let verb = WindowRules().appearance(ask)
+            guard let verb, let level = verb.level.flatMap(AppearanceLevel.init(name:)) else {
+                return ctx.refuse(verb?.refusal == "notAtLevel" ? PaneBackgroundStrings.notAtLevel : PaneBackgroundStrings.badProperty)
+            }
+            return (level, verb)
+        }
+
+        func appearanceVerb(_ invocation: ActionInvocation, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
+            appearanceVerb(scope: invocation["scope"]?.stringValue, property: invocation["property"]?.stringValue, set: set)
         }
 
         func target(_ level: AppearanceLevel, _ invocation: ActionInvocation) -> AppearanceTarget? {
@@ -68,8 +79,9 @@ struct PaneBackgroundHandlers {
             save(ctx.services.themes.setOwnValue(tint, .tint, of: .pane(pane)))
         })
         registry.bind("pane.clearBackground", invoke: { invocation in
-            guard let pane = ctx.paneController(invocation) else { return }
-            save(reset(.pane(pane), properties: AppearanceProperty.allCases))
+            guard let pane = ctx.paneController(invocation),
+                  let (_, verb) = appearanceVerb(scope: AppearanceLevel.pane.name, property: nil, set: false) else { return }
+            save(reset(.pane(pane), verb))
         })
         registry.bind("workspace.setTint", invoke: { invocation in
             guard let id = ctx.scope(invocation).workspace?.id ?? ctx.refuse(RefusalStrings.noWindowShowsWorkspace),
@@ -81,40 +93,26 @@ struct PaneBackgroundHandlers {
             save(ctx.services.themes.setOwnValue(tint, .tint, of: target))
         })
         registry.bind("appearance.set", invoke: { invocation in
-            guard let (level, property) = levelAndProperty(invocation), let property else {
-                return ctx.refuse(PaneBackgroundStrings.badProperty)
-            }
-            guard property.levels.contains(level) else { return ctx.refuse(PaneBackgroundStrings.notAtLevel) }
+            guard let (level, verb) = appearanceVerb(invocation, set: true) else { return }
             let value = (invocation["value"]?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
-            guard property.accepts(value) else { return ctx.refuse(PaneBackgroundStrings.badValue) }
+            let property = verb.properties?.first.flatMap(AppearanceProperty.init(rawValue:))
+            guard (property ?? .theme).accepts(value) else { return ctx.refuse(PaneBackgroundStrings.badValue) }
             guard let target = target(level, invocation) else { return }
-            if property == .theme, let forwarded = Self.themeAction(level, set: true) {
-                _ = ctx.services.registry.perform(forwarded, invocation: forward(invocation, theme: value))
+            if let forwarded = verb.themeAction {
+                _ = ctx.services.registry.perform(ActionID(rawValue: forwarded), invocation: forward(invocation, theme: value))
                 return
             }
+            guard let property else { return }
             save(ctx.services.themes.setOwnValue(value, property, of: target))
         })
         registry.bind("appearance.reset", invoke: { invocation in
-            guard let (level, property) = levelAndProperty(invocation) else { return ctx.refuse(PaneBackgroundStrings.badProperty) }
+            guard let (level, verb) = appearanceVerb(invocation, set: false) else { return }
             guard let target = target(level, invocation) else { return }
-            let properties = property.map { [$0] } ?? AppearanceProperty.allCases
-            if properties.contains(.theme), let forwarded = Self.themeAction(level, set: false) {
-                _ = ctx.services.registry.perform(forwarded, invocation: forward(invocation, theme: nil))
+            if let forwarded = verb.themeAction {
+                _ = ctx.services.registry.perform(ActionID(rawValue: forwarded), invocation: forward(invocation, theme: nil))
             }
-            save(reset(target, properties: properties.filter { $0 != .theme || Self.themeAction(level, set: false) == nil }))
+            save(reset(target, verb))
         })
-
-    }
-
-    /// Window, workspace and tab themes keep their own saved rows (`ThemeHandlers`): `appearance`
-    /// forwards to them so there is one theme path per level.
-    static func themeAction(_ level: AppearanceLevel, set: Bool) -> ActionID? {
-        switch level {
-        case .window: set ? "space.setTheme" : "space.clearTheme"
-        case .workspace: set ? "workspace.setTheme" : "workspace.clearTheme"
-        case .tab: set ? "terminal.setTheme" : "terminal.clearTheme"
-        case .app, .rule, .pane: nil
-        }
     }
 
     private func forward(_ invocation: ActionInvocation, theme: String?) -> ActionInvocation {

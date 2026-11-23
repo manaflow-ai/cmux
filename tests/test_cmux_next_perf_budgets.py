@@ -44,6 +44,32 @@ class ScrollPlanTests(unittest.TestCase):
                         self.assertEqual(command[command.index("--target-hz") + 1], target)
 
 
+class BenchAppTests(unittest.TestCase):
+    def test_every_bench_measures_the_app_it_is_given(self):
+        """home-perf.py took no --app and looked for a reload.sh build, so on the fleet (split-spring.sh builds
+        into .build/DerivedData/cmux-measure) it exited in 0.2 s and every run's home rows were missing: an
+        incomplete gate (stable-next run 42930043303)."""
+        with tempfile.TemporaryDirectory() as out:
+            args = ["perf-budgets.py", "--tag", "test", "--app", "/fleet/cmux DEV test.app", "--out", out]
+            with patch.object(sys, "argv", args), patch.object(pb, "run_phase") as run, patch.object(pb, "finish"):
+                pb.main()
+        plan = run.call_args.args[2]
+        for name in pb.BENCHES:
+            command = plan[name][0]
+            with self.subTest(bench=name):
+                self.assertIn("--app", command)
+                self.assertEqual(command[command.index("--app") + 1], "/fleet/cmux DEV test.app")
+
+    def test_home_perf_takes_the_app_and_refuses_a_missing_one(self):
+        import subprocess
+        script = os.path.join(ROOT, "scripts/cmux-next/home-perf.py")
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, script, "--tag", "t", "--out", os.path.join(out, "h.json"),
+                                   "--app", os.path.join(out, "none.app")], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no app at", done.stderr + done.stdout)
+
+
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed
@@ -97,6 +123,7 @@ class MappingTests(unittest.TestCase):
                                                                                  {"kind": "daemon", "cpu_percent": 2}]}}}),
                          {"idle.terminals.app_cpu_pct": (0.4, 0.4)})
         sidebar = {"sizes": {"400": {"ticks": {"ticking": {"cpu_pct": 12.5}, "main_ms_per_s": 80.0,
+                                               "per_tick": {"row_maps": 0.8},
                                                "frames_while_ticking": {"p50_ms": 8.3, "p95_ms": 9.1}},
                                      "switch_matrix": {"tickers": 15, "terminal.click": {
                                          "input_to_idle_ms": {"p50": 20, "p95": 41}, "longest_frame_ms": {"p50": 17, "p95": 33}}}}}}
@@ -106,9 +133,86 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(rows["sidebar.400.ticking.cpu_pct"], (12.5, 12.5))
         self.assertEqual(rows["sidebar.400.ticking.main_ms_per_s"], (80.0, 80.0))
         self.assertEqual(rows["sidebar.400.ticking.frame"], (8.3, 9.1))
+        # Tabs and terminals as they grow: the grown workspace counts only, `@` out of the name (the cron's host mark).
+        self.assertEqual(pb.rows_surfaces_scale({"summary": {
+            "idle/new_tab": {"visible_p50": 8, "visible_p95": 12},
+            "idle@10ws/new_tab": {"visible_p50": 9, "visible_p95": 13},
+            "idle@30ws/new_terminal": {"visible_p50": 10, "visible_p95": 15}}}),
+            {"cmd_t.idle_10ws.key_to_visible": (9, 13), "ctrl_backtick.idle_30ws.key_to_visible": (10, 15)})
+        self.assertEqual(pb.rows_tab_close({"phases": {"light": [
+            {"scenario": "cmdw-terminal", "invalid": [], "input_to_next_commit_ms": {"n": 20, "p50": 6.1, "p95": 9.2}},
+            {"scenario": "cmdw-chat", "invalid": ["the scenario never ran its burst"]},
+            {"scenario": "cmdd", "invalid": [], "input_to_next_commit_ms": {"n": 20, "p50": 7, "p95": 11}}]}}),
+            {"tab_close.terminal.burst.input_to_commit": (6.1, 9.2)})
+        self.assertEqual(pb.rows_tab_close(None), {})
+        self.assertEqual(rows["sidebar.400.ticking.row_maps_per_tick"], (0.8, 0.8))
         # An older build's report with another shape (or none) leaves the rows empty, never raises.
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
+
+    def test_typing_stages_become_rows_that_are_never_judged(self):
+        """CMUX-571 typing-latency: the chat composer's typing stages (key to page, key to edit and render done) are
+        stored beside to_frame and to_paint, with no budget, no regression check and no baseline entry."""
+        stat = lambda p50, p95: {"p50_ms": p50, "p95_ms": p95, "max_ms": p95 + 1}  # noqa: E731
+        rep = {"modes": {"chromium": {"summary": {"typing_to_frame": stat(10.5, 12.8), "typing_to_paint": stat(11, 13),
+                                                  "typing_to_listener": stat(1.2, 2.5), "typing_to_work": stat(3.1, 6.0)}},
+                         "own": {"summary": {"typing_to_frame": stat(13, 15),
+                                             "typing_to_listener": {"p50_ms": 0, "p95_ms": 0, "max_ms": 0}}}}}
+        rows = pb.rows_acp(rep)
+        self.assertEqual(rows["acp.chromium.typing.to_listener"], (1.2, 2.5))
+        self.assertEqual(rows["acp.chromium.typing.to_work"], (3.1, 6.0))
+        # A build without the stage marks: typingSummary's zeros (or no key) make no row, never a 0 ms one.
+        self.assertNotIn("acp.own.typing.to_listener", rows)
+        self.assertNotIn("acp.own.typing.to_work", rows)
+        self.assertEqual(rows["acp.own.typing.to_frame"], (13, 15))
+        self.assertTrue(pb.STAGE_ROW_RE.match("acp.chromium.typing.to_work@cmux20-bench"))
+        self.assertFalse(pb.STAGE_ROW_RE.match("acp.chromium.typing.to_frame"))
+        with tempfile.TemporaryDirectory() as out:
+            base = os.path.join(out, "base.json")
+            json.dump({"p95": {"acp.chromium.typing.to_frame": 12.8, "acp.chromium.typing.to_work": 1.0}}, open(base, "w"))
+            opts = type("Opts", (), {"out": out, "profile": False, "baseline": base, "json": os.path.join(out, "r.json"),
+                                     "tag": "t", "raw": "", "write_baseline": os.path.join(out, "new.json"), "gate": True})()
+            with self.assertRaises(SystemExit) as done:
+                pb.finish(opts, json.load(open(pb.BUDGETS_FILE)), ["acp"], {}, rows)
+            self.assertEqual(done.exception.code, 0, "a stage over its (stale) baseline value never fails the gate")
+            report = json.load(open(opts.json))
+            by_name = {r["name"]: r for r in report["rows"]}
+            self.assertIsNone(by_name["acp.chromium.typing.to_work"]["budget"])
+            self.assertEqual(by_name["acp.chromium.typing.to_frame"]["budget"], 8.33)
+            self.assertNotIn("acp.chromium.typing.to_work", report["over_budget"])
+            written = json.load(open(opts.write_baseline))["p95"]
+            self.assertIn("acp.chromium.typing.to_frame", written)
+            self.assertNotIn("acp.chromium.typing.to_work", written)
+
+    def test_tab_churn_report_maps_to_budgeted_rows(self):
+        """ask-8a0837950b: tab-churn-bench.py's summary becomes terminal_burst.* rows, each with a budget and an expected family."""
+        churn_spec = importlib.util.spec_from_file_location("tab_churn", os.path.join(ROOT, "scripts/cmux-next/tab-churn-bench.py"))
+        churn = importlib.util.module_from_spec(churn_spec)
+        churn_spec.loader.exec_module(churn)  # main() runs only as a script: importing launches nothing
+        burst = [{"visible_ms": v} for v in (8, 9, 10, 9, 11, 12, 16, 18, 20)]
+        summary = churn.summarize({"open@1": [{"visible_ms": 7, "key_ms": 1}, {"visible_ms": 9, "key_ms": 2}],
+                                   "close@1": [{"visible_ms": 8}, {"visible_ms": None, "error": "no new tab page"}],
+                                   "new_terminal": burst, "open@31": [{"visible_ms": 12}],
+                                   "close@31": [{"visible_ms": 13}], "close_terminal": [{"visible_ms": 21.5}]})
+        self.assertEqual(summary["close@1"]["visible_ms"]["missed"], 1)
+        self.assertEqual(summary["close@1"]["errors"], ["no new tab page"])
+        self.assertEqual((summary["new_terminal"]["first"]["p50"], summary["new_terminal"]["last"]["p50"]), (9, 18))
+        self.assertEqual(summary["new_terminal"]["growth"], 2.0)  # the last ten open twice as slow as the first
+        rows = pb.rows_terminal_burst({"summary": summary})
+        self.assertEqual(rows, {"terminal_burst.open.1.key_to_visible": (7, 9), "terminal_burst.close.1.key_to_visible": (8, 8),
+                                "terminal_burst.new_terminal.first.key_to_visible": (9, 10),
+                                "terminal_burst.new_terminal.last.key_to_visible": (18, 20), "terminal_burst.new_terminal.growth": (2.0, 2.0),
+                                "terminal_burst.open.31.key_to_visible": (12, 12), "terminal_burst.close.31.key_to_visible": (13, 13),
+                                "terminal_burst.close_terminal.key_to_state": (21.5, 21.5)})
+        budgets = json.load(open(pb.BUDGETS_FILE))
+        for name in rows:
+            self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
+            self.assertTrue(any(re.fullmatch(p, name) for p in budgets["expected"]["terminal_burst"]), name)
+        self.assertEqual(pb.budget_for("terminal_burst.new_terminal.growth", budgets)["unit"], "x")
+        # Opt-in: the default suite is what stable-next's --gate step runs, and this group must not become a gate row.
+        self.assertNotIn("terminal_burst", pb.BENCHES)
+        self.assertIn("terminal_burst", pb.OPT_IN_BENCHES)
+        self.assertEqual(pb.rows_terminal_burst(None), {})
 
     def test_animation_rows_take_their_budgets_from_the_perf_bench_file(self):
         rows = pb.rows_anim({"summary": [{"anim": "tab-new", "p50_ms": 8.3, "p95_ms": 9.0, "dropped": 2, "main_ms_max": 12.5}]})
@@ -127,11 +231,17 @@ class MappingTests(unittest.TestCase):
                  "cmd_shift_d.idle.key_to_visible", "tab_switch.chromium.10.e2e",
                  "palette.home_cmd_p.key_to_frame", "idle.terminals.app_cpu_pct",
                  "workspace_switch.chromium.cmd_digit.input_to_idle", "workspace_switch.terminal.next_prev.longest_frame",
-                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame"]
+                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame",
+                 "tab_switch.terminal.30.e2e", "tab_close.terminal.burst.input_to_commit",
+                 "tab_close.chat.burst.input_to_commit", "cmd_t.idle_30ws.key_to_visible",
+                 "ctrl_backtick.idle_10ws.key_to_visible",
+                 "sidebar.400.ticking.row_maps_per_tick"]
         for name in names:
             self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
         for pattern in budgets["rows"]:
             re.compile(pattern)
+        # Every group perf-budgets.py can run names the row families it must measure.
+        self.assertEqual(set(budgets["expected"]), set(pb.BENCHES) | set(pb.OPT_IN_BENCHES))
 
 
 split_spec = importlib.util.spec_from_file_location("perf_profile_split",

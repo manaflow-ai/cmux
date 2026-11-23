@@ -1,5 +1,5 @@
 //! An event-driven authority lease for one already authenticated stream.
-//! The verifier owns the weak control handle; the transport owns the lease.
+//! The transport owns the lease.
 //! No timer, runtime, I/O or token replay happens here.
 
 use crate::elapsed::Deadline;
@@ -61,32 +61,18 @@ impl PartialEq for StreamLease {
 }
 impl Eq for StreamLease {}
 
-pub(crate) struct LeaseControl(Weak<Mutex<State>>);
-
 impl StreamLease {
     /// A fixed lease for a verifier whose authority cannot renew. TokenVerifier
     /// implementations remain responsible for authenticating before creating it.
     pub fn fixed_until(deadline: Instant) -> Self {
-        Self::controlled(deadline).0
-    }
-
-    pub(crate) fn controlled(deadline: Instant) -> (Self, LeaseControl) {
-        Self::with_budget(deadline, None)
-    }
-
-    pub(crate) fn with_budget(
-        deadline: Instant,
-        elapsed: Option<Deadline>,
-    ) -> (Self, LeaseControl) {
         let observer = Arc::new(Mutex::new(Observer { observed: 0, waiter: None }));
         let state = Arc::new(Mutex::new(State {
             deadline: Some(deadline),
-            elapsed,
+            elapsed: None,
             revision: 0,
             observers: vec![Arc::downgrade(&observer)],
         }));
-        let control = LeaseControl(Arc::downgrade(&state));
-        (Self { state, observer }, control)
+        Self { state, observer }
     }
 
     pub fn deadline(&self) -> Option<Instant> {
@@ -131,39 +117,5 @@ impl Drop for Changed<'_> {
         if let Ok(mut observer) = self.lease.observer.lock() {
             observer.waiter = None;
         }
-    }
-}
-
-impl LeaseControl {
-    pub(crate) fn deadline(&self) -> Option<Instant> {
-        self.0.upgrade()?.lock().ok()?.live_deadline()
-    }
-
-    pub(crate) fn elapsed_deadline(&self) -> Option<Deadline> {
-        self.0.upgrade()?.lock().ok()?.elapsed.clone()
-    }
-
-    /// Return the waker rather than executing arbitrary transport code under
-    /// the verifier's state lock. Callers wake only after dropping that lock.
-    pub(crate) fn set(&self, deadline: Option<Instant>, elapsed: Option<Deadline>) -> Vec<Waker> {
-        let Some(state) = self.0.upgrade() else { return Vec::new() };
-        let Ok(mut state) = state.lock() else { return Vec::new() };
-        if state.deadline == deadline && state.elapsed == elapsed {
-            return Vec::new();
-        }
-        state.deadline = deadline;
-        state.elapsed = elapsed;
-        state.revision = state.revision.wrapping_add(1);
-        let mut wake = Vec::new();
-        state.observers.retain(|observer| {
-            let Some(observer) = observer.upgrade() else { return false };
-            if let Ok(mut observer) = observer.lock()
-                && let Some(waker) = observer.waiter.take()
-            {
-                wake.push(waker);
-            }
-            true
-        });
-        wake
     }
 }

@@ -52,7 +52,7 @@ fn provision(entry: &Entry, stream: &mut UnixStream, reader: &mut BufReader<Unix
 }
 
 #[test]
-fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry() {
+fn native_owner_provisions_attaches_and_reads_context_over_real_entry() {
     let fake = FakeAcpmux::start_with(
         "native-first",
         Fixture { start_folder_trusted: Some(true), ..Default::default() },
@@ -66,6 +66,9 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
     assert!(
         identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-content-v1"))
+    );
+    assert!(
+        identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-context-v1"))
     );
     let cwd = entry._directory.path().to_string_lossy().into_owned();
     ok(
@@ -85,8 +88,8 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
         methods,
         [
             json!("acp.trust.get"),
-            json!("_acpmux/web_modes"),
             json!("_acpmux/harnesses"),
+            json!("_acpmux/web_modes"),
             json!("acp.trust.get"),
             json!("session/new"),
             json!("_acpmux/web_modes")
@@ -94,6 +97,24 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     );
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let context = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}),
+    );
+    assert_eq!(context["parts"][0]["text"], "Read early.");
+    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION}));
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"project", "text":"read together"}),
+    );
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "_acpmux/context_override");
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION, "scope":"project", "text":"read together"})
+    );
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-detach", "surface":surface}));
     // The grant never promotes this connection to a generic local one.
     for frame in [
@@ -134,7 +155,7 @@ fn native_owner_start_preserves_folder_trust() {
     let methods: Vec<_> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
     assert_eq!(
         methods,
-        [json!("_acpmux/web_modes"), json!("_acpmux/harnesses"), json!("acp.trust.get")]
+        [json!("_acpmux/harnesses"), json!("_acpmux/web_modes"), json!("acp.trust.get")]
     );
 }
 
@@ -155,6 +176,34 @@ fn native_owner_identify_lists_the_no_folder_start() {
     let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
     let capabilities = identity["capabilities"].as_array().unwrap();
     assert!(capabilities.contains(&json!(AGENT_SESSION_START_NO_CWD_CAPABILITY)), "{identity}");
+}
+
+/// A Cloud capture's chat start failed "started but its agent didn't (cmux-tui connection closed:
+/// EOF)" (2026-11-07): identify on the Native owner link left out viewport-splits-v1,
+/// viewport-column-resize-v1 and layout-undo-v1, which the app requires, so the app read the
+/// machine's daemon as refused and ran its machine update on every reconnect, also under the start,
+/// though the machine already ran the app's own build. Every capability the app requires
+/// (plans/cmux-next/daemon-capabilities.json, exported from its `DaemonCapability`) is on that link.
+#[test]
+fn native_owner_identify_lists_every_capability_the_app_requires() {
+    let export: Value = serde_json::from_str(include_str!(
+        "../../../../../plans/cmux-next/daemon-capabilities.json"
+    ))
+    .unwrap();
+    let required: Vec<&str> =
+        export["required"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+    assert!(!required.is_empty());
+    let fake = FakeAcpmux::start("native-required");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let listed = identity["capabilities"].as_array().unwrap();
+    let missing: Vec<&str> =
+        required.iter().copied().filter(|c| !listed.contains(&json!(c))).collect();
+    assert!(missing.is_empty(), "the Native owner link leaves out {missing:?}: {identity}");
 }
 
 #[test]
@@ -192,6 +241,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"new-tab", "pane":1}),
             json!({"cmd":"close-surface", "surface":1}),
             json!({"cmd":"send-key", "surface":1, "key":"enter"}),
+            json!({"cmd":"set-layout-sizes", "transaction":1, "values":[{"pane":1, "width":0.5}]}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -267,8 +317,10 @@ fn native_data_frames_reach_only_the_owner() {
         crate::fs_ops::FS_SYMLINK_CAPABILITY,
         crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
         crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+        crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
         crate::git_seed::GIT_SEED_CAPABILITY,
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+        crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");
@@ -321,6 +373,94 @@ fn native_owner_opens_a_terminal_tab_and_types_into_it() {
     assert_ne!(listed["error_code"], json!(REMOTE_DENIED), "{listed}");
 }
 
+/// The sizes a resize gesture ends with (`set-layout-sizes`) on the owner's own machine. The
+/// carrier takes each value's own command (`set-split-ratio`, `set-viewport-pane-width`), so it
+/// takes the one command that applies the same values as one change: two columns made over the
+/// link get both widths from one request.
+#[test]
+fn native_owner_sets_two_column_widths_with_one_command() {
+    let fake = FakeAcpmux::start("native-layout-sizes");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let workspace = ok(&mut stream, &mut reader, json!({"cmd":"create-workspace", "name":"sizes"}));
+    let terminal = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"create-terminal", "workspace":workspace["workspace"], "cols":80, "rows":22}),
+    );
+    let left = terminal["pane"].as_u64().unwrap();
+    let column = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"new-pane-right", "pane":left, "width":0.5, "cols":38, "rows":22}),
+    );
+    let surface = column["surface"].as_u64().unwrap();
+    let right = entry.mux.with_state(|state| state.pane_of(surface).unwrap());
+    // Each column of the screen that holds the first pane: its panes and its width.
+    let columns = || {
+        entry.mux.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .find(|screen| {
+                    screen
+                        .layout_columns
+                        .iter()
+                        .any(|column| column.root.pane_ids_vec().contains(&left))
+                })
+                .map(|screen| {
+                    screen
+                        .layout_columns
+                        .iter()
+                        .map(|column| (column.root.pane_ids_vec(), column.width))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+    };
+    let before = columns();
+    assert_eq!(
+        before.iter().map(|column| column.0.clone()).collect::<Vec<_>>(),
+        vec![vec![left], vec![right]],
+        "the fixture: two columns of one pane each"
+    );
+
+    let reply = call(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-layout-sizes", "transaction":1,
+        "values":[{"pane":left, "width":0.4}, {"pane":right, "width":0.6}]}),
+    );
+    assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let after = columns();
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert!(
+        (after[0].1 - 0.4).abs() < 1e-4 && (after[1].1 - 0.6).abs() < 1e-4,
+        "the one command set the widths {before:?} to {after:?}, want 0.4 and 0.6"
+    );
+}
+
+/// The app sends `set-layout-sizes` only on a connection whose identify lists
+/// `layout-sizes-batch-v1`. Without the name on this link the app sends each value as its own
+/// command: separate commits, not all or none.
+#[test]
+fn native_owner_identify_lists_the_layout_sizes_batch() {
+    let fake = FakeAcpmux::start("native-layout-sizes-identify");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!(LAYOUT_SIZES_BATCH_CAPABILITY)), "{identity}");
+}
+
 /// The app's commands that the Native owner carrier does not take: each one is a decision, not an
 /// omission. A command the app adds must land in `native_owner::COMMANDS` or here, else
 /// `every_app_command_is_decided_for_the_owner_link` fails (2026-11-05: new-tab and
@@ -332,8 +472,13 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    // `cmux device setup|start` for this Mac's own app only: it reaches the person's other Macs
+    // over ssh, never for a device on the owner link.
+    "device-setup",
+    "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
+    "agent-session-share-open-link",
     "agent-session-share-revoke",
     "agent-session-share-room",
     "agent-session-share-uninvite",
@@ -343,6 +488,13 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    "apps-open-link",
+    // A web pane's call goes through the local page host's bridge (its app's grant, its page key):
+    // a remote owner link hosts no page, so the carrier does not take it.
+    "apps-page-call",
+    // The provider's change notice is the verified local app's, as its register and its result:
+    // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
+    "apps-provider-changed",
     "apps-provider-register",
     "apps-provider-result",
     "apps-run",
@@ -352,6 +504,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
+    // The app sends input by the id of a creating terminal only to its local daemon
+    // (`queuesCreatingInput`), so no owner link has such input to cancel: default deny
+    // (`native_terminal_cannot_cancel_creating_input`).
+    "cancel-creating-input",
     "client-hello",
     "close-screen",
     "close-screen-group",
@@ -374,6 +530,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-begin",
     "feed-local-handoff-done",
     "feed-local-list",
+    "float-pane",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
@@ -421,7 +578,12 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
+    // This Mac's Computer Use settings and saved approvals: the verified local app only
+    // (origin.forbidden otherwise); another machine reaches Computer Use through the relay.
+    "computer-use-config",
+    "computer-use-approvals",
     "remote-host-call",
     "remote-host-config",
     "remote-host-status",
@@ -445,6 +607,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-command-context",
     "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",

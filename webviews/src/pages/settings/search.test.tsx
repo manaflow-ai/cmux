@@ -39,6 +39,14 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   ).not.toBeNull();
 });
 
+test("search finds Keep Mac Awake under the words people use for it", async () => {
+  page = await renderPage();
+  for (const query of ["keep awake", "sleep", "prevent sleep", "caffeinate", "stay awake"]) {
+    await changeValue(search(page), query);
+    expect(resultKeys(page)).toContain("sessions.keepAwake");
+  }
+});
+
 test("search finds rows by current value", async () => {
   page = await renderPage({
     mock: { values: { "browser.newTabPage": "https://start.cmux.dev", "appearance.backgroundBlur": "glass-clear" } },
@@ -55,6 +63,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   page = await renderPage({ path: "/settings/general" });
   await changeValue(search(page), "appearance.backgroundOpacity");
   await fire(search(page), "keydown", { key: "Enter" });
+  // Appearance draws the background rows: Return opens it on the row.
   expect(page.history.location.pathname).toBe("/settings/appearance");
   expect(page.history.location.search).toBe("?focus=appearance.backgroundOpacity");
   expect(search(page).value).toBe("");
@@ -66,7 +75,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   await fire(search(page), "keydown", { key: "Escape" });
   expect(search(page).value).toBe("");
   await fire(search(page), "keydown", { key: "Escape" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("appearance");
+  expect(document.activeElement?.getAttribute("data-section-link")).toBe("appearance");
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {
@@ -141,4 +150,24 @@ test("a focused route reveals its row once values arrive and focuses its visible
   } finally {
     window.HTMLElement.prototype.scrollIntoView = original;
   }
+});
+
+test("search finds the Devices page by the words of its switches; a click opens it", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const hits = () =>
+    [...page!.container.querySelectorAll("[data-search-results] [data-page-hit]")].map((hit) =>
+      hit.getAttribute("data-page-hit"),
+    );
+  for (const query of ["devices", "control", "screen sharing", "mac screen", "remote control", "Devices"]) {
+    await changeValue(search(page), query);
+    expect(hits()).toContain("devices");
+    expect(page.container.querySelector(".empty[data-open]")).toBeNull();
+  }
+  await changeValue(search(page), "zzzz-no-match");
+  expect(hits()).toEqual([]);
+  await changeValue(search(page), "screen sharing");
+  await click(page.container.querySelector('[data-page-hit="devices"]')!);
+  expect(page.history.location.pathname).toBe("/settings/devices");
+  expect(search(page).value).toBe("");
+  expect(page.container.querySelector('[data-section="devices"]')).not.toBeNull();
 });

@@ -3,6 +3,8 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+import type { EndpointBackend } from "../shared/byoEndpoint";
+
 /** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
  * one message, never on a send. A send with more files goes as several messages
  * (`messageGroups`), so any number of files attaches. cap-allow: route */
@@ -61,7 +63,43 @@ export const HomeOps = {
   chiefAvatar: "cmux.home.chiefAvatar",
   /** A local Chief's own subagents and registered background processes (read-only snapshot). */
   chiefWork: "cmux.home.chiefWork",
+  /** Ranks the Cmd-K palette's rows (`PaletteRankRequest` in, `{sections}` out): the daemon's
+   * `palette.rank`, the shared palette ranker. */
+  paletteRank: "cmux.home.paletteRank",
+  /** My Send Later messages in one conversation (`{conversation}`): `{scheduled: HomeScheduled[]}`. */
+  scheduled: "cmux.home.scheduled",
+  /** One change of my Send Later queue (`HomeScheduleChange`): `{scheduled?: HomeScheduled}`. */
+  schedule: "cmux.home.schedule",
 } as const;
+
+/** One of my Send Later messages: the owner sends it at `sendAt` (ms) as me
+ * (`conversation-scheduled-v1`); `failed` when the owner refused it then (`failure`: its reason). */
+export interface HomeScheduled {
+  id: string;
+  conversation: string;
+  text: string;
+  sendAt: number;
+  state: "waiting" | "failed";
+  failure?: string;
+  threadRoot?: string;
+  /** The files it carries (they send with it). */
+  attachments: number;
+}
+
+/** `cmux.home.schedule`'s params. */
+export type HomeScheduleChange =
+  | {
+      kind: "create";
+      conversation: string;
+      text: string;
+      sendAt: number;
+      attachments?: readonly HomeAttachment[];
+      threadRoot?: string;
+      replyTo?: string;
+    }
+  | { kind: "update"; id: string; sendAt?: number; text?: string }
+  | { kind: "cancel"; id: string }
+  | { kind: "sendNow"; id: string };
 
 /** `cmux.home.capabilities`: each entry is hidden when its capability is missing (no dead ends). */
 export interface HomeCapabilities {
@@ -73,6 +111,8 @@ export interface HomeCapabilities {
   chiefs: boolean;
   /** The local owner serves a scoped Chief work inventory (`chief-work-v1`). */
   chiefWork?: boolean;
+  /** Send Later in local conversations (`conversation-scheduled-v1`). */
+  sendLater?: boolean;
 }
 
 /** The tools a Chief may be granted (the daemon's closed catalog). */
@@ -168,7 +208,8 @@ export interface HomeChiefBackend {
  * The key goes to the Keychain through the host; the page never keeps it after submit. */
 export type HomeChiefByoBackend =
   | { kind: "command"; name: string; command: string; args: string[] }
-  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+  /** `id` and `replace` (the form's own earlier add, written again): shared/byoEndpoint.ts. */
+  | EndpointBackend;
 
 /** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
 export interface HomeChiefDoctor {
@@ -222,6 +263,8 @@ export interface HomeConversation {
   createdAt?: number;
   /** Messages after my read cursor. */
   unread: number;
+  /** The others' read cursors (the newest seq each read), by participant id: my messages' Read receipts. */
+  readCursors?: Readonly<Record<string, { seq: number }>>;
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
   mentions: number;
   muted: boolean;
@@ -251,9 +294,91 @@ export interface HomeMention {
 
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
-  | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
+  | {
+      type: "work";
+      title: string;
+      status: "running" | "waiting" | "done" | "failed";
+      preview?: string;
+      /** The acpmux session it names (a machine name: never shown as its text). */
+      session?: string;
+    }
   | HomeAttachment
+  | HomeQuestion
+  | HomeLinkPreviewPart
+  | HomeLocation
+  | HomeWidgetPart
   | { type: "other"; text: string };
+
+/** An agent's chat widget (`Part::Widget`, cmux-tui cmux-conversation `widget.rs`;
+ * plans/cmux-next/chat-widgets-DESIGN.md section 3): a Mac with the named app draws it as a card
+ * from the app's `cmux.chat.widget/1` export; everywhere else, and until it loads, the fallback. */
+export interface HomeWidgetPart {
+  type: "widget";
+  /** The app id, `publisher/name`. */
+  app: string;
+  /** The interface the app implements (`cmux.chat.widget/1`). */
+  widget: string;
+  /** The export's input (a JSON object, data only). */
+  props: Record<string, unknown>;
+  /** Plain text every client without the card shows (copy, search, previews). */
+  fallback: string;
+  url?: string;
+}
+
+/** One option of a question item (`QuestionItem.options`). */
+export interface HomeQuestionOption {
+  id: string;
+  label: string;
+  detail?: string;
+  /** Shown beside the option (a Chief approval's allow option carries the request JSON here). */
+  preview?: { text: string; format: "monospace" | "markdown" | "html" };
+}
+
+/** One question of an ask (`QuestionItem`). */
+export interface HomeQuestionItem {
+  id: string;
+  header?: string;
+  prompt: string;
+  options: HomeQuestionOption[];
+  multiSelect: boolean;
+  allowsOther: boolean;
+}
+
+/** Where a question stands; only its owner moves it out of pending. */
+export type HomeQuestionState =
+  | { kind: "pending" }
+  | { kind: "cancelled" }
+  | { kind: "answered"; selections: Record<string, { optionIds: string[]; other?: string }> };
+
+/** A `question` part (cmux-tui spec/commands.md `Question`): an agent's question with options. A
+ * Chief's permission card is one of these (one `approval:<digest>` item with allow and deny). */
+export interface HomeQuestion {
+  type: "question";
+  harness: "claude" | "codex" | "acp" | "chief";
+  session: string;
+  permission?: string;
+  agent?: string;
+  items: HomeQuestionItem[];
+  state: HomeQuestionState;
+}
+
+/** A `link_preview` part: a link with the preview its sender fetched (receivers never fetch it). */
+export interface HomeLinkPreviewPart {
+  type: "link_preview";
+  url: string;
+  title?: string;
+  site?: string;
+  /** Its picture, a blob of the conversation read by hash. */
+  image?: HomeDerivedImage;
+}
+
+/** A shared place. */
+export interface HomeLocation {
+  type: "location";
+  latitude: number;
+  longitude: number;
+  label?: string;
+}
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
 export interface HomeDerivedImage {
@@ -356,12 +481,18 @@ export interface HomeInbox {
   /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
    * Mark as Unread only then. */
   inboxState?: boolean;
+  /** Why the Cloud inbox read failed (absent: it answered, or there is no Cloud). The Cloud rows are
+   * the last good list; the page says so and reads again. Never a sign-out. */
+  cloudError?: string;
 }
 
 /** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */
 export interface HomePinRequest {
   conversation: string;
   pinned: boolean;
+  /** The pin's place in my grid (the owners' scale: ms since 1970 plus the tile's index); absent: now
+   * for a new pin. A drag in the Messages list numbers the whole grid. */
+  position?: number;
   idempotencyKey?: string;
 }
 
@@ -445,6 +576,8 @@ export interface HomeEventBatch {
   avatars?: string[];
   /** A Chief's live run frames (`chief-live-v1`), in order: never stored by any owner. */
   live?: HomeLiveFrame[];
+  /** Conversations whose Send Later list of mine changed (`conversation-scheduled-changed`). */
+  scheduled?: string[];
 }
 
 /** One live frame of a running run (the "Live frames" contract both brains send). */

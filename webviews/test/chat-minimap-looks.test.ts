@@ -4,7 +4,7 @@
 // both variants, the at-rest one (no placeholder) included.
 import { afterEach, expect, test } from "bun:test";
 import entry from "../src/agent-session/acpmux/chatMinimap/chatMinimap.gallery";
-import { placeholderLook } from "../src/agent-session/acpmux/chatMinimap/ChatMinimap";
+import { placeholderLook } from "../src/agent-session/acpmux/chatMinimap/chatMinimapModel";
 
 const scope = globalThis as { localStorage?: unknown; cmuxExperiments?: Record<string, string> };
 const storage = scope.localStorage;

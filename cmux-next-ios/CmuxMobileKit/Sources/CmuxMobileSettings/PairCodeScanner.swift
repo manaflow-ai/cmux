@@ -2,6 +2,7 @@
 @preconcurrency import AVFoundation
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -55,7 +56,7 @@ struct PairCodeScannerSheet: View {
                 .ignoresSafeArea()
                 .overlay(alignment: .bottom) { hint }
             case .notDetermined:
-                ProgressView()
+                CmuxSpinner()
             default:
                 ContentUnavailableView {
                     Label("Camera access is off", systemImage: "camera")

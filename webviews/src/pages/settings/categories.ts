@@ -1,7 +1,7 @@
 // The page's navigation (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task, not by
 // scope or by the schema's sections. The layout (categories, group cards, their order and titles) is
-// defined once in Swift (`SettingsPageLayout`) and exported as the schema's `page`; this page and the
-// GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
+// defined once in schemas/settings/source/page-layout.json and exported as the schema's `page`; this
+// page and the GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
 // ids (`app settings <section>`, `#/settings/rooms`): each category lists them as `aliases`.
 import { rowsByKey, schema, type LocalizedText, type SchemaRow } from "./schema";
 
@@ -18,6 +18,9 @@ export const CATEGORY_CARDS = [
   "accounts",
   "agentHarnesses",
   "agentIntegrations",
+  "agentCustomization",
+  "agentTools",
+  "agentSkills",
   "chiefs",
   "advancedInfo",
   "advancedActions",
@@ -26,6 +29,7 @@ export const CATEGORY_CARDS = [
   "devices",
   "chiefPet",
   "density",
+  "textSize",
   "importSuggestions",
   "channels",
   "appUpdate",
@@ -34,7 +38,16 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "cloudModels",
+  "worktreeSetup",
   "contextMenus",
+  "sharedLinks",
+  "customizeLibrary",
+  "customizeChecklist",
+  "tailnet",
+  "models",
+  "keys",
+  "mcpServers",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
@@ -83,8 +96,9 @@ const built = build();
 
 export const categories: readonly Category[] = built.categories;
 
-/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. */
-export type SidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. A
+ * `collapsed` run (More, the last) is drawn closed until opened or until one of its categories shows. */
+export type SidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 /** The sidebar's sections, as the Swift layout exports them. */
 export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
@@ -128,6 +142,20 @@ export function categoryOf(id: string | undefined): string {
   return (id && aliases.get(id)) || defaultCategory;
 }
 
+/** The card a route names inside `category`: a path that is one of its cards and not the category
+ * itself (`#/settings/machines` is Accounts' Machines card), or `?focus=card.<card>` (the host's
+ * card deep link). The page opens on that card, not the category's top. Null otherwise. */
+export function routeCard(
+  section: string | undefined,
+  focus: string | null | undefined,
+  category: string,
+): CategoryCard | null {
+  const named = focus?.startsWith("card.") ? focus.slice("card.".length) : section;
+  if (!named || named === category || !isCard(named)) return null;
+  const { lead, trail } = categoryById(category);
+  return lead.includes(named) || trail.includes(named) ? named : null;
+}
+
 export function categoryById(id: string): Category {
   return categories.find((category) => category.id === id) ?? categories[0]!;
 }
@@ -135,4 +163,23 @@ export function categoryById(id: string): Category {
 /** The rows of a category, in display order. */
 export function categoryRows(id: string): SchemaRow[] {
   return categoryById(id).groups.flatMap((group) => group.rows);
+}
+
+/** The category `section` opens, checked against where `key`'s row actually lives.
+ *
+ * A gallery variant or a test that names a section only to show one row has two ways to name the
+ * wrong page and no way to notice: a legacy alias opens its category (`personalization` is
+ * Appearance's, so it never looks wrong), and a row that moved to another category leaves the old
+ * page rendering fine, just without that row. Either way the capture shows the wrong page and the
+ * variant's `play` waits for a row that is never drawn. Refused here, with both pages named. */
+export function sectionShowing(section: string, key: string): string {
+  const home = homes.get(key)?.category;
+  if (home === undefined) throw new Error(`settings: no row ${JSON.stringify(key)} to show`);
+  const opens = categoryOf(section);
+  if (home !== opens)
+    throw new Error(
+      `settings: section ${JSON.stringify(section)} opens ${JSON.stringify(opens)}, but ` +
+        `${JSON.stringify(key)} is on ${JSON.stringify(home)}`,
+    );
+  return opens;
 }

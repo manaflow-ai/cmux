@@ -22,6 +22,7 @@ import {
 import { changelogStore } from "./lib/changelog-store";
 import { isDocsZoneDeployment } from "./lib/docs-channel";
 import { keepServedDocsEntries, releaseDocsUrls } from "./lib/release-docs-sitemap";
+import { nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
 
 /**
  * The served sitemap. A docs zone lists the docs it was built with. The main
@@ -125,6 +126,14 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
+    // cmux-next docs, English only, at the nightly zone's URL (the only one that serves them).
+    ...nextDocPages.map((page) => ({
+      path: nextDocPublicPath(page.slug),
+      lastModified: "2026-11-09",
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+      locales: ["en"],
+    })),
     { path: changelogPath, lastModified: latestChangelogDate, changeFrequency: "weekly" as const, priority: 0.5 },
     ...changelog.map((release) => ({
       path: changelogVersionPath(release.version),

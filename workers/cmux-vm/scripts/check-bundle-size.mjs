@@ -8,7 +8,18 @@ import { gzipSync } from "node:zlib";
 
 // Agent keys, client sessions and the agent reaper measured 417.0 KiB (409.3 KiB before); no dependency was added.
 // Mesh creations, the member read and the receiver policy read measured 424.4 KiB; no dependency was added.
-const BUDGET_GZIP_BYTES = 435 * 1024; // 298 KiB at S1
+// Device intents (claim, revoke, reconcile lease, attempt rows) and the orphan tunnel sweep measured 441.6 KiB
+// (432.9 KiB before); no dependency was added.
+// Atomic agent-key VM slots (limits/agent-slots.ts) and the no-count tenant policy measured 446.5 KiB; no dependency
+// was added.
+// The staging database fault switch (src/db/fault.ts) measured 450.7 KiB; no dependency was added.
+// The vm_create and vm_start timing lines and a create that joins its mesh (meshId) measured 451.6 KiB; no dependency
+// was added.
+// The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
+// dependency was added.
+// A long exec as a provider background request (src/upstream/live-background.ts) measured 455.7 KiB (454.8 KiB
+// before); no dependency was added.
+const BUDGET_GZIP_BYTES = 458 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

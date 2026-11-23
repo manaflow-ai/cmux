@@ -16,6 +16,13 @@ a busy mini waits for the rescue (two rounds of CI_PR_POOL_QUEUE_ROUNDS).
 
 A run placed on an owned pool names a Blacksmith `retry_runner`, the pool
 github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml).
+
+Admission by expected wait (cmuxterm-hq#16113 step 3): an owned pool the
+overflow probe's verdict in RUNNER_POOLS `_admission` (scripts/ci/expected_wait.py)
+calls saturated, (queued + running) / runners x p50 run time over 5 minutes, is
+skipped and the run takes the next rung. Only a verdict at most VERDICT_MAX_MINUTES
+old counts; none, a stale one or an unreadable RUNNER_POOLS changes nothing.
+Nightly and promote runs never skip (they never take Blacksmith).
 """
 
 from __future__ import annotations
@@ -98,6 +105,10 @@ RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 # running count says. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 jobs queued (oldest 396 min)
 # and 0 running, so it read as 5 free slots, and nightly 40452273751's verify jobs went there.
 BLACKSMITH_STALL_MINUTES = 10
+# An expected-wait verdict older than this (the probe runs every 10 minutes) decides nothing.
+VERDICT_MAX_MINUTES = 30
+# Bands an admission verdict never moves off an owned pool: the nightly and promote paths never use Blacksmith.
+ADMISSION_EXEMPT_BANDS = frozenset({PRIORITY_NIGHTLY, PRIORITY_PROMOTE})
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
@@ -190,8 +201,12 @@ class Pool:
 
     @property
     def unreserved_available(self) -> int:
-        """Slots a new run can use without delaying queued release/nightly jobs."""
-        return max(0, self.available - self.reserved)
+        """Slots a new run can use without delaying queued release/nightly jobs: none while any is queued here.
+
+        A reservation holds the whole label, not one slot: subtracting the reserved count left a label with ten
+        slots and one queued app FFI release build open to pull request runs, which then queued ahead of the
+        build as before (2026-11-10, run 42833220418 waited 66 minutes on blacksmith-6vcpu-macos-26)."""
+        return 0 if self.reserved > 0 else self.available
 
 
 @dataclasses.dataclass(frozen=True)
@@ -205,6 +220,8 @@ class State:
     fallback: str = BLACKSMITH[1]
     gui_required: bool = False
     band: str = PRIORITY_SIDE_JOB
+    # Owned labels whose expected wait is over the admission target (saturated_labels()).
+    saturated: frozenset[str] = frozenset()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,6 +269,8 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             # AWS is deliberately compile-only until its console login is
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
             if state.gui_required and _owned_namespace(pool.label) == "aws":
+                continue
+            if pool.label in state.saturated and state.band not in ADMISSION_EXEMPT_BANDS:
                 continue
             if fits(pool):
                 retry = _retry_label(state, pool)
@@ -316,8 +335,14 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
-    # A stalled label is the last resort: least loaded among the moving ones first.
+    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first. This
+    # comes before the reservation filter so that, with every moving label held, a run queues on a held moving
+    # label rather than on a dead one.
     eligible = [pool for pool in eligible if not pool.stalled] or eligible
+    # A label holding queued release, nightly or app FFI release work is never the overflow either: the
+    # least-loaded choice below used to ignore the reservation. Only when every moving label is held does a run
+    # queue on one, as it would on any full label.
+    eligible = [pool for pool in eligible if pool.reserved == 0] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
@@ -500,7 +525,31 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
                  gui_required=(env.get("CMUX_CI_GUI_REQUIRED") == "true"
                                or env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
-                 band=band)
+                 band=band, saturated=saturated_labels(env.get("RUNNER_POOLS")))
+
+
+def saturated_labels(raw: str | None, now: Any = None) -> frozenset[str]:
+    """The labels RUNNER_POOLS' `_admission` verdict calls saturated, when it is at most VERDICT_MAX_MINUTES old.
+
+    Missing, malformed, undated, stale or future verdicts name none: the pick is as it was without one."""
+    import datetime as dt
+
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return frozenset()
+    verdict = value.get("_admission") if isinstance(value, dict) else None
+    if not isinstance(verdict, dict) or not isinstance(verdict.get("pools"), dict):
+        return frozenset()
+    try:
+        at = dt.datetime.fromisoformat(str(verdict.get("at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return frozenset()
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if at.tzinfo is None or not (now - dt.timedelta(minutes=VERDICT_MAX_MINUTES) <= at <= now + dt.timedelta(minutes=1)):
+        return frozenset()
+    return frozenset(label for label, entry in verdict["pools"].items()
+                     if isinstance(label, str) and isinstance(entry, dict) and entry.get("saturated") is True)
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
@@ -581,12 +630,31 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
 
 
 def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
-    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
-    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
-    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots."""
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()). A dead
+    label counts as stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free
+    slots.
+
+    While one label shows life, the other's showing nothing is enough. With both showing nothing, an idle healthy
+    label looks dead too (blacksmith_dead()), so only a label holding a job left waiting (stuck_queue()) is dead:
+    in a quiet hour both labels stay usable, and with both labels stuck every job stays on the owned route. Until
+    2026-11-17 both dead read as none dead, and a dead label's free-looking slots took jobs and the retry label."""
     labels = set(BLACKSMITH[:2])
     out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
-    return set() if out >= labels else out
+    return out if out < labels else {label for label in out if stuck_queue(snapshot, label)}
+
+
+def stuck_queue(snapshot: Mapping[str, Any] | None, label: str) -> bool:
+    """Whether the snapshot shows `label` holding a queued job that waited BLACKSMITH_STALL_MINUTES when the
+    snapshot was made (its own figure, not aged by now: the wait it saw went unserved then). A job queued a minute
+    before the snapshot says nothing yet; a moving label starts one in a few minutes."""
+    pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
+    entry = pools.get(label) if isinstance(pools, Mapping) else None
+    if not isinstance(entry, Mapping):
+        return False
+    try:
+        return int(entry.get("queued", 0)) > 0 and float(entry.get("oldest_queued_minutes", 0)) >= BLACKSMITH_STALL_MINUTES
+    except (TypeError, ValueError):
+        return False
 
 
 def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:

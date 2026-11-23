@@ -35,7 +35,7 @@ import Testing
         paused.createdBy = "alice"
         let cap = CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine, theirs, paused], user: "alice")
         #expect(cap.busy.map(\.machine) == ["vm_mine"], "never a teammate's machine, nor one not running")
-        #expect(CloudMachineCap.busy(machines: [mine], user: nil).isEmpty)
+        #expect(CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine], user: nil).busy.isEmpty)
         #expect(CloudMachineCap.plan(freePlan: true, pauseFrees: true, machines: [mine], user: "alice") == CloudMachineCap(freePlan: true))
     }
 

@@ -103,6 +103,9 @@ impl Mux {
         Self::insert_optional_string(fields, CLIENT_PANE_ID_FIELD, spawn.pane_id);
         Self::insert_optional_string(fields, CLIENT_TAB_ID_FIELD, spawn.tab_id);
         Self::insert_optional_string(fields, CLIENT_SPLIT_ID_FIELD, spawn.split_id);
+        if let Some(around) = spawn.around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
@@ -170,7 +173,19 @@ impl Mux {
             anyhow::Ok((plan, before, tabs))
         });
         let (mut plan, before, tabs) = prepared?;
+        let full_projection = plan.restates_all;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
+            .and_then(|()| {
+                // After the result took its public value from the full deltas.
+                if plan.prunes_stated
+                    && let Some(deltas) = registry.prune_stated_projection_deltas(&plan.deltas)?
+                {
+                    // Pruned deltas no longer restate every resource; `full_projection` keeps
+                    // that the plan did.
+                    plan.deltas = deltas;
+                }
+                anyhow::Ok(())
+            })
             .and_then(|()| {
                 #[cfg(test)]
                 {
@@ -204,6 +219,12 @@ impl Mux {
             }
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
+        }
+        if full_projection && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &plan.deltas);
+        }
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &plan.restated);
         }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan
@@ -267,6 +288,7 @@ impl Mux {
             entity,
             workspace_revision,
             transaction: None,
+            mutation: None,
         })
     }
 

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -27,8 +28,7 @@ extension DebugMouse {
               let target = frame.hitTest(frame.convert(events[0].locationInWindow, from: nil)) else {
             return .object(["error": .string("no view under the point")])
         }
-        target.mouseDown(with: events[0])
-        target.mouseUp(with: events[1])
+        SyntheticInput.click(target, down: events[0], up: events[1])
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "view": .string(String(describing: type(of: target))), "delivered": .number(2)])
     }
@@ -44,8 +44,8 @@ extension DebugMouse {
     /// to its frame (`key.scroll_frame`). `delivered_to` names who took it, as for a plain scroll; an error
     /// when no page is under the point.
     ///
-    /// Not on the path: `NSApp.sendEvent`, `NSWindow.sendEvent` and every other local event monitor (the
-    /// Chromium swipe's `CEFSwipeNavigation`, `HoverCardCoordinator`, `NewTabSparePool`'s input note). A
+    /// Not on the path: `NSApp.sendEvent`, `NSWindow.sendEvent` and every other local event monitor (
+    /// `HoverCardCoordinator`, `NewTabSparePool`'s input note). A
     /// synthesized scroll has no window AppKit can route it to, and a queued event would answer after the
     /// reply, so this calls the layout and the view directly, as the plain `scroll` action does. A bench that
     /// uses it measures the layout's routing and pan, not those monitors' per-event work.

@@ -64,8 +64,21 @@ public final class SidebarPriorityFeed {
         self.chats = chats
     }
 
-    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it).
-    public func start(_ view: SidebarView) -> Task<Void, Never> {
+    /// The window's Allow and Deny on its answerable rows and Needs You items (``SidebarApprovals``);
+    /// nil: no row answers.
+    var approvals: SidebarApprovals?
+
+    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it), with
+    /// `approvals` answering its rows and its Needs You tray.
+    public func start(_ view: SidebarView, approvals: SidebarApprovals? = nil) -> Task<Void, Never> {
+        self.approvals = approvals
+        let feed = observe(view)
+        guard let approvals else { return feed }
+        return feed.cancelling(approvals.followLanes())
+            .cancelling(approvals.followTray(view) { SidebarSessionTreeFeed.shared.workspaces(showing: $0) })
+    }
+
+    private func observe(_ view: SidebarView) -> Task<Void, Never> {
         view.onPriorityAction = { [weak self] action in self?.perform(action) }
         // task-owner: the sidebar bridge (cancelled in teardown); event-driven (Observation)
         // The task holds the feed: it lives as long as the window's sidebar shows it.
@@ -100,7 +113,12 @@ public final class SidebarPriorityFeed {
         let visible = Set(built.lanes.filter {
             !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
         }.map(\.id))
-        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }
+        let answerable = approvals?.answerable ?? [:]
+        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
+            var entry = entry
+            entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
+            return entry
+        }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
@@ -111,6 +129,7 @@ public final class SidebarPriorityFeed {
         switch action {
         case .open(let id): if let lane = chats.lane(id) { hooks.open(lane) }
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
+        case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()

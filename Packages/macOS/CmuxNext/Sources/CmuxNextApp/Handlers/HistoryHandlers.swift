@@ -1,7 +1,9 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextPalette
+import CmuxNextWindowRules
 import Foundation
 
 /// History actions (plans/cmux-next/history.md): Go Back / Forward / Last
@@ -10,15 +12,15 @@ import Foundation
 enum HistoryHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        // Nowhere to go is a navigation no-op (R136): refused quietly, so callers get the reason
-        // and a key press shows nothing.
-        let walks: [(ActionID, LocationTrailService.Direction, @MainActor () -> String)] = [
-            ("focusHistoryBack", .back, { HistoryAppStrings.nothingBack }),
-            ("focusHistoryForward", .forward, { HistoryAppStrings.nothingForward }),
-            ("focusHistoryLast", .last, { HistoryAppStrings.nothingLast }),
-        ]
-        for (id, direction, nowhere) in walks {
-            registry.bind(id, run: { _ in
+        // `history::actions`. Nowhere to go is refused quietly (R136): callers get the reason, a key press shows nothing.
+        let table = WindowRules().historyActions()
+        for walk in table?.walks ?? [] {
+            let (direction, nowhere): (LocationTrailService.Direction, @MainActor () -> String) = switch walk.direction {
+            case "forward": (.forward, { HistoryAppStrings.nothingForward })
+            case "last": (.last, { HistoryAppStrings.nothingLast })
+            default: (.back, { HistoryAppStrings.nothingBack })
+            }
+            registry.bind(ActionID(rawValue: walk.action), run: { _ in
                 guard services.locationTrail.navigate(direction) else { throw ActionFailure.noTarget(nowhere()) }
             })
         }
@@ -28,13 +30,14 @@ enum HistoryHandlers {
                 throw ActionFailure(message: HistoryAppStrings.entryGone)
             }
         })
-        let pages: [(ActionID, @MainActor (AppServices) -> PalettePageSpec)] = [
-            ("recentlyFocused", HistoryPalettePages.locations),
-            ("recentlyClosed", HistoryPalettePages.closed),
-            ("history.search", HistoryPalettePages.search),
-            ("history.commands", HistoryPalettePages.commands),
-        ]
-        for (id, make) in pages {
+        for page in table?.pages ?? [] {
+            let make: @MainActor (AppServices) -> PalettePageSpec = switch page.page {
+            case "closed": HistoryPalettePages.closed
+            case "search": HistoryPalettePages.search
+            case "commands": HistoryPalettePages.commands
+            default: HistoryPalettePages.locations
+            }
+            let id = ActionID(rawValue: page.action)
             services.palette.sources.actionPages[id] = { [weak services] in services.map(make) }
             registry.bind(id, run: { _ in services.palette.show(page: make(services), relativeTo: context.activeWindow?.window) })
         }
@@ -51,8 +54,8 @@ enum HistoryHandlers {
                 return nil
             })
         })
-        for id: ActionID in ["history.show", "browserShowHistory"] {
-            registry.bind(id, run: { _ in services.historyPage.open() })
+        for id in table?.historyPage ?? [] {
+            registry.bind(ActionID(rawValue: id), run: { _ in services.historyPage.open() })
         }
         registry.bind("agentHistory.show", run: { invocation in context.paneController(invocation).map { AgentHistoryPage.open(in: $0) } })
         registry.bind("history.reopen", run: { invocation in
@@ -64,11 +67,13 @@ enum HistoryHandlers {
             guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
             let newTab = invocation["newTab"]?.boolValue ?? false
             services.registry.track(Task { @MainActor in
-                guard let entry = await services.history.entry(id: id), entry.isAvailable else {
-                    return ActionWorkFailure(HistoryAppStrings.entryGone)
+                switch await services.history.lookup(id: id).opening {
+                case .success(let entry):
+                    HistoryRestorer(services: services).open(entry, newTab: newTab)
+                    return nil
+                case .failure(let refusal):
+                    return refusal
                 }
-                HistoryRestorer(services: services).open(entry, newTab: newTab)
-                return nil
             })
         })
         registry.bind("history.clear", run: { invocation in
@@ -79,31 +84,46 @@ enum HistoryHandlers {
         bindLayoutUndo(registry, context)
     }
 
-    /// A layout undo the daemon asked to confirm (it closes panes): the
-    /// next Undo Layout Change on the same screen revision confirms it.
-    private final class PendingUndo { var revision: UInt64? }
-
-    /// Undo Layout Change: the daemon's per-screen undo (`layout-undo-v1`).
+    /// Undo Layout Change: the daemon's per-screen undo (`layout-undo-v1`). An undo that closes the
+    /// panes its change made runs at once; it asks only as a tab close does (`TabCloseGuard`): while
+    /// a person's undo would end an agent at work or a running program in them.
     private static func bindLayoutUndo(_ registry: ActionRegistry, _ context: AppActionContext) {
-        let pending = PendingUndo()
         registry.bind("layout.undo", run: { invocation in
             guard let pane = context.paneController(invocation) else { throw ActionFailure(message: HistoryAppStrings.noPane) }
-            let daemon = context.services.daemon(for: pane.pane)
+            let services = context.services, daemon = services.daemon(for: pane.pane)
             guard daemon.supports("layout-undo-v1") else { throw ActionFailure(message: daemon.missingCapabilityMessage("layout-undo-v1")) }
             guard let connection = daemon.connection else { throw ActionFailure(message: HistoryAppStrings.machineOffline) }
-            let handle = pane.pane.handle
-            let confirming = pending.revision
-            pending.revision = nil
-            context.services.registry.track(Task { @MainActor in
+            let handle = pane.pane.handle, asks = invocation.origin == .user
+            services.registry.track(Task { @MainActor in
                 do {
-                    let response = try await connection.undoLayout(pane: handle, confirmingRevision: confirming)
-                    guard response.confirmationRequired == true else { return nil }
-                    pending.revision = response.revision
-                    return ActionWorkFailure(HistoryAppStrings.undoClosesPanes(response.closesPanes?.count ?? 1))
+                    // The daemon previews an undo that closes panes; the second call, on its revision, runs it.
+                    let preview = try await connection.undoLayout(pane: handle)
+                    guard preview.confirmationRequired == true else { return nil }
+                    let tabs = (preview.closesPanes ?? []).compactMap { daemon.store.pane($0) }.flatMap(\.tabs)
+                    if asks, let prompt = await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt {
+                        let window = services.windows.active?.window
+                        let confirmed = await withCheckedContinuation { answer in
+                            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { answer.resume(returning: $0) }
+                        }
+                        guard confirmed else { return nil }
+                    }
+                    try await connection.undoLayout(pane: handle, confirmingRevision: preview.revision)
+                    return nil
                 } catch {
                     return ActionWorkFailure("undo-layout", error)
                 }
             })
         })
+    }
+}
+
+extension HistoryLookup {
+    /// The entry `history.open` opens, or why it opens none.
+    @MainActor var opening: Result<HistoryEntry, ActionWorkFailure> {
+        switch self {
+        case .found(let entry) where entry.isAvailable: .success(entry)
+        case .stillLoading: .failure(ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading))
+        case .found, .gone: .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
+        }
     }
 }

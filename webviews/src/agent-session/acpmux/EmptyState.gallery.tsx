@@ -2,9 +2,12 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { EmptyStateProjects } from "./EmptyState";
+import type { TourOfferActions } from "./repoTour/TourOffer";
 import type { Project } from "./ProjectChooser";
 
-type Props = { project?: string; picker?: EmptyStateProjects };
+type Props = { project?: string; picker?: EmptyStateProjects; tour?: TourOfferActions };
+
+const tour: TourOfferActions = { onTake: () => undefined, onDismiss: () => undefined };
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/cmux", label: "cmux" },
@@ -39,7 +42,7 @@ export default componentEntry<Props>({
   id: "agent-pane.empty-state",
   title: "New chat hero project picker",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/EmptyState.tsx#EmptyState"],
+  covers: ["agent-session/acpmux/EmptyState.tsx#EmptyState", "agent-session/acpmux/repoTour/TourOffer.tsx#TourOffer"],
   load: () => import("./EmptyState").then((module) => module.EmptyState),
   styles: () => import("./styles.css"),
   widths: { narrow: 360, normal: 640, wide: 900 },
@@ -64,6 +67,17 @@ export default componentEntry<Props>({
       note: "No project: the question has no folder and a quiet Choose folder sits under it; No folder is checked.",
       props: { picker: picker() },
       play: open,
+    },
+    "tour-offer": {
+      note: "A folder no chat has used: Take a tour of this repo hangs under the question, out of its flow, so the question never moves; a dim × (Not now) sits beside it.",
+      props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
+    },
+    "tour-offer-hover": {
+      note: "Hovering the offer fills it; the × closes it for this folder.",
+      props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-tour-offer-take" });
+      },
     },
     search: {
       note: "Typing filters projects and machines; the pinned No folder and + Add folder… stay above the results while searching.",

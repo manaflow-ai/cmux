@@ -693,7 +693,7 @@ fi
 
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
-  for required in "${must[@]}"; do
+  for required in ${must[@]+"${must[@]}"}; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
@@ -831,7 +831,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]-} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
 if ! patches=$(gh_list "repos/$repo/pulls/$num/files" --field patch 2>/dev/null); then
   if ! patches=$(git_patches); then
     refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'

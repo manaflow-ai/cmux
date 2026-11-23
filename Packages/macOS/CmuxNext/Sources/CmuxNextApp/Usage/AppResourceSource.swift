@@ -181,7 +181,7 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.tabs.append(sources)
             case .conversation where tab.agentSession != nil:
                 // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
-                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+                let view = services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }
                 let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
                                                         processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))

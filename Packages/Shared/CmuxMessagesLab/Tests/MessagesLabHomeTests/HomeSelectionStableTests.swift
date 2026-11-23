@@ -69,12 +69,12 @@ import Testing
         p.demo.collection.visibleCells.compactMap { $0 as? RowCell }.first { !$0.isHidden && $0.key == key }
     }
 
-    /// Every drawn selection-highlight layer under the pane: a shape layer with a path and the
-    /// highlight's screen blend.
+    /// Every drawn selection-highlight layer under the pane: a shape layer with a path and one of the
+    /// highlight's blends (SelectionHighlightStyle).
     private func highlightLayers(_ p: Pane) -> [CAShapeLayer] {
         var out: [CAShapeLayer] = []
         func walk(_ l: CALayer) {
-            if let s = l as? CAShapeLayer, s.path != nil, !s.isHidden, s.compositingFilter as? String == "screenBlendMode" { out.append(s) }
+            if let s = l as? CAShapeLayer, s.path != nil, !s.isHidden, [SelectionHighlightStyle.Blend.screen.rawValue, SelectionHighlightStyle.Blend.multiply.rawValue].contains(s.compositingFilter as? String ?? "") { out.append(s) }
             l.sublayers?.forEach(walk)
         }
         // Every view's layer tree under the pane (the rows and any overlay are hosted layers of subviews).

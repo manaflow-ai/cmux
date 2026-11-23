@@ -145,6 +145,11 @@ pub struct Settings {
 pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
+    /// Successful ACP session handshakes are authentication evidence for
+    /// profiles whose provider has no safe non-interactive check, keyed by
+    /// harness id, with the program path the session ran (an id that later
+    /// names another program does not inherit it) and the detail shown.
+    acp_auth: Mutex<HashMap<String, (Option<String>, String)>>,
     inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
@@ -168,9 +173,15 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "codex" => "codex login",
         "claude" => "claude auth login",
         "gemini" => "gemini",
+        // Muse's official CLI owns browser/API-key sign-in. The ACP adapter
+        // starts that CLI, so keep the same command available to both health
+        // cards and `cmux harness login muse`.
+        "muse" => "muse login",
         "opencode" => "opencode auth login",
-        "unii" => "unii login",
+        // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
+        "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
+        "openclaw" => "openclaw onboard",
         _ => return None,
     })
 }
@@ -265,9 +276,9 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
-        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        // (or `cmux harness login unii`) keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
-            use crate::cli::uniichat_agent::{Endpoint, Options};
+            use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
             let endpoint = Endpoint::resolve(
                 &Options::default(),
@@ -284,7 +295,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -386,7 +397,7 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 /// when it says the provider had no capacity or the connection dropped: a transport error is
 /// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::hub::turn_errors::says_unreachable(output) {
+    if crate::turn_errors::says_unreachable(output) {
         Auth::Unknown
     } else if crate::claude_auth::is_expired_credential(output) {
         Auth::Expired
@@ -496,6 +507,10 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                // A copy saved before this binary's version rules (a dev build's
+                // placeholder `0.0.0-next` read as older than a release) says
+                // outdated by this binary's comparison only.
+                row.outdated = matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
             }
             self.replace_rows(rows);
         }
@@ -510,6 +525,35 @@ impl HealthService {
     /// The last check's rows (the saved copy until the first check).
     pub fn rows(&self) -> Vec<HarnessHealth> {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Records the authentication proof returned by an ACP session handshake.
+    /// A successful `session/new` or `session/load` can be stronger evidence
+    /// than an unavailable provider probe (Muse has no verified status command).
+    /// It holds until a later check reads that harness signed out or expired.
+    pub fn record_acp_auth_success(&self, id: &str, detail: impl Into<String>) {
+        if self.fixed() {
+            return;
+        }
+        let detail = detail.into();
+        let cache = self.settings.lock().unwrap_or_else(PoisonError::into_inner).cache.clone();
+        self.update_rows(|rows| {
+            let row = rows.iter_mut().find(|row| row.id == id);
+            self.acp_auth
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.to_owned(), (row.as_ref().and_then(|r| r.path.clone()), detail.clone()));
+            let Some(row) = row else { return };
+            if row.auth == Auth::SignedIn && row.auth_detail.as_deref() == Some(detail.as_str()) {
+                return;
+            }
+            row.auth = Auth::SignedIn;
+            row.auth_detail = Some(detail);
+            row.checked_at = now_ms();
+            if let Some(path) = cache.as_deref() {
+                save(path, rows);
+            }
+        });
     }
 
     /// The first check: callers that ask before any check ended share one (the
@@ -592,12 +636,37 @@ impl HealthService {
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
+        self.apply_acp_auth(&mut rows);
         self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
         self.replace_rows(rows.clone());
         rows
+    }
+
+    /// A check's own verdict wins over ACP evidence: signed out or expired
+    /// drops the evidence (a logout after the session started); only a row
+    /// the check could not read takes it.
+    fn apply_acp_auth(&self, rows: &mut [HarnessHealth]) {
+        let mut evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
+        // Evidence for an id no row has any more, or one that now runs another
+        // program, says nothing about what that id runs next.
+        evidence.retain(|id, (path, _)| rows.iter().any(|row| &row.id == id && &row.path == path));
+        for row in rows {
+            match row.auth {
+                Auth::SignedOut | Auth::Expired => {
+                    evidence.remove(&row.id);
+                }
+                Auth::Unknown => {
+                    if let Some((_, detail)) = evidence.get(&row.id) {
+                        row.auth = Auth::SignedIn;
+                        row.auth_detail = Some(detail.clone());
+                    }
+                }
+                Auth::SignedIn => {}
+            }
+        }
     }
 }
 
@@ -725,6 +794,18 @@ mod tests {
     }
 
     #[test]
+    fn muse_signs_in_with_the_official_cli() {
+        assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
+    /// no `unii`, and every Sign In (picker, Harnesses page, Settings) types this line.
+    #[test]
+    fn unii_signs_in_with_the_bundled_cli() {
+        assert_eq!(super::builtin_login("unii"), Some("cmux harness login unii"));
+    }
+
+    #[test]
     fn expired_login_probe_is_not_just_signed_out() {
         assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
         assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
@@ -824,6 +905,53 @@ mod tests {
         };
         let rows = service.first_check(vec![subject]).await;
         assert_eq!(rows[0].login.as_deref(), Some("CODEX_HOME=/tmp/codex-sr codex login"));
+    }
+
+    #[test]
+    fn successful_acp_auth_updates_health_without_a_cli_probe() {
+        let service = HealthService::new();
+        service.replace_rows(vec![HarnessHealth {
+            id: "muse".into(),
+            program: "muse-acp".into(),
+            path: Some("/tmp/muse-acp".into()),
+            channel: Channel::Standalone,
+            package: None,
+            version: None,
+            latest: None,
+            latest_checked_at: None,
+            outdated: false,
+            auth: Auth::Unknown,
+            auth_detail: None,
+            login: Some("muse login".into()),
+            update: None,
+            problem: None,
+            checked_at: 1,
+            auto_update: false,
+            last_auto_update: None,
+        }]);
+        let feed = service.inventory_changes();
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let row = service.rows().pop().expect("muse health row");
+        assert_eq!(row.auth, Auth::SignedIn);
+        assert_eq!(row.auth_detail.as_deref(), Some("ACP session/new authenticated the harness"));
+        assert!(feed.has_changed().unwrap(), "the inventory feed sees the new sign-in");
+
+        // A later check that reads the harness signed out drops the evidence.
+        let mut checked = service.rows();
+        checked[0].auth = Auth::SignedOut;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::SignedOut);
+        checked[0].auth = Auth::Unknown;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::Unknown, "the logout's evidence is gone");
+
+        // An id that now runs another program does not inherit the evidence.
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let mut moved = service.rows();
+        moved[0].auth = Auth::Unknown;
+        moved[0].path = Some("/elsewhere/muse-acp".into());
+        service.apply_acp_auth(&mut moved);
+        assert_eq!(moved[0].auth, Auth::Unknown, "a repointed id is not signed in");
     }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {

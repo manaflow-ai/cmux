@@ -8,7 +8,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
-    /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// keychain would prompt on every rebuild. Every other build keeps
+    /// Chromium's key in cmux's own item (`CEFKeychainItem`), and falls back to
+    /// this when the fork does not take that item (`CEFRuntime.applyKeychainItem`).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -25,6 +27,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// Chromium presents a page's frame as soon as it has drawn it (`CEFFramePacing`), off by
+    /// default: the Debug Settings read, taken at launch because Chromium reads its command line once.
+    var noFrameRateLimit = false
+
+    /// The profile Chromium opens at startup (`profile-directory`), a directory name under the root
+    /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
+    /// Chromium's own choice (its last-used profile, `Default` on a first launch).
+    var initialProfileDirectory: String?
+    /// The staged-update Chromium pre-warm keeps Chromium's code-sign clone enabled so Sparkle can replace the
+    /// running bundle without leaving its helpers on the old executable. Ordinary app launches leave it off.
+    var keepsCodeSignClone = false
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -34,6 +47,26 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
+
+    /// Pages draw overlay scrollbars whatever the system's scroller style. Chromium's default
+    /// (`OverlayScrollbar` mode `device`) follows `NSScroller.preferredScrollerStyle`, which flips
+    /// whenever a mouse comes or goes, Universal Control's shared mouse included: a classic scrollbar
+    /// took its width from every scrolling page and the page reflowed on each flip (Leo 2026-11-15:
+    /// "our chromium browser also has a bt of layout shif tfor some reason idk why"). Mode `overlay`
+    /// forces them (ui/native_theme/features/native_theme_features.cc, `ShouldUseOverlayScrollbar`),
+    /// the native views' SCROLLBARS-THIN rule (SystemScrollers.nativeStyle). The shim merges it
+    /// into CEF's feature list.
+    static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
+
+    /// Renderers start V8's young generation at 32 MB a semi-space instead of growing it from 1 MB. A streaming
+    /// chat makes short-lived garbage on every token, and a long chat's renderer scavenged far more often than a
+    /// short one's (309 against 92 over one replay, median 30 ms against 14). On the paired transcript replay
+    /// (god chat, 34,641 rows, against a small one; 8 rounds on the build fleet, CPU clock) the god / small p95
+    /// went from 1.41 to 1.07 for thought updates and from 1.49 to 1.37 for tokens, and the god chat's thought
+    /// p95 from 8.37 to 5.64 ms. The renderer's memory did not grow: 153 MB with one chat and 472 MB with ten,
+    /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
+    /// "no perceivable difference" from a small one (within 1.2x).
+    static let youngGeneration = "js-flags=--min-semi-space-size=32"
 
     var arguments: [String] {
         var result: [String] = []
@@ -45,20 +78,34 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
-        // Web notifications must not make CEF's Alerts helper request a
-        // separate macOS notification authorization. DesktopNotifier owns the
-        // one app-level authorization request when cmux posts a banner.
-        result.append("disable-notifications")
-        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
-        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
-        // authorization for the app and its Alerts helper on the first launch, with no action of
-        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        // Web notifications must not make CEF's Alerts helper request a separate macOS
+        // notification authorization: DesktopNotifier owns the one app-level request, made when
+        // cmux posts a banner. Chromium's macOS notification bridge, made for the profile at
+        // startup while SystemNotifications is on, asked macOS for authorization for the app and
+        // its Alerts helper on the first launch, with no action of the person
+        // (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        //
+        // Never add `disable-notifications` here: it takes `Notification` and `PushManager` out
+        // of every page, which no desktop Chrome does, and bot checks read that as automation.
+        // Akamai Bot Manager then served its challenge page again and again (godaddy.com reloaded
+        // about twice per second, then "Access Denied"; Chrome with the two interfaces deleted
+        // does the same). Pages keep the interfaces and read the permission as `default`, also
+        // after they ask (the shim ends the request unanswered, permission_prompt_policy.h),
+        // so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
+        // Chromium counts prompts that end unanswered and blocks the site for a week after four
+        // (its embargo). No switch or feature turns that count off (permission_decision_auto_blocker.cc),
+        // so the shim clears the site's own count before it ends a request (shim_permissions.mm).
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        result.append(Self.youngGeneration)
+        // A page draws when it has a frame, not when the display asks (`CEFFramePacing`): off by
+        // default, since it also lets an animating page draw frames the display never shows.
+        if noFrameRateLimit { result.append(contentsOf: CEFFramePacing.switches) }
+        result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
         // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
@@ -82,12 +129,36 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // Every agent chat is the same first-party page (cmux-page://cmux.agent/), and Chromium's
+        // process-per-site-instance gave each its own renderer: 100 idle chats held 107 renderers,
+        // 17.5 GB of footprint and 30% CPU. The same-site main-frame sharing above never applies to
+        // these pages (threshold 8 changed nothing). The fork gives the named schemes one renderer
+        // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
+        // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
+        result.append(Self.processPerSitePageSchemes)
+        // One renderer per site put every chat in one renderer: one renderer crash or out-of-memory
+        // kill reloaded every open chat (Leo, 2026-11-14: "separate the health of the overall process
+        // from the falliability of crash prone bits"). The fork (cmux_process_per_site_main_frame_cap)
+        // puts a page in the oldest renderer of its site that holds fewer than this many pages, or a
+        // new one, and keeps it there, so a crash reloads at most that many chats. The cap keeps the
+        // origin, so the pages' localStorage and every origin check stay as they are. Older forks
+        // ignore the switch.
+        result.append(Self.processPerSitePageCap)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
-        // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
-        // (MacAppCodeSignClone) stays on: it protects running helpers when an
-        // update replaces the bundle, and its --type=code-sign-clone-cleanup
-        // helper exits by itself about 1 s after the app (cx-dj33).
+        // (CEFShim/src/command_line_switches.h).
+        // Chromium's code-sign clone (MacAppCodeSignClone) is off. It hard-links
+        // the main executable into a per-launch clone that a
+        // --type=code-sign-clone-cleanup helper removes about 1 s after quit,
+        // and macOS then held the next launch of that executable before its
+        // first instruction (_dyld_start+0, no CPU, no reads): main_start 1447 ms
+        // against 26 ms with the clone off (relaunch-restore, fronts=chat, 5
+        // rounds each, one Mac). The clone guards helpers started after an update
+        // replaced the bundle under a running app (cx-dj33); that cost is paid
+        // on every relaunch after a Chromium session instead. The staged-update
+        // pre-warm opts back in because it is the only Chromium process started
+        // while a newer Sparkle bundle is staged.
+        if !keepsCodeSignClone { result.append("disable-features=MacAppCodeSignClone") }
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
@@ -103,6 +174,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        // Chrome style opens one startup profile and makes it the global request context
+        // (ChromeBrowserMainExtraPartsCef::PostProfileInit); CefSettings.cache_path does not choose
+        // it. Without this switch that profile is `Default`, which no cmux tab uses, yet every regular
+        // profile loads the --load-extension extensions: `Default` ran its own uBlock Origin
+        // background page, an extension renderer of about 105 MB, from launch on (hq#7860).
+        // Starting in the default cmux profile leaves one regular profile at idle. An
+        // off-the-record context (an incognito window's store; the app opens one at launch)
+        // derives from CEF's GetPrimaryUserProfile, which is this startup profile from fork
+        // cmux.48 on (manaflow-ai/cef#32); before it was always `Default`, so `Default` loaded anyway.
+        if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
+            result.append("profile-directory=" + initialProfileDirectory)
+        }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -146,6 +229,19 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
 
+    /// The fork's switch: one renderer per site for cmux's first-party page scheme
+    /// (`PageDescriptor.scheme`; `cmux-process-per-site-schemes`, chrome_content_browser_client_cef.cc).
+    static let processPerSitePageSchemes = "cmux-process-per-site-schemes=cmux-page"
+
+    /// The most cmux pages one renderer holds: the size of the WebKit fallback's groups
+    /// (`WebProcessGroups.pagesPerProcess`, `PageOverlayProcess`), so both engines lose at most 8
+    /// pages to one process end. Each renderer past the first costs its base once per 8 pages.
+    static let pagesPerRenderer = 8
+
+    /// The fork's switch: at most ``pagesPerRenderer`` pages per renderer of a
+    /// ``processPerSitePageSchemes`` site (fork patch cmux_process_per_site_main_frame_cap).
+    static let processPerSitePageCap = "cmux-process-per-site-main-frame-cap=\(pagesPerRenderer)"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -165,10 +261,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         environment: [String: String],
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
-        asyncLiveResize: Bool = true
+        asyncLiveResize: Bool = true,
+        initialProfileDirectory: String? = nil,
+        keepsCodeSignClone: Bool = false
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        #if DEBUG
+        // Verification of the real keychain path (cmux's own item) in a development bundle.
+        let realKeychain = environment["CMUX_NEXT_REAL_KEYCHAIN"] == "1"
+        #else
+        let realKeychain = false
+        #endif
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -181,12 +285,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            useMockKeychain: dev,
+            useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            asyncLiveResize: asyncLiveResize
+            asyncLiveResize: asyncLiveResize,
+            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
+            initialProfileDirectory: initialProfileDirectory,
+            keepsCodeSignClone: keepsCodeSignClone
         )
     }
 

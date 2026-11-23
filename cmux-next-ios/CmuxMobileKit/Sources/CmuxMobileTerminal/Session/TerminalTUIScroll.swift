@@ -127,3 +127,50 @@ public struct TerminalTUIMomentum: Equatable, Sendable {
         return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
     }
 }
+
+/// Whether a tap over a full-screen app is a click (Leo, 2026-11-12: "this
+/// terminal projection nigh unusable due to me scroll and thumb land on
+/// subagent depiction"). A tap is the app's click when it asked for the
+/// mouse, so a thumb flicking through a Claude Code transcript clicked
+/// whatever row it landed on (a background agent, which opened its view).
+/// A tap clicks only when it is a deliberate tap: it lands when the app is
+/// not scrolling (``quietAfterScroll`` after the last wheel, as a tap on a
+/// moving UIScrollView only stops it), stays within ``maximumMovement`` and
+/// lifts within ``maximumHold``. A touch that lands while the app scrolls
+/// does nothing else either (``Verdict/ignore``); a slow or moving tap
+/// still focuses the terminal, without the click.
+public struct TerminalTUITapClick: Equatable, Sendable {
+    public enum Verdict: Equatable, Sendable {
+        /// The app's click, and the terminal takes the keyboard.
+        case click
+        /// Only the terminal takes the keyboard.
+        case focusOnly
+        /// Nothing: the touch was part of scrolling.
+        case ignore
+    }
+
+    /// A touch that lands this soon after a wheel (seconds) is still scrolling.
+    public static let quietAfterScroll: TimeInterval = 0.5
+    /// A tap held longer than this (seconds) is a resting thumb, not a click
+    /// (under the 0.5 s long press that selects).
+    public static let maximumHold: TimeInterval = 0.45
+    /// A tap that moved farther than this (points) is a short flick.
+    public static let maximumMovement: CGFloat = 6
+
+    private var lastWheel: TimeInterval?
+
+    public init() {}
+
+    /// A wheel event went to the app at `time` (seconds, the touch clock).
+    public mutating func scrolled(at time: TimeInterval) {
+        lastWheel = time
+    }
+
+    /// The tap whose finger landed at `downAt`, lifted at `upAt` and moved
+    /// `moved` points between.
+    public func verdict(downAt: TimeInterval, upAt: TimeInterval, moved: CGFloat) -> Verdict {
+        if let lastWheel, downAt - lastWheel < Self.quietAfterScroll { return .ignore }
+        guard upAt - downAt <= Self.maximumHold, moved <= Self.maximumMovement else { return .focusOnly }
+        return .click
+    }
+}

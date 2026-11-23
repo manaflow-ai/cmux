@@ -1,0 +1,260 @@
+{
+  "$comment": "HAND-EDITED source of Appearance > Loading Indicator (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
+  "lists": [
+    {
+      "name": "statusIndicator",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.statusIndicator",
+        "text": "Loading Indicator"
+      },
+      "note": "appearance.statusIndicator.* (plans/cmux-next/status-indicators.md) and status.inferCommandBusy*.",
+      "rows": [
+        {
+          "key": "appearance.statusIndicator.style",
+          "title": {
+            "key": "settings.statusIndicator.style",
+            "text": "Style"
+          },
+          "help": {
+            "key": "settings.statusIndicator.style.help",
+            "text": "How sidebar rows, tabs and panes show work in progress."
+          },
+          "summary": {
+            "key": "settings.statusIndicator.style.summary",
+            "text": "How work in progress shows"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "StatusIndicatorStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "arc",
+              "title": {
+                "key": "settings.choice.thinArc",
+                "text": "Thin Arc"
+              }
+            },
+            {
+              "value": "native",
+              "title": {
+                "key": "settings.choice.macSpinner",
+                "text": "macOS Spinner"
+              }
+            },
+            {
+              "value": "dot",
+              "title": {
+                "key": "settings.choice.pulsingDot",
+                "text": "Pulsing Dot"
+              }
+            },
+            {
+              "value": "braille",
+              "title": {
+                "key": "settings.choice.brailleSpinner",
+                "text": "Braille Spinner"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "arc",
+          "keywords": [
+            "spinner",
+            "progress",
+            "loading",
+            "busy"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.animation",
+          "title": {
+            "key": "settings.statusIndicator.animation",
+            "text": "Status Indicators"
+          },
+          "help": {
+            "key": "settings.statusIndicator.animation.help",
+            "text": "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "StatusIndicatorAnimation",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "animated",
+              "title": {
+                "key": "settings.choice.animated",
+                "text": "Animated"
+              }
+            },
+            {
+              "value": "static",
+              "title": {
+                "key": "settings.choice.static",
+                "text": "Static"
+              }
+            }
+          ],
+          "default": "animated",
+          "keywords": [
+            "animation",
+            "motion",
+            "blink",
+            "pulse",
+            "flash",
+            "static",
+            "reduce motion",
+            "accessibility",
+            "headache"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.size",
+          "name": "size",
+          "title": {
+            "key": "settings.statusIndicator.size",
+            "text": "Size"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.5,
+            "max": 1.5,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 1,
+          "keywords": []
+        },
+        {
+          "key": "appearance.statusIndicator.thickness",
+          "title": {
+            "key": "settings.statusIndicator.thickness",
+            "text": "Line Width"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.5,
+            "max": 4,
+            "step": 0.25,
+            "unit": "points"
+          },
+          "default": 1.5,
+          "keywords": []
+        },
+        {
+          "key": "appearance.statusIndicator.color",
+          "title": {
+            "key": "settings.statusIndicator.color",
+            "text": "Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": []
+        },
+        {
+          "key": "appearance.statusIndicator.showAgentWorkingOnTabs",
+          "title": {
+            "key": "settings.statusIndicator.showAgentWorkingOnTabs",
+            "text": "Show Agent Working on Tabs"
+          },
+          "help": {
+            "key": "settings.statusIndicator.showAgentWorkingOnTabs.help",
+            "text": "Three dots take the tab's icon place while an agent works."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "working",
+            "thinking",
+            "dots"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.showPageLoading",
+          "title": {
+            "key": "settings.statusIndicator.showPageLoading",
+            "text": "Show Page Loading on Tabs"
+          },
+          "help": {
+            "key": "settings.statusIndicator.showPageLoading.help",
+            "text": "A spinner takes a browser tab's icon place while its page loads."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "browser",
+            "loading",
+            "spinner",
+            "page"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.honorStatusStyle",
+          "note": "true honors every source's style; the file may also hold false or a list of sources (StatusIndicatorConfigParser.honoredSources).",
+          "title": {
+            "key": "settings.statusIndicator.honorStatusStyle",
+            "text": "Let Statuses Choose Their Style"
+          },
+          "help": {
+            "key": "settings.statusIndicator.honorStatusStyle.help",
+            "text": "A status that asks for a style (cmux status set --style) uses it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": []
+        },
+        {
+          "key": "status.inferCommandBusy",
+          "title": {
+            "key": "settings.status.inferCommandBusy",
+            "text": "Show Running Commands"
+          },
+          "help": {
+            "key": "settings.status.inferCommandBusy.help",
+            "text": "A shell command that runs a while shows as busy."
+          },
+          "summary": {
+            "key": "settings.status.inferCommandBusy.summary",
+            "text": "Mark long shell commands as busy"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": []
+        },
+        {
+          "key": "status.inferCommandBusyAfter",
+          "title": {
+            "key": "settings.status.inferCommandBusyAfter",
+            "text": "Show After"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 600,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 3,
+          "keywords": []
+        }
+      ]
+    }
+  ]
+}

@@ -101,18 +101,26 @@ const fn access(operation: Op) -> Access {
         | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
+        | Op::GitFingerprint
         | Op::GitFilesSearch
         | Op::GitCommit
         | Op::GitPush
         | Op::GitWorktreeCreate
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
+        | Op::GitWorktreeSetup
+        | Op::GitWorktreeSetupRun
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
+        // The diff page's review comments: kept for the app, never a page.
+        | Op::DiffCommentsList
+        | Op::DiffCommentsSave
+        | Op::DiffCommentsDelete
+        | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -124,9 +132,18 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectRemove
         | Op::ProjectSync
         | Op::ProjectSourceUpdate
+        // Classic's session files and the migration ledger: the app's classic migration.
+        | Op::ClassicImportPlan
+        | Op::ClassicImportRecord
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
-        | Op::ConductorImportRecord => Access::Denied(Denied::FileSystem),
+        | Op::ConductorImportRecord
+        // Another browser's bookmarks, history and tabs, read for the app's browser import.
+        | Op::BrowserImportRead
+        // A Cloud machine's files and commands (server/cloud_api.rs).
+        | Op::CloudMachineIo
+        // The app's language pack cache, written by path (language_packs.rs).
+        | Op::LanguagePacksEnsure => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -201,6 +218,7 @@ const fn access(operation: Op) -> Access {
         | Op::PaneFocusDirection
         | Op::PaneNeighborGet
         | Op::PaneSwap
+        | Op::PaneMove
         | Op::PaneZoom
         | Op::PaneSplitRatioSet
         | Op::PaneViewportWidthSet
@@ -256,6 +274,7 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::SettingsEdit
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove
@@ -362,6 +381,8 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefAutomationList
+        | Op::ChiefAutomationUpdate
         | Op::ChiefContinue
         | Op::ChiefRetry
         // A page reads and edits the person's Chiefs only where its
@@ -384,6 +405,20 @@ const fn access(operation: Op) -> Access {
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet
         | Op::ParticipantAvatarGet
+        // Ranking rows the page itself sends: a page reaches it only
+        // through its allow list (page-router.json: home-channels reads
+        // palette.rank).
+        | Op::PaletteRank
+        // The person's ACP chats (chat.list, chat.mark_read, chat.pin): for apps and
+        // the app, never a page unless its allow list names one.
+        | Op::ChatList
+        | Op::ChatMarkRead
+        | Op::ChatPin
+        // Scheme conversion and a palette from pixels the page sends: a page
+        // reaches them only through its allow list (theme-scheme-v1).
+        | Op::ThemeSchemeConvert
+        | Op::ThemeSchemeExport
+        | Op::ThemeSchemeFromImage
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -392,7 +427,50 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationSend
         | Op::ConversationTyping
         | Op::ConversationDraft
-        | Op::ConversationEvents => Access::Denied(Denied::NotAllowed),
+        | Op::ConversationEvents
+        // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
+        | Op::CloudVmScpEndpoint
+        | Op::CloudVmTunnelEnroll
+        | Op::CloudVmTunnelRevoke
+        | Op::CloudVmTunnelAttach
+        | Op::CloudVmTunnelDetach
+        | Op::CloudVmTunnelRotateKey
+        | Op::CloudVmFirewallList
+        | Op::CloudVmFirewallGet
+        | Op::CloudVmFirewallCreate
+        | Op::CloudVmFirewallDelete
+        | Op::CloudVmNetworks
+        | Op::CloudVmDomains
+        | Op::CloudVmPublications
+        | Op::CloudVmProvisionApi
+        | Op::CloudVmPublicationApiKeys
+        | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudRunsCreate
+        | Op::CloudRunsStart
+        | Op::CloudRunsWait
+        | Op::CloudRunsCancel
+        | Op::CloudRunsSandbox
+        | Op::CloudOwnerAcpmuxPersonHolds
+        | Op::CloudOwnerAcpmuxKeyedStart
+        | Op::CloudOwnerForkRun
+        | Op::CloudOwnerHandoffWait
+        | Op::CloudOwnerHandoffs
+        | Op::CloudOwnerHandoffOpen
+        | Op::CloudOwnerHandoffBeginTurn
+        | Op::CloudOwnerHarnessLoginCopy
+        | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerGithubRepos
+        | Op::CloudOwnerGithubConnect
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
+        | Op::CloudPreviewsRefresh
+        | Op::CloudPreviewsCreateLink
+        | Op::CloudPreviewsRevokeLink
+        | Op::CloudMachineChatAccess
+        | Op::CloudMachineShareChat
+        | Op::CloudMachineChiefStart
+        => Access::Denied(Denied::NotAllowed),
     }
 }
 

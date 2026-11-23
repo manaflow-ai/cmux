@@ -37,7 +37,8 @@ public struct PaletteSettingCustomInput {
 /// One setting in the palette (R93): every schema row the source exposes.
 public struct PaletteSettingRow: Identifiable {
     public enum Kind {
-        /// Flips in place.
+        /// Flips in place. Shows its state the way every row that flips one does (``PaletteToggleStyle``):
+        /// "On" or "Off" at the trailing edge, not `value`.
         case toggle(isOn: Bool)
         /// A value list: a choice, a number's steps, a color's swatches.
         /// Moving the highlight previews; Return commits; leaving reverts.
@@ -48,7 +49,7 @@ public struct PaletteSettingRow: Identifiable {
     public var title: String
     /// The Settings group (shown after the title).
     public var group: String
-    /// The current value, as the row's accessory.
+    /// The current value, as the row's accessory (an options row; a toggle shows ``PaletteToggleStyle``'s On/Off).
     public var value: String
     public var kind: Kind
     public var keywords: [String]

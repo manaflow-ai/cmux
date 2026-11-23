@@ -18,16 +18,30 @@
 #[cfg(unix)]
 mod actions;
 #[cfg(unix)]
+mod activation;
+#[cfg(unix)]
+mod budget;
+#[cfg(unix)]
 mod calls;
 #[cfg(unix)]
 mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod chat_widgets;
+#[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
+mod community;
+#[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
+#[cfg(unix)]
+mod github_gateway;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
@@ -37,19 +51,56 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod http_cache;
+#[cfg(unix)]
+mod load_trial;
+#[cfg(unix)]
 mod local_reload;
+#[cfg(unix)]
+mod locale;
+#[cfg(unix)]
+mod signals_cache;
+
+/// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
+/// preview words (`server::conversations`).
+#[cfg(unix)]
+pub(crate) fn person_locale() -> &'static str {
+    locale::current()
+}
+
+#[cfg(unix)]
+mod mcp_tools;
+#[cfg(unix)]
+mod meters;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
+mod openers;
+#[cfg(unix)]
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
+#[cfg_attr(not(test), allow(dead_code))]
+mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
 #[cfg(unix)]
+mod rollback;
+#[cfg(unix)]
 pub(crate) mod routing;
 #[cfg(unix)]
 mod runs;
+#[cfg(unix)]
+mod safe_mode;
+#[cfg(unix)]
+mod scene_nodes;
+#[cfg(unix)]
+mod server_external;
 #[cfg(unix)]
 mod server_tmp;
 #[cfg(unix)]
@@ -61,17 +112,29 @@ mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
 #[cfg(unix)]
-mod storage;
+mod signal_sources;
+#[cfg(unix)]
+mod status_items;
+#[cfg(unix)]
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
 mod store_panels;
 #[cfg(unix)]
+mod store_sections;
+#[cfg(unix)]
+mod store_trust;
+#[cfg(unix)]
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;
+#[cfg(unix)]
+mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
+#[cfg(unix)]
+mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
@@ -80,6 +143,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -94,7 +159,9 @@ pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
-pub(crate) use subscriptions::AGENT_INVENTORY_INVALIDATION_CAPABILITY;
+pub(crate) use subscriptions::{
+    AGENT_INVENTORY_INVALIDATION_CAPABILITY, PROVIDER_CHANGED_CAPABILITY,
+};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
@@ -136,6 +203,15 @@ impl AppsSlot {
             .get_or_init(|| {
                 created = true;
                 let state_dir = mux.session_state_directory();
+                // The flag file sits at the state root, next to the session
+                // folders, where `cmux safe-mode` finds it with no daemon.
+                let safe_mode_file = state_dir
+                    .as_deref()
+                    .and_then(std::path::Path::parent)
+                    .map(crate::safe_mode_flag::path_in);
+                let safe_mode_env = crate::safe_mode_flag::env_requests(
+                    std::env::var(crate::safe_mode_flag::ENV).ok().as_deref(),
+                );
                 let idle = std::env::var("CMUX_APPS_IDLE_STOP_SECONDS")
                     .ok()
                     .and_then(|s| s.parse().ok())
@@ -150,10 +226,16 @@ impl AppsSlot {
                         idle_stop: std::time::Duration::from_secs(idle),
                         provider_deadline: std::time::Duration::from_secs(30),
                         provider_user_deadline: std::time::Duration::from_secs(600),
+                        safe_mode_file,
+                        safe_mode_env,
                     },
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
                 );
+                // Apps' GitHub reads run as the person's own gh sign-in.
+                supervisor.set_github_gateway(github_gateway::GitHubGateway::new(Arc::new(
+                    crate::feed_client::ProcessGh,
+                )));
                 // A page relay calls the store through the v2 page router,
                 // which makes it no apps client: it hears `apps-changed`
                 // from `subscribe` (page-router.json `events`), so the open

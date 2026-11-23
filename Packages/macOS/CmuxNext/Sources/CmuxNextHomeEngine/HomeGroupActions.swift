@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import Foundation
 
 /// The one path for managing a person-to-person DM or group (plans/cmux-next/home-dm-group-chats):

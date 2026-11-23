@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import Observation
 import SwiftUI
 import UIKit
@@ -24,9 +25,6 @@ enum JoystickDirection: Sendable, Equatable {
 final class JoystickEngine {
     static let radius: CGFloat = 28
     static let deadZone: CGFloat = JoystickRepeat.deadZone
-    /// The thumb's lowest point: inside the key row and the composer below
-    /// it, above the keyboard.
-    static let maxDownwardThumb: CGFloat = 14
 
     private(set) var thumb: CGSize = .zero
     private(set) var gear = 0
@@ -71,13 +69,10 @@ final class JoystickEngine {
     func update(_ translation: CGSize) {
         let distance = hypot(translation.width, translation.height)
         self.distance = distance
-        // The thumb follows the finger past the circle, so the finger does
-        // not cover it (user note 2026-10-14); the floating copy draws it,
-        // never lower than the key bar's bottom: the keyboard window is above
-        // the page and would hide it (Codex QA F6).
-        var offset = JoystickGeometry().thumbOffset(for: translation)
-        offset.height = min(offset.height, Self.maxDownwardThumb)
-        thumb = offset
+        // The thumb's center stops on the circle's edge, near classic cmux
+        // iOS's arrow nub (user note 2026-11-11: following the finger 48 pt
+        // out overreached; the edge gives a little more reach than classic).
+        thumb = JoystickGeometry().thumbOffset(for: translation)
         let newGear = Self.gear(for: distance)
         let newDirection = newGear == 0 ? nil : Self.direction(for: translation)
         let crossed = gear == 0 && newGear > 0
@@ -146,8 +141,9 @@ final class JoystickEngine {
 }
 
 /// The joystick's thumb while dragged, drawn over the whole terminal page so
-/// the key bar's clip does not cut it: it follows the finger up to 1.5x the
-/// circle and springs back on release (user note 2026-10-14).
+/// the key bar's clip does not cut it: its center moves with the finger up
+/// to the circle's edge (`JoystickGeometry`), half the dot past it, and
+/// springs back on release.
 struct JoystickThumbOverlay: View {
     let engine: JoystickEngine
 
@@ -162,11 +158,31 @@ struct JoystickThumbOverlay: View {
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .position(x: engine.center.x - origin.x + engine.thumb.width,
                               y: engine.center.y - origin.y + engine.thumb.height)
-                    .animation(engine.touching ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: engine.thumb)
+                    .animation(engine.touching ? nil : Animation.spring(response: 0.3, dampingFraction: 0.6).unlessReduceMotion, value: engine.thumb)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The joystick's four arrowheads, just inside its circle's edge.
+struct JoystickArrowMarks: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        let tip = radius - 1.5
+        let base = radius - 4.5
+        let half: CGFloat = 2.5
+        var path = Path()
+        // Up, right, down, left: a unit vector and its perpendicular.
+        for (dx, dy) in [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] as [(CGFloat, CGFloat)] {
+            path.move(to: CGPoint(x: center.x + dx * tip, y: center.y + dy * tip))
+            path.addLine(to: CGPoint(x: center.x + dx * base - dy * half, y: center.y + dy * base + dx * half))
+            path.addLine(to: CGPoint(x: center.x + dx * base + dy * half, y: center.y + dy * base - dx * half))
+            path.closeSubpath()
+        }
+        return path
     }
 }
 
@@ -179,10 +195,18 @@ struct Joystick: View {
         Circle()
             .fill(Color.white.opacity(0.9))
             .frame(width: 12, height: 12)
-            // While dragged the dot is drawn above the key row, where it can
-            // leave the circle (`JoystickThumbOverlay`).
+            // While dragged the dot is drawn above the key row
+            // (`JoystickThumbOverlay`), at most on the circle's edge.
             .opacity(engine.showsFloatingThumb ? 0 : 1)
             .frame(width: size, height: size)
+            // Four small arrowheads around the dot, as on a d-pad: it is
+            // dragged to send arrows. Without them it read as a blank
+            // white button.
+            .overlay {
+                JoystickArrowMarks()
+                    .fill(Color.primary.opacity(engine.gear > 0 ? 0.7 : 0.45))
+                    .allowsHitTesting(false)
+            }
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
             // not interactive: the drag owns the touch. The dot draws on top,
             // crisp.

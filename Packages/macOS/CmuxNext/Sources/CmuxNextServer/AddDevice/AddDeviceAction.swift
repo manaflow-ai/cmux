@@ -19,8 +19,6 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     case newJoinLine
     /// The app's Sign In (a join line refused because nobody is signed in).
     case signIn
-    /// The joined machine's row in the Machines sidebar.
-    case showMachines
     /// Hand off to the Pair Another Machine card (way ``AddDeviceWay/joinLine`` while signed in): the
     /// new machine runs `cmux pair CODE` and the person confirms its words, with no ssh.
     case pairAnotherMachine

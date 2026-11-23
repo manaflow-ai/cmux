@@ -1,0 +1,13 @@
+{"sessionUpdate":"tool_call","toolCallId":"one","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"one","_meta":{"terminal_output_delta":{"data":"running"}}}
+{"sessionUpdate":"tool_call_update","toolCallId":"one","status":"failed","content":[{"type":"content","content":{"type":"text","text":"error in auth.rs:88"}}]}
+{"sessionUpdate":"tool_call_update","toolCallId":"one","status":"failed","content":[{"type":"content","content":{"type":"text","text":"error in auth.rs:88"}}]}
+{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I will retry."}}
+{"sessionUpdate":"tool_call","toolCallId":"two","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"two","status":"failed","content":[{"type":"content","content":{"type":"text","text":"error in auth.rs:88"}}]}
+{"sessionUpdate":"tool_call","toolCallId":"three","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"three","status":"failed","content":[{"type":"content","content":{"type":"text","text":"error in auth.rs:88"}}]}
+{"sessionUpdate":"tool_call","toolCallId":"four","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"four","status":"failed","content":[{"type":"content","content":{"type":"text","text":"error in auth.rs:88"}}]}
+{"sessionUpdate":"tool_call","toolCallId":"fixed","kind":"execute","title":"cargo test","rawInput":{"command":"cargo test"},"status":"in_progress"}
+{"sessionUpdate":"tool_call_update","toolCallId":"fixed","status":"completed","content":[{"type":"content","content":{"type":"text","text":"ok"}}]}

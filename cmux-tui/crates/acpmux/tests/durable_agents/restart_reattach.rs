@@ -9,10 +9,14 @@
 //! the way an update stops it (their agents outlive it), and the store gets
 //! `ACPMUX_REATTACH_CLOSED` closed and `ACPMUX_REATTACH_IDLE` idle chats with
 //! `ACPMUX_REATTACH_RECORDS` records each. `ACPMUX_TEST_SCAN_DELAY_MS` (debug builds) holds
-//! each log scan of the store, as a slow disk or a long log does. The test prints
-//! `acpmux-reattach: {...}`: the time from the daemon's start to every live agent reattached
-//! (each live chat shows its turn and `liveAgents` counts it), and how long an idle chat's
-//! first open took.
+//! each log scan of the store, as a slow disk or a long log does, and `ACPMUX_TEST_HOLD_LOG_PASS`
+//! holds the background pass over the other chats' logs until the test releases it: the live
+//! agents must reattach, and an idle chat must open, while that pass cannot read a log. That
+//! order holds under any load; a wall-clock budget did not (the full run on a loaded gate host
+//! took 11.4 s against 4 s with the order right). The test prints `acpmux-reattach: {...}`: the
+//! time from the daemon's start to every live agent reattached (each live chat shows its turn
+//! and `liveAgents` counts it), and how long an idle chat's first open took. A bench run that
+//! sets `ACPMUX_REATTACH_BUDGET_MS` or `ACPMUX_REATTACH_OPEN_BUDGET_MS` also checks those times.
 
 use super::*;
 use acpmux::config::{Config, StoreMode};
@@ -64,6 +68,22 @@ fn stored_chat(store: &dyn acpmux::store::Store, id: &str, cwd: &Path, status: &
     store.save(&meta).unwrap();
 }
 
+/// Every row of `_acpmux/sessions`, page by page: with no `limit` a reply is one page that fits
+/// the message budget (about 530 of these rows), and a live chat on the next page was not seen
+/// until rows moved (the old test's 11.4 s "reattach" on a loaded gate host).
+async fn every_session(rpc: &mut Rpc) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut params = json!({});
+    loop {
+        let page = rpc.call("_acpmux/sessions", params.clone()).await;
+        rows.extend(page["sessions"].as_array().into_iter().flatten().cloned());
+        match page["nextCursor"].as_str() {
+            Some(next) => params["cursor"] = json!(next),
+            None => return rows,
+        }
+    }
+}
+
 /// Live chats reattach within the budget however many other chats the store holds, and an
 /// idle chat opened while the rest still load answers without waiting for them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -73,9 +93,11 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
     let closed = env_or("ACPMUX_REATTACH_CLOSED", 450);
     let records = env_or("ACPMUX_REATTACH_RECORDS", 500);
     let scan_delay_ms = env_or("ACPMUX_REATTACH_SCAN_DELAY_MS", 100);
-    let budget_ms = env_or("ACPMUX_REATTACH_BUDGET_MS", 4_000) as u128;
-    // An idle chat's first open reads that chat's log only.
-    let open_budget_ms = env_or("ACPMUX_REATTACH_OPEN_BUDGET_MS", 1_500) as u128;
+    // A bench's budgets, checked only when it sets them: a correctness run checks the order.
+    let budget_ms: Option<u128> =
+        std::env::var("ACPMUX_REATTACH_BUDGET_MS").ok().and_then(|v| v.parse().ok());
+    let open_budget_ms: Option<u128> =
+        std::env::var("ACPMUX_REATTACH_OPEN_BUDGET_MS").ok().and_then(|v| v.parse().ok());
 
     let mut daemon = Daemon::new("rt", "approve-all");
     let mut live_ids = Vec::new();
@@ -118,19 +140,27 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
         store.flush().unwrap();
     }
 
-    daemon.env = vec![("ACPMUX_TEST_SCAN_DELAY_MS".into(), scan_delay_ms.to_string())];
+    // The background pass over the other chats' logs waits until the test releases it.
+    let hold = daemon.home.join("log-pass-hold");
+    std::fs::write(&hold, b"").unwrap();
+    daemon.env = vec![
+        ("ACPMUX_TEST_SCAN_DELAY_MS".into(), scan_delay_ms.to_string()),
+        ("ACPMUX_TEST_HOLD_LOG_PASS".into(), hold.display().to_string()),
+    ];
     let started = Instant::now();
     daemon.start();
     let ready_ms = started.elapsed().as_millis();
     let mut rpc = daemon.rpc().await;
-    let deadline = Instant::now() + Duration::from_secs(600);
+    // Short of the seam's 120 s bound: a reattach that waits for the other chats' logs never
+    // comes before it.
+    let deadline = Instant::now() + Duration::from_secs(100);
     let reattach_ms = loop {
         let status = rpc.call("_acpmux/status", json!({})).await;
-        let all = rpc.call("_acpmux/sessions", json!({})).await;
+        let all = every_session(&mut rpc).await;
         let running = live_ids
             .iter()
             .filter(|id| {
-                all["sessions"].as_array().into_iter().flatten().any(|s| {
+                all.iter().any(|s| {
                     s["sessionId"] == id.as_str() && !s["turn"].is_null() && s["status"] != "idle"
                 })
             })
@@ -138,12 +168,22 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
         if status["liveAgents"].as_u64() == Some(live as u64) && running == live {
             break started.elapsed().as_millis();
         }
-        assert!(Instant::now() < deadline, "the live agents never reattached: {status:#}");
+        assert!(
+            Instant::now() < deadline,
+            "the live agents waited for the other chats' logs to reattach: {status:#} {:#}",
+            Value::Array(
+                all.iter()
+                    .filter(|s| live_ids.iter().any(|id| s["sessionId"] == id.as_str()))
+                    .cloned()
+                    .collect()
+            )
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
-    // An idle chat's first open, while the others may still be loading.
-    let opened = Instant::now();
+    // An idle chat's first open, while the pass over the other logs is still held: it reads
+    // its own.
     let last_idle = idle_ids.last().cloned().unwrap_or_else(|| live_ids[0].clone());
+    let opened = Instant::now();
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": last_idle, "limit": 0})).await;
     let open_ms = opened.elapsed().as_millis();
     assert!(attached["session"]["queue"].is_array(), "{attached:#}");
@@ -153,6 +193,11 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
                "scan_delay_ms": scan_delay_ms, "ready_ms": ready_ms, "reattach_ms": reattach_ms,
                "idle_open_ms": open_ms, "budget_ms": budget_ms})
     );
+    // The pass reached the hold, so the order above was proven, not passed by a daemon that
+    // reads no other log.
+    let reached = daemon.home.join("log-pass-hold.reached");
+    daemon.wait_event(&live_ids[0], "the held pass over the other logs", |_| reached.exists());
+    std::fs::remove_file(&hold).unwrap();
 
     // The adopted turns still end normally.
     for id in &live_ids {
@@ -163,14 +208,18 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
             e["kind"] == "turn_result" && e["msg"]["status"] == "completed"
         });
     }
-    assert!(
-        reattach_ms <= budget_ms,
-        "the live agents reattached {reattach_ms} ms after the start over {closed} closed and {idle} idle chats (budget {budget_ms} ms)"
-    );
-    assert!(
-        open_ms <= open_budget_ms,
-        "an idle chat's first open took {open_ms} ms while the other logs loaded (budget {open_budget_ms} ms)"
-    );
+    if let Some(budget_ms) = budget_ms {
+        assert!(
+            reattach_ms <= budget_ms,
+            "the live agents reattached {reattach_ms} ms after the start over {closed} closed and {idle} idle chats (budget {budget_ms} ms)"
+        );
+    }
+    if let Some(open_budget_ms) = open_budget_ms {
+        assert!(
+            open_ms <= open_budget_ms,
+            "an idle chat's first open took {open_ms} ms while the other logs loaded (budget {open_budget_ms} ms)"
+        );
+    }
 }
 
 /// Starts a chat whose turn waits on a FIFO and stops the daemon the way an update does (the

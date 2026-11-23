@@ -38,12 +38,12 @@ extension AgentPaneTransport {
                     batch.outcomes.append(.sent)
                     continue
                 }
-                // task-owner: one read per socket, ending within two seconds; its slot is released
-                // on every exit. A closed socket drops the result through the normal inbound path.
+                // task-owner: one read per socket, ending within ``statusReadLimit``; its slot is
+                // released on every exit. A closed socket drops the result through the normal inbound path.
                 Task.detached(priority: .utility) {
                     defer { socket.statusRead.end() }
                     let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
-                                                                   deadline: .seconds(2))
+                                                                   deadline: Self.statusReadLimit)
                     let reply = result.flatMap {
                         AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": relayID, "result": $0])
                     } ?? Self.statusError(relayID: relayID)
@@ -56,6 +56,11 @@ extension AgentPaneTransport {
         }
         return batch
     }
+
+    /// The page's relayed `_acpmux/status` (its machines, so the Cloud destinations it can start on).
+    /// A loaded daemon answers after 2 s (Austin, 2026-10-29: about 80 agents), and a 2 s read then
+    /// left the page with no peers, so no Cloud machine to start on; the answer still ends the wait.
+    nonisolated static let statusReadLimit: Duration = .seconds(15)
 
     nonisolated private static func statusError(relayID: Int) -> String {
         "{\"jsonrpc\":\"2.0\",\"id\":\(relayID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
@@ -118,10 +123,19 @@ extension AgentPaneTransport {
 
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
-        let object: [String: Any]
+        var object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
+        }
+        // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins are removed
+        // before every rule, so they never reach the daemon and never fail the connect (cmux#46563).
+        if let stripped = AcpmuxPaneMethods.strippingInitializeOptIns(object, modeFields: snapshot.modeFields) {
+            object = stripped.object
+            // Once per connection (an initialize is its first frame): the names only, each cut
+            // to 64 characters and at most 8 of them, never a value.
+            let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
+            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
         }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
@@ -131,12 +145,16 @@ extension AgentPaneTransport {
             return .refuse(refusal, spend: carried)
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
-        if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.paramsRuleViolation(object, modeFields: snapshot.modeFields) {
+            // The rule it broke and the chat it was for, so a refusal that fails every chat's start
+            // or open (cmux#42185, #42460) names its cause in the app's log (cmux#44964).
+            return .refuse(intentInvalid(.paramsRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation, detail: violation), spend: carried)
         }
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
-        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.answersRuleViolation(object, options: snapshot.options) {
+            return .refuse(intentInvalid(.answersRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation), spend: carried)
         }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
@@ -146,6 +164,10 @@ extension AgentPaneTransport {
             frame = stripped
             facts.ticket = ticket
             facts.otherMeta = otherMeta
+            if otherMeta {
+                // Read from the page's own `_meta`, before any strip (the gesture_meta log line).
+                facts.otherMetaKeys = AcpmuxPaneMethods.otherMetaKeys(object)
+            }
             if ticket != nil {
                 facts.pick = AgentPaneGesturePick(method: method, params: params)
                 facts.sessionId = params["sessionId"] as? String
@@ -209,7 +231,7 @@ extension AgentPaneTransport {
     /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
     nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
                                    reason: String? = nil) -> Step {
-        guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
+        guard case .refuse(let error, let method, let requestID, let rule) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
         if error == .firstFrameNotInitialize {
@@ -217,7 +239,8 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method,
+                                                    detail: detail ?? rule, reason: reason))
         }
         return .refused(error)
     }
@@ -241,14 +264,15 @@ extension AgentPaneTransport {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
-        let named = (object["params"] as? [String: Any])?["sessionId"]
+        let params = object["params"] as? [String: Any]
+        let primaryKey = AcpmuxPaneMethods.primarySessionParams[method] ?? "sessionId"
+        let named = params?[primaryKey]
         // A frame that may name a session and names none is not session-scoped.
         if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
         // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
-        let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
         // Ones that may name a session (an accepted offer's child): none is fine, a named one

@@ -32,6 +32,8 @@ where
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
+    // Send Later: what came due while the daemon was down goes now.
+    cmux_tui_core::server::start_scheduled_sender(mux);
     // The brains of the Chiefs that are not the default, when the app asked
     // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner.
     let chief_brains = cmux_tui_core::chief_brains::start(mux, socket_path);
@@ -72,6 +74,9 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // Other sessions' terminal hosts that no live daemon owns end after a
+    // grace, off the restore (cmux-tui-core mux/unowned_hosts.rs).
+    let unowned_hosts = mux.start_unowned_host_reaper();
     // An app session's or its Chief session's owner stops once its app has
     // left and nothing keeps it (R-LIFECYCLE stage 1, on unless its switch
     // is 0; owner_keepers.rs). Only an owner that clients reach through its
@@ -115,6 +120,9 @@ where
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
     }
+    if let Some(unowned_hosts) = unowned_hosts {
+        unowned_hosts.stop();
+    }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Some(lost_paths) = lost_paths {
         lost_paths.stop();
@@ -150,11 +158,12 @@ fn start_owner_keepers(
         crate::client_log::stderr_log!(
             "lifecycle",
             "{BIN}: stopped the owner of session {}: its app left and nothing keeps it \
-             (clients {}, terminals {:?}, browser host {}, app servers {}, Chief brains {}); its \
+             (clients {}, terminals {:?}{}, browser host {}, app servers {}, Chief brains {}); its \
              terminals and state stay for the next owner",
             mux.session,
             keepers.clients,
             keepers.terminals,
+            if keepers.unattended { " with no client for the unattended keep" } else { "" },
             keepers.browser_host,
             keepers.app_servers,
             keepers.chief_brains
@@ -267,30 +276,5 @@ pub(crate) fn wake_headless() {
 }
 
 #[cfg(test)]
-mod tests {
-    fn args(argv: &[&str]) -> crate::Args {
-        crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
-    }
-
-    #[test]
-    fn a_headless_websocket_listener_needs_a_token() {
-        let token = |args: &crate::Args, ws: &Option<String>, configured: &Option<String>| {
-            super::ws_token(args, ws, configured).map(|value| value.token)
-        };
-        let ws = Some("127.0.0.1:0".to_string());
-        let wide = Some("0.0.0.0:0".to_string());
-        let headless = args(&["--headless", "--ws", "127.0.0.1:0"]);
-        assert!(token(&headless, &wide, &None).is_err());
-        assert!(token(&headless, &wide, &Some(" ".into())).is_err());
-        // A loopback listener mints its own credential (cx-hnmbt.2).
-        let minted = super::ws_token(&headless, &ws, &None).unwrap();
-        assert!(minted.minted && minted.token.is_some_and(|value| value.len() == 64));
-        assert_eq!(token(&headless, &ws, &Some("t".into())).unwrap().as_deref(), Some("t"));
-        let flagged = args(&["--headless", "--ws", "127.0.0.1:0", "--ws-token", "f"]);
-        assert_eq!(token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
-        // The TUI that runs the daemon approves pairings itself.
-        let interactive = args(&["--ws", "127.0.0.1:0"]);
-        assert_eq!(token(&interactive, &ws, &None).unwrap(), None);
-        assert_eq!(token(&headless, &None, &None).unwrap(), None);
-    }
-}
+#[path = "headless_tests.rs"]
+mod tests;

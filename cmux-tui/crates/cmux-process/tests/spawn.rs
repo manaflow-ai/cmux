@@ -129,7 +129,7 @@ mod daemon_spawn {
     /// `open_stdin_path` with `new_session` (the shell spawn of a PTY):
     /// the child's 0, 1 and 2 are the PTY slave and the slave is its
     /// controlling terminal (`/dev/tty` opens and writing to it reaches the
-    /// master), as `cmux-mux2`'s `spawn_pty` makes it.
+    /// master).
     #[test]
     fn a_pty_slave_opened_as_stdin_is_the_new_sessions_controlling_terminal() {
         let (master, slave) = open_pty();

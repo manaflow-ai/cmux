@@ -1,0 +1,178 @@
+/* The Cloud progress page: one column, anchored near the top of the window so a panel that opens
+   (the `line` arm's steps) moves only what is under it. Every block keeps its room across stages:
+   the buttons and the typing note are laid out while hidden, so a failure or a pause shifts nothing;
+   only marks, words and the bar's segments change, and those fade in place. */
+.cloud-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-4);
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 18vh var(--ds-space-4) var(--ds-space-6);
+  text-align: center;
+  user-select: none;
+}
+
+.cloud-progress__title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: 600;
+}
+
+.cloud-progress[data-look="steps"] .cloud-progress__title {
+  margin-bottom: calc(var(--ds-space-1) - var(--ds-space-4));
+}
+
+.cloud-progress__elapsed {
+  margin: 0;
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-progress__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.cloud-progress__stage {
+  font-weight: 600;
+}
+
+/* Paused is not a failure: the stage reads in the calm secondary tone, Resume is the only ask. */
+.cloud-progress[data-stage="paused"] .cloud-progress__stage {
+  color: var(--page-text-2);
+}
+
+.cloud-progress__steps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: start;
+}
+
+.cloud-progress__steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  color: var(--page-text);
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+
+.cloud-progress__steps li[data-mark="next"] {
+  color: var(--page-text-3);
+}
+
+.cloud-progress__steps li[data-mark="current"],
+.cloud-progress__steps li[data-mark="failed"] {
+  font-weight: 600;
+}
+
+.cloud-progress__mark {
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+
+.cloud-progress__detail {
+  margin: 0;
+  /* Three lines' room: the next line and a failure's reason take the same place. */
+  min-height: calc(3 * var(--text-body--line-height, 1.4em));
+  color: var(--page-text-2);
+  white-space: pre-line;
+  user-select: text;
+}
+
+/* A question in the detail's place: its title in the primary tone, its lines (who asks, the machine) under it. */
+.cloud-progress__ask-title {
+  color: var(--page-text);
+  font-weight: 600;
+}
+
+.cloud-progress__actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  visibility: hidden;
+}
+
+.cloud-progress__actions[data-shown] {
+  visibility: visible;
+}
+
+.cloud-progress__note {
+  margin: 0;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+
+.cloud-progress__note[data-typed] {
+  color: var(--page-text);
+}
+
+.cloud-progress__note[data-hidden] {
+  visibility: hidden;
+}
+
+/* line: the status line is the disclosure's trigger; the steps open under it. */
+.cloud-progress__disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
+.cloud-progress__disclosure .ui-disclosure-trigger {
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+  color: inherit;
+  background: transparent;
+}
+
+.cloud-progress__disclosure .ui-disclosure-trigger:hover {
+  background: var(--page-hover);
+}
+
+/* card: the same blocks on one popover-glass card; a bar of five segments over the steps. */
+.cloud-progress__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-4);
+  width: 100%;
+  padding: var(--ds-space-5);
+  border-radius: var(--ds-radius-xl);
+}
+
+.cloud-progress__bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--ds-space-1);
+  width: 100%;
+}
+
+.cloud-progress__bar span {
+  height: var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--page-separator);
+  transition: background-color var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+
+.cloud-progress__bar span[data-mark="done"] {
+  background: var(--page-text-2);
+}
+
+.cloud-progress__bar span[data-mark="current"] {
+  background: var(--cmux-accent, AccentColor);
+}
+
+.cloud-progress__bar span[data-mark="failed"] {
+  background: var(--cmux-app-danger, #c42b1c);
+}

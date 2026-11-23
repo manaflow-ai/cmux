@@ -77,19 +77,45 @@
 //! them along, so the turn goes on there with them (acpmux queues its
 //! continuation, cmuxterm-hq#5846 item 1). A sync that fails, or a pull that
 //! conflicts (`sync_conflict` with `conflicts`), gives the chat back. It runs
+//! `--sync relay --sync-from-socket SOURCE_LINK` (Move to another Cloud
+//! machine): both ends are machines, `--sync-local` is the folder on the
+//! source machine, and the copy is `cmux link sync relay`, pumped through
+//! this process. The relay runs twice: its bulk before the begin (the chat
+//! still runs), then once frozen, which sends only what changed since. It runs
 //! inside the source's lease (an unread move is aborted after
 //! `SOURCE_LEASE_SECONDS`), so the caller syncs the bulk before the move and
 //! this copies only what changed since.
+//!
+//! `--sync` may be given more than once, each with its own `--sync-socket`,
+//! `--sync-local` and `--sync-remote`; the copies run in that order, and the
+//! first that fails gives the chat back. Move to Another Machine passes one
+//! `--sync relay`: machine to machine, never through this Mac's folder (as git
+//! when this Mac seeded the folder, [`super::seed_cli::hop_bulk`]), so the chat
+//! lands with every change the old machine made up to the freeze.
 //!
 //! `--interrupt` stops a running turn only on a source whose `identify` lists
 //! `agent-transfer-continues-v1` (its acpmux continues the turn where the
 //! chat lands); an older source refuses the move while the turn runs.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
-//! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
+//! "transfer_id":...,"bytes":N,"pages":N,"resolved":bool,"phases":{...},
+//! "frozen_ms"?:N,"total_ms":N}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...,
-//! "retry_after_seconds"?:N,"side"?:"source"|"target"}` (exit 1); bad usage
-//! exits 64. `side` names the daemon a `machine_outdated` is about.
+//! "retry_after_seconds"?:N,"side"?:"source"|"target","phases":{...},
+//! "total_ms":N}` (exit 1); bad usage exits 64. `side` names the daemon a
+//! `machine_outdated` is about. `phases` is each step's wall time in whole
+//! milliseconds (monotonic clock), only the steps this run reached: `state`
+//! (the move record), `gate` (both daemons' capabilities and the target's
+//! kind), `bulk_sync` (a relay's bulk, chat still running), `connect` (the
+//! source connection and its continues check), `begin` (the chat freezes),
+//! `frozen_sync` (`--sync` once frozen), `receive` (target connection and
+//! receive), `copy` (every bundle page), `finish`, `commit`, or `resolve` (a
+//! rerun ending an earlier move). `frozen_ms`: the begin's start to the
+//! commit's end, how long the chat could not run (a fresh move that landed).
+//! `frozen_sync_phases` (a move that ran `--sync`): where `frozen_sync` went
+//! ([`super::spans`]): `spans`, each machine request, git run, fixed wait and
+//! sync step summed by name as `{"ms":N,"n":N}`, and `remote`, the machine
+//! jobs' own `timings`.
 
 use cmux_json::JsonSet as _;
 
@@ -97,6 +123,7 @@ mod daemon;
 mod record;
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -108,7 +135,8 @@ use record::{Record, Records};
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
 [--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR] \
-[--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]
+[--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]... \
+[--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER [--sync-seed-local LOCAL]]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
 machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
@@ -130,16 +158,26 @@ struct Args {
     /// `--to-pid`: the process that answer belongs to (module docs).
     to_pid: Option<u32>,
     state_dir: Option<PathBuf>,
-    /// `--sync`: the folder's last changes, copied once the chat is frozen.
-    sync: Option<Sync>,
+    /// `--sync`: the folder's last changes, copied once the chat is frozen, in order.
+    syncs: Vec<Sync>,
 }
 
-/// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs).
+/// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs), or
+/// `--sync relay --sync-from-socket --sync-socket --sync-local --sync-remote`, where
+/// `local` is the folder on the source machine.
 struct Sync {
     way: Way,
     socket: PathBuf,
     local: PathBuf,
     remote: String,
+    /// `--sync relay`: the source machine's link socket.
+    from_socket: Option<PathBuf>,
+    /// `--sync relay --sync-seed-local`: this Mac's folder a seed put on the source machine.
+    /// Once the move commits its seed record follows to the target ([`super::seed_cli::follow`]).
+    seed_local: Option<PathBuf>,
+    /// The move this copy is part of (the source daemon and the chat's surface): a hop's records
+    /// are its own ([`super::seed_cli::hop_bulk`]).
+    owner: String,
 }
 
 /// Which way `--sync` copies.
@@ -148,6 +186,8 @@ enum Way {
     Push,
     Pull,
     Seed,
+    /// Machine to machine, through this process (`cmux link sync relay`).
+    Relay,
 }
 
 /// A move that failed, as its JSON line reports it.
@@ -207,6 +247,67 @@ struct Moved {
     resolved: bool,
 }
 
+/// Each step's wall time (module docs, `phases`): a lap closes the step that ran since the last.
+struct Clock {
+    start: Instant,
+    last: Instant,
+    phases: Vec<(&'static str, u128)>,
+    /// When the begin was sent: the chat cannot run from then until the commit ends.
+    frozen_at: Option<Instant>,
+    frozen_ms: Option<u128>,
+    pages: u64,
+    /// Where the frozen `--sync` went ([`super::spans::take`]).
+    frozen_sync: Option<Value>,
+}
+
+impl Clock {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            start: now,
+            last: now,
+            phases: Vec::new(),
+            frozen_at: None,
+            frozen_ms: None,
+            pages: 0,
+            frozen_sync: None,
+        }
+    }
+
+    /// Closes step `name`; its time is added to an earlier lap of the same name.
+    fn lap(&mut self, name: &'static str) {
+        let now = Instant::now();
+        let ms = now.duration_since(self.last).as_millis();
+        self.last = now;
+        match self.phases.iter_mut().find(|(phase, _)| *phase == name) {
+            Some((_, sum)) => *sum += ms,
+            None => self.phases.push((name, ms)),
+        }
+    }
+
+    fn freeze(&mut self) {
+        self.frozen_at = Some(Instant::now());
+    }
+
+    fn thaw(&mut self) {
+        self.frozen_ms = self.frozen_at.map(|at| at.elapsed().as_millis());
+    }
+
+    /// Sets `phases`, `total_ms` and, when known, `frozen_ms` on `line`.
+    fn report(&self, line: &mut Value) {
+        let phases: serde_json::Map<String, Value> =
+            self.phases.iter().map(|(name, ms)| ((*name).to_owned(), json!(ms))).collect();
+        line.set("phases", Value::Object(phases));
+        if let Some(ms) = self.frozen_ms {
+            line.set("frozen_ms", json!(ms));
+        }
+        if let Some(spans) = &self.frozen_sync {
+            line.set("frozen_sync_phases", spans.clone());
+        }
+        line.set("total_ms", json!(self.start.elapsed().as_millis()));
+    }
+}
+
 pub(super) fn run(args: &[String]) -> i32 {
     let help = args.first().map(String::as_str) == Some("help")
         || args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help"));
@@ -218,16 +319,19 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    match move_chat(&args) {
+    let mut clock = Clock::new();
+    match move_chat(&args, &mut clock) {
         Ok(moved) => {
-            let line = json!({"ok": true, "session_id": moved.session_id,
+            let mut line = json!({"ok": true, "session_id": moved.session_id,
                               "transfer_id": moved.transfer_id, "bytes": moved.bytes,
-                              "resolved": moved.resolved});
+                              "pages": clock.pages, "resolved": moved.resolved});
+            clock.report(&mut line);
             println!("{line}");
             0
         }
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
+            clock.report(&mut line);
             if let Some(transfer_id) = failed.transfer_id {
                 line.set("transfer_id", json!(transfer_id));
             }
@@ -253,7 +357,8 @@ fn parse(args: &[String]) -> Option<Args> {
     }
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
     let (mut vm_kind, mut to_pid) = (None, None);
-    let (mut sync, mut sync_socket, mut sync_local, mut sync_remote) = (None, None, None, None);
+    // Each `--sync` group's flags, in any order: a flag its group has already starts the next group.
+    let mut groups: Vec<SyncFlags> = Vec::new();
     let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -268,31 +373,47 @@ fn parse(args: &[String]) -> Option<Args> {
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
             "--sync" => {
-                sync = Some(match rest.next()?.as_str() {
+                let way = match rest.next()?.as_str() {
                     "push" => Way::Push,
                     "pull" => Way::Pull,
                     "seed" => Way::Seed,
+                    "relay" => Way::Relay,
                     _ => return None,
-                });
+                };
+                SyncFlags::group(&mut groups, |g| g.way.is_none())?.way = Some(way);
             }
-            "--sync-socket" => sync_socket = Some(PathBuf::from(rest.next()?)),
-            "--sync-local" => sync_local = Some(PathBuf::from(rest.next()?)),
-            "--sync-remote" => sync_remote = Some(rest.next()?.clone()),
+            "--sync-socket" => {
+                let socket = PathBuf::from(rest.next()?);
+                SyncFlags::group(&mut groups, |g| g.socket.is_none())?.socket = Some(socket);
+            }
+            "--sync-local" => {
+                let local = PathBuf::from(rest.next()?);
+                SyncFlags::group(&mut groups, |g| g.local.is_none())?.local = Some(local);
+            }
+            "--sync-remote" => {
+                let remote = rest.next()?.clone();
+                SyncFlags::group(&mut groups, |g| g.remote.is_none())?.remote = Some(remote);
+            }
+            "--sync-from-socket" => {
+                let from = PathBuf::from(rest.next()?);
+                SyncFlags::group(&mut groups, |g| g.from_socket.is_none())?.from_socket =
+                    Some(from);
+            }
+            "--sync-seed-local" => {
+                let local = PathBuf::from(rest.next()?);
+                SyncFlags::group(&mut groups, |g| g.seed_local.is_none())?.seed_local = Some(local);
+            }
             _ => return None,
         }
     }
     let cwd = cwd.filter(|cwd| cwd.starts_with('/'))?;
-    // All four or none; the remote folder is absolute, as `cmux link sync` takes it.
-    let sync = match (sync, sync_socket, sync_local, sync_remote) {
-        (None, None, None, None) => None,
-        (Some(way), Some(socket), Some(local), Some(remote)) if remote.starts_with('/') => {
-            Some(Sync { way, socket, local, remote: remote.trim_end_matches('/').to_owned() })
-        }
-        _ => return None,
-    };
+    // Each group has all four; the remote folder is absolute, as `cmux link sync` takes it.
+    let (from, surface) = (from?, surface?);
+    let owner = format!("{}#{surface}", from.display());
+    let syncs = groups.into_iter().map(|g| g.sync(&owner)).collect::<Option<Vec<_>>>()?;
     Some(Args {
-        from: from?,
-        surface: surface?,
+        from,
+        surface,
         to: to?,
         cwd,
         interrupt,
@@ -300,24 +421,72 @@ fn parse(args: &[String]) -> Option<Args> {
         vm_kind,
         to_pid,
         state_dir,
-        sync,
+        syncs,
     })
 }
 
-fn move_chat(args: &Args) -> Result<Moved, Failed> {
+/// One `--sync` group's flags as `parse` reads them.
+#[derive(Default)]
+struct SyncFlags {
+    way: Option<Way>,
+    socket: Option<PathBuf>,
+    local: Option<PathBuf>,
+    remote: Option<String>,
+    from_socket: Option<PathBuf>,
+    seed_local: Option<PathBuf>,
+}
+
+impl SyncFlags {
+    /// The group a flag goes in: the last one while `free` (it lacks that flag), else a new one.
+    fn group(groups: &mut Vec<Self>, free: impl Fn(&Self) -> bool) -> Option<&mut Self> {
+        if !groups.last().is_some_and(&free) {
+            groups.push(Self::default());
+        }
+        groups.last_mut()
+    }
+
+    fn sync(self, owner: &str) -> Option<Sync> {
+        let remote = self.remote.filter(|remote| remote.starts_with('/'))?;
+        let (way, local) = (self.way?, self.local?);
+        // A relay names both machines and two absolute folders; no other way has a source socket.
+        let relay = way == Way::Relay;
+        if relay != self.from_socket.is_some()
+            || (relay && !local.is_absolute())
+            || (!relay && self.seed_local.is_some())
+        {
+            return None;
+        }
+        Some(Sync {
+            way,
+            socket: self.socket?,
+            local,
+            remote: remote.trim_end_matches('/').to_owned(),
+            from_socket: self.from_socket,
+            seed_local: self.seed_local,
+            owner: owner.to_owned(),
+        })
+    }
+}
+
+fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
     let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
         match e.downcast_ref::<record::Busy>() {
             Some(busy) => Failed::new("move_in_progress", busy.to_string()),
             None => Failed::state(&e),
         }
     })?;
-    if let Some(record) = records.load().map_err(|e| Failed::state(&e))?
+    let earlier = records.load().map_err(|e| Failed::state(&e))?;
+    clock.lap("state");
+    if let Some(record) = earlier
         && !record.transfer_id.is_empty()
-        && let Some(moved) = resolve(args, &records, record)?
     {
-        return Ok(moved);
+        let resolved = resolve(args, &records, record);
+        clock.lap("resolve");
+        if let Some(moved) = resolved? {
+            return Ok(moved);
+        }
     }
-    fresh(args, &records)
+    fresh(args, &records, clock)
 }
 
 /// Ends the move an earlier run left: the chat landed there (the source
@@ -352,7 +521,7 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
 }
 
 /// A new move: begin, receive, copy, finish, then commit or abort.
-fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
+fn fresh(args: &Args, records: &Records, clock: &mut Clock) -> Result<Moved, Failed> {
     // Before the chat freezes: a daemon too old for the move says so
     // (`machine_outdated`) instead of failing the receive or the begin.
     // `side` says which: the app names a machine only when it is the machine.
@@ -374,16 +543,30 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             return Err(failed);
         }
     }
-    let vm_kind = target_vm_kind(args)?;
-    let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
+    let vm_kind = target_vm_kind(args);
+    clock.lap("gate");
+    let vm_kind = vm_kind?;
+    // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
+    // what changed since and the chat is frozen for that delta alone.
+    if args.syncs.iter().any(|sync| sync.way == Way::Relay) {
+        let bulk = args.syncs.iter().filter(|sync| sync.way == Way::Relay).try_for_each(relay_bulk);
+        clock.lap("bulk_sync");
+        bulk?;
+    }
+    let source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e));
     // A running turn stops for the move only where it goes on afterwards: an older source would
     // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
-    let interrupt = args.interrupt && source_continues(&args.from);
+    let interrupt = source.is_ok() && args.interrupt && source_continues(&args.from);
+    clock.lap("connect");
+    let mut source = source?;
     let mut params = json!({"surface": args.surface, "interrupt": interrupt});
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
-    let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
+    clock.freeze();
+    let begun = source.call("agent-transfer-begin", params, BEGIN_TIMEOUT);
+    clock.lap("begin");
+    let begun = match begun {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
             let Some(moving) = details["transfer_id"].as_str().filter(|id| !id.is_empty()) else {
@@ -416,11 +599,16 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     };
     // The chat is frozen: its folder's last changes go with it. No receive was asked yet, so
     // the target cannot have the chat, and a sync that fails gives it back.
-    if let Some(sync) = &args.sync
+    if !args.syncs.is_empty()
         && let Err(failed) = {
             // Recorded first: a run that dies while it copies is resolved by the next one.
             let _ = records.save(&record);
-            sync_frozen(sync)
+            // Only the frozen pass's own requests and runs.
+            let _ = super::spans::take();
+            let synced = args.syncs.iter().try_for_each(sync_frozen);
+            clock.lap("frozen_sync");
+            clock.frozen_sync = Some(super::spans::take());
+            synced
         }
     {
         return Err(match give_back(args, records, &mut record) {
@@ -428,8 +616,9 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             Err(stuck) => Failed { error: format!("{}; {}", failed.error, stuck.error), ..stuck },
         });
     }
+    let manifest = begun.get("manifest").unwrap_or(&Value::Null);
     let (mut target, bytes) =
-        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"], &vm_kind) {
+        match up_to_finish(args, &mut source, records, &mut record, manifest, &vm_kind, clock) {
             Ok(copied) => copied,
             Err(failed) => {
                 // No finish was sent: the target cannot have the chat.
@@ -448,6 +637,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         finish.set("vm_kind", json!(kind));
     }
     let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
+    clock.lap("finish");
     let (landed, finish_error) = match finished {
         Ok(answer) => {
             if let Some(id) = answer["session"]["sessionId"].as_str() {
@@ -460,7 +650,14 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     let finish_error = finish_error.as_ref();
     let why = finish_error.map_or("", CallError::message);
     match landed {
-        Some(true) => commit(args, records, &mut record, bytes, false),
+        Some(true) => {
+            let committed = commit(args, records, &mut record, bytes, false);
+            clock.lap("commit");
+            if committed.is_ok() {
+                clock.thaw();
+            }
+            committed
+        }
         Some(false) => {
             give_back(args, records, &mut record)?;
             let code = finish_error.and_then(CallError::code).unwrap_or("move_failed");
@@ -475,6 +672,35 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             Err(unresolved(&record, error))
         }
     }
+}
+
+/// A relay's bulk copy, before the chat freezes. A git folder goes as git, machine to machine
+/// (`seed_cli::hop`): the second machine clones from GitHub and gets the seed's diff when a Move
+/// to Cloud seeded it from this Mac (`--sync-seed-local`), else the first machine's own changes
+/// since its upstream (a chat that started on a Cloud machine), or only what changed since the
+/// chat left when it moves back to a machine that still has its folder. This Mac's folder is
+/// never read or written. A folder the hop cannot take (one copied rather than seeded, one with
+/// no GitHub remote, say) copies machine to machine, file by file.
+fn relay_bulk(sync: &Sync) -> Result<(), Failed> {
+    if let Some(from) = &sync.from_socket {
+        let from_root = sync.local.to_string_lossy();
+        let hopped = super::seed_cli::hop_bulk(
+            from,
+            &from_root,
+            &sync.socket,
+            &sync.remote,
+            sync.seed_local.as_deref(),
+            &sync.owner,
+        );
+        match hopped {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let warning = json!({"warning": "hop_fell_back", "error": format!("{error:#}")});
+                eprintln!("{warning}");
+            }
+        }
+    }
+    sync_frozen(sync)
 }
 
 /// `--sync`'s copy of a frozen chat's folder (module docs).
@@ -500,6 +726,60 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                         format!("the folder's last changes: {e:#}"),
                     )
                 });
+        }
+        Way::Relay => {
+            let from = sync.from_socket.as_deref().ok_or_else(|| {
+                Failed::new("bad_request", "a relay names the source machine's socket".to_string())
+            })?;
+            let failed = |e: anyhow::Error| {
+                Failed::new(
+                    super::seed_cli::failure_code(&e),
+                    format!("the folder's last changes: {e:#}"),
+                )
+            };
+            // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
+            let local = sync.seed_local.as_deref();
+            if super::seed_cli::hop_started(local, &sync.remote, &sync.owner) {
+                let from_root = sync.local.to_string_lossy();
+                let hopped = super::seed_cli::hop_frozen(
+                    from,
+                    &from_root,
+                    &sync.socket,
+                    &sync.remote,
+                    local,
+                    &sync.owner,
+                );
+                match hopped {
+                    // The stash grew older entries than a seed carries: what the bulk seeded goes
+                    // and the folder relays whole below.
+                    Err(error) if super::seed_cli::many_stashes(&error) => {
+                        super::seed_cli::hop_abandon(
+                            &sync.socket,
+                            &sync.remote,
+                            local,
+                            &sync.owner,
+                        )
+                        .map_err(failed)?;
+                    }
+                    hopped => return hopped.map_err(failed),
+                }
+            }
+            let mut quiet = |_: sync_cli::Progress| {};
+            return sync_cli::relay(
+                from,
+                &sync.local.to_string_lossy(),
+                &sync.socket,
+                &sync.remote,
+                &sync.owner,
+                &mut quiet,
+            )
+            .map(|_| ())
+            .map_err(|e| {
+                Failed::new(
+                    sync_cli::push_failure_code(&e),
+                    format!("the folder's last changes: {e:#}"),
+                )
+            });
         }
         Way::Pull => {}
     }
@@ -530,7 +810,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
 /// say so, or does not answer `identify`.
 fn source_continues(socket: &std::path::Path) -> bool {
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY;
-    let identity = super::machine_gate::identify(socket);
+    let identity = super::machine_gate::reach(socket).ok();
     identity.as_ref().and_then(super::machine_gate::served).is_some_and(|s| s.contains(&capability))
 }
 
@@ -541,7 +821,7 @@ fn source_continues(socket: &std::path::Path) -> bool {
 fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
     let Some(kind) = &args.vm_kind else { return Ok(None) };
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
-    let identity = super::machine_gate::identify(&args.to);
+    let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
     if served.is_some_and(|served| served.contains(&capability)) {
         return Ok(Some(kind.clone()));
@@ -565,6 +845,7 @@ fn up_to_finish(
     record: &mut Record,
     manifest: &Value,
     vm_kind: &Option<String>,
+    clock: &mut Clock,
 ) -> Result<(Daemon, u64), Failed> {
     records.save(record).map_err(|e| Failed::state(&e))?;
     let target_failed = |e: CallError| Failed::call("target", &e);
@@ -581,8 +862,9 @@ fn up_to_finish(
     if let Some(kind) = vm_kind {
         params.set("vm_kind", json!(kind));
     }
-    let received =
-        target.call("agent-transfer-receive", params, CALL_TIMEOUT).map_err(target_failed)?;
+    let received = target.call("agent-transfer-receive", params, CALL_TIMEOUT);
+    clock.lap("receive");
+    let received = received.map_err(target_failed)?;
     let receive_id = received["receive_id"]
         .as_str()
         .filter(|id| !id.is_empty())
@@ -598,10 +880,16 @@ fn up_to_finish(
         let (Some(path), Some(size)) = (file["path"].as_str(), file["size"].as_u64()) else {
             return Err(Failed::bad_answer("the begin manifest lists a file without path or size"));
         };
-        bytes += copy_file(source, &mut target, record, path, size)?;
+        let copied = copy_file(source, &mut target, record, path, size, &mut clock.pages);
+        if copied.is_err() {
+            clock.lap("copy");
+        }
+        bytes += copied?;
     }
     record.finish_sent = true;
-    records.save(record).map_err(|e| Failed::state(&e))?;
+    let saved = records.save(record);
+    clock.lap("copy");
+    saved.map_err(|e| Failed::state(&e))?;
     Ok((target, bytes))
 }
 
@@ -612,6 +900,7 @@ fn copy_file(
     record: &Record,
     path: &str,
     size: u64,
+    pages: &mut u64,
 ) -> Result<u64, Failed> {
     let receive_id = record.receive_id.as_deref().unwrap_or_default();
     let mut offset = 0u64;
@@ -634,6 +923,7 @@ fn copy_file(
         if written["next"].as_u64() != Some(offset + len) {
             return Err(Failed::bad_answer(format!("the machine took a page of {path} short")));
         }
+        *pages += 1;
         offset += len;
     }
     Ok(size)
@@ -702,6 +992,31 @@ fn commit(
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
     }
+    // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
+    // Before the record clears: a run that dies here moves it on its next run.
+    for sync in &args.syncs {
+        let Some(from) = &sync.from_socket else { continue };
+        let Some(seed_local) = &sync.seed_local else {
+            // No folder of this Mac's: a hop's waiting record goes, nothing else is kept.
+            let _ = super::seed_cli::land(None, &sync.remote, &sync.owner);
+            continue;
+        };
+        let local_root = sync.local.to_string_lossy();
+        let moved =
+            super::seed_cli::land(Some(seed_local), &sync.remote, &sync.owner).and_then(|landed| {
+                if landed {
+                    return Ok(true);
+                }
+                super::seed_cli::follow(seed_local, &local_root, &sync.remote, from, &sync.socket)
+            });
+        if let Err(error) = moved {
+            // The move stands; Bring Back Local then copies instead of merging.
+            eprintln!(
+                "{}",
+                json!({"warning": "seed_record_not_moved", "error": format!("{error:#}")})
+            );
+        }
+    }
     records.clear();
     Ok(Moved {
         session_id: record.session_id.clone().unwrap_or_default(),
@@ -732,3 +1047,6 @@ fn frozen(error: &str, transfer_id: Option<&str>) -> Failed {
 fn unresolved(record: &Record, error: impl Into<String>) -> Failed {
     Failed::new("move_unresolved", error).with_transfer(&record.transfer_id)
 }
+
+#[cfg(test)]
+mod tests;

@@ -22,9 +22,6 @@ public final class CloudLinkLifecycle {
     private var linkTeam: String?
     /// Set while a session ends (sign-out, session end): no ensure runs.
     private var linkEnding = false
-    /// The running link's local socket as its last ensure answered (`link.dial` callers: a Cloud
-    /// desktop's rd stream); nil before an ensure answered one and once the link stopped.
-    public private(set) var socket: String?
 
     private let installID: @MainActor () async -> String?
     /// Cloud may be called: allowed for this build, not turned off by
@@ -111,12 +108,10 @@ public final class CloudLinkLifecycle {
                 await linkLauncher.stop(install: install)
                 return .object(["error": .string("signed out during the ensure")])
             }
-            socket = ensured.socket
             var report: [String: JSONValue] = ["status": .string(ensured.status), "pid": ensured.pid.map { .number(Double($0)) } ?? .null]
             if ensured.status != "running" { report["link_changed"] = await notifyLinkChanged() }
             return .object(report)
         } catch {
-            socket = nil
             logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
             return .object(["error": .string(String(describing: error))])
         }
@@ -144,7 +139,6 @@ public final class CloudLinkLifecycle {
     /// Stops this Mac's `cmux link` and tells the daemon. `install` only
     /// names the link in a failure log.
     public func stopLink(install: String? = nil) async {
-        socket = nil
         await linkLauncher?.stop(install: install)
         await notifyLinkChanged()
     }

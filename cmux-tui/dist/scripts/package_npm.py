@@ -51,6 +51,9 @@ LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE
 # Every platform package ships the third-party notices of its binaries
 # (package_notices.py generate: <kind>-<rust target>.md).
 NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
+# The file name the daemon looks for beside its own executable
+# (cmux-tui agent_plugin_config.rs, BUNDLED_SCREEN_DETECTION_FILE).
+SCREEN_DETECTION_FILE = "cmux-agent-screen-detection"
 
 
 def copy_notice(notices_dir: Path, kind: str, rust_target: str, package_dir: Path) -> None:
@@ -89,7 +92,11 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
+        help=(
+            "Directory containing cmux-tui-, cmux-tui-hook- and (macOS, Linux) "
+            "cmux-tui-agent-screen-detection-<rust-target> binaries, and "
+            "(Linux, Windows) cmux-tui-host-<rust-target>."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -187,16 +194,31 @@ def package_platforms(
         if not hook_src.is_file():
             raise SystemExit(f"missing hook binary: {hook_src}")
 
+        # macOS and Linux packages ship the agent screen-detection plugin as
+        # bin/cmux-agent-screen-detection, beside bin/cmux-tui: the daemon runs
+        # that exact sibling of its own (symlink-resolved) executable by
+        # default. The daemon runs no plugin on Windows.
+        detector_src = binaries_dir / f"cmux-tui-agent-screen-detection-{target['rust_target']}"
+        if target["os"] != "win32" and not detector_src.is_file():
+            raise SystemExit(f"missing agent screen-detection binary: {detector_src}")
+
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
         copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        detector_files: list[str] = []
+        if target["os"] != "win32":
+            copy_executable(detector_src, package_dir / "bin" / SCREEN_DETECTION_FILE)
+            detector_files = [f"bin/{SCREEN_DETECTION_FILE}"]
         # The Windows package also ships cmux-tui-host.exe, the small
         # per-terminal host the daemon spawns instead of re-exec'ing the large
         # cmux-tui.exe, so Defender's per-terminal first-child image scan stays
-        # cheap (cx-1vlzr). It is a Windows-only concern.
+        # cheap (cx-1vlzr). The Linux packages ship bin/cmux-tui-host too: a
+        # Linux daemon runs every terminal host from that exact sibling of its
+        # own executable, else from its own large binary, which costs every
+        # idle terminal its relocated data (host_exe/linux.rs, CMUX-571).
         host_files: list[str] = []
-        if target["os"] == "win32":
+        if target["os"] in ("win32", "linux"):
             host_src = binaries_dir / f"cmux-tui-host-{target['rust_target']}{ext}"
             if not host_src.is_file():
                 raise SystemExit(f"missing host binary: {host_src}")
@@ -225,7 +247,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", *host_files, SSH_MANIFEST, NOTICE_FILE],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", *detector_files, *host_files, SSH_MANIFEST, NOTICE_FILE],
             },
         )
 

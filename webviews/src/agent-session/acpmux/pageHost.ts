@@ -1,7 +1,9 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
-import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
+import { deliverHandoffFailure } from "./dictation";
+import { createPageClient, isPageError, RECEIVE_NAME, type PageClient } from "../../pages/shared/pageClient";
+import { installNativeMenu } from "../../ui/nativeMenu";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
@@ -11,28 +13,36 @@ import { setAgentDiffColors } from "./diffColors";
 import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
+import { setPlanScopeDrift } from "./planScopeDriftStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
+import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
 import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
+import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
+import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
 
-const RENAMED: Record<string, string> = { ready: "handshake", "chat.persistSession": "session.persist" };
+const RENAMED: Record<string, string> = {
+  ready: "handshake",
+  "chat.persistSession": "session.persist",
+};
 
 /// The `cmux.agent` op of an old bridge method.
 export function agentPageOp(method: string): string {
@@ -46,6 +56,16 @@ export function pageHostClient(): PageClient | null {
   // Only a found client is kept: it owns the page's receive hook, so there is one per page.
   client ??= createPageClient();
   return client;
+}
+
+/// Tests: the page starts again with no page host client, as a new page does. A test that installs
+/// a fake `cmuxPage` handler calls it in its teardown, so a later test file's requests do not go to
+/// that fake through the kept client (its native menu and receive hook go with it).
+export function resetPageHostClientForTests(): void {
+  if (!client) return;
+  client = null;
+  installNativeMenu(null);
+  delete (globalThis as Record<string, unknown>)[RECEIVE_NAME];
 }
 
 /// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
@@ -93,6 +113,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
       return;
+    case "github.changed":
+      window.dispatchEvent(new Event("cmux-github-changed"));
+      return;
     case "sessionInfoHost":
       return setNativeSessionInfoHost(event.value);
     case "sessionInfoAction":
@@ -100,7 +123,8 @@ export function applyHostEvent(event: HostEvent): void {
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {
-      const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
+      const theme = event.value as { web?: unknown; agent?: Record<string, unknown>; key?: unknown };
+      noteChatTheme(theme.key);
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
       if (theme.agent) bridge?.applyTheme(theme.agent);
       return;
@@ -109,6 +133,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "liveTree":
+      return bridge?.applyLiveTree?.(event.value === true);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.
@@ -118,6 +144,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
+    case "experiments":
+      // Direct, like sessionStatus: a push before a component mounts is kept.
+      return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);
     case "paneNotices":
@@ -151,9 +180,19 @@ export function applyHostEvent(event: HostEvent): void {
     case "attentionTabs":
       // Keep a push that arrives before the Needs you header mounts.
       return setAttentionTabs(event.value);
+    case "linkPlaces":
+      // The workspaces and tabs a pasted cmux link can name (chips/cmuxLinkPlaces.ts), kept before
+      // the transcript mounts.
+      return setLinkPlaces(event.value);
+    case "linkPlacesChanged":
+      // Only the places renamed since the last push (an agent's title spinner), applied in place.
+      return updateLinkPlaces(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "planScopeDrift":
+      // Direct, like toolCards: a push before the composer mounts is kept.
+      return setPlanScopeDrift(event.value);
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);
@@ -169,6 +208,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "dictationHandoff":
+      return deliverHandoffFailure(event.value);
     case "designSelection":
       return bridge?.designSelection?.(value);
     case "cloudStartProgress":
@@ -185,10 +226,26 @@ export function applyHostEvent(event: HostEvent): void {
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
+    case "chatSnapshot.write":
+      // The tab hides: the chat's drawn copy is written now, before a hidden page freezes.
+      window.dispatchEvent(new Event(SNAPSHOT_WRITE_EVENT));
+      return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":
       return receiveModelCatalog(event.value);
+    case "cloudPreviewPort":
+      return void addCloudPreviewPort(event.value);
+    case "cloudPreviewPortsKnown": {
+      const value = event.value;
+      const ports =
+        value && typeof value === "object" && Array.isArray((value as { ports?: unknown }).ports)
+          ? (value as { ports: unknown[] }).ports
+          : Array.isArray(value)
+            ? value
+            : [];
+      return seedCloudPreviewPorts(ports);
+    }
   }
 }
 

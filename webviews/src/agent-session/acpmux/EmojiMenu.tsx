@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
-import { useComposerListBox } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import type { EmojiMatch } from "./emojiShortcodes";
 import type { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { useT } from "./i18n";
@@ -13,7 +13,8 @@ const CARET_MENU_PX = 232;
 
 /// The `:shortcode` menu (emojiShortcodes.ts) over the composer, styled as the @ and / menus. The
 /// prompt keeps focus and its keys (Composer.tsx): arrows move, Return or Tab picks, Esc closes.
-/// `active` -1: no row chosen (the arrows choose one), so Return still sends. It mounts open, once per typed
+/// `active` is always a listed row (the first until the arrows or the pointer move it), so Return writes
+/// it (Leo, 2026-11-20: "i click enter and it should do it"). It mounts open, once per typed
 /// token (Composer keys it by the token's start), and reads the caret's place in that same layout
 /// pass, so it opens where it stays and never moves while the word grows.
 export function EmojiMenu({
@@ -34,7 +35,7 @@ export function EmojiMenu({
 }) {
   const t = useT();
   const box = useComposerListBox();
-  const escape = useEscapingList("top", 6, undefined, box);
+  const escape = useEscapingList("top", 6, undefined, box, true);
   const list = useRef<HTMLDivElement | null>(null);
   // Composer keys the menu by the token's start, so the mount's offset names the token's `:`.
   const [startBack] = useState(back);

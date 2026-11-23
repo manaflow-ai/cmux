@@ -3,13 +3,9 @@
 /// menu bar item brings a window back (Leo 2026-10-13, cx-ghagp). On when
 /// unset or invalid; false keeps the Dock icon with no window open, as before.
 nonisolated extension CmuxConfigSnapshot {
-    public static let hideDockIconWithoutWindowsPath = ["app", "hideDockIconWithoutWindows"]
-    /// On when unset or invalid.
-    public static let hideDockIconWithoutWindowsFallback = true
-
     /// `app.hideDockIconWithoutWindows`.
     public var hideDockIconWithoutWindows: Bool {
-        root.value(at: Self.hideDockIconWithoutWindowsPath)?.boolValue ?? Self.hideDockIconWithoutWindowsFallback
+        root.value(at: Self.hideDockIconWithoutWindowsPath)?.boolValue ?? Self.hideDockIconWithoutWindowsDefault
     }
 
     /// A diagnostic when `app.hideDockIconWithoutWindows` is set to something other than a bool.

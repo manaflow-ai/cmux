@@ -3,7 +3,7 @@ import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/raw";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
-import type { ScreenView } from "../lib/tree";
+import { shownTitle, type ScreenView } from "../lib/tree";
 import { contextMenuReducer, type ContextMenuPoint } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
@@ -371,7 +371,8 @@ function LayoutStackNode({ node, screen, paneById, basis, onSelectPane, ...actio
   const renderHeader = (pane: Id) => {
     const livePane = paneById.get(pane) ?? null;
     const activeTab = livePane?.tabs[Number(livePane.active_tab)] ?? null;
-    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: String(pane) });
+    const label =
+      livePane?.name || activeTab?.name || (activeTab && shownTitle(activeTab)) || t("pane", { number: String(pane) });
     return <StackPaneHeader key={pane} label={label} pane={pane} onSelect={selectHeader} />;
   };
   return (

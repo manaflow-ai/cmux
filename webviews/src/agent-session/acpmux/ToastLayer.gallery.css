@@ -1,0 +1,27 @@
+/* The toast gallery's stage (ToastLayer.gallery.tsx): a chat's foot with a docked composer. */
+.toast-gallery {
+  position: relative;
+  display: flex;
+  height: 100%;
+  --cv-inset: 24px;
+}
+.toast-gallery-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4) var(--cv-inset);
+  color: var(--agent-text, CanvasText);
+  font-size: var(--text-content);
+}
+.toast-gallery-row {
+  margin: 0;
+}
+.toast-gallery-composer {
+  margin: 0 var(--cv-inset) var(--ds-space-3);
+  padding: var(--ds-space-4) var(--ds-space-3);
+  border-radius: var(--ds-radius-xl);
+  color: var(--acpmux-composer-placeholder, GrayText);
+}

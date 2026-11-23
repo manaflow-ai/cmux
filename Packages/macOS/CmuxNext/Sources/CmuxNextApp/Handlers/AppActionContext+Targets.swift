@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextWindowRules
 import os
 
 // Strict target resolution and typed refusals for handlers. An explicit
@@ -111,9 +112,8 @@ extension AppActionContext {
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
-    func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        guard connection() != nil else { return }
-        services.activeDaemon.send(label, body)
+    func send(_ label: String, logFailure: ((String, any Error) -> Void)? = nil, _ body: @escaping DaemonCommandBody) {
+        services.activeDaemon.send(label, checkingConnection: { connection() != nil }, logFailure: logFailure, body)
     }
 
     // MARK: Explicit targets
@@ -124,10 +124,14 @@ extension AppActionContext {
     }
 
     func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
-        for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
-            if let candidate, kinds.contains(candidate.kind) { return candidate }
-        }
-        return nil
+        Self.explicitTarget([invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue], kinds: kinds)
+    }
+
+    /// The explicit target among `candidates` (the target, then arguments): the first of one of
+    /// `kinds` (cmux-window-rules `targets::explicit`).
+    nonisolated static func explicitTarget(_ candidates: [ActionTargetRef?], kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
+        let refs = candidates.map { $0.map { WindowRules.TargetRef(kind: $0.kind.rawValue, id: $0.id) } }
+        return WindowRules().explicitTarget(refs, kinds: kinds.map(\.rawValue).sorted()).flatMap { candidates.indices.contains($0) ? candidates[$0] : nil }
     }
 
     var focusedContent: WorkspaceContentController? { services.windows.active?.content }
@@ -142,7 +146,7 @@ extension AppActionContext {
             guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
             return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
         }
-        for window in services.windows.controllers {
+        for window in services.windows.controllersActingFirst { // two windows can show one tab: the person's
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
                 if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }
@@ -186,6 +190,12 @@ extension AppActionContext {
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
+    }
+
+    /// The pane the invocation names when no window shows it (a workspace parked off screen), else nil.
+    func parkedPane(_ invocation: ActionInvocation) -> PaneModel? {
+        guard let target = explicitTarget(invocation, kinds: [.pane]), let model = targetPane(target.id, invocation) else { return nil }
+        return services.paneController(for: model) == nil ? model : nil
     }
 
     /// The pane `id` names, as `targetTab` finds a tab; callers refuse.

@@ -1,4 +1,4 @@
-public import CmuxNextHome
+public import CmuxNextHomeModel
 public import CmuxNextSidebar
 
 extension SidebarChiefAvatar {

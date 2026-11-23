@@ -2,8 +2,9 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { artifactLiveSource, WrittenArtifactLive } from "../src/agent-session/acpmux/conversation/artifactLive";
-import { latestWrittenArtifacts, toolArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
-import { outputArtifacts } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import { toolArtifacts } from "../src/agent-session/acpmux/conversation/artifactWrites";
+import { latestWrittenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifactsModel";
+import { outputArtifacts } from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const doc = (text: string) => `<!doctype html>\n<html><body><h1>Release</h1><p>${text}</p></body></html>`;

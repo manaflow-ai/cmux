@@ -10,7 +10,7 @@ final class PaletteShortcutRecorderView: NSView {
     var onChoose: ((PaletteShortcutOption) -> Void)?
 
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius, tone: .neutralGlass(.transient))
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let action = PaletteText.label(Typography.bodyEmphasized)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime as dt
+import tempfile
 import json
 import os
 import re
@@ -12,7 +13,8 @@ TAG = os.environ.get("CMUX_TAG", "swmob")
 REPO = Path(os.environ.get("CMUX_REPO", Path(__file__).resolve().parents[2]))
 DURATION_SECONDS = int(os.environ.get("SOAK_SECONDS", "43200"))
 CLI_TIMEOUT_SECONDS = float(os.environ.get("CMUX_CLI_TIMEOUT_SECONDS", "20"))
-soak_root = Path(os.environ.get("SOAK_ROOT", f"/tmp/cmux-mobile-soak-{TAG}"))
+# Run alone (no SOAK_ROOT from the driver): a folder mkdtemp makes, never a guessable /tmp name.
+soak_root = Path(os.environ.get("SOAK_ROOT") or tempfile.mkdtemp(prefix=f"cmux-mobile-soak-{TAG}-", dir="/tmp"))
 LOG_PATH = Path(os.environ.get("SOAK_LOG", soak_root / "macos-soak.log"))
 STATUS_PATH = Path(os.environ.get("SOAK_STATUS", soak_root / "macos-soak.status"))
 LOOP_SLEEP_SECONDS = float(os.environ.get("LOOP_SLEEP_SECONDS", "5"))
@@ -119,10 +121,15 @@ def main() -> int:
         )
         if not WORKSPACE:
             raise RuntimeError("missing workspace ref")
-        time.sleep(1)
-        SURFACE = extract_first_ref("surface", require_cli("list-pane-surfaces", "--workspace", WORKSPACE))
+        # The new workspace lists its terminal surface (up to 15 s).
+        surface_deadline = time.monotonic() + 15
+        while True:
+            SURFACE = extract_first_ref("surface", require_cli("list-pane-surfaces", "--workspace", WORKSPACE))
+            if SURFACE or time.monotonic() >= surface_deadline:
+                break
+            time.sleep(0.1)
         if not SURFACE:
-            raise RuntimeError("missing surface ref")
+            raise RuntimeError(f"missing surface ref: {WORKSPACE} listed no surface within 15 s")
     except Exception as exc:
         log(f"fail bootstrap {exc}")
         write_status("failed", 0, 1, error=str(exc))

@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -45,35 +46,38 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
     });
 
   const measure = (page: Page) =>
-    page.evaluate(() => {
-      const box = (node: Element | null) => {
-        if (!node) return null;
-        const rect = node.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
-      };
-      const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-      const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-      return {
-        tray: box(tray)!,
-        head: {
-          row: box(head)!,
-          title: box(head.querySelector(".acpmux-running-tray__title"))!,
-          time: box(head.querySelector(".acpmux-running-tray__time"))!,
-          chevron: box(head.querySelector(".acpmux-running-tray__status > svg"))!,
-        },
-        more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
-        lines: [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")].map((line) => ({
-          row: box(line)!,
-          // The line's time: on its row of controls, after its state word; the pair ends before Stop's
-          // track on every line, empty or not (Leo, 2026-11-03: "let's align the right").
-          time: box(line.querySelector(".acpmux-agent-line__time"))!,
-          track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
-          slot: box(line.querySelector(".acpmux-agent-line__stop-slot"))!,
-          stops: line.querySelectorAll(".acpmux-agent-line__stop-slot > button").length,
-          chevron: box(line.querySelector(".acpmux-agent-line__chevron > svg")),
-        })),
-      };
-    });
+    page.evaluate(
+      ({ RUNNING_TRAY_LIST_LINE }) => {
+        const box = (node: Element | null) => {
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+        };
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        return {
+          tray: box(tray)!,
+          head: {
+            row: box(head)!,
+            title: box(head.querySelector(".acpmux-running-tray__title"))!,
+            time: box(head.querySelector(".acpmux-running-tray__time"))!,
+            chevron: box(head.querySelector(".acpmux-running-tray__status svg"))!,
+          },
+          more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
+          lines: [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)].map((line) => ({
+            row: box(line)!,
+            // The line's time: on its row of controls, after its state word; the pair ends before Stop's
+            // track on every line, empty or not (Leo, 2026-11-03: "let's align the right").
+            time: box(line.querySelector(".acpmux-agent-line__time"))!,
+            track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
+            slot: box(line.querySelector(".acpmux-agent-line__stop-slot"))!,
+            stops: line.querySelectorAll(".acpmux-agent-line__stop-slot > button").length,
+            chevron: box(line.querySelector(".acpmux-agent-line__chevron > svg")),
+          })),
+        };
+      },
+      { RUNNING_TRAY_LIST_LINE },
+    );
 
   const middle = (box: { top: number; bottom: number }) => (box.top + box.bottom) / 2;
 
@@ -89,7 +93,7 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
         try {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "open", theme })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
+          await page.locator(RUNNING_TRAY_LIST_LINE).first().waitFor();
           await settle(page);
           const geometry = await measure(page);
           expect(geometry.lines.length).toBeGreaterThanOrEqual(3);
@@ -115,16 +119,18 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(slot.right - 0.5);
           }
           // A populated slot targets its Stop button; an empty slot targets the line's own button.
-          const hits = await page.evaluate(() =>
-            [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].map((line) => {
-              const slot = line.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot")!;
-              slot.scrollIntoView({ block: "nearest" });
-              const rect = slot.getBoundingClientRect();
-              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-              const target =
-                slot.querySelector("button") ?? line.querySelector<HTMLElement>(".acpmux-agent-line__button");
-              return Boolean(hit && target?.contains(hit));
-            }),
+          const hits = await page.evaluate(
+            ({ RUNNING_TRAY_LINE }) =>
+              [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)].map((line) => {
+                const slot = line.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot")!;
+                slot.scrollIntoView({ block: "nearest" });
+                const rect = slot.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                const target =
+                  slot.querySelector("button") ?? line.querySelector<HTMLElement>(".acpmux-agent-line__button");
+                return Boolean(hit && target?.contains(hit));
+              }),
+            { RUNNING_TRAY_LINE },
           );
           expect(hits.length).toBe(geometry.lines.length);
           expect(hits.every(Boolean)).toBe(true);

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The first-run panel's inputs from the host (`HomeFirstRunView`): shortcuts, agents, the
 /// Chief's face, the pet row's state and the hero's Debug Settings switch; and the
@@ -19,11 +20,6 @@ extension HomeNativeTranscriptView {
     /// live binding table has them; nil hides one (nil `switching`: no card).
     public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
-    }
-
-    /// The first-run panel's "Bring your memory from …" row (what the host found on this Mac); nil removes it.
-    public func setFirstRunMemoryOffer(_ title: String?) {
-        firstRun.setMemoryOffer(title)
     }
 
     /// Shows the Chief's first-open message above the first-run panel's hero: the welcome or a new

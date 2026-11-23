@@ -81,6 +81,7 @@ if(CMUX_BUILD_TESTS)
         tests/test_machine_catalog.cpp
         tests/test_layout_rows.cpp
         tests/test_macro_collision.cpp
+        tests/test_opaque_null.cpp
         tests/test_unix_transport.cpp
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)

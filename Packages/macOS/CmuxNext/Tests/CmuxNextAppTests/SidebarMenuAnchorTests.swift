@@ -29,11 +29,9 @@ import Testing
         return (sidebar, ids[0], window)
     }
 
-    /// Closes the window and the editor bubble the sidebar opened in it. `hide()` only fades the
-    /// bubble out and orders it out (it is kept for the next open), so the test closes it.
+    /// Closes the editor and the window.
     static func close(_ sidebar: SidebarView, _ window: NSWindow) {
         sidebar.list.groupEditor.hide()
-        sidebar.list.groupEditor.bubble?.close()
         window.close()
     }
 
@@ -42,10 +40,10 @@ import Testing
         return window.convertToScreen(view.convert(rect, to: nil))
     }
 
-    /// The editor's card on screen (the bubble window keeps a shadow band around it).
+    /// The editor's card on screen, at a height the page might report (placement is the sidebar's rule,
+    /// `SidebarGroupEditor.cardFrame`; the page only sets the height).
     static func card(_ sidebar: SidebarView) throws -> CGRect {
-        let bubble = try #require(sidebar.list.groupEditor.bubble, "no editor bubble")
-        return PopupStyle.standard.cardFrame(inWindow: bubble.frame)
+        try #require(sidebar.list.groupEditor.cardFrame(height: 320), "no open editor")
     }
 
     @Test(arguments: widths)

@@ -17,10 +17,10 @@ import CmuxNextWakeups
 /// it waits in the home daemon's saved-hosts projection until the registry
 /// holds it (`SSHService+SavedHosts`).
 ///
-/// Reconnect is event-driven: each daemon loop keeps its capped backoff
-/// after a failure, and the app becoming active, the Mac waking and a
-/// network path change (the daemon's own monitor) wake it. The link's gate
-/// (`SSHConnectionMachine`) decides which events may retry a failure.
+/// Reconnect is event-driven: each daemon loop keeps its capped backoff after a failure, and the app
+/// becoming active, the Mac waking and a network path change (the daemon's own monitor) wake it. The
+/// link's gate (`SSHConnectionMachine`) decides which events may retry a failure. Only a person's
+/// connect lists a "Connecting to <host>…" sidebar row (`personConnectPending`), never a reconnect.
 @Observable
 final class SSHService {
     @ObservationIgnored let machines: MachineRegistry
@@ -44,8 +44,7 @@ final class SSHService {
     /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
     @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
-    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event
-    /// batches run on it.
+    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event batches run on it.
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
@@ -69,10 +68,9 @@ final class SSHService {
     /// Machines that were set to connect when the policy turned them off.
     private var reconnectWhenAllowed: Set<String> = []
 
-    /// Turning remote hosts off disconnects every SSH machine, keeps its
-    /// workspaces (their terminals show "Turned off by your organization")
-    /// and leaves the remote daemon and its processes running. Turning it on
-    /// again reconnects the machines that were connecting before.
+    /// Turning remote hosts off disconnects every SSH machine, keeps its workspaces (their terminals show
+    /// "Turned off by your organization") and leaves the remote daemon and its processes running. Turning
+    /// it on again reconnects the machines that were connecting before.
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
@@ -202,6 +200,7 @@ final class SSHService {
         } else {
             session.wake(.user)
         }
+        if byPerson { session.personConnectPending = session.daemon.startup == .connecting } // a live link's wake lists no row
         logger.info("connect \(host.destination.description, privacy: .public) session \(host.session, privacy: .public)")
         return session
     }
@@ -230,9 +229,8 @@ final class SSHService {
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
         switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
-                                                retriesSpent: session.retriesSpent) {
+                                                daemonDown: session.daemonDown, daemonEstablished: session.daemon.connection != nil) {
         case .connect: session.connect()
-        case .restart: session.restart()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
         case .newAttempt:
@@ -240,6 +238,7 @@ final class SSHService {
             session.wake(.user)
         case .nothing: break
         }
+        if byPerson { session.personConnectPending = session.daemon.startup == .connecting }
     }
 
     func disconnect(_ session: SSHMachineSession) {
@@ -365,7 +364,7 @@ final class SSHService {
     /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
-        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+        guard !policyDisabled, let binary, case .installed? = await session.link.probedReport(await Self.environment())?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
@@ -458,6 +457,8 @@ final class SSHService {
     }
 
     // MARK: Helpers
+    /// The app's own cmux-tui (`DaemonLauncher`) run with ``environment()``; nil when the bundle has none.
+    static var bundledCLI: HostCLI? { (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: environment) } }
 
     /// The environment ssh runs with: the app's own process identity (HOME,
     /// USER, SSH_AUTH_SOCK for the user's agent) plus the login shell's

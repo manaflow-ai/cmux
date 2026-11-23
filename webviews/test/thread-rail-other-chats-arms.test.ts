@@ -125,7 +125,7 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
     });
     test(`${arm}: the first run's card`, async () => {
       const { card } = await of(arm);
-      expect(card!.from).toBe("From lane-box-1/ux-owner");
+      expect(card!.from).toBe("lane-box-1/ux-owner · Other session");
       if (fold) expect(card!.prompt).toBe("Received 3 messages");
       else expect(card!.prompt).toContain("Status 4");
     });

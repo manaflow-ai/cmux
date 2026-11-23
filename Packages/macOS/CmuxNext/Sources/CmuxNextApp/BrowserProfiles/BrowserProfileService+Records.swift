@@ -1,6 +1,8 @@
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Where browser profile records live and how edits reach them
@@ -92,6 +94,20 @@ extension BrowserProfileService {
         guard usesDaemonRecords else { return try edit { try $0.setIcon(id, icon) } }
         let icon = try BrowserProfileBook.validIcon(icon)
         try update(UpdateBrowserProfileRequest(id: id, icon: icon.map { .set($0) } ?? .clear))
+    }
+
+    /// `cmux browser profile proxy set|clear` (nil clears) and `move` (an insertion index): daemon records only; a refusal shows.
+    func setProxy(_ id: String, _ proxy: BrowserProfileSnapshot.Proxy?) throws -> ActionEffect {
+        let request = UpdateBrowserProfileRequest(id: id, proxy: proxy.map { .set($0) } ?? .clear)
+        return try daemonEdit(id, "update-browser-profile") { _ = try await $0.updateBrowserProfile(request) }
+    }
+    func move(_ id: String, to index: Int) throws -> ActionEffect {
+        try daemonEdit(id, "move-browser-profile") { try await $0.moveBrowserProfile(id, to: max(index, 0)) }
+    }
+    private func daemonEdit(_ id: String, _ label: String, _ body: @escaping DaemonCommandBody) throws -> ActionEffect {
+        guard usesDaemonRecords else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
+        guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
+        return services.machines.local.commandEffect(label, body)
     }
 
     private func update(_ request: UpdateBrowserProfileRequest) throws {

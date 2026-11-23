@@ -46,6 +46,12 @@ public enum SSHFailure: Error, Hashable, Sendable {
         return .remoteFailed(lines.last ?? "ssh exited \(status)")
     }
 
+    /// A daemon's error, then the link's output when it adds to it.
+    public static func failureText(_ error: String, output: String?) -> String {
+        guard let output = output?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty, !error.contains(output) else { return error }
+        return error + "\n" + output
+    }
+
     /// The most lines a link's remote failure keeps.
     static let linkCauseLines = 8
 

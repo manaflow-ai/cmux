@@ -84,6 +84,8 @@ export default agentPaneEntry({
   },
   variants: {
     "long-hovered": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: 'Leo, 2026-11-06, on "8s · 2m5 1.4K toke" drawn over itself while he hovered the line\'s right edge: "this flickers". A long command with its time, the turn\'s and its tokens; hovered, the hint fades in its kept room and every count holds still.',
       snapshot: running("claude", true, long, 1_400),
       play: hoverHoldsCounts,

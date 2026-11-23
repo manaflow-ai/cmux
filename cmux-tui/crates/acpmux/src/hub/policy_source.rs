@@ -191,10 +191,11 @@ impl Hub {
 
     /// [`settle_grant`] on every session the store lists, each saved when it changed. A cleared
     /// chat whose agent host may run (or when the host records cannot be read) is
-    /// [`CLEARED_HOST`].
-    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) {
+    /// [`CLEARED_HOST`]. Returns the ids whose repairs were not saved.
+    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) -> HashSet<String> {
+        let mut unsaved = HashSet::new();
         if !metas.iter().any(|m| m.policy_source.is_none() && m.permission_policy.is_some()) {
-            return;
+            return unsaved;
         }
         let everyone = self.could_have_had_vm_host();
         let could_be = could_be_vm_host(metas, &self.handoffs.target_ids());
@@ -210,8 +211,10 @@ impl Hub {
             }
             if let Err(e) = self.store.save(meta) {
                 tracing::warn!(session = %meta.id, "save the settled grant failed: {e}");
+                unsaved.insert(meta.id.clone());
             }
         }
+        unsaved
     }
 
     /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a

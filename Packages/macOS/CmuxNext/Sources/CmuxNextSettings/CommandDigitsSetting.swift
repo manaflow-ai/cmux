@@ -7,8 +7,7 @@ public nonisolated enum CommandDigitsSetting: String, CaseIterable, Sendable {
     case workspaces
     case tabs
 
-    public static let configPath = ["tabs", "commandDigits"]
-    public static let fallback = CommandDigitsSetting.workspaces
+    // `configPath` and `fallback` are generated from schemas/settings/source/sidebar.json.
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
@@ -19,21 +18,5 @@ public nonisolated enum CommandDigitsSetting: String, CaseIterable, Sendable {
             return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.commandDigits", message: "expected one of " + choices))
         }
         return (parsed, nil)
-    }
-
-    static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .appearance, group: group,
-            title: SettingsText.keyed("settings.tabs.commandDigits", "Command-1 to 9 Select"),
-            help: SettingsText.keyed("settings.tabs.commandDigits.help",
-                                     "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."),
-            summary: SettingsText.keyed("settings.tabs.commandDigits.summary", "Workspaces or tabs on Command-1 to 9"),
-            kind: .choice([
-                SettingChoice(CommandDigitsSetting.workspaces.rawValue, SettingsText.keyed("settings.tabs.commandDigits.workspaces", "Workspaces")),
-                SettingChoice(CommandDigitsSetting.tabs.rawValue, SettingsText.keyed("settings.tabs.commandDigits.tabs", "Tabs")),
-            ]),
-            default: .string(fallback.rawValue),
-            keywords: ["command", "number", "digit", "shortcut", "tab", "workspace", "cmd-1", "switch"]
-        )
     }
 }

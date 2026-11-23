@@ -70,9 +70,20 @@ async fn retries_logged(
 }
 
 /// The pid a missed start's error names (`its agent process (pid N)`).
+#[cfg(unix)]
 fn named_pid(error: &str) -> Option<i32> {
     let (_, rest) = error.split_once("(pid ")?;
     rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
+/// The agent process a missed start's `error` names, if any, is gone.
+#[cfg(unix)]
+fn assert_named_agent_ended(error: &str) {
+    if let Some(pid) = named_pid(error) {
+        // SAFETY: signal 0 only asks whether the process exists.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!alive, "the missed start's agent (pid {pid}) still runs");
+    }
 }
 
 /// The lanes stuck on 2026-11-06: a start past 90 s failed the turn with "agent_start did not
@@ -107,11 +118,8 @@ async fn a_prompt_whose_start_missed_its_deadline_is_answered_after_a_retry() {
     for r in &retried {
         let error = r["error"].as_str().unwrap();
         assert!(error.contains("agent_start did not finish within"), "{error}");
-        if let Some(pid) = named_pid(error) {
-            // SAFETY: signal 0 only asks whether the process exists.
-            let alive = unsafe { libc::kill(pid, 0) } == 0;
-            assert!(!alive, "the missed start's agent (pid {pid}) still runs");
-        }
+        #[cfg(unix)]
+        assert_named_agent_ended(error);
     }
     let _ = std::fs::remove_file(&gate);
 }

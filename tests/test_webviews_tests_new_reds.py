@@ -23,7 +23,15 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/ci/webviews-tests-new-reds.sh"
@@ -32,6 +40,7 @@ COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
 HISTORY = ROOT / "scripts/ci/webviews_test_history.py"
 REDS = ROOT / "scripts/ci/test_reds.py"
+PIN = ROOT / "scripts/ci/pin-browser-test-font.sh"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -435,6 +444,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
+            shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
@@ -496,9 +506,37 @@ class Workflow(unittest.TestCase):
         checkout = checkout[: checkout.index("\n      - name:", 10)]
         self.assertIn("fetch-depth: 2", checkout)
         self.assertNotIn("ref:", checkout)
-        detach = base.index("run: git checkout -q --detach HEAD^1")
+        detach = base.index("          git checkout -q --detach HEAD^1\n")
         self.assertLess(detach, base.index("run: scripts/cmux-next/private-bun.sh"))
         self.assertLess(detach, base.index("bun install --frozen-lockfile"))
+
+    def test_a_green_head_shard_skips_the_base_replay_setup(self):
+        """A head shard with no red has nothing to replay, yet each base job installed, built the base
+        bundles with --force and installed browsers first: 11.4 min p50 on shard 1 and 2.6-5.5 on the
+        others (2026-11-07), on the verdict's critical path of every green webview head. The setup now
+        runs only when the shard has reds, or when its results cannot be read; the compare still runs."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        count = base[base.index("      - name: Use the merge parent as the base\n"):]
+        count = count[: count.index("\n      - name:", 10)]
+        self.assertLess(base.index("      - name: Download head webview results\n"),
+                        base.index("      - name: Use the merge parent as the base\n"))
+        self.assertIn("id: head", count)
+        self.assertIn("webviews_test_results.py --failed-files", count)
+        self.assertIn("reds=unknown", count)
+        gate = "if: ${{ steps.head.outputs.reds != '0'"
+        for step in ("Setup Bun", "Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
+                     "Setup Node", "Install webview dependencies", "Build base web bundles",
+                     "Install headless engines"):
+            with self.subTest(step=step):
+                body = base[base.index(f"      - name: {step}\n"):]
+                body = body[: body.index("\n      - name:", 10)]
+                self.assertIn(gate, body)
+        # The install, the build and the browsers also wait on reds the base's push history cannot answer
+        # (tests/test_webviews_test_history.py, Known).
+        compare = base[base.index("      - name: Run base reds and compare\n"):]
+        compare = compare[: compare.index("\n      - name:", 10)]
+        self.assertNotIn("steps.head.outputs.reds", compare)
 
     def test_head_shards_leave_room_for_a_slow_files_retry(self):
         """#27045's shard 1: a 60 s retry used half the runner's 120 s default, so
@@ -509,10 +547,43 @@ class Workflow(unittest.TestCase):
         # #27425: a fixed 300 s budget still cut accent-glass-invariants' retry and skipped two more
         # files. The step's retry deadline bounds every retry, inside the job's 40 min, and no smaller
         # budget cuts a retry before it.
-        budget = int(re.search(r'CMUX_WEB_TEST_RETRY_BUDGET: "(\d+)"', step).group(1))
-        deadline = int(re.search(r'CMUX_WEB_TEST_RETRY_DEADLINE: "(\d+)"', step).group(1))
-        self.assertGreaterEqual(budget, deadline)
-        self.assertLessEqual(deadline, 34 * 60)
+        # The step reads the job's timeout-minutes (one YAML anchor) and ends its retries a fixed
+        # reserve before them: a 40 min job still stops retrying by 34 min, and longer ones scale.
+        self.assertIn("timeout-minutes: &webview-shard-minutes ", text)
+        self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", step)
+        # The budget is the deadline, so no smaller budget cuts a retry before it.
+        self.assertIn('export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"', step)
+        # #46488 F1: timeout-minutes count from the job's start, and the runner counts its deadline from
+        # its own, about 8 min of setup later. The shard's first step stamps the job's start, and the
+        # step's deadline is what is left of the job's minutes, so a fully retried job still has 6 min
+        # for its uploads however long its setup took.
+        job = text[text.index("  react-apps-check-shard:\n"):]
+        first_step = job[job.index("    steps:\n"):].split("\n      - name:", 2)[1]
+        self.assertIn('echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"', first_step)
+        run = step[step.index("        run: |\n"):]
+        block = run[run.index('          if [ -n "${CMUX_WEB_TEST_JOB_MINUTES:-}" ]; then\n'):]
+        block = textwrap.dedent(block[: block.index("\n          fi\n") + len("\n          fi\n")])
+
+        def deadline(minutes, setup=None):
+            env = {"PATH": os.environ["PATH"], "CMUX_WEB_TEST_JOB_MINUTES": str(minutes)}
+            if setup is not None:
+                env["CMUX_WEB_TEST_JOB_STARTED"] = str(int(time.time()) - setup)
+            out = subprocess.run(["bash", "-euc", block + 'echo "$CMUX_WEB_TEST_RETRY_DEADLINE $CMUX_WEB_TEST_RETRY_BUDGET"'],
+                                 env=env, check=True, capture_output=True, text=True).stdout.split()
+            self.assertEqual(out[0], out[1])
+            return int(out[0])
+
+        for minutes in (40, 90, 150):
+            for setup in (0, 120, 480, 900):
+                left = deadline(minutes, setup)
+                self.assertGreater(left, 0, f"{minutes} min, {setup} s setup")
+                # 2 s of slack for the clock ticking between the stamp here and the step's date.
+                self.assertLessEqual(setup + left, (minutes - 6) * 60 + 2, f"{minutes} min, {setup} s setup")
+            # No stamp (the script run on its own, set -u): still a deadline, never an unset or negative one.
+            self.assertGreater(deadline(minutes), 0)
+            self.assertLessEqual(deadline(minutes), (minutes - 6) * 60)
+        # A job whose setup ate its minutes retries nothing rather than reading a negative deadline as none.
+        self.assertEqual(deadline(40, 40 * 60), 0)
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):
@@ -538,6 +609,7 @@ class Workflow(unittest.TestCase):
             git("checkout", "-qb", "change")
             (repo / "webviews/src").mkdir()
             (repo / "webviews/src/other.ts").write_text("export {}\n")
+            shutil.copy(PIN, repo / "scripts/ci" / PIN.name)  # the head has the font pin, the merge parent not
             git("add", "-A")
             git("commit", "-qm", "the change: touches nothing the red file reads")
             git("checkout", "-q", "base")
@@ -552,7 +624,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
@@ -574,6 +646,15 @@ class Workflow(unittest.TestCase):
             done = replay("Use the merge parent as the base")
             out = done.stdout + done.stderr
             self.assertEqual(done.returncode, 0, out)
+            # #40115 review: a merge parent from before the font pin has no script; the base's engines run the
+            # head's copy, kept outside the checkout.
+            self.assertFalse((repo / "scripts/ci" / PIN.name).exists())
+            self.assertEqual((runner_temp / PIN.name).read_bytes(), PIN.read_bytes())
+            text = WORKFLOW.read_text(encoding="utf-8")
+            base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+            install = base[base.index("      - name: Install headless engines\n"):]
+            install = install[: install.index("\n      - name:", 10)]
+            self.assertIn('&& "$RUNNER_TEMP/pin-browser-test-font.sh"', install)
             self.assertIn(f"::warning title=Webview test red on the base too::{red} > received preview opens", out)
             self.assertNotIn("red on this change::", out)
             # The old pinned base passes the file, so a replay there charges the red to the change.
@@ -604,7 +685,9 @@ class Workflow(unittest.TestCase):
         git("commit", "-qm", "base: the file passes")
         git("checkout", "-qb", "change")
         (repo / "webviews" / red).write_text(body(["mounts the gallery frame"] if change_breaks_it else []) + "// changed\n")
-        git("commit", "-qam", "the change")
+        shutil.copy(PIN, repo / "scripts/ci" / PIN.name)
+        git("add", "-A")
+        git("commit", "-qm", "the change")
         git("checkout", "-q", "base")
         (repo / "webviews/other.txt").write_text("base moved\n")
         git("add", "-A")
@@ -616,7 +699,7 @@ class Workflow(unittest.TestCase):
         (bins / "bun").write_text(FAKE_BUN)
         (bins / "bun").chmod(0o755)
         (runner_temp / "head-results/runner").mkdir(parents=True)
-        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.

@@ -31,7 +31,7 @@ public struct RemoteStaticInstallStager: Sendable {
         guard !off, host.remoteBinary != path, let binary, let commit = await BundledCmuxTUI.commit(binary: binary) else { return false }
         let env = await environment()
         guard let (probe, answer) = await host.updateCheck(remoteBinary: path, binary: binary, environment: env),
-              answer.need == "older", let platform = await link.lastReport?.platform else { return false }
+              answer.need == "older", let platform = await link.probedReport(env)?.platform else { return false }
         var lockedPlan: RemoteInstallPlan?
         do {
             var plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,

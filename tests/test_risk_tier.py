@@ -10,6 +10,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("risk_tier", ROOT / "scripts/ci/risk_tier.py")
@@ -63,29 +70,17 @@ class ClassifyTests(unittest.TestCase):
             "cmux-tui/crates/cmux-link/src/caller.rs",
             "cmux-tui/crates/cmux-link/src/caller_macos.rs",
             "cmux-tui/crates/cmux-link/src/app_caller.rs",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
-            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
             NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
             NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
             NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
             NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperSocketServer.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
             NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
-            "scripts/cmux-cua-helper-trust.sh",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
             NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+            "cmux-tui/crates/cmux-computer-use/src/server.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
@@ -96,8 +91,8 @@ class ClassifyTests(unittest.TestCase):
             ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
             ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
             ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
-            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
-            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # The Computer Use engine's other files; only the worker socket's admission is high.
+            ("cmux-tui/crates/cmux-computer-use/src/engine.rs", "normal"),
             # Where the daemon lives and its environment: the executable choice is in +Resolve.
             (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
         ):
@@ -154,7 +149,8 @@ class ClassifyTests(unittest.TestCase):
     # run code a push controls (#34124 finds and closes several such routes). The lint rules themselves stay normal.
     PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
                      "scripts/git-hooks/pre-push", "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py",
-                     "scripts/install-git-hooks.sh")
+                     "scripts/install-git-hooks.sh", "scripts/git-hooks/hook_python.sh",
+                     "scripts/git-hooks/merge_python.sh")
 
     def test_the_pre_push_trust_boundary_is_high(self):
         for path in self.PREPUSH_TRUST:
@@ -678,6 +674,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -790,6 +808,41 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(risk.missing_evidence("high", blocked=True))
         self.assertEqual(risk.unowned_takebacks("", []), [])
 
+    def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
+        """cmux#41154, a revert of #41113: land-judge quoted only the check's error annotation, which said "the job
+        summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
+        line itself, its PR number filled in."""
+        self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
+                                                     "add a line `Takes back #41113: <why>`")
+        self.assertIn("`Takes back #1: <why>` and `Takes back #2: <why>`", risk.takeback_fix([1, 2]))
+
+        def run(body):
+            saved = risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of
+            risk.gh_json = lambda *args: {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": body,
+                                          "labels": [], "user": {"login": "a"}}
+            risk.gh_items = lambda endpoint: ([{"filename": "scripts/ci/base_red_excuse.py", "patch": "@@ -1 +1 @@\n-a\n+b"}]
+                                              if "/files" in endpoint else [])
+            risk.recent_reverts = lambda *args, **kwargs: {41113: ["scripts/ci/base_red_excuse.py"]}
+            risk.merge_base_of = lambda *args: "c" * 40
+            try:
+                with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                    out = Path(tmp) / "out"
+                    risk.main(["pr", "--repo", "o/r", "--number", "41154", "--github-output", str(out),
+                               "--repo-dir", tmp])
+                    return out.read_text()
+            finally:
+                risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of = saved
+        out = run("Reverts #41113.")
+        self.assertIn("takes_back=true", out)
+        self.assertIn("takes_back_fix=If the base is stale, merge it and push; if it's on purpose, add a line "
+                      "`Takes back #41113: <why>`\n", out)
+        out = run("Takes back #41113: its rule reached base before its purpose split")
+        self.assertIn("takes_back=false", out)
+        self.assertIn("takes_back_fix=\n", out)
+        held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
+        self.assertIn("TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}", held)
+        self.assertIn('echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"', held)
+
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
         removed = {"event": "unlabeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
@@ -834,10 +887,12 @@ class ShipReceiptTests(unittest.TestCase):
         comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
         self.assertEqual(self.signed(comments, [], HEAD), "review (subagent, correctness first)")
 
-    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+    def test_a_short_sha_or_another_head_does_not(self):
         for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
-                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
+                     f"Addressed review: nothing blocking at {HEAD}"):
             self.assertIsNone(self.signed([self.comment(line)], [], HEAD), line)
+        # A self-review is a review like any other (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.signed([self.comment(f"Review (self): SHIP at {HEAD}")], [], HEAD), "review (self)")
 
     def test_the_receipt_must_lead_the_comment(self):
         self.assertIsNone(self.signed([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
@@ -872,11 +927,62 @@ class ShipReceiptTests(unittest.TestCase):
         self.assertIsNone(self.signed([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
 
 
+class PrivateMemberReceiptTests(unittest.TestCase):
+    """PR #38436 (2026-11-08): `risk evidence` said "no review verdict on the head commit yet" after a valid
+    `Review (claude-17-review-w3h, started by claude-17): SHIP at <head>` comment, while the same classifier run
+    on a person's token signed it off. The poster, lawrencecchen, is a private member of the organization.
+    A person's token reads that comment's author_association as MEMBER; the workflow's GITHUB_TOKEN and App
+    token cannot see a private membership and read CONTRIBUTOR, so the receipt was not trusted. A login whose
+    association is not trusted now counts when its permission on the repository is write or higher."""
+
+    BODY = "Author-agent: claude-opus-5-5 (W3-H)"
+    LINE = f"Review (claude-17-review-w3h, started by claude-17): SHIP at {HEAD}"
+
+    def comment(self, association="CONTRIBUTOR", login="lawrencecchen"):
+        return {"body": self.LINE, "created_at": "2026-11-08T20:08:13Z", "author_association": association,
+                "user": {"login": login, "type": "User"}}
+
+    def pull(self):
+        return {"body": self.BODY, "author_association": "CONTRIBUTOR", "head": {"sha": HEAD},
+                "user": {"login": "lawrencecchen", "type": "User"}, "labels": []}
+
+    def test_a_write_role_counts_whatever_the_token_reads_as_association(self):
+        roles = {"lawrencecchen": "admin", "drive-by": "read"}
+        signed = risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull(), permission=roles.get)
+        self.assertEqual(signed, "review (claude-17-review-w3h, started by claude-17)")
+        self.assertIsNone(risk.signed_off([self.comment(login="drive-by")], [], HEAD, "lawrencecchen", self.pull(),
+                                          permission=roles.get))
+        # Without a permission reader the association alone decides, as before.
+        self.assertIsNone(risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull()))
+
+    def test_human_ok_by_reads_the_permission_of_an_untrusted_association(self):
+        asked = []
+
+        def fake_json(*args):
+            asked.append(args[-1])
+            if args[-1].endswith("/collaborators/lawrencecchen/permission"):
+                return {"role_name": "admin"}
+            raise AssertionError(f"unexpected read {args}")
+        answers = {"repos/o/r/issues/7/comments?per_page=100": [self.comment(), self.comment()],
+                   "repos/o/r/pulls/7/reviews?per_page=100": []}
+        saved = risk.gh_items, risk.gh_json
+        risk.gh_items, risk.gh_json = answers.__getitem__, fake_json
+        try:
+            who, blocked = risk.human_ok_by("o/r", "7", self.pull())
+        finally:
+            risk.gh_items, risk.gh_json = saved
+        self.assertFalse(blocked)
+        self.assertEqual(who, f"review (claude-17-review-w3h, started by claude-17) shipped {HEAD[:12]}")
+        # One read per login, however many comments it posted.
+        self.assertEqual(asked, ["repos/o/r/collaborators/lawrencecchen/permission"])
+
+
 class SameAccountReceiptTests(unittest.TestCase):
-    """cmux-ad m25 item 7: every agent posts as the same account as the pull request's author, so a SHIP from that
-    account counts only when it names its reviewer agent and who started it, neither of them the description's
-    `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
-    `Review (claude-review-subagent): SHIP at ...` from the author's account and the gate read it as independent."""
+    """A SHIP from the pull request author's own account counts from any reviewer: any model family, any starter,
+    the pull request's own agent included. Leo, 2026-11-14, on the review rule "need a review from a model family
+    other than": "this is no longer a requirement". Before, the cmux-ad m25 item 7 rule (#36311, #36941) refused a
+    same-account SHIP unless it named `<reviewer agent id>, started by <agent id>`, neither the description's
+    `Author-agent:` or `Agent session:` aid. A BLOCK at the head still holds it."""
 
     AUTHOR = "lawrencecchen"
 
@@ -891,44 +997,96 @@ class SameAccountReceiptTests(unittest.TestCase):
     def signed(self, *comments, body="Author-agent: claude-author\n\n## Summary\nx"):
         return risk.signed_off(list(comments), [], HEAD, self.AUTHOR, self.pr(body))
 
-    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
-        self.assertIsNone(self.signed(self.comment(f"Review (claude-author, started by lead): SHIP at {HEAD}")))
-        # The #36311 shape: no starter named at all.
-        self.assertIsNone(self.signed(self.comment(f"Review (claude-review-subagent): SHIP at {HEAD}")))
+    def test_a_ship_from_the_pull_requests_own_agent_counts(self):
+        # Each shape the old rule refused: the author agent as reviewer, a reviewer it started (any case or markup),
+        # the #36311 shape with no starter, and the #38430 shape where the author lane started router-review.
+        for line in (f"Review (claude-author, started by lead): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}",
+                     f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-opus-5-5, self-review): SHIP at {HEAD}"):
+            label = line[len("Review ("):line.index("):")]
+            self.assertEqual(self.signed(self.comment(line)), f"review ({label})", line)
+            self.assertEqual(self.signed(self.comment(line), body="- **Author-agent:** `claude-author`\n"),
+                             f"review ({label})", line)
+            self.assertEqual(risk.refusal(risk.parse(line, HEAD), True, {"claude-author"}), None, line)
 
-    def test_a_reviewer_the_author_agent_started_is_refused(self):
-        self.assertIsNone(self.signed(
-            self.comment(f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}")))
-        # Case and markup around the description's id do not hide it.
-        self.assertIsNone(self.signed(
-            self.comment(f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}"),
-            body="- **Author-agent:** `claude-author`\n"))
+    def test_any_model_family_counts_with_or_without_an_author_agent_line(self):
+        footer_author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={footer_author})"
+        for body in ("Author-agent: claude-author\n\n## Summary\nx", "## Summary\nx", footer,
+                     "## Summary\nx\n<!-- Author-agent: claude-author -->"):
+            for line in (f"Review (codex gpt-6-astra high, started by lead): SHIP at {HEAD}",
+                         f"Review (claude-opus-5-5, started by claude-author): SHIP at {HEAD}",
+                         f"Review (codex, router-review, started by {footer_author}): SHIP at {HEAD}"):
+                self.assertIsNotNone(self.signed(self.comment(line), body=body), (body, line))
+        # The same line in the description counts too.
+        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (claude-author): SHIP at {HEAD}"),
+                         "review (claude-author) in the description")
 
-    def test_an_independent_agent_the_lead_started_counts(self):
-        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}")
-        self.assertEqual(self.signed(ship), "review (codex-reviewer-7, started by lead)")
-        # The same line in the description counts too, and ranks below a later comment's BLOCK.
-        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (codex-reviewer-7, started by lead): "
-                                          f"SHIP at {HEAD}"), "review (codex-reviewer-7, started by lead) in the description")
-        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by claude-author): SHIP at {HEAD}")))
-
-    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
-        no_agent = "## Summary\nx\n<!-- Author-agent: claude-author -->"
-        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}"),
-                                      body=no_agent))
-        # A BLOCK counts in every case: it beats an earlier SHIP from another account.
+    def test_a_block_at_the_head_still_refuses(self):
+        ship = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
         other = self.comment(f"Review (codex): SHIP at {HEAD}", login="austinywang", at="2026-10-21T20:00:00Z")
-        block = self.comment(f"Review (claude-review-subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
-        self.assertIsNone(self.signed(other, block, body=no_agent))
-        self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
+        block = self.comment(f"Review (claude-review-subagent, started by claude-author): BLOCK at {HEAD}",
+                             at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+        self.assertIsNone(self.signed(other, block, body="## Summary\nx"))
+        # A BLOCK wins a tie, and a later own-agent SHIP clears it.
+        self.assertIsNone(self.signed(dict(ship, created_at="2026-10-21T20:05:00Z"), block))
+        later = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:10:00Z")
+        self.assertEqual(self.signed(ship, block, later), "review (claude-author)")
 
-    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+    def test_the_agent_session_footer_still_names_the_author_agent(self):
+        # #42066: author_agents() reads the footer's aid as well as Author-agent (for readers outside this gate).
+        author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={author})"
+        session = "Agent session: [lane](https://cmux.com/deeplink/agent?harness=claude&session=616eb19f&host=lane-6)"
+        self.assertEqual(risk.author_agents(session), set())
+        self.assertEqual(risk.author_agents(f"Author-agent: Claude-Author\n{footer}"), {"claude-author", author})
+
+    # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
+    # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
+    def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):
+        return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
+                "user": {"login": login, "type": kind, "node_id": node_id}}
+
+    def test_the_review_service_receipt_counts_and_so_does_an_author_started_one(self):
+        service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
+        self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
+        # Posted as a review body too.
+        self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
+                         "review (codex gpt-6.1-sol xhigh, next-review)")
+        # The #38430 shape: the author lane started router-review itself; that counts too now.
+        self.assertEqual(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")),
+            "review (codex, router-review, started by claude-author)")
+
+    def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
+        for item in (self.bot(line, node_id="BOT_wrong"), self.bot(line, login="other-bot[bot]"),
+                     self.bot(line, kind="User")):
+            self.assertIsNone(self.signed(item), item["user"])
+        approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
+
+    def test_a_later_service_block_beats_an_earlier_ship(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+
+    def test_a_receipt_counts_from_another_account_and_from_the_authors_own(self):
         line = f"Review (claude-review-subagent): SHIP at {HEAD}"
         self.assertEqual(self.signed(self.comment(line, login="austinywang")), "review (claude-review-subagent)")
         self.assertEqual(self.signed(self.comment(line, login="austinywang"), body="no agent line"),
                          "review (claude-review-subagent)")
-        # The same line from the author's own account does not count.
-        self.assertIsNone(self.signed(self.comment(line)))
+        self.assertEqual(self.signed(self.comment(line)), "review (claude-review-subagent)")
 
 
 class DescriptionVerdictTests(unittest.TestCase):
@@ -966,10 +1124,11 @@ class DescriptionVerdictTests(unittest.TestCase):
         who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
         self.assertEqual((who, blocked, missing), (None, False, []))
         self.assertIn("no review verdict", pending)
-        # Nor does a short sha, a self-review, or a line inside an HTML comment.
-        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
-                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+        # Nor does a short sha or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
             self.assertEqual(self.state(body)[:3], (None, False, []), body)
+        # A self-review in the description counts (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.state(f"Review (self): SHIP at {HEAD}")[0], "review (self) in the description")
 
     def test_a_fix_or_block_at_the_head_holds(self):
         for word in ("FIX", "BLOCK"):
@@ -996,33 +1155,35 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIsNone(self.state(line, association="NONE")[0])
         self.assertIsNone(self.state(line, kind="Bot")[0])
 
+    def grade_end_to_end(self, body, comments=()):
+        """pr_mode with the API stubbed: (GITHUB_OUTPUT text, summary). `comments=None` makes the comments read fail."""
+        pull = dict(self.pr(body), base={"sha": "b" * 40})
+        answers = {
+            "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+            "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+            "repos/o/r/pulls/7/reviews?per_page=100": [],
+            "repos/o/r/issues/7/events?per_page=100": [],
+        }
+        saved = risk.gh_items, risk.gh_json
+
+        def items(endpoint):
+            if answers[endpoint] is None:
+                raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+            return answers[endpoint]
+        risk.gh_items = items
+        risk.gh_json = lambda *args: pull
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                           "--summary", str(summary)])
+                return out.read_text(), summary.read_text()
+        finally:
+            risk.gh_items, risk.gh_json = saved
+
     def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
         """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
-        def grade(body, comments=()):
-            pull = dict(self.pr(body), base={"sha": "b" * 40})
-            answers = {
-                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
-                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
-                "repos/o/r/pulls/7/reviews?per_page=100": [],
-                "repos/o/r/issues/7/events?per_page=100": [],
-            }
-            saved = risk.gh_items, risk.gh_json
-
-            def items(endpoint):
-                if answers[endpoint] is None:
-                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
-                return answers[endpoint]
-            risk.gh_items = items
-            risk.gh_json = lambda *args: pull
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
-                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
-                               "--summary", str(summary)])
-                    return out.read_text(), summary.read_text()
-            finally:
-                risk.gh_items, risk.gh_json = saved
-
+        grade = self.grade_end_to_end
         out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
@@ -1039,6 +1200,20 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+    def test_only_a_refused_sign_off_read_asks_for_a_second_grade(self):
+        """risk-tier.yml grades on the glaeda-route App's read and grades again on GITHUB_TOKEN only when this says
+        the sign-off read was refused. It used to grade every held pull request twice: a FIX on the head, read
+        fine, spent about ten more GITHUB_TOKEN calls (files, comments, reviews, label events) on the
+        self-hosted runners' token hour, the one the production promote gates read (2026-11-21)."""
+        out, _ = self.grade_end_to_end(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end(f"Review (codex, started by lead): SHIP at {HEAD}")
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=true", out.splitlines())
 
 
 class StandaloneCheckoutTests(unittest.TestCase):
@@ -1109,6 +1284,135 @@ class EventPayloadTests(unittest.TestCase):
             calls, out = self.run_pr(event)
             self.assertEqual(calls, ["repos/o/r/pulls/7"], event)
             self.assertIn("tier=low", out)
+
+
+class mock_sleep(contextlib.ContextDecorator):
+    """time.sleep as a no-op inside the block."""
+    def __enter__(self):
+        self.saved = risk.time.sleep
+        risk.time.sleep = lambda s: None
+    def __exit__(self, *exc):
+        risk.time.sleep = self.saved
+
+
+class RateLimitedPrModeTests(unittest.TestCase):
+    """#49215's "risk evidence" went red on `gh api pulls/49215/files` exiting 1 with "API rate limit exceeded for
+    installation": no verdict on the pull request, yet a red a lander had to override. Now it ends green and
+    ungraded with the reason, and RISK_TIER_RATE_LIMIT_FAILS=1 turns it red again."""
+
+    def run_pr(self, env=None):
+        saved = risk.gh_items
+
+        def limited(endpoint):
+            raise risk.RateLimited(1, ["gh", "api", endpoint], output="",
+                                   stderr="gh: API rate limit exceeded for installation ID 1.")
+        risk.gh_items = limited
+        self.addCleanup(lambda: setattr(risk, "gh_items", saved))
+        old = os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None)
+        self.addCleanup(lambda: os.environ.__setitem__(risk.RATE_LIMIT_FAILS_ENV, old) if old is not None
+                        else os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None))
+        os.environ.update(env or {})
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out, summary = Path(tmp.name) / "out", Path(tmp.name) / "summary"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                              "--summary", str(summary)])
+        return code, out.read_text(), summary.read_text()
+
+    def test_a_rate_limit_ends_ungraded_green_with_the_reason(self):
+        code, out, summary = self.run_pr()
+        self.assertEqual(code, 0)
+        for line in ("tier=ungraded", "label=", "ready=true", "takes_back=false"):
+            self.assertIn(line + "\n", out)
+        self.assertIn("API rate limit exceeded", summary)
+        self.assertIn("not a verdict", summary)
+
+    def test_the_off_switch_turns_a_rate_limit_red_again(self):
+        with self.assertRaises(risk.RateLimited):
+            self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
+
+    def test_the_workflow_sets_no_label_on_an_ungraded_run(self):
+        workflow = (ROOT / ".github/workflows/risk-tier.yml").read_text(encoding="utf-8")
+        step = workflow[workflow.index("- name: Set the risk label"):]
+        self.assertIn("if: steps.grade.outputs.label != ''", step[:step.index("run:")])
+
+
+class GhFailureTests(unittest.TestCase):
+    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+
+    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
+    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
+    base_red_excuse.py could tell a drained API budget from a graded pull request."""
+
+    def run_gh(self, returncode, stderr, attempts=3):
+        calls, slept = [], []
+        saved_run, saved_sleep = subprocess.run, time.sleep
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+
+        risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
+        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
+                                 setattr(risk.time, "sleep", saved_sleep)))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(subprocess.CalledProcessError):
+                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
+        return calls, slept, err.getvalue()
+
+    def test_a_rate_limit_far_from_its_reset_stops_at_once_and_says_it_is_not_a_verdict(self):
+        risk._rate_waited = 0.0
+        saved = risk.rate_limit_reset_in
+        risk.rate_limit_reset_in = lambda why: 1800.0
+        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
+        self.assertEqual(slept, [])
+        self.assertIn("API rate limit exceeded", err)
+        self.assertIn("not a verdict", err)
+
+    def test_a_rate_limit_that_resets_soon_waits_once_then_raises_rate_limited(self):
+        risk._rate_waited = 0.0
+        saved = risk.rate_limit_reset_in
+        risk.rate_limit_reset_in = lambda why: 50.0
+        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 2, "one wait for the budget, then no more")
+        self.assertEqual(slept, [51.0])
+        self.assertIn("waiting 50s", err)
+        # The wait is bounded across the whole job (50 s spent of 90): another 50 s wait would pass it, so the next
+        # limit raises at once.
+        calls, slept, _ = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual((len(calls), slept), (1, []))
+
+    def test_a_rate_limit_raises_rate_limited_and_another_failure_does_not(self):
+        risk._rate_waited = risk.RATE_LIMIT_WAIT_SECONDS
+        saved_run = subprocess.run
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved_run))
+        for stderr, kind in (("gh: API rate limit exceeded", risk.RateLimited), ("gh: Not Found (HTTP 404)", None)):
+            risk.subprocess.run = lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr=stderr)
+            with contextlib.redirect_stderr(io.StringIO()), mock_sleep():
+                with self.assertRaises(subprocess.CalledProcessError) as caught:
+                    risk.gh_run(["gh", "api", "x"])
+            self.assertEqual(isinstance(caught.exception, risk.RateLimited), kind is not None, stderr)
+
+    def test_another_failure_retries_and_still_prints_gh_s_words(self):
+        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, [2, 4])
+        self.assertIn("Not Found (HTTP 404)", err)
+        self.assertNotIn("not a verdict", err)
+
+    def test_a_successful_call_prints_nothing(self):
+        saved = subprocess.run
+        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
+        self.assertEqual(err.getvalue(), "")
 
 
 if __name__ == "__main__":

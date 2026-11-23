@@ -9,6 +9,11 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case updated
         /// It already did; nothing changed.
         case current
+        /// It refused the build and kept its own; nothing changed: `current` with reason
+        /// `newerInstalled` (the host's install step keeps a binary of a newer commit, #43770),
+        /// `newer` or `ownBuild` (`--keep-newer`), or `busy` with reason `restartWindow` (an update
+        /// restarted its daemon within the hour, #43709; its error names the next time).
+        case kept(DaemonUpdateOutcome.Kept)
         /// A turn or prompt runs there (`--if-idle`), or another update holds the host's lock
         /// (`failed`, reason `updateRunning`); nothing changed.
         case busy
@@ -64,9 +69,11 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         error = try? container.decodeIfPresent(String.self, forKey: .error)
         migratedFrom = try? container.decodeIfPresent(String.self, forKey: .migratedFrom)
         let target = (try? container.decodeIfPresent(String.self, forKey: .target)) ?? nil
+        let reason = (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil
         switch try container.decode(String.self, forKey: .outcome) {
         case "updated": outcome = .updated
-        case "current": outcome = .current
+        case "current": outcome = Self.kept(current: reason).map(Outcome.kept) ?? .current
+        case "busy" where reason == "restartWindow": outcome = .kept(.restartWindow(nextAfter: error.flatMap(Self.nextAfter)))
         case "busy": outcome = .busy
         case "needsBinary":
             // A target names a file in the binary directory: only a plain Rust triple.
@@ -76,10 +83,12 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
                 return
             }
             outcome = .needsBinary(target: target)
-        case "rolledBack": outcome = .rolledBack
+        // Rolled back only because ssh's link dropped under the restart (an older CLI; this one asks
+        // again on a new connection): nothing is wrong with the peer, so offline, asked again.
+        case "rolledBack": outcome = error.map(Self.linkLost) == true ? .unreachable : .rolledBack
         case "held": outcome = .held
         case "failed":
-            switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
+            switch reason {
             case "cloudMachine": outcome = .cloudMachine
             // `lockLost`: the connection holding the update's lease dropped, and the CLI changed
             // nothing more (acpmux `host_update.rs`): the peer went away mid-update, so offline.
@@ -95,6 +104,30 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         }
     }
 
+    /// Why a `current` reply kept the peer's own build (its `reason`), nil when it simply runs the
+    /// build already.
+    static func kept(current reason: String?) -> DaemonUpdateOutcome.Kept? {
+        switch reason {
+        case "newerInstalled", "newer": .newerInstalled
+        case "ownBuild": .ownBuild
+        default: nil
+        }
+    }
+
+    /// The UTC `HH:MM` a `restartWindow` error names after `next after ` (`restart window: last
+    /// update restart 12 min ago; next after 14:05Z (--now restarts it now)` reads `14:05`); nil
+    /// when it names none (the CLI prints `?` for a time it cannot read).
+    static func nextAfter(_ error: String) -> String? {
+        guard let range = error.range(of: "next after ") else { return nil }
+        let word = error[range.upperBound...].prefix { !$0.isWhitespace && $0 != ")" && $0 != ";" && $0 != "," }
+        guard word.hasSuffix("Z") else { return nil }
+        let clock = word.dropLast()
+        let parts = clock.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts.allSatisfy({ $0.count == 2 && $0.allSatisfy { $0.isASCII && $0.isNumber } }),
+              let hour = Int(parts[0]), let minute = Int(parts[1]), hour < 24, minute < 60 else { return nil }
+        return String(clock)
+    }
+
     /// Whether `error` is ssh failing before it reached the peer (`ssh: connect to host H port 22:
     /// Operation timed out`, `Could not resolve hostname`, no banner): nothing ran there, so the
     /// peer is offline, not broken. Read from the text since the upload reports its own reason
@@ -103,6 +136,16 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         let text = error.lowercased()
         return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
             .contains { text.contains($0) }
+    }
+
+    /// Whether `error` ends with ssh's keepalive timeout, `Connection to H port P timed out`
+    /// (through a ProxyCommand or ProxyJump ssh has no address and says `UNKNOWN port 65535`): the
+    /// link dropped, which says nothing about the peer.
+    static func linkLost(_ error: String) -> Bool {
+        error.lowercased().split(whereSeparator: \.isNewline).contains { line in
+            let line = line.trimmingCharacters(in: .whitespaces)
+            return line.contains("connection to ") && line.hasSuffix(" timed out")
+        }
     }
 
     /// Whether the binary's upload lost its connection part way (`scp to H failed: client_loop:

@@ -5,19 +5,32 @@
 // handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
 // one report for one menu. On a code block, a command, a path or a link the report adds that
-// `part` (menuParts.ts), even outside a prompt or reply (a tool row).
+// `part` (menuParts.ts), even outside a prompt or reply (a tool row); with a selection, only a link.
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { findSession } from "../sessionIndex";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
-import { currentLanguage } from "../i18n";
+import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
+import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
+import {
+  sendPromptAgainMenu,
+  sendPromptAgainTarget,
+  type SendPromptAgainMenu,
+  type SendPromptAgainState,
+} from "./sendPromptAgain";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = {
+  /// The transcript row id, used by the native menu's Pin as chapter seam.
+  rowId?: string;
+  /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+  sessionId?: string;
   text: string;
   markdown?: string;
   /// A reply's localized date and time, shown as its menu's non-interactive header.
@@ -27,6 +40,8 @@ export type MessageMenuTarget = {
   sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
+  /// The latest successful turn can send its original prompt again, optionally on another model.
+  sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
@@ -47,18 +62,54 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   popupId?: string;
 };
 
-/// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
-/// chat is on this computer (acpmux refuses the rest).
+export function withSendPromptAgain(
+  target: MessageMenuTarget | undefined,
+  rowId: string,
+  state: SendPromptAgainState,
+  t: Translate,
+): MessageMenuTarget | undefined {
+  if (sendPromptAgainTarget(state)?.messageId !== rowId) return target;
+  const again = sendPromptAgainMenu(state, t);
+  return again ? { ...(target ?? { text: "" }), sessionId: again.sessionId, sendPromptAgain: again } : target;
+}
+
+/// A native menu action may run after its page report. Require the selected and drawn sessions to
+/// still agree with that report before applying an action to a transcript row.
+export function messageMenuSessionMatches(
+  requestedSessionId: string,
+  selectedSessionId: string | undefined,
+  drawnSessionId: string | undefined,
+): boolean {
+  return (
+    requestedSessionId.length > 0 && requestedSessionId === selectedSessionId && requestedSessionId === drawnSessionId
+  );
+}
+
+/// Whether acpmux can fork the chat at all here: it serves forks and the pane is connected. A chat
+/// on another computer forks there: acpmux forwards the fork to that computer (`fork_through.rs`).
 const forkServed = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) &&
-  !snapshot.summary?.peer &&
-  snapshot.connection !== "disconnected" &&
-  !snapshot.connection.startsWith("connecting");
+  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+
+/// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
+/// `chat.switchModel`): acpmux serves forks, and a chat on another computer (a peer's, a Cloud machine's)
+/// too, which acpmux forwards to that machine's daemon. A connection that drops for a moment keeps
+/// the pick; the send then fails and the composer keeps the message. The same daemons that serve
+/// Continue In… (`canHandoff`), the gate a started chat's model menu has had for its harness rail, so
+/// the chats that list other harnesses' models are the ones whose pick of one forks in place.
+export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork && snapshot.canHandoff);
 
 /// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
 /// (`forkToTarget`).
 export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
+
+/// Whether the Fork under a finished turn's footer or a prompt can show now. Claude and Codex fork
+/// through any finished turn (`forksAnyTurn`), also while a later turn runs: a turn an agent's
+/// message or a background finish started would otherwise hide every earlier turn's Fork until it
+/// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
+/// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
+export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot));
 
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
@@ -82,7 +133,29 @@ export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throu
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+/// acpmux says so per chat (`forksAnyTurn` on its session row: the harness cuts a conversation at a
+/// turn, by kind), so a Claude Code profile under its own family name (`claude-sr2`) forks every turn
+/// too; only an older acpmux that does not say is read by family.
+/// A row without the field is unknown (acpmux built it while its configuration was being written,
+/// or it is older): the chat's last known answer stands, else the family's, never a false.
+export function forksAnyTurn(snapshot: Pick<AcpmuxSnapshot, "summary" | "sessions" | "sessionId">): boolean {
+  const id = snapshot.summary?.sessionId ?? snapshot.sessionId;
+  const listed = id ? findSession(snapshot.sessions ?? [], id)?.forksAnyTurn : undefined;
+  if (id && listed !== undefined) knownForksAnyTurn.set(id, listed);
+  return listed ?? (id ? knownForksAnyTurn.get(id) : undefined) ?? familyForksAnyTurn(snapshot.summary?.family);
+}
+
+/// Each chat's last `forksAnyTurn` acpmux gave, for a later row that leaves it out. A boolean per
+/// chat opened in this page.
+const knownForksAnyTurn = new Map<string, boolean>();
+
+/// Tests: forget every remembered answer.
+export function resetKnownForksAnyTurnForTests(): void {
+  knownForksAnyTurn.clear();
+}
+
+/// An older acpmux's answer: only the `claude` and `codex` families fork through any turn.
+export const familyForksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
 /// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
@@ -128,27 +201,40 @@ export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): 
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
 /// `:fold`), or undefined for a row that is not a prompt or a reply. `sideChat`: the chat opens a
-/// side chat (the chat menu shows New side chat), so a turn that forks opens one too.
+/// side chat (the chat menu shows New side chat), so a turn that forks opens one too. `shown`: the
+/// rows of the subagent view the pane shows instead of the chat (App.tsx `childRows`), where its
+/// footer's More finds the subagent's reply; a subagent's message offers no Fork and no rail mark.
 export function messageMenuTarget(
   snapshot: AcpmuxSnapshot,
   rowId: string,
   sideChat = false,
+  shown?: readonly AcpmuxRow[],
 ): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
-  const row = snapshot.rows.find((candidate) => candidate.id === id);
+  const row = (shown ?? snapshot.rows).find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
-  const turnSeq = canFork(snapshot)
-    ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
-    : undefined;
+  if (shown) return childMenuTarget(snapshot, row);
+  // Pinning remains valid for an older completed turn while a later one works. Fork eligibility
+  // is a separate concern: a working chat cannot offer Fork from here, but its completed summary
+  // still owns the rail chapter marker shown by PinButton.
+  const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
-      ? turnSeq
+    canForkTurn(snapshot) &&
+    completedTurnSeq !== undefined &&
+    (forksAnyTurn(snapshot) || completedTurnSeq === latestForkSeq(snapshot.rows))
+      ? completedTurnSeq
       : undefined;
+  // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
+  const markRowId =
+    row.kind === "user" ? id : completedTurnSeq !== undefined ? `summary-${completedTurnSeq}` : undefined;
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const target: MessageMenuTarget =
     // A prompt copies as its bubble reads: a Codex skill `/name`, not `/$name` as sent.
     row.kind === "user"
-      ? { text: withoutSkillDollars(row.text, snapshot.commands) }
+      ? { rowId: id, ...(sessionId ? { sessionId } : {}), text: withoutSkillDollars(row.text, snapshot.commands) }
       : {
+          ...(markRowId ? { rowId: markRowId } : {}),
+          ...(sessionId ? { sessionId } : {}),
           text: plainText(row.text),
           markdown: row.text,
           replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
@@ -158,6 +244,24 @@ export function messageMenuTarget(
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// A message of a subagent's view: its text to copy, read aloud or reply to, and its links.
+function childMenuTarget(snapshot: AcpmuxSnapshot, row: AcpmuxRow): MessageMenuTarget {
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const text = row.text ?? "";
+  const target: MessageMenuTarget = {
+    ...(sessionId ? { sessionId } : {}),
+    // A prompt copies and resends as written; a reply copies as plain text, its Markdown beside it.
+    text: row.kind === "user" ? text : plainText(text),
+    ...(row.kind === "assistant" && {
+      markdown: text,
+      replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+    }),
+  };
+  const links = webLinks(text);
   if (links.length > 0) target.links = links;
   return target;
 }
@@ -269,7 +373,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -297,7 +403,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };
@@ -350,7 +459,10 @@ export function installMessageMenuReporter(
     const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
     reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
-    const part = selection ? undefined : menuPartAt(target);
+    // A selection stands for the part under it, except a link: WebKit selects on right-click, and a
+    // link keeps Open Link and Copy Link (Leo, 2026-11-09: "feel like this should have a copy link button").
+    const pointed = menuPartAt(target);
+    const part = !selection ? pointed : pointed?.link ? { link: pointed.link } : undefined;
     const body: MessageMenuReport | null =
       message || selection || reportedImage || reportedPicture || part
         ? {
@@ -396,5 +508,6 @@ function selectionAt(doc: Document, target: Element | null): string | undefined 
   };
   if (endpointIsEditable(selection.anchorNode) || endpointIsEditable(selection.focusNode)) return undefined;
   if (!range.intersectsNode(target)) return undefined;
-  return selection.toString().trim() || undefined;
+  // A cmux link chip copies and quotes as its link (chipCopy.ts).
+  return selectionText(selection).trim() || undefined;
 }

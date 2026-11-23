@@ -120,14 +120,15 @@ fn rewritten_output_reaches_the_parser_in_read_sized_frames() {
     assert!(publish_pty_output(&host, &output));
     let mut received = Vec::new();
     let mut last_cursor = 0;
-    while let Ok(ParserCommand::Output { bytes, source_cursor, accounted_bytes }) =
+    while let Ok(ParserCommand::Output { frame, source_cursor, accounted_bytes }) =
         receiver.try_recv()
     {
+        let bytes = &frame.payload;
         assert!(bytes.len() <= 64 * 1024);
         assert_eq!(accounted_bytes, bytes.len());
         assert!(source_cursor > last_cursor);
         last_cursor = source_cursor;
-        received.extend(bytes);
+        received.extend_from_slice(bytes);
     }
     assert_eq!(received, output);
 }

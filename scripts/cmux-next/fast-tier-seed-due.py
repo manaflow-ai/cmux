@@ -18,6 +18,13 @@ whose key holds the workspace-path hash fast-tier-cache-key.sh puts in the prefi
 (sha256 of the path, 12 hex digits): a fast tier that checks out to another path
 never restores the pool's seed, so each pool is due on its own seeds.
 
+With --inputs (the package-inputs field of this push's prefix, 16 hex digits) only the
+seeds that carry those inputs count. A restore never takes another inputs' seed, so
+after a push that changes a Package.swift or Package.resolved every Blacksmith build
+was cold until the newest seed of any inputs aged past --minutes: on cmux#38170 (run
+42439414440) daemon tests built for 29 minutes cold and ran out its 60, half an hour
+after the manifests changed. The manifests changed 9 times in the 7 hours before.
+
 The listing (bucket credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) is
 r2_cache_census.py's, objects as {"key", "last_modified"}.
 """
@@ -44,8 +51,13 @@ def place(workspace: str) -> str:
     return hashlib.sha256(workspace.encode("utf-8")).hexdigest()[:12]
 
 
-def due(objects: list[dict], now: datetime, minutes: int, workspace: str | None = None) -> bool:
+def due(objects: list[dict], now: datetime, minutes: int, workspace: str | None = None,
+        inputs: str | None = None) -> bool:
     marker = f"-{place(workspace)}-" if workspace else ""
+    if inputs and workspace:
+        marker = f"-{inputs}{marker}"
+    elif inputs:
+        marker = f"-{inputs}-"
     times = [parse_time(item["last_modified"]) for item in objects
              if SEED_ARCHIVE.match(item.get("key", "")) and marker in item.get("key", "") and item.get("last_modified")]
     return not times or now - max(times) >= timedelta(minutes=minutes)
@@ -59,6 +71,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--endpoint-url")
     parser.add_argument("--bucket")
     parser.add_argument("--pools", help="JSON list of {pool, runner, workspace, ...}; prints the due ones")
+    parser.add_argument("--inputs", default="", help="this push's package-inputs hash (fast-tier-cache-key.sh); "
+                        "empty counts every seed")
     args = parser.parse_args(argv)
 
     if args.listing:
@@ -75,10 +89,10 @@ def main(argv: list[str]) -> int:
     now = parse_time(args.now) if args.now else datetime.now(timezone.utc)
     if args.pools:
         pools = json.loads(args.pools)
-        print("pools=" + json.dumps([p for p in pools if due(objects, now, args.minutes, p["workspace"])],
+        print("pools=" + json.dumps([p for p in pools if due(objects, now, args.minutes, p["workspace"], args.inputs)],
                                     separators=(",", ":")))
         return 0
-    print(f"due={'true' if due(objects, now, args.minutes) else 'false'}")
+    print(f"due={'true' if due(objects, now, args.minutes, inputs=args.inputs) else 'false'}")
     return 0
 
 

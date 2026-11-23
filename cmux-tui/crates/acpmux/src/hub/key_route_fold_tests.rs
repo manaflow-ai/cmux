@@ -2,7 +2,7 @@
 //! session it names, here, on a peer and as `HOST/NAME`; several are refused with each one
 //! (Leo, 2026-11-05: "stuff like that should work better yes").
 
-use super::tests::{list, named, test_hub};
+use super::tests::{list, list_with_alias, named, test_hub};
 use super::*;
 
 fn uses(e: &RpcError) -> Vec<String> {
@@ -35,6 +35,50 @@ async fn a_name_in_another_case_finds_the_one_session_here() {
     named(&hub, "td2-B").await;
     assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some(a.id.as_str()));
     assert_eq!(hub.key_route("TD2_a").unwrap().as_deref(), Some(a.id.as_str()));
+}
+
+#[tokio::test]
+async fn session_alias_routes_with_the_same_case_prefix_and_separator_rules() {
+    let hub = test_hub();
+    list_with_alias(
+        &hub,
+        "lanevm-7",
+        "0199aaaa-1111",
+        "ruby-long",
+        "idle",
+        Some("Ruby dot startup-speedups"),
+    );
+    assert_eq!(
+        hub.key_route("Ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    assert_eq!(
+        hub.key_route("ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    // A prefix of a peer's alias names nothing, as a prefix of a peer's name never did
+    // (`key_candidates`): a short key never reaches another machine's chat nobody named.
+    assert_eq!(hub.key_route("ruby").unwrap(), None);
+    assert_eq!(
+        hub.key_route("ruby_dot_startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+}
+
+#[tokio::test]
+async fn session_aliases_collide_with_names_and_generic_alias_tags_do_not_route() {
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("shared"));
+    list(&hub, "lanevm-8", "0199bbbb-2222", "shared", "idle");
+    let e = hub.key_route("shared").unwrap_err();
+    assert_eq!(uses(&e).len(), 2, "{e:?}");
+
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("friendly"));
+    let remote_sessions = hub.remote_sessions.read();
+    let row = remote_sessions.get("lanevm-7/0199aaaa-1111").unwrap();
+    assert_eq!(row.summary.alias(), Some("friendly"));
+    assert_eq!(hub.key_route("alias").unwrap(), None);
 }
 
 #[tokio::test]
@@ -107,4 +151,189 @@ async fn resolve_finds_a_name_in_another_case_and_refuses_a_shared_prefix() {
     assert_eq!(found["session"]["sessionId"], a.id.as_str(), "{found}");
     let e = hub.locate("TD2", false, true).unwrap_err();
     assert_eq!(uses(&e).len(), 2, "{e:?}");
+}
+
+/// Review of #36878 (F1): a name in another case on a peer beats a longer name here that only
+/// starts with the key, in `resolve` (and `session stop|cancel|resume`) as in every other command.
+#[tokio::test]
+async fn resolve_takes_a_name_in_another_case_over_a_longer_name_here() {
+    let hub = test_hub();
+    named(&hub, "td2-alpha").await;
+    let a = named(&hub, "TD2-A").await;
+    assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some(a.id.as_str()));
+    // `locate` reads only configured peers' rows (this test hub has none), so both are here;
+    // its old case-sensitive prefix took `td2-alpha`.
+    let found = hub.locate("td2-a", false, true).unwrap();
+    assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["session"]["sessionId"], a.id.as_str(), "{found}");
+}
+
+/// Review of #36878 (F2): a sub-session's short name in another case or without separators
+/// finds it too, bare and as `HOST/SHORT`.
+#[tokio::test]
+async fn a_sub_sessions_short_name_in_another_case_finds_it() {
+    let hub = test_hub();
+    list(&hub, "lanevm-7", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "lanevm-7", "0199bbbb-2222", "coord/td2-B", "idle");
+    for key in ["td2-a", "td2_a", "lanevm-7/td2-a", "LANEVM-7/TD2A"] {
+        assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"), "{key}");
+    }
+}
+
+/// Review of #36919: a bead id one session carries finds that session in `resolve`, never
+/// another session whose name only starts with the id.
+#[tokio::test]
+async fn resolve_takes_the_session_carrying_a_bead_over_a_name_it_starts() {
+    let hub = test_hub();
+    let carrier = named(&hub, "fixer").await;
+    named(&hub, "cx-ab1.2-worker").await;
+    let tags = json!({ crate::beads::tag_key("cx-ab1.2"): "1" });
+    hub.set_tags(&carrier, tags.as_object(), &[], None);
+    let found = hub.locate("cx-ab1.2", false, true).unwrap();
+    assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["session"]["sessionId"], carrier.id.as_str(), "{found}");
+}
+
+/// A configured peer that never runs, so `HOST/NAME` takes the configured-peer path
+/// (`key_route`'s `self.peer(host)`), as `own_host.rs`'s tests add one.
+fn add_peer(hub: &Hub, name: &str) {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(name.to_owned(), peer);
+}
+
+/// Review of #36919 (F1): `HOST/SHORT` naming a sub-session's short name exactly reaches that
+/// child, never a sibling whose short name differs only in case, live or not; the loose steps
+/// apply only when no short name matches exactly.
+#[tokio::test]
+async fn an_exact_short_name_beats_a_sibling_in_another_case() {
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "hb", "0199bbbb-2222", "coord/td2-a", "idle");
+    let exact = hub.key_route("hb/td2-A").unwrap();
+    assert_ne!(exact.as_deref(), Some("hb/0199bbbb-2222"));
+    let lower = hub.key_route("hb/td2-a").unwrap();
+    assert_ne!(lower.as_deref(), Some("hb/0199aaaa-1111"));
+    // The exact child closed: still that child, not the live one in another case.
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "closed");
+    list(&hub, "hb", "0199bbbb-2222", "coord/td2-a", "idle");
+    assert_ne!(hub.key_route("hb/td2-A").unwrap().as_deref(), Some("hb/0199bbbb-2222"));
+    // Only a loose match: it finds the one child.
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "hb", "0199cccc-3333", "coord/td3-B", "idle");
+    assert_eq!(hub.key_route("hb/td2_a").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
+}
+
+/// Review of #36919: a bare key naming a sub-session's short name in another case reaches that
+/// child ahead of a sibling it names only without separators, live or not.
+#[tokio::test]
+async fn a_bare_short_name_in_another_case_beats_one_without_separators() {
+    for first in ["idle", "closed"] {
+        let hub = test_hub();
+        add_peer(&hub, "hb");
+        list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", first);
+        list(&hub, "hb", "0199bbbb-2222", "coord/td2_a", "idle");
+        let found = hub.key_route("TD2-A").unwrap();
+        assert_eq!(found.as_deref(), Some("hb/0199aaaa-1111"), "first child {first}");
+    }
+}
+
+/// Review of #36919: a key that is a session's whole name finds that session before `HOST/NAME`
+/// is read as a peer and a name on it, as `by_key` reads it: a local `coord/lane` is never
+/// mistaken for peer `coord`'s `lane-extra`.
+#[tokio::test]
+async fn resolve_takes_a_whole_name_before_a_peer_named_like_its_parent() {
+    let hub = test_hub();
+    let child = named(&hub, "coord/lane").await;
+    add_peer(&hub, "coord");
+    list(&hub, "coord", "0199dddd-4444", "lane-extra", "idle");
+    let found = hub.locate("coord/lane", false, true).unwrap();
+    assert_eq!(found["session"]["sessionId"], child.id.as_str(), "{found}");
+}
+
+/// Review of #36919: `HOST/ID`, a peer session's qualified id, names that session before a
+/// session whose whole name is the same text.
+#[tokio::test]
+async fn resolve_takes_a_qualified_id_before_a_whole_name_like_it() {
+    let hub = test_hub();
+    let lookalike = named(&hub, "hb/0199eeee-5555").await;
+    add_peer(&hub, "hb");
+    list_as_peers_do(&hub, "hb", "0199eeee-5555", "worker");
+    let found = hub.locate("hb/0199eeee-5555", false, true).unwrap();
+    assert_ne!(found["session"]["sessionId"], lookalike.id.as_str(), "{found}");
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+    // A loose key `key_route` sends to that peer session is read back as its qualified id, never
+    // as the local name like it.
+    let found = hub.locate("WORKER", false, true).unwrap();
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+}
+
+/// Peer `peer`'s session `id` named `name`, with the summary a peer's list gives it
+/// (`Hub::remote_summary`: its `peer/` name, qualified id and receipt).
+fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
+    let summary =
+        Hub::remote_summary(peer, json!({"sessionId": id, "name": name, "status": "idle"}));
+    let receipt = crate::session_identity::SessionReceipt::new(peer, id, None, 1);
+    let row = RemoteSession { peer: peer.into(), summary: summary.into(), receipt };
+    hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
+}
+
+/// Every first cell `acpmux ls` prints names its session (`shown_candidates`): `HANDLE · NAME`,
+/// `ALIAS · NAME` with a broker's `+` alias, and a name or alias cut short with `…`.
+#[tokio::test]
+async fn every_name_acpmux_ls_prints_routes_to_its_session() {
+    let hub = test_hub();
+    let id = "0199aaaa-1111-7000-8000-321a9795275b";
+    list(&hub, "lanevm-1", id, "app-version-rollback", "idle");
+    list(&hub, "lanevm-12", "0199bbbb-2222-7000-8000-000000000002", "other", "idle");
+    list_with_alias(
+        &hub,
+        "lanevm-10",
+        "0199cccc-3333-7000-8000-000000000003",
+        "chat-recovery-version-rollback",
+        "idle",
+        Some("Ellis+dot+chat-recovery-version-rollback"),
+    );
+    list_with_alias(&hub, "lanevm-7", "0199dddd", "td2-A", "idle", Some("Ruby+dot+speedups"));
+    let route = format!("lanevm-1/{id}");
+    let handle = crate::session_handle::default_handle(id);
+    for key in [
+        format!("{handle} · app-version-rollback"),
+        format!("{} · App-Version-Rollback", handle.to_uppercase()),
+        format!("{handle} · app-version-r…"),
+        handle.clone(),
+    ] {
+        assert_eq!(hub.key_route(&key).unwrap().as_deref(), Some(route.as_str()), "{key}");
+    }
+    // Both halves name the one session: a handle with another session's name is no row.
+    assert_eq!(hub.key_route(&format!("{handle} · other")).unwrap(), None);
+    let ellis = "lanevm-10/0199cccc-3333-7000-8000-000000000003";
+    for key in [
+        "Ellis dot chat-recovery-version-rollback",
+        "ellis dot chat-recovery-version-roll…",
+        "Ellis+dot+chat-recovery-version-rollback",
+    ] {
+        assert_eq!(hub.key_route(key).unwrap().as_deref(), Some(ellis), "{key}");
+    }
+    assert_eq!(
+        hub.key_route("Ruby dot speedups · td2-A").unwrap().as_deref(),
+        Some("lanevm-7/0199dddd")
+    );
+}
+
+/// `lanevm-1/NAME` never reaches `lanevm-12` by a prefix of its machine name.
+#[tokio::test]
+async fn a_numbered_machine_is_never_reached_by_its_smaller_siblings_name() {
+    let hub = test_hub();
+    list(&hub, "lanevm-12", "0199bbbb-2222", "app-version-rollback", "idle");
+    assert_ne!(
+        hub.key_route("lanevm-1/app-version-rollback").unwrap().as_deref(),
+        Some("lanevm-12/0199bbbb-2222")
+    );
+    assert_eq!(hub.host_route("lanevm-1").unwrap(), None);
 }

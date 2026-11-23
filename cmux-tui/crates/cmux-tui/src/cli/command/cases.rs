@@ -344,6 +344,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "pane.swap",
         ),
+        (vec!["pane", PANE, "move", "--to-pane", PANE, "--split", "right"], "pane.move"),
         (vec!["pane", PANE, "zoom", "--enabled", "true"], "pane.zoom"),
         (
             vec![
@@ -402,6 +403,8 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "80",
                 "--rows",
                 "24",
+                "--purpose",
+                "flow check",
                 "--correlation-key",
                 "create-42",
             ],
@@ -420,6 +423,8 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "1200",
                 "--height-px",
                 "800",
+                "--purpose",
+                "docs check",
                 "--correlation-key",
                 "create-42",
             ],
@@ -482,7 +487,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "terminal.input.mouse",
         ),
         (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
-        (vec!["terminal", TERMINAL, "screen", "read"], "terminal.screen.read"),
+        (
+            vec!["terminal", TERMINAL, "screen", "read", "--unwrap", "--lines", "5"],
+            "terminal.screen.read",
+        ),
         (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
         (
             vec![
@@ -506,10 +514,11 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "ready",
                 "--timeout-ms",
                 "5000",
+                "--new",
             ],
             "terminal.wait",
         ),
-        (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
+        (vec!["terminal", TERMINAL, "copy", "--mode", "screen", "--unwrap"], "terminal.copy"),
         (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
         (
             vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
@@ -886,8 +895,20 @@ fn state_resource_cases<'a>(
         (vec!["room", "list"], "room.list"),
         (
             vec![
-                "room", "create", "--name", "n", "--color", "c", "--icon", "i", "--theme", "t",
-                "--index", "0",
+                "room",
+                "create",
+                "--name",
+                "n",
+                "--color",
+                "c",
+                "--icon",
+                "i",
+                "--theme",
+                "t",
+                "--index",
+                "0",
+                "--purpose",
+                "demo",
             ],
             "room.create",
         ),

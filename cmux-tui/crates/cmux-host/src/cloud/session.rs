@@ -30,6 +30,12 @@ pub struct Session {
     stream_live: bool,
     /// The workload probe's last reported result (`workload.rs`); None while it is unknown.
     workload: Option<Workload>,
+    /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
+    /// on each workload probe; None while the file declares none.
+    idle_window: Option<u64>,
+    /// This service is the restart a flip or a rollback queued: the reports say degraded until
+    /// the restarted session host answers `identify` ([`Session::after_restart`]).
+    awaiting_daemon: bool,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -153,7 +159,25 @@ impl Session {
             acp: AcpActivity::default(),
             stream_live: false,
             workload: None,
+            idle_window: None,
+            awaiting_daemon: false,
         }
+    }
+
+    /// With `restarted`, this service is the restart an update's flip or a rollback queued
+    /// (`updater/gate.rs` [`crate::updater::gate::Gate::service_started_at`]): every report says
+    /// `degraded` until the restarted session host answers `identify`
+    /// ([`Session::daemon_identified`]), and only then `running`. Its first report would
+    /// otherwise take the bake's recorded daemon block before the daemon answers and say
+    /// `running` at once, and the Cloud would hand the spare to a person whose chat then never
+    /// connects (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later,
+    /// and its chat never connected).
+    pub fn after_restart(mut self, restarted: bool) -> Session {
+        if restarted {
+            self.awaiting_daemon = true;
+            self.reporter.replace_state(super::sender::MachineState::Degraded);
+        }
+        self
     }
 
     /// After bind and after every start of the agent: one report.
@@ -234,6 +258,7 @@ impl Session {
             self.acp.last_person_prompt_at,
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
+        activity.idle_window_seconds = self.idle_window;
         activity
     }
 
@@ -264,11 +289,76 @@ impl Session {
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
+    /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
+    /// goes when it changed: the Cloud's pause owner uses it as this machine's idle window.
+    pub fn idle_window(&mut self, seconds: Option<u64>, now: u64) -> Vec<OpRequest> {
+        if seconds == self.idle_window {
+            return Vec::new();
+        }
+        self.idle_window = seconds;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// The updater's block the first report carries (no report of its own: `start` makes it).
+    pub fn with_updater(mut self, block: Option<Value>) -> Session {
+        let _ = self.reporter.set_updater(block, false, 0);
+        self
+    }
+
+    /// The updater's block as it stands (`updater/look.rs` `report`). A report goes
+    /// when its outcome, reason, run or swap changed; a check that only moved its
+    /// time rides along with the next report.
+    pub fn updater(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        let cur = self.reporter.updater().cloned();
+        let changed =
+            crate::updater::look::report_key(&block) != crate::updater::look::report_key(&cur);
+        self.reporter.set_updater(block, changed, now).into_iter().collect()
+    }
+
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
         self.stream_live = connected;
         self.daemon_block(now)
+    }
+
+    /// The session host answered `identify`: its daemon block (version and capabilities, as
+    /// `daemon_info_from_identify` reads them) replaces the one this session started with when
+    /// they differ, and the next report names it at once.
+    ///
+    /// The agent reads the block once at its start, and it starts the session host at the same
+    /// moment, so on a bound machine its first `identify` finds no session host yet and it takes
+    /// the bake's recorded `/etc/cmux/daemon.json`: the image's build, not the one running. After
+    /// a self-update's restart every report then named the old build, and the Cloud, which tells
+    /// an update's own restart from use by the version changing (cmux-platform `IdlePolicy.ts`
+    /// `UpdateSettle`), read each restart's acpmux time as an agent's action: an untouched
+    /// machine never paused (staging probe machine-idle-pause, 2026-11-07 and 2026-11-08).
+    ///
+    /// On a restarted service ([`Session::after_restart`]) this answer is the restarted daemon
+    /// coming back: the state turns `running`, in the same report as a new block.
+    pub fn daemon_identified(&mut self, daemon: &DaemonInfo, now: u64) -> Vec<OpRequest> {
+        let ready = std::mem::take(&mut self.awaiting_daemon);
+        if ready {
+            self.reporter.replace_state(super::sender::MachineState::Running);
+        }
+        let base = daemon.with_activity(false, false, false);
+        let block = if base == self.base {
+            false
+        } else {
+            self.base = base;
+            let daemon = self.daemon_now();
+            let changed = &daemon != self.reporter.daemon();
+            self.reporter.replace_daemon(daemon);
+            changed
+        };
+        let reason = match (block, ready) {
+            (true, true) => "daemon+state",
+            (true, false) => "daemon",
+            (false, true) => "state",
+            (false, false) => return Vec::new(),
+        };
+        self.reporter.trigger(reason, now).into_iter().collect()
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
@@ -553,6 +643,66 @@ mod tests {
         assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "acpmux went quiet");
     }
 
+    /// Staging, 2026-11-07 and 2026-11-08: after a self-update's restart the agent started with
+    /// the bake's recorded block (the session host was not listening yet), so every report named
+    /// the image's build and the Cloud never saw the update. The running session host's
+    /// `identify` replaces it, keeps the activity capabilities, and goes in a report at once.
+    #[test]
+    fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
+        use super::super::wire::{ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+        let baked = DaemonInfo { version: "0.1.0+aaaaaaaaaaaa".into(), capabilities: vec![] };
+        let mut s = Session::new("vm_m0000000000000000001", baked.clone(), 3_600_000);
+        let start = s.start(0);
+        assert_eq!(start[0].params["daemon"]["version"], "0.1.0+aaaaaaaaaaaa");
+        s.answered(&start[0], &ok(), 0, 0.5);
+        s.activity_stream(true, 1_000);
+        s.line(&acp(0, None), 2_000);
+        let r = s.fire(20_000);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+
+        // The same block (or the same one with activity capabilities) changes nothing.
+        assert!(s.daemon_identified(&baked, 30_000).is_empty());
+        assert!(s.daemon_identified(&baked.with_activity(true, true, false), 30_000).is_empty());
+
+        let running = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let r = s.daemon_identified(&running, 40_000);
+        assert_eq!(r.len(), 1, "a new build is reported at once");
+        assert_eq!(r[0].params["daemon"]["version"], "0.1.0+bbbbbbbbbbbb");
+        assert_eq!(
+            r[0].params["daemon"]["capabilities"],
+            json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]),
+            "the stream and acpmux's count still hold"
+        );
+        s.answered(&r[0], &ok(), 40_000, 0.5);
+        assert!(s.daemon_identified(&running, 60_000).is_empty(), "reported once");
+    }
+
+    /// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy
+    /// with reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." The
+    /// first report after an update's restart carries the updater's swap; a later check that
+    /// finds the same thing makes no report, a new outcome does.
+    #[test]
+    fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
+        let baked = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let swapped = json!({"outcome": "swapped", "at": 1_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let mut s = Session::new("vm_m0000000000000000001", baked, 3_600_000)
+            .with_updater(Some(swapped.clone()));
+        let start = s.start(0);
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0].params["updater"], swapped);
+        s.answered(&start[0], &ok(), 0, 0.5);
+
+        let mut later = swapped;
+        later["at"] = json!(16_000);
+        assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
+        let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let r = s.updater(Some(current.clone()), 50_000);
+        assert_eq!(r.len(), 1, "a new outcome is reported");
+        assert_eq!(r[0].params["updater"], current);
+    }
+
     fn acp_from(daemon: &str, turns: u64) -> String {
         json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
     }
@@ -824,6 +974,38 @@ mod tests {
         assert!(!cap(&r[0]));
         assert!(r[0].params["activity"].get("workload").is_none());
         assert!(s.workload(None, 160_000).is_empty());
+    }
+
+    /// A lane's machine.toml window (300 s) rides in every report's activity once read, and a
+    /// report goes only when it changes.
+    #[test]
+    fn the_idle_window_reaches_the_report_and_only_a_change_is_reported() {
+        let mut s = session();
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
+        let start = s.start(0);
+        let r = send(&mut s, start, 0);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
+        assert!(s.idle_window(None, 10_000).is_empty(), "none declared, none before");
+        let r = s.idle_window(Some(300), 20_000);
+        let r = send(&mut s, r, 20_000);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        assert!(s.idle_window(Some(300), 40_000).is_empty(), "nothing changed");
+        // Another report (the workload) still carries it.
+        let r = s.workload(Some(Workload::default()), 60_000);
+        let r = send(&mut s, r, 60_000);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        // The file no longer declares one: a report without it.
+        let r = s.idle_window(None, 80_000);
+        let r = send(&mut s, r, 80_000);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
     }
 
     /// Relayed only when every daemon says so; turns from every daemon.

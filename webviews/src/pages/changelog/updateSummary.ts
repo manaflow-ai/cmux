@@ -7,8 +7,8 @@
 // Pure: no DOM, no state.
 import { areaOf, type AreaKey } from "./areas";
 import { changeItems, localized, readableChanges } from "./model";
-import { changeArea, readableChange, shortTitle, tidyTitle } from "./readableChange";
-import type { ReleaseNotes, WhatsNewCategory } from "./types";
+import { changeArea, plainChange, readableChange, shortTitle, tidyTitle } from "./readableChange";
+import type { ReleaseNotes, WhatsNewCategory, WhatsNewEntry } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 
 /** One line of the card: a known area, else the category its changes share, and their phrases. */
@@ -58,7 +58,16 @@ function category(group: string): WhatsNewCategory {
 function summarize(changes: Change[], language: string, unlisted = 0): UpdateSummary {
   const english = language === "en" || language.startsWith("en-");
   const buckets = new Map<string, { row: SummaryRow; changes: Change[]; first: number }>();
-  changes.forEach((change, index) => {
+  // The card says each change as the popover beside it does (readableChange.ts plainChange): a line
+  // only a builder reads never leads the card; it still counts in "+N more" (Leo 2026-11-14).
+  const plain = changes.flatMap((change) => {
+    const said = plainChange(change.title, undefined, language, false);
+    if (!said) return [];
+    if (said.title === change.title) return [change];
+    const { raw: _raw, ...rest } = change;
+    return [{ ...rest, title: said.title }];
+  });
+  plain.forEach((change, index) => {
     const key = change.area ?? `category:${change.category}`;
     const bucket = buckets.get(key) ?? {
       row: change.area ? { area: change.area, phrases: [] } : { category: change.category, phrases: [] },
@@ -94,6 +103,18 @@ export function isGenericEntry(id: string, title: string): boolean {
   return id === GENERIC_ENTRY_ID && tidyTitle(title).toLowerCase() === "fixes and improvements";
 }
 
+/** Whether a What's New entry is the generic entry, by its source identity: its id and its English
+    title, whatever language the page shows (#37615 F1). */
+export function isGenericWhatsNewEntry(entry: WhatsNewEntry): boolean {
+  return isGenericEntry(entry.id, localized(entry.title, "en"));
+}
+
+/** Whether a build has reviewed changes (``curatedChanges``): such a build reads as those, any other
+    as its readable commits. */
+export function hasCuratedChanges(notes: ReleaseNotes): boolean {
+  return curatedChanges(notes, "en").length > 0;
+}
+
 /** A build's reviewed changes: its What's New entries (not the ones made from summary lines, nor
     the generic entry) and the highlights they do not carry. */
 function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
@@ -101,7 +122,7 @@ function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
   const ids = new Set<string>();
   for (const entry of notes.whatsNew?.entries ?? []) {
     if (entry.id.startsWith("summary-")) continue;
-    if (isGenericEntry(entry.id, localized(entry.title, "en"))) continue;
+    if (isGenericWhatsNewEntry(entry)) continue;
     ids.add(entry.id);
     const title = tidyTitle(localized(entry.title, language));
     changes.push({ title, category: entry.category, area: areaOf(title) });

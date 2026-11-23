@@ -8,7 +8,7 @@
         "key": "settings.group.sidebar",
         "text": "Sidebar"
       },
-      "note": "Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: can be turned off; 2026-10-18: Chrome's 1300 ms was too slow, about a tooltip's delay now).",
+      "note": "Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: can be turned off; 2026-11-15: Chrome's 1300 ms on every card).",
       "rows": [
         {
           "key": "sidebar.hoverCards.enabled",
@@ -34,14 +34,14 @@
         },
         {
           "key": "sidebar.hoverCards.delay",
-          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). 400 ms (Leo 2026-11-01: hover previews must appear a lot faster); it was Chrome's 1300 ms at standard tab width (Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.",
+          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay, HoverIntentTiming.cardDelay): Chrome's 1300 ms for a standard-width tab (tab_hover_card_controller.cc GetShowDelay: kMaximumTriggerDelay 800 + kTabHoverCardAdditionalMaxWidthDelay 500; Lawrence 2026-11-15 msg 32286: copy Chrome's delay exactly, consistent everywhere). Every hover card waits it: rows, rail, tabs, the update and pull request cards, Home link chips. While a card shows, or within 300 ms after it went (kShowWithoutDelayTimeBuffer), the next one opens at once.",
           "title": {
             "key": "settings.sidebar.hoverCards.delay",
             "text": "Hover Card Delay"
           },
           "help": {
             "key": "settings.sidebar.hoverCards.delay.help",
-            "text": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+            "text": "How long the pointer rests before a card opens."
           },
           "kind": "number",
           "range": {
@@ -50,7 +50,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 400,
+          "default": 1300,
           "keywords": [
             "hover",
             "card",
@@ -61,16 +61,19 @@
         },
         {
           "key": "sidebar.hoverCards.layout",
-          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
+          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). compact (default since Lawrence 2026-11-20: \"drastically simplify all parts of the UI\"): the facts and the last three moments; timeline: stats and a scrollable history of prompts, waits and finished turns; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
           "title": {
             "key": "settings.sidebar.hoverCards.layout",
             "text": "Workspace Card Layout"
           },
           "help": {
             "key": "settings.sidebar.hoverCards.layout.help",
-            "text": "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+            "text": "What a workspace's hover card shows."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "HoverCardLayoutSetting"
+          },
           "choices": [
             {
               "value": "timeline",
@@ -108,7 +111,7 @@
               }
             }
           ],
-          "default": "timeline",
+          "default": "compact",
           "keywords": [
             "hover",
             "card",
@@ -304,7 +307,7 @@
         {
           "key": "sidebar.hoverCards.groups.delay",
           "name": "groupsDelay",
-          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\" Longer than a row's card so a sweep across headers opens none.",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\" Since 2026-11-15 the same Chrome delay as every hover card (1300 ms, HoverIntentTiming.cardDelay).",
           "title": {
             "key": "settings.sidebar.hoverCards.groups.delay",
             "text": "Group Card Delay"
@@ -320,7 +323,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 1500,
+          "default": 1300,
           "keywords": [
             "hover",
             "card",
@@ -342,6 +345,9 @@
             "text": "Which part of a group's card comes first."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "GroupHoverCardOrderSetting"
+          },
           "choices": [
             {
               "value": "status",

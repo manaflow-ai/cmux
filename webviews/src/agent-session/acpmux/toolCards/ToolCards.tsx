@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { Notice, type NoticeAction, type NoticeKind } from "../../../ui/Notice";
+import { useState } from "react";
+import { Notice, type NoticeAction } from "../../../ui/Notice";
 import { Spinner } from "../conversation/icons";
 import type { ToolCard } from "./toolCardStore";
+import { toolCardKind } from "./toolCardsModel";
 
 /// The chat's tool cards among the chat's permission asks, above the composer: what a cmux tool asks
 /// or is doing, in the host's words, and its buttons, drawn as the shared notice (ui/Notice.tsx,
@@ -22,11 +23,6 @@ export function ToolCards({
       ))}
     </>
   );
-}
-
-/// The notice kind of a card's state: an ask asks, a stopped run is an error, the rest are status.
-export function toolCardKind(state: ToolCard["state"]): NoticeKind {
-  return state === "ask" ? "ask" : state === "failed" ? "error" : "toast";
 }
 
 /// One card. A card with a field (a secret the person types) keeps what was typed only in this

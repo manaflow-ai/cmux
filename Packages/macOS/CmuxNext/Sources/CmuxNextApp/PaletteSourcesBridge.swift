@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextCloudUI
+import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
@@ -71,19 +73,43 @@ enum PaletteSourcesBridge {
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
-        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        let sections = SidebarSectionTargetSource(document: { [weak services] in services?.sidebarLayout.document ?? SidebarLayoutDocument(sections: []) },
+            workspacesTitle: SidebarSectionStrings.workspacesSection, untitledTitle: SidebarSectionStrings.untitledSection, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        return agentChatTargets(AgentChatDestinations(services: services), next: groups)
-    }
-
-    static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
-        func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
-            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
+        let sidebarApps = RefreshingPaletteTargetSource(kind: .sidebarItem,
+            actions: Set(services.registry.descriptors.filter { $0.paletteTargetSource == "sidebarApps" }.map(\.id)),
+            next: groups, read: { sections.appTargets() })
+        var bookmarkTargets: any PaletteTargetSource = sidebarApps
+        let bookmarkSources: [String?] = [nil, "bookmarks", "bookmarkFolders"]
+        for source in bookmarkSources {
+            let actions = Set(services.registry.descriptors.filter { $0.paletteTarget == .bookmark && $0.paletteTargetSource == source }.map(\.id))
+            bookmarkTargets = RefreshingPaletteTargetSource(kind: .bookmark, actions: actions, next: bookmarkTargets,
+                                                            read: { profiles.bookmarks(source: source) })
         }
-        // A slow acpmux never holds the picker: past the bound it shows "Other Macs not loaded yet",
-        // then the peers when acpmux lists them (AgentChatDestinations.updates).
-        return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
-            initial: [option(destinations.local)], next: next, updates: { destinations.updates() }, option: option)
+        let descriptors = services.registry.descriptors.filter { $0.paletteTarget == .machine }
+        let all = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == nil }.map(\.id)),
+                                                next: bookmarkTargets, read: { windows.machines(includeDisconnected: true) })
+        let remote = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "remote" }.map(\.id)),
+                                                   next: all, read: { windows.machines(includeDisconnected: true).filter { $0.id != MachineRegistry.localID } })
+        let remoteGroups = RefreshingPaletteTargetSource(kind: .machine, actions: ["remote.removeGroup"], next: remote) { [weak services] in
+            guard let services, let store = services.sidebarDoc.activeStore else { return [] }
+            return windows.machines(includeDisconnected: true).filter {
+                guard let session = services.machines.anyDaemon(machine: $0.id)?.store.registryID else { return false }
+                return store.records.sections["sec_m_\(session)"]?.hostGroup == true
+            }
+        }
+        let ssh = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "ssh" }.map(\.id)), next: remoteGroups) { [weak services] in
+            guard let services else { return [] }
+            let rows = services.machines.ssh.map { PaletteTargetOption(id: $0.machineID, title: $0.host.label, symbol: "server.rack") }
+            guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
+            return [PaletteTargetOption(id: "add-machine", title: title, symbol: "plus", recovery: PaletteTargetRecovery(action: "machine.add", title: title))]
+        }
+        let cloud = CloudPaletteTargetSource(
+            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: ssh,
+            machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
+            refresh: { [weak services] in _ = await services?.cloud.refresh() },
+            ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
+        return AgentChatDestinations(services: services).paletteTargets(next: services.joinedMachines.paletteTargets(descriptors, next: cloud))
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -92,6 +118,7 @@ enum PaletteSourcesBridge {
     static func capturedTargets(_ services: AppServices) -> [ActionTargetRef] {
         guard let window = services.windows.active else { return [] }
         var refs: [ActionTargetRef] = []
+        refs.append(ActionTargetRef(kind: .machine, id: window.state.machineID))
         if let pane = window.focusedPane {
             if let selected = pane.stripModel.selectedID {
                 if let group = pane.tab(selected)?.tabGroup { refs.append(ActionTargetRef(kind: .tabGroup, id: group.rawValue)) }
@@ -123,33 +150,40 @@ enum PaletteSourcesBridge {
             let ranks = services.windows.active?.sidebar.model.workspaceRanks() ?? [:]
             let subagents = ChiefSubagentIDs.live
             let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
+            let lastActive = TabSearchFactsBuilder.lastActive(services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
                 // A lone tab is its workspace (Go to Workspace lists no row of its own): its words find this row.
                 let live = tabs.filter { !closing.contains($0.id) }, lone = live.count == 1 && !HomeRules.isHome(workspace) ? live.first : nil
+                let title = services.shownWorkspaceName(workspace)
+                // A tab that alone repeats the name is this row too (NavigationPaletteProvider.distinctTitles); an untitled chat reads as it.
+                let repeating = lone == nil ? PaletteWorkspace.loneRepeat(live, of: title) { var named = resolver; named.workspaceName = title; return named.title($0) } : nil
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
-                // The local Chief runs on this Mac, as the sidebar's machine marks say.
-                let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
-                return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
+                return PaletteWorkspace(id: workspace.id, title: title, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
+                                        groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
-                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id])
+                                        keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
             }
         }
 
         func hasWorkspace(id: String) -> Bool { services.machines.workspace(id: id) != nil } // perf-hot: 0.01ms workspace-switch (O(1) per daemon, no row built)
+
+        // An open Cmd-P lists a workspace that reaches the stores after its sidebar row showed (CmdPSwitchMovesSidebarSelectionTests).
+        func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? {
+            PaletteSourceFollow(listing: { [weak services] in services.map { app in app.machines.allWorkspaces.map { "\($0.0.id)\u{1F}\(app.shownWorkspaceName($0.0))" } } ?? [] }, changed: changed)
+        }
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
             guard let window = services.windows.active else { _ = services.windows.reveal(workspaceID: id); return }
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.
-            if services.windows.registry.value.owner(of: id) == window.state.id {
+            if services.windows.registry.value.lists(id, in: window.state.id) {
                 SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
             } else {
                 services.windows.show(workspaceID: id, in: window.state)
@@ -161,11 +195,11 @@ enum PaletteSourcesBridge {
             daemon.send("rename-workspace") { connection in _ = try await connection.renameWorkspace(key, to: title) }
         }
 
+        /// The row's "Close Workspace" is an entrypoint of `closeWorkspace`, as the sidebar row's close button
+        /// (`SidebarBridge+Intents`): the row leaves and the selection moves in this turn (`WorkspaceCloseFlow`), a
+        /// running program is asked about, and the action's own target reason refuses Home (`HomeRules`).
         func closeWorkspace(id: String) {
-            guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
+            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id))
         }
     }
 
@@ -207,7 +241,6 @@ enum PaletteSourcesBridge {
         }
     }
 }
-
 
 extension AgentChatDestinations {
     init(services: AppServices) {

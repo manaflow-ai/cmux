@@ -95,6 +95,15 @@ impl Mux {
                 None => SplitPublicId::random()?,
             };
             intent.set("split_reservation", json!({ "split_id": split_id }));
+            // `split-around-v1`: refused here, before anything is spawned.
+            if let Some(around) = fields.get(AROUND_SPLIT_FIELD).and_then(Value::as_u64) {
+                let target = resolved.pane.context("bad request: around needs a target pane")?;
+                anyhow::ensure!(
+                    around_split_ends_at(state, around, target),
+                    "bad request: around split {around} does not end at pane {target}"
+                );
+            }
+            quick_terminal::refuse_second_make(state, resolved.pane, fields)?;
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -241,10 +250,10 @@ impl Mux {
                     .get("placement")
                     .and_then(Value::as_str)
                     .and_then(crate::user_settings::NewWorkspacePlacement::from_wire);
-                match placement {
+                crate::state::created_by::scoped_by_fields(fields, || match placement {
                     Some(placement) => placement.scoped(create),
                     None => create(),
-                }
+                })
                 .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {
@@ -352,6 +361,7 @@ impl Mux {
                             size: effect_cell_size(fields)?,
                             ratio: None,
                             viewport_width: None,
+                            fit: false,
                             row_height: None,
                             focus: true,
                         },
@@ -401,6 +411,10 @@ impl Mux {
                             .get("viewport_width")
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
+                        fit: fields
+                            .get(PANE_SPLIT_FIT_FIELD)
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                         row_height: rows::row_height_field(fields)?,
                         // Absent only on the daemon's own and the user's
                         // splits: the resource router sends `focus: false`
@@ -428,7 +442,7 @@ impl Mux {
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
-                    None,
+                    Default::default(),
                 )
                 .map(|created| created.path)
             }
@@ -443,7 +457,7 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
-                        tab_strip::tab_slot::effect_index(fields),
+                        tab_strip::tab_place::Spot::of(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -515,7 +529,7 @@ impl Mux {
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
                     // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
-                    let decorations = self.tree_decorations();
+                    let decorations = self.tab_tree_decorations(&[surface.id]);
                     let renamed = self.with_state(|state| {
                         presentation::tab_changed_delta(state, &decorations, surface.id)
                     });
@@ -756,112 +770,6 @@ impl Mux {
         Ok(CreatedTerminalEffect { path })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn effect_add_terminal_tab(
-        self: &Arc<Self>,
-        intent: &Value,
-        target: PaneId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-        on_exit: Option<TerminalOnExit>,
-        index: Option<usize>,
-    ) -> anyhow::Result<CreatedTerminalEffect> {
-        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
-        // before anything spawns, and again when the tab attaches.
-        let operation = ResourceOperation::TabCreateTerminal.wire_name();
-        self.with_state(|state| ensure_pane_takes_tabs(operation, state, target))?;
-        let workspace_key = self
-            .workspace_key_for_pane(target)
-            .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = self.new_terminal_cwd(cwd, Some(target), None);
-        let reservation = self.effect_terminal_reservation(
-            intent,
-            &workspace_key,
-            argv.as_deref(),
-            cwd.as_deref(),
-            name.as_deref(),
-            size,
-            on_exit,
-        )?;
-        let surface =
-            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, argv, reservation)?;
-        if let Some(name) = name {
-            surface.set_name(Some(name));
-        }
-        let active_at = self.next_active_at();
-        let notifications = self.tree_decorations_placing(&surface);
-        let mut refused = None;
-        let attached = {
-            let mut state = self.state.lock().unwrap();
-            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
-                refused = Some(error);
-            }
-            let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
-            let delta = match pane {
-                Some(pane) => {
-                    // At its end, or at the strip index the creation names
-                    // (`tab_slot`: Reopen Closed puts a tab back in place).
-                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
-                    pane.tabs.insert(index, surface.id);
-                    pane.active_tab = index;
-                    pane.active_at = active_at;
-                    fence_layout_undo_for_tab_membership(&mut state, &[target]);
-                    state.register_placed_tab_identity(surface.id);
-                    let (workspace_index, screen_index) =
-                        state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[workspace_index].id;
-                    let screen = state.workspaces[workspace_index].screens[screen_index].id;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::TabAdded,
-                        surface.id,
-                    )
-                    .expect("new terminal tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    })
-                }
-                None => None,
-            };
-            delta
-                .map(|delta| {
-                    self.created_resource_path_in_state(&state, surface.id)
-                        .map(|path| (delta, CreatedTerminalEffect { path }))
-                })
-                .transpose()?
-        };
-        if let Some(error) = refused {
-            self.fail_hosted_terminal_attachment(
-                &surface,
-                "resource-terminal-tab-attach-failed",
-                "pinned-column-takes-no-tabs",
-            )?;
-            return Err(error);
-        }
-        let Some((delta, created)) = attached else {
-            self.fail_hosted_terminal_attachment(
-                &surface,
-                "resource-terminal-tab-attach-failed",
-                "pane-disappeared-before-attach",
-            )?;
-            anyhow::bail!("pane disappeared while creating tab");
-        };
-        self.emit_tree_delta(delta, true);
-        self.reap_if_dead(&surface);
-        Ok(created)
-    }
-
     pub(super) fn effect_rename_created_screen(
         &self,
         surface: SurfaceId,
@@ -880,8 +788,19 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height, focus } =
-            options;
+        let PaneAddOptions {
+            direction,
+            argv,
+            cwd,
+            size,
+            ratio,
+            viewport_width,
+            fit,
+            row_height,
+            focus,
+        } = options;
+        // `fit` makes a column too; its width is set once the screen is known.
+        let viewport_width = viewport_width.or(fit.then_some(FIT_SCROLLING_COLUMN_WIDTH));
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -899,12 +818,16 @@ impl Mux {
             ResourceOperation::PaneCreate
         }
         .wire_name();
-        // Split Down (`down`, not swapped above its target) may grow the agent chat dock below
-        // its chat (#29848); every other new pane in the dock is refused.
-        let splits_down = row_height.is_none() && split_direction == Some((SplitDir::Down, false));
+        // Split Down may grow the agent chat dock below its chat (#29848), and so may Split Up
+        // (`up`, split-before-v1) of a pane below the chat: the new pane lands between them, as
+        // `down` then `swap-pane` did. Every other new pane in the dock is refused.
+        let vertical = row_height.is_none() && matches!(split_direction, Some((SplitDir::Down, _)));
+        let up = split_direction == Some((SplitDir::Down, true));
+        let splits_down =
+            |state: &State| vertical && (!up || !pane_is_agent_chat_top(state, target));
         if viewport_width.is_none() {
             self.with_state(|state| {
-                ensure_pane_column_not_agent_chat(operation, state, target, splits_down)
+                ensure_pane_column_not_agent_chat(operation, state, target, splits_down(state))
             })?;
         }
         let workspace_key = self
@@ -944,6 +867,10 @@ impl Mux {
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
+        let around = intent
+            .get("fields")
+            .and_then(|fields| fields.get(AROUND_SPLIT_FIELD))
+            .and_then(Value::as_u64);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is
@@ -958,11 +885,11 @@ impl Mux {
                     "split_id_exists: {split_public_id}"
                 );
             }
-            let Some((workspace, screen_index)) = state.screen_of(target) else {
-                anyhow::bail!("pane disappeared before new pane attachment");
-            };
+            let (workspace, screen_index) =
+                state.screen_of(target).context("pane disappeared before new pane attachment")?;
+            quick_terminal::refuse_second_make_at_attach(&state, workspace, intent, operation)?;
             if viewport_width.is_none() {
-                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down)?;
+                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
@@ -984,26 +911,49 @@ impl Mux {
                 let base = base_column_id.expect("viewport column reserved a base id");
                 // `direction: "left"` (`column-left-v1`) opens the column before the target's.
                 let before = split_direction.is_some_and(|(_, before_target)| before_target);
+                // A `fit` column on a screen that fits the window shares it.
+                let fits = fit && screen.strip_fits_window();
+                let column_id = column.id;
                 anyhow::ensure!(
                     screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
+                if fits {
+                    screen.fit_strip_after_insert(column_id);
+                }
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
                 let in_viewport_column = screen.layout_columns_active();
-                let root = if in_viewport_column {
+                let (root, around) = if in_viewport_column {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
                     column.creation_order_auto_layout = None;
-                    &mut column.root
+                    // A row's chain split is no subtree to wrap (rows-v1):
+                    // the new pane splits the target alone, in its row.
+                    let around = around.filter(|split| !column.is_row_split(*split));
+                    (&mut column.root, around)
                 } else {
-                    &mut screen.root
+                    (&mut screen.root, around)
                 };
-                anyhow::ensure!(
-                    root.split_leaf(target, split, dir, pane_id),
-                    "target pane disappeared from its layout"
-                );
+                if let Some(around) = around {
+                    // `split-around-v1`: the new pane after the whole split.
+                    // Refused with the layout unchanged when the split does
+                    // not end at the target.
+                    anyhow::ensure!(
+                        !before_target,
+                        "bad request: around needs direction \"right\" or \"down\""
+                    );
+                    anyhow::ensure!(
+                        root.split_around(around, target, split, dir, pane_id, false),
+                        "bad request: around split {around} does not end at pane {target}"
+                    );
+                } else {
+                    anyhow::ensure!(
+                        root.split_leaf(target, split, dir, pane_id),
+                        "target pane disappeared from its layout"
+                    );
+                }
                 if before_target {
                     anyhow::ensure!(
                         root.swap_leaves(target, pane_id),
@@ -1042,6 +992,8 @@ impl Mux {
                 screen.active_pane = pane_id;
             }
             screen.zoomed_pane = None;
+            // `floating-panes-v1`, `quick-terminal-v1`: the list follows the new layout; a quick terminal floats.
+            quick_terminal::settle_new_pane(screen, pane_id, before.active_pane, intent);
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
                 state.resource_indexes.splits.insert(public_id.clone(), split);
@@ -1090,6 +1042,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction,
+                    mutation: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },
@@ -1116,5 +1069,25 @@ impl Mux {
         let mut state = self.state.lock().unwrap();
         let slots = self.effect_slots_in_state(&state, path)?;
         apply_resource_layout_document(self, &mut state, slots, document)
+    }
+}
+
+/// `split-around-v1`: whether split `around` is in `target`'s tree (its
+/// viewport column's, in columns mode) and ends at `target`, so the new
+/// split can wrap it whole. A row's chain split passes: the effect splits
+/// the target alone there.
+fn around_split_ends_at(state: &State, around: SplitId, target: PaneId) -> bool {
+    let Some((workspace, screen)) = state.screen_of(target) else { return false };
+    let Some(screen) =
+        state.workspaces.get(workspace).and_then(|workspace| workspace.screens.get(screen))
+    else {
+        return false;
+    };
+    if screen.layout_columns_active() {
+        screen.layout_columns.iter().find(|column| column.root.contains(target)).is_some_and(
+            |column| column.is_row_split(around) || column.root.split_ends_at(around, target),
+        )
+    } else {
+        screen.root.split_ends_at(around, target)
     }
 }

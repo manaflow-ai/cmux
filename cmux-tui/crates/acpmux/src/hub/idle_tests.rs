@@ -38,6 +38,8 @@ async fn each_gate_keeps_a_session_awake() {
         m.claude_unstored = true;
         m.turn_count = 1;
     }
+    assert!(hub.idle_eligible(&session), "a Claude chat whose unstored turns did no work");
+    session.meta.lock().unwrap_or_else(|e| e.into_inner()).claude_unstored_work = true;
     assert!(!hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
     session.meta.lock().unwrap().claude_unstored = false;
     session.queued.fetch_add(1, Ordering::SeqCst);
@@ -47,7 +49,7 @@ async fn each_gate_keeps_a_session_awake() {
     hub.shutdown_all().await;
 }
 
-/// A chat stored as hibernated comes back marked (it wakes on a click after a restart), and
+/// A chat stored as hibernated comes back marked (after a restart it wakes for a turn), and
 /// clearing the hibernation drops the mark, a cause a wake recorded, and the stored flag.
 #[tokio::test]
 async fn a_stored_hibernation_comes_back_and_clearing_it_drops_every_trace() {
@@ -91,6 +93,20 @@ async fn a_move_under_way_is_in_use() {
     assert_eq!(hub.in_use().await, Some("a move under way"));
     session.meta.lock().unwrap().moved_to = Some(json!({}));
     assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
+}
+
+/// The Cloud activity count holds a chat moving off this machine as at work too, so the machine is
+/// not paused for idleness with the chat frozen mid-move; a committed move releases it.
+#[tokio::test]
+async fn a_move_under_way_is_at_work() {
+    let (hub, session) = chat().await;
+    *session.moving.lock().unwrap() = Some("t-1".into());
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), 1, "a move under way");
+    assert!(!detail[0].turn && !detail[0].person && detail[0].processes == 0);
+    session.meta.lock().unwrap().moved_to = Some(json!({}));
+    assert!(hub.sessions_at_work_detail().is_empty(), "a committed move");
+    hub.shutdown_all().await;
 }
 
 /// A Cloud machine's activity counts each session at work (`sessions_at_work`): a running turn
@@ -175,4 +191,26 @@ async fn startup_settles_only_once_every_load_is_done() {
         gate.send_replace(true);
     }
     assert!(hub.startup_settled());
+}
+
+/// An update's restart (`restart_harnesses`, the stale-binary pass after an app relaunch) never
+/// ends work below a chat with no turn open: the chat keeps its agent and moves before its next
+/// turn. With nothing below, it restarts now.
+#[tokio::test]
+async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
+    let (hub, session) = chat().await;
+    let ids: std::collections::BTreeSet<String> = [session.id.to_string()].into();
+    *session.work_below_since.lock().unwrap() = 1;
+    let held = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((held.now, held.after_turn), (0, 1), "work below was cut: {held:?}");
+    assert!(session.route_switch.load(Ordering::SeqCst), "not marked to move before its next turn");
+    *session.work_below_since.lock().unwrap() = 0;
+    session.route_switch.store(false, Ordering::SeqCst);
+    let quiet = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!(
+        (quiet.now, quiet.after_turn),
+        (1, 0),
+        "a quiet chat did not restart now: {quiet:?}"
+    );
+    hub.shutdown_all().await;
 }

@@ -1,7 +1,10 @@
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
+import CoreGraphics
+import Foundation
 @testable import CmuxNextApp
+import CmuxNextChiefPetWiring
 @testable import CmuxNextSidebar
 import Testing
 
@@ -80,11 +83,44 @@ struct ChiefSidebarItemTests {
     /// pic thing"): with no upload it keeps its plain glyph whatever character is picked.
     @Test func theChiefItemWearsNoDefaultPicture() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
-        func picture(_ mascot: String?) -> SidebarFavicon? {
-            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
-        }
-        #expect(picture("fox") == nil)
-        #expect(picture(nil) == nil)
+        #expect(SidebarBridge.itemInfo(for: layout, registered: { _ in true })[Self.chiefItem.id]?.favicon == nil)
+        #expect(ChiefSidebarPictures().favicon(still: nil, image: nil) == nil, "no upload: no picture")
+    }
+
+    /// Leo 2026-10-21: the Chief dragged into a group or a machine list is still the Chief there: the list
+    /// draws its picture, status and badge (no band holds it).
+    @Test func aChiefListedInAGroupKeepsItsLook() throws {
+        let shown = ChiefSidebar.shared.status
+        defer { ChiefSidebar.shared.status = shown }
+        ChiefSidebar.shared.status = ChiefSidebar.Status(activity: .waiting, badge: 2)
+        let model = SidebarModel()
+        let listed = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
+        let link = SidebarListItem(id: "itm_link", ref: .url("https://cmux.dev"), title: "cmux")
+        model.sections = [SidebarSection(kind: .custom(SidebarCustomSection(id: "sec_pinned")), nodes: [.item(listed), .item(link)])]
+        #expect(model.listedBuiltIns.map(\.id) == [Self.chiefItem.id])
+        // The Chief's worn picture, as the App hands it over (`ChiefSidebarPictures`).
+        let picture = try #require(CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage())
+        let info = SidebarBridge.itemInfo(for: SidebarLayoutDocument(sections: []), registered: { _ in true },
+                                          chiefFavicon: SidebarFavicon(picture), listed: model.listedBuiltIns)[Self.chiefItem.id]
+        #expect(info?.activity == .waiting)
+        #expect(info?.badge == 2)
+        #expect(info?.favicon != nil)
+    }
+
+    /// An unread Chief conversation shows a dot on the item, unless a badge already counts subagents that need you.
+    @Test func anUnreadChiefConversationShowsADotWhereNoBadgeCounts() {
+        var info = SidebarBuiltIn.chief.defaultInfo
+        ChiefSidebar(lanes: AgentLaneStore()).decorate(&info)
+        #expect(!info.unreadDot)
+        let chief = ChiefSidebar(lanes: AgentLaneStore())
+        chief.status = ChiefSidebar.Status(unread: true)
+        chief.decorate(&info)
+        #expect(info.unreadDot)
+        chief.status = ChiefSidebar.Status(activity: .waiting, badge: 1, unread: true)
+        chief.decorate(&info)
+        #expect(!info.unreadDot)
+        #expect(info.badge == 1)
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
@@ -101,13 +137,17 @@ struct ChiefSidebarItemTests {
         #expect(SidebarTransientItem.chiefSubagentSession(LayoutItemID("itm_chief")) == nil)
     }
 
+    /// The top row that was Home is the Chief (the person, 2026-11-20: "we replace home with chief"), so the rows
+    /// follow it too when the layout has no Chief item.
     @Test func subagentRowsFollowTheChiefItemAndVanishWithoutIt() {
         let rows = Self.rows([Self.lane("optchat-sub-6b68ac4a-a1", .working), Self.lane("optchat-sub-6b68ac4a-a2", .input)])
         let home = LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef)
         let ids = rows.map(\.item.id.rawValue)
         #expect(Self.placed([Self.chiefItem, home], transient: rows) == ["itm_chief"] + ids + ["itm_home"])
         #expect(Self.placed([home, Self.chiefItem], transient: rows) == ["itm_home", "itm_chief"] + ids)
-        #expect(Self.placed([home], transient: rows) == ["itm_home"])
+        #expect(Self.placed([home], transient: rows) == ["itm_home"] + ids)
+        let store = LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))
+        #expect(Self.placed([store], transient: rows) == ["itm_app_store"], "rows drew with no Chief row to follow")
     }
     /// Home learns which of the Chief's agents started from these lanes (a1019, 2026-11-06: a queued agent that
     /// started with no word in the chat still said Queued). The list names each subagent by its Chief id, and
@@ -127,5 +167,29 @@ struct ChiefSidebarItemTests {
         #expect(store.chiefSubagentPeers == ["a1017", "a3", "a1020"])
         store.set("s1", nil)
         #expect(store.chiefSubagentPeers == ["a3", "a1020"])
+    }
+
+    /// Home's agent pills count from each agent's session start (user 2026-11-20), which the Chief's lanes carry
+    /// (`createdAt`, acpmux's `createdMs`). An agent with a newer session (a deduped `-2` name) counts from that
+    /// one; a step of its output leaves the starts as they were.
+    @Test func theChiefsLanesSayWhenEachStartedAgentsSessionBegan() {
+        let store = AgentLaneStore()
+        let at = { (seconds: Double) in Date(timeIntervalSince1970: 50_000 + seconds) }
+        func lane(_ name: String, _ state: AgentActivityLane.State, created: Date?) -> AgentActivityLane {
+            AgentActivityLane(id: "id-" + name, name: name, title: name, peer: nil, parent: "optchat-chief:6b68ac4a",
+                              state: state, since: nil, error: nil, harness: "claude", createdAt: created)
+        }
+        store.lanes = ["s1": lane("optchat-sub-6b68ac4a-a1017", .working, created: at(10)),
+                       "s2": lane("optchat-6b68ac4a-190", .working, created: at(1)),
+                       "s3": lane("optchat-sub-6b68ac4a-a3", .idle, created: at(20)),
+                       "s4": lane("optchat-sub-6b68ac4a-a3-2", .working, created: at(90)),
+                       "s5": lane("optchat-sub-6b68ac4a-a9", .working, created: nil)]
+        #expect(store.chiefSubagentStarts == ["a1017": at(10), "a3": at(90)])
+        let starts = store.sessionStarts
+        store.set("s1", lane("optchat-sub-6b68ac4a-a1017", .input, created: at(10)))
+        #expect(store.sessionStarts == starts)
+        // A start that arrives after its session's first lane is taken.
+        store.set("s5", lane("optchat-sub-6b68ac4a-a9", .working, created: at(120)))
+        #expect(store.chiefSubagentStarts == ["a1017": at(10), "a3": at(90), "a9": at(120)])
     }
 }

@@ -115,7 +115,11 @@ which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
 label, and uploads the same marker; from attempt 2 on every macOS job takes
 its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
-the same budget.
+the same budget. A simulator job the picker put on glaeda's sim-first label
+(pr_runner_pool.SIM_FIRST_LABEL, `glaeda-sim-xcode-<version>`, requested
+alone) is an owned job here too (job_pool()): queued past the budget, held in
+its runner's setup for CPU units past SETUP_WAIT_SECONDS, or refused, it is
+moved to retry_runs_on like a job on the pool label.
 
 Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
@@ -310,6 +314,23 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/first-user-journey-ios.yml":
+        "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
+        "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
+        "retry_runs_on (Blacksmith macOS) from attempt 2, so a stuck or refused job ends at its 75-minute timeout "
+        "and the next night's run or a person's re-run takes Blacksmith",
+    ".github/workflows/ios-reliability-matrix.yml":
+        "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
+        "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
+        "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/cloud-chat-proof.yml":
+        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the person re-dispatches",
+    ".github/workflows/gateway-e2e.yml":
+        "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
+        "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
+        "its 45-minute timeout clears a stuck run and the person re-dispatches",
     ".github/workflows/backend.yml":
         "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
@@ -317,7 +338,6 @@ UNRESCUED_WORKFLOW_PATHS = {
         "act on",
     ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
     ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
-    ".github/workflows/ci-cache-receipts.yml": _POOL_READ_WHY,
     ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
@@ -334,26 +354,33 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-skill-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
     ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
-    ".github/workflows/indexnow-tests.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow.yml": _POOL_READ_WHY,
     ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
     ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-checks.yml":
+        "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
+        "Blacksmith (the CI_TRUSTED_RUNNER selector, or 4 vCPU for a fork), never an "
+        "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
     ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
-    ".github/workflows/vendored-agent-cursor.yml": _POOL_READ_WHY,
     ".github/workflows/web-validation.yml": _POOL_READ_WHY,
+    ".github/workflows/docs-only-fallback.yml":
+        "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
+        "request's context when none started, and the rescue already watches each of those workflows' own runs; a "
+        "called job stuck on a mini ends at its timeout and a person's re-run takes the declared fallback",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "a path-filtered 15-minute type-check of scripts/measure/*.swift: attempt 1 takes the light mini when "
+        "CI_PR_POOL_OWNED allows and a re-run (attempt 2 on) takes the declared macos_15 pool, so a stuck or "
+        "refused job ends at its timeout and a person's re-run lands off the minis",
 }
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
@@ -370,20 +397,35 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/iroh-v2.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",
+    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+})
+# Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
+# CI_BLACKSMITH_MACOS-off fallback is CI_SIDE_LANE_RUNNER: unlike the historical side route,
+# that expression has no github.run_attempt gate.
+OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-car-guards.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-rd-windows.yml",
+    ".github/workflows/macos-cross-parity.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+OWNED_RERUN_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH, *sorted(OWNED_EVERY_ATTEMPT_PATHS))
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -468,6 +510,12 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if attempt <= 1:
         return False
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if run.get("path") in OWNED_EVERY_ATTEMPT_PATHS:
+        # These side workflows keep their owned label on the rescue bot's
+        # third attempt too. Follow that one extra attempt so a refused or
+        # unclaimed mini job cannot sit queued after the first rescue; a
+        # fourth bot attempt is outside this bounded rescue loop.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT + 1
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt takes a free Blacksmith slot, else the owned side label
@@ -534,9 +582,9 @@ def parse_time(value: object) -> dt.datetime | None:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
+    """The owned pool a job asked for, if any: a pull request pool, the trusted one or the sim-first label."""
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or nightly_owned_label(label)):
+        if (persistent(str(label)) or nightly_owned_label(label) or pr_runner_pool.sim_first(str(label))):
             return str(label)
     return None
 
@@ -925,7 +973,7 @@ class GitHub:
         (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+        for workflow in OWNED_RERUN_WORKFLOW_PATHS:
             name = workflow.rsplit("/", 1)[-1]
             for status in ("queued", "in_progress"):
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
@@ -1193,6 +1241,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
+    # sleep-ok: the poll's first interval; no job can wait long enough to rescue before it, and a look costs quota
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False

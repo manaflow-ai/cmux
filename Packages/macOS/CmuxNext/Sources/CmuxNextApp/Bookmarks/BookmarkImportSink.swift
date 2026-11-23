@@ -14,25 +14,14 @@ struct BookmarkImportSink: ImportedBookmarkSink {
 
     func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
         let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
-        try await MainActor.run {
-            // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
-            let title = BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
-            try service?.replaceImport(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
-        }
+        guard let service else { return }
+        // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
+        let title = await BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
+        try await service.routed.importSource(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
     }
 }
 
 extension BookmarkService {
-    /// One source's bookmarks replace its folder; none removes it.
-    func replaceImport(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) throws {
-        guard !items.isEmpty else {
-            guard let folder = tree(profile).folder(sourceKey: sourceKey) else { return }
-            try apply(.delete(id: folder.id), profile: profile)
-            return
-        }
-        try apply(BookmarkImportPlan.source(title: title, sourceKey: sourceKey, items: items), profile: profile)
-    }
-
     /// Browser imports saved before bookmarks existed become bookmarks once
     /// (a marker file records it, so a folder the user deleted stays deleted).
     func migrateLegacyImports() async {
@@ -46,7 +35,7 @@ extension BookmarkService {
                     BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded)
                 }
                 do {
-                    try replaceImport(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
+                    try await routed.importSource(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
                 } catch {
                     logger.error("migrate imported bookmarks \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }

@@ -5,8 +5,8 @@ import CmuxNextDaemon
 /// A background task's terminal (`chat.processTerminal`, background-task-terminal-DESIGN.md): the
 /// viewer runs in a new terminal tab of the column right of the chat, the column the chat's diff
 /// and preview open in, selected there; with no column there it opens in the chat's pane and
-/// moves into a new column (``AgentBesidePlacement``). Only a chat on this Mac's daemon: the
-/// viewer reads this Mac's acpmux.
+/// moves into a new column (``AgentBesidePlacement``). It runs on the daemon of the chat's machine
+/// (a Cloud or SSH chat's too, as Cmd-T's shell: ``AgentPaneProcessViewer/onChatMachine``).
 ///
 /// The viewer is spawned with `create-terminal`, the one daemon command that runs an argv: `new-tab`
 /// takes none and dropped it, so the tab ran a bare shell (an empty terminal; Leo 2026-10-21).
@@ -17,13 +17,12 @@ struct AgentProcessTerminal {
     /// `move-tab`'s index for "after the last tab" (the daemon clamps it).
     private static let appendIndex = 1 << 20
 
-    /// Opens `viewer` beside chat tab `chat`; false when the chat is not found or not on this Mac.
+    /// Opens `viewer` beside chat tab `chat`; false when the chat is not found on the viewer's machine.
     func open(_ viewer: AgentPaneProcessViewer, beside chat: String) -> Bool {
-        guard let (tab, chatPane) = services.locateTab(chat, onMachine: services.machines.local.machineID) else { return false }
-        let daemon = services.machines.daemon(forTab: tab)
-        guard daemon.isLocal, let connection = daemon.connection else { return false }
-        let store = daemon.store
-        let target = Self.besidePane(of: chatPane, in: store)
+        guard let machine = viewer.onChatMachine ? services.agentTabs.remoteMachineID(of: chat) : services.machines.local.machineID,
+              let (tab, chatPane) = services.locateTab(chat, onMachine: machine), case let daemon = services.machines.daemon(forTab: tab),
+              daemon.isLocal != viewer.onChatMachine, daemon.machineID == machine, let connection = daemon.connection else { return false }
+        let target = Self.besidePane(of: chatPane, in: daemon.store)
         let pane = target ?? chatPane
         guard let workspace = services.workspaceKey(of: pane) else { return false }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat), origin: .user)

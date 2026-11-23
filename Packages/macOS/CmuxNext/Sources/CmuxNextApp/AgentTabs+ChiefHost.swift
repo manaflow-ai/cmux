@@ -13,9 +13,9 @@ extension AgentTabStore {
     /// there (``view(for:)``'s `.remote`), through the daemon whose tree lists it. Nil for a chat on
     /// this Mac or its Chief home, whichever tree lists the tab: the composer strip's machine link
     /// and its Reconnect name this machine.
-    func remoteMachineID(of key: String) -> String? {
-        let key = resolve(key)
-        guard let (record, _) = lookup(key), let daemon = daemonForTab(key), !daemon.isLocal, hostKind(record, listedHere: false) == .remote else { return nil }
+    func remoteMachineID(of key: String, machine: String? = nil) -> String? {
+        let scoped = tabKey(key, machine: machine)
+        guard let (record, _) = record(for: scoped), let daemon = daemon(for: scoped), !daemon.isLocal, hostKind(record, listedHere: false) == .remote else { return nil }
         return daemon.machineID
     }
 

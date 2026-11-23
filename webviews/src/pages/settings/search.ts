@@ -4,7 +4,7 @@
 import { shownCategories, type Category, type CategoryGroup } from "./categories";
 import { valueText } from "./format";
 import type { SchemaRow } from "./schema";
-import { locale, text } from "./strings";
+import { english, locale, t, text } from "./strings";
 
 export function queryTerms(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -84,10 +84,7 @@ export type SearchGroup = { category: Category; groups: CategoryGroup[]; rows: S
 
 export type ListFilter = {
   query: string;
-  /** Only rows a user changed (`customized`). */
-  changedOnly?: boolean;
   valueOf(key: string): unknown;
-  isChanged?(key: string): boolean;
   /** The host is a DEV build: DEV-only categories are searched too. */
   devBuild?: boolean;
   /** Settings scope and owner revision used to invalidate the searchable text cache. */
@@ -95,26 +92,21 @@ export type ListFilter = {
   revision?: number;
 };
 
-/** Matching rows of every category, in navigation order; an empty query with changedOnly lists
- * every changed row. */
+/** Matching rows of every category, in navigation order; an empty query matches none. */
 // Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes and
 // appearance.favoriteThemes their stars.
 const UNLISTED = new Set(["appearance.themeEdits", "appearance.favoriteThemes"]);
 
 export function filterRows({
   query,
-  changedOnly = false,
   valueOf,
-  isChanged,
   devBuild = false,
   scope = "user",
   revision = 0,
 }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
-    !UNLISTED.has(row.key) &&
-    (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms, { scope, revision })) &&
-    (!changedOnly || (isChanged?.(row.key) ?? false));
+    !UNLISTED.has(row.key) && terms.length > 0 && rowMatches(row, valueOf(row.key), terms, { scope, revision });
   return shownCategories(devBuild)
     .map((category) => {
       const groups = category.groups
@@ -127,4 +119,27 @@ export function filterRows({
 
 export function searchRows(query: string, valueOf: (key: string) => unknown): SearchGroup[] {
   return filterRows({ query, valueOf });
+}
+
+/**
+ * Words that find a page by more than its title: its cards draw host data, not schema rows, so no
+ * row would lead there. A catalog key whose value lists them, comma-separated (Leo 2026-11-22: "i
+ * also couldnt find settings devices control"; the join prompt sends people to Settings > Devices
+ * for its Screen sharing and Control switches).
+ */
+const PAGE_WORDS: Readonly<Record<string, string>> = {
+  devices: "settingsPage.search.devicesWords",
+};
+
+/** Categories whose title or page words hold every term, in navigation order; an empty query matches none. */
+export function filterPages({ query, devBuild = false }: Pick<ListFilter, "query" | "devBuild">): Category[] {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return shownCategories(devBuild).filter((category) => {
+    const words = PAGE_WORDS[category.id];
+    const haystack = [text(category.title), category.title.text, words ? t(words) : "", words ? english(words) : ""]
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
 }

@@ -10,6 +10,12 @@ test("first-class provider harnesses keep their product names", () => {
   expect(agentDisplayName("muse")).toBe("Muse Code");
 });
 
+// Lawrence 2026-11-19 (clip 3.37.01 PM): the model menu's update list read "Deepseek", the id
+// title-cased; the product is DeepSeek.
+test("a harness found on PATH by its id keeps its product's own capitals", () => {
+  expect(agentDisplayName("deepseek")).toBe("DeepSeek");
+});
+
 test("a harness that offers no models names itself on the model chip, not 'Model'", () => {
   // The Chief picks its own engine: its chat has no model list, so the chip says whose chat it is.
   expect(modelChipFallback({ id: "chief", name: "Chief", models: [] }, [])).toBe("Chief");

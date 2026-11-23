@@ -6,8 +6,8 @@ import Darwin
 import Foundation
 import Testing
 
-/// Review note 1 of #30279 (comment 6554528009): a read of every live pty tab's process (the close question, the quit
-/// facts) named a Ctrl-` stand-in tab too. The request boundary refuses a stand-in (rule b) and the person saw "This pane
+/// Review note 1 of #30279 (comment 6554528009): a read of every live pty tab's process (the close question, and the
+/// quit facts until the quit alert went) named a Ctrl-` stand-in tab too. The request boundary refuses a stand-in (rule b) and the person saw "This pane
 /// is still opening" for a read they never asked for, while their terminal was opening fine.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct StandInReadRefusalTests {
@@ -28,12 +28,10 @@ struct StandInReadRefusalTests {
                                        "the Ctrl-` tab shows no stand-in in its turn")
             // Reads that the boundary refuses on a stand-in end at once, before any daemon answer.
             async let programs = services.daemon.runningPrograms(of: pane.pane.tabs) // what the removed DestructiveConfirmation.runningPrograms(bySurface:on:) ran
-            async let quit = QuitFactsReader.read(services)
             try await Task.sleep(for: .milliseconds(300)) // test-only: the refused reads report on the next frame
             #expect(kill(pid, SIGCONT) == 0)
             resumed = true
             let asked = await programs
-            _ = await quit
             for task in work { _ = await task.value }
             try await PasswordManagerRouteTests.until({ !ProvisionalTab.isProvisional(surface: standIn.surface) || services.daemon.store.tabsBySurface[standIn.surface] == nil },
                                                       report: { "the Ctrl-` stand-in was never taken over" })

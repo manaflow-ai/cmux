@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import { measureElement, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
@@ -34,6 +34,13 @@ export interface ComboboxProps {
    * `pinnedPlacement: "bottom"` under the list (the arrows reach them after the last row either way). */
   pinnedSuggestions?: readonly string[];
   pinnedPlacement?: "top" | "bottom";
+  /** A line in the list's place (a list's "nothing here yet"): with `pinnedSuggestions`, after the
+   * scrolling rows and before bottom-pinned actions, so it never lands under them; without, after the
+   * list. Not a row: the arrows never reach it. With `pinnedSuggestions` it sits inside the listbox
+   * (the pinned actions are options of the same list), in a `role="presentation"` wrapper, so it takes
+   * non-interactive text only: no buttons, links or live regions (an action belongs in
+   * `pinnedSuggestions`). The native popup (`native`, when the host draws the list) does not draw it. */
+  listEnd?: ReactNode;
   /** The text changed (typing, completion): compute new suggestions. */
   onQuery(value: string): void;
   /** Return: the highlighted suggestion, else the text. */
@@ -79,8 +86,15 @@ export interface ComboboxProps {
   /** With `pinnedSuggestions`: only the scrolling rows near the viewport are in the DOM (TanStack
    * Virtual over the list's own scroller), so a list of thousands (the Projects picker, Leo
    * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
-   * frame. `estimate` is a row's height in pixels before it is measured. */
-  virtualRows?: { estimate: number };
+   * frame. `estimate` is a row's height in pixels before it is measured. `sizeKey` is a string
+   * that differs whenever a row's outer size can differ without its border box changing (a section
+   * heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured
+   * again, and its size for one value is never reused for another. */
+  virtualRows?: { estimate: number; sizeKey?(item: string): string };
+  /** The line shown when there are no suggestions ("No matches"). It is Base UI's live Empty part
+   * (`role="status"`, polite), so a screen reader hears it as the list empties. */
+  empty?: ReactNode;
+  emptyClassName?: string;
   /** Declarative native rows. When the host is available the web list is not mounted. */
   native?: {
     model: NativePopupDescription;
@@ -95,6 +109,7 @@ export function Combobox({
   suggestions,
   pinnedSuggestions,
   pinnedPlacement = "top",
+  listEnd,
   onQuery,
   onSubmit,
   onCancel,
@@ -118,6 +133,8 @@ export function Combobox({
   onHighlight,
   native,
   virtualRows,
+  empty,
+  emptyClassName,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -277,7 +294,10 @@ export function Combobox({
   const deliberatelyHighlighted = useRef(false);
   const virtualized = hasPinned && virtualRows !== undefined;
   const virtualizer = useRef<Virtualizer<HTMLElement, Element> | null>(null);
+  // Whether the list has opened on its current row (or the person typed first, which moves the list).
+  const revealedCurrent = useRef(false);
   const changeQuery = (next: string) => {
+    revealedCurrent.current = true;
     if (native) setNativeSessionOpen(true);
     // Base UI resets a plain list's scroller on typing; a virtualized one is ours to reset.
     if (virtualized) virtualizer.current?.scrollToOffset(0);
@@ -301,6 +321,26 @@ export function Combobox({
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
     : 0;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
+  // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
+  // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
+  // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
+  // previewing picker previews nothing until the person moves. A list that always highlights its
+  // first row stays at its top: Return must never pick a row scrolled out of sight.
+  useLayoutEffect(() => {
+    if (revealedCurrent.current || !isItemCurrent || autoHighlight === "always") return;
+    const index = enabledSuggestions.findIndex((item) => isItemCurrent(item));
+    if (index < 0) return;
+    if (virtualized) {
+      revealedCurrent.current = true;
+      if (index < scrollingCount) virtualizer.current?.scrollToIndex(index, { align: "center" });
+      return;
+    }
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!list || !row) return;
+    revealedCurrent.current = true;
+    revealRow(row, list);
+  });
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -361,13 +401,9 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
-  const renderOption = (
-    item: string,
-    index = enabledSuggestions.indexOf(item),
-    placed?: { ref: (node: Element | null) => void; start: number; count: number },
-  ) => (
+  const renderOption = (item: string, index = enabledSuggestions.indexOf(item), placed?: VirtualPlacement) => (
     <Autocomplete.Item
-      key={item}
+      key={placed?.key ?? item}
       index={index}
       value={item}
       {...(placed
@@ -443,6 +479,7 @@ export function Combobox({
               items={enabledSuggestions}
               count={scrollingCount}
               estimate={virtualRows.estimate}
+              sizeKey={virtualRows.sizeKey}
               virtualizerRef={virtualizer}
               render={renderOption}
             />
@@ -454,6 +491,12 @@ export function Combobox({
         </ScrollArea>
       ) : (
         <Autocomplete.Collection>{(item: string, index: number) => renderOption(item, index)}</Autocomplete.Collection>
+      )}
+      {hasPinned && listEnd !== undefined && (
+        // Inside the listbox, between its scrolling options and its pinned ones: plain text, no role.
+        <div role="presentation" className="ui-combobox-list-end">
+          {listEnd}
+        </div>
       )}
       {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
       {disabledSuggestions.map((item) => (
@@ -474,6 +517,16 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
+  // With no pinned actions there is nothing to keep it over: it follows the list.
+  const listed =
+    hasPinned || listEnd === undefined ? (
+      list
+    ) : (
+      <>
+        {list}
+        {listEnd}
+      </>
+    );
   const nativeOnly = nativePopup.available && native !== undefined;
   const root = (
     <Autocomplete.Root
@@ -515,19 +568,51 @@ export function Combobox({
       />
       {!nativeOnly &&
         (inline ? (
-          list
+          listed
         ) : (
           <Autocomplete.Portal container={container}>
             <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
-                {list}
+              <Autocomplete.Popup
+                ref={host ? setPopup : undefined}
+                className="ui-popup ui-glass ui-combobox-popup"
+                data-host-glass="menu"
+                data-host-glass-cover=""
+              >
+                {listed}
               </Autocomplete.Popup>
             </Autocomplete.Positioner>
           </Autocomplete.Portal>
         ))}
+      {empty !== undefined && (
+        // Mounted for as long as the field is, so the live region exists before its text arrives;
+        // Base UI renders the children only while no item is left.
+        <Autocomplete.Empty className={cx("ui-combobox-empty", emptyClassName)}>
+          {suggestions.length === 0 ? empty : null}
+        </Autocomplete.Empty>
+      )}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;
+}
+
+/// Centers `row` in the nearest scroller between it and `list` (the list itself, or a pinned list's
+/// ScrollArea viewport) when it is not already wholly in view. Only that scroller moves, never the
+/// page behind the popup (`scrollIntoView` would scroll every ancestor). A popup laid out after this
+/// commit has no height yet: try again on the next frames.
+export function revealRow(row: HTMLElement, list: HTMLElement, framesLeft = 3): void {
+  let scroller: HTMLElement | null = row.parentElement;
+  while (scroller && scroller !== list && scroller.scrollHeight <= scroller.clientHeight) {
+    scroller = scroller.parentElement;
+  }
+  if (!scroller) return;
+  if (scroller.clientHeight === 0) {
+    if (framesLeft > 0) requestAnimationFrame(() => revealRow(row, list, framesLeft - 1));
+    return;
+  }
+  const view = scroller.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.top >= view.top && box.bottom <= view.bottom) return;
+  scroller.scrollTop += box.top - view.top - (scroller.clientHeight - box.height) / 2;
 }
 
 /// The scrolling rows of a virtualized pinned list: only those near the scroller's viewport mount,
@@ -539,20 +624,25 @@ function VirtualRows({
   items,
   count,
   estimate,
+  sizeKey,
   virtualizerRef,
   render,
 }: {
   items: readonly string[];
   count: number;
   estimate: number;
+  sizeKey?(item: string): string;
   virtualizerRef: RefObject<Virtualizer<HTMLElement, Element> | null>;
-  render(
-    item: string,
-    index: number,
-    placed: { ref: (node: Element | null) => void; start: number; count: number },
-  ): ReactNode;
+  render(item: string, index: number, placed: VirtualPlacement): ReactNode;
 }) {
   const spacer = useRef<HTMLDivElement | null>(null);
+  // With `sizeKey`, the virtualizer caches a row's size by its item and size key, so a row that
+  // gains or loses a heading is never given the size it had in the other state. Without, the
+  // library's own key (the index).
+  const getItemKey = useCallback(
+    (index: number) => virtualRowKey(items[index] ?? String(index), sizeKey),
+    [items, sizeKey],
+  );
   // Rows not yet mounted are sized as the first one measured (the theme's row height and interface
   // scale), so the list's height, and where its end scrolls to, hold as rows mount.
   const [rowHeight, setRowHeight] = useState<number | undefined>(undefined);
@@ -562,6 +652,18 @@ function VirtualRows({
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
+    getItemKey: sizeKey ? getItemKey : undefined,
+    // A row's slot is its border box plus its vertical margins: a row is placed at its slot's start
+    // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
+    // border box alone would let it cover the next row. A size the library answers from its cache
+    // (no resize entry) was measured here already and holds the margins.
+    measureElement: (element, entry, instance) => {
+      const size = measureElement(element, entry, instance);
+      if (!entry && instance.itemSizeCache.has(instance.options.getItemKey(instance.indexFromElement(element))))
+        return size;
+      const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+      return virtualRowSize(size, style?.marginTop ?? "", style?.marginBottom ?? "");
+    },
   });
   virtualizerRef.current = virtualizer;
   useLayoutEffect(() => {
@@ -590,10 +692,29 @@ function VirtualRows({
     >
       {rows.map((row) => {
         const item = items[row.index];
-        return item === undefined ? null : render(item, row.index, { ref: measure, start: row.start, count });
+        // A row whose size key changes is a new element: its ref measures it again.
+        return item === undefined
+          ? null
+          : render(item, row.index, { ref: measure, start: row.start, count, key: virtualRowKey(item, sizeKey) });
       })}
     </div>
   );
+}
+
+/// Where VirtualRows puts a row: its measuring ref, its offset, the list's length and its React key.
+type VirtualPlacement = { ref: (node: Element | null) => void; start: number; count: number; key: string };
+
+/// A virtual row's identity, as React's key and the virtualizer's size cache key: the item itself,
+/// or with `sizeKey` the item and its size key, so each outer size it can have is its own row.
+export function virtualRowKey(item: string, sizeKey?: (item: string) => string): string {
+  return sizeKey ? `${item}\u0001${sizeKey(item)}` : item;
+}
+
+/// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
+/// strings such as "20px"). A value that does not parse counts as 0, so the size is never NaN.
+export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
+  const px = (value: number) => (Number.isFinite(value) ? value : 0);
+  return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
 }
 
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.

@@ -44,29 +44,26 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages, type QueuedVideo } from "./QueuedImages";
+import { QueuedImages } from "./QueuedImages";
+import type { QueuedVideo } from "./queuedImagesModel";
 import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
-import {
-  pickedSkillsOf,
-  withSkillDollars,
-  withoutSkillDollars,
-  type SkillCatalog,
-  type SlashCommand,
-} from "./slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
-import { withSkillWords } from "./conversation/SkillWord";
-
-type QueuedEntry = AcpmuxSnapshot["queue"][number];
-
+import { withSkillWords } from "./conversation/withSkillWords";
+import { claimedReply } from "./conversation/waitingAskStore";
+import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { acpmuxPerf } from "./perf";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { focusRoute } from "../../ui/focusRoute";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -160,16 +157,6 @@ function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
   return videos.length ? videos : undefined;
 }
 
-/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
-export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
-  const retry = entry.retry;
-  if (!retry) return withoutSkillDollars(entry.prompt, skills);
-  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
-    .filter(Boolean)
-    .join("\n");
-}
-
 /// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
 /// floating dock's max-height and the pane under its header (44px) less the transcript's least room
 /// (64px, bottomStack.css), whichever is less. Not the list's resting cap (--acpmux-queue-max): a
@@ -214,7 +201,9 @@ const mayHaveReachedAcpmux = (error: unknown) => {
   return typeof code === "string" && UNCERTAIN_CODES.has(code);
 };
 
-export function ComposerQueue({
+/// Memoised: the composer renders on every key (its text is its state); a queue whose props did not
+/// change draws nothing and lays out nothing for it.
+export const ComposerQueue = React.memo(function ComposerQueue({
   queue,
   chat,
   paused,
@@ -261,6 +250,7 @@ export function ComposerQueue({
   /// as `/$name` (slashCommands.ts), a skill added in the edit too.
   commands?: readonly SlashCommand[];
 }) {
+  acpmuxPerf.render("composer:queue");
   const skills = useSkillWords(commands);
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -300,6 +290,21 @@ export function ComposerQueue({
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // Whether a long queue shows whole (the composer keys this component by chat).
+  const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
+  // The person's prompts only: another agent's message draws in the transcript.
+  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
+  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
+  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
+  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
+  const wakeNoteShown = useAfterDelay(
+    shown.some((entry) => entry.waking),
+    wakeNoteDelayMs,
+  );
+  // The list's fit, hold and refocus layout effects (below) run when something it draws from changes
+  // (its rows and their state, the fold, the open edit, the notes, the skill words and the strings),
+  // never on a render that changed none of them, so such a render reads no row's box. A row's own
+  // change of height (its images read) is the rows' ResizeObserver's.
   // Opening or closing a row under the pointer never moves what is under the pointer (Leo,
   // 2026-10-30: "its expansion animation makes the hovered buttons shift layout"). A row's actions
   // sit on its last line (composerStates.css), and the list sits on the composer, so it grows and
@@ -388,7 +393,7 @@ export function ComposerQueue({
     const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
     const need = last ? offsets(current, last).bottom + pad : 0;
     if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
-  });
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   // A held list gives room back when the stack around it grows (a permission card or a question
   // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
   // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
@@ -499,8 +504,6 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Whether a long queue shows whole (the composer keys this component by chat).
-  const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
   const unfold = (next: boolean) => {
     setUnfolded(next);
     if (chat === undefined) return;
@@ -543,6 +546,10 @@ export function ComposerQueue({
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
+  // The prompts the list drew last: a prompt that arrives or leaves (a send behind the turn, acpmux
+  // taking the next one) changes the list's height in that frame, never eased (composerStates.css
+  // [data-rows-changed]); the reader's own fold, edit and keyboard toggles keep the move token.
+  const drawnIds = useRef<string>(undefined);
   useLayoutEffect(() => {
     const current = list.current;
     // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
@@ -559,7 +566,19 @@ export function ComposerQueue({
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fit(current);
+      const ids = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")]
+        .map((row) => row.dataset.promptId)
+        .join("\n");
+      const rowsChanged = drawnIds.current !== undefined && drawnIds.current !== ids && unfolded === wasOpen.current;
+      drawnIds.current = ids;
+      if (rowsChanged) {
+        // Fit with the transition off, and have the browser take the height (a style read) before it
+        // comes back, as `release` does.
+        current.setAttribute("data-rows-changed", "");
+        fit(current);
+        void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+        current.removeAttribute("data-rows-changed");
+      } else fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;
@@ -590,7 +609,7 @@ export function ComposerQueue({
       rows.disconnect();
       for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
     }
-  });
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   useEffect(
     () => () => {
       const document = list.current?.ownerDocument;
@@ -604,16 +623,16 @@ export function ComposerQueue({
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
-    if (row && document.activeElement !== row) row.focus();
+    if (row && document.activeElement !== row) focusRoute(row, "system", "the queue changed: its row");
     // Only while focus is still in the queue (or was dropped with the row that left).
     const next = focusNext.current;
     const into = next ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${next}"]`) : null;
     const active = document.activeElement;
     if (into && (!active || active === document.body || list.current?.contains(active))) {
       focusNext.current = undefined;
-      into.focus();
+      focusRoute(into, "system", "the queue changed: the composer");
     }
-  });
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
     const restore = () =>
@@ -626,9 +645,6 @@ export function ComposerQueue({
       if (!done) restore();
     }, restore);
   };
-  // The person's prompts only: another agent's message draws in the transcript.
-  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
-  // A paused queue of agent messages alone still says so, with Resume.
   // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
   // picked after a row turned out to be a teammate's (its authored record came in while the menu
   // was open) does nothing, as the row now offers nothing.
@@ -640,13 +656,10 @@ export function ComposerQueue({
     drawnOwners.current = owners(shown);
     drawnRows.current = shown;
   });
-  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
-  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
-  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
-  const wakeNoteShown = useAfterDelay(
-    shown.some((entry) => entry.waking),
-    wakeNoteDelayMs,
-  );
+  // Other agents' messages and inbox notices a failed turn held go in again by themselves (acpmux
+  // `goes_in_by_itself`), and acpmux reads that hold as not paused, so no note stands over nothing of
+  // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
+  // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // The person's Stop holds their own queued prompts (acpmux hub/cancel.rs): the note says they wait
   // for the person to send them, never a failed turn's error.
@@ -1043,8 +1056,14 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              // A skill's `/name` draws as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words)
+              // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
+              // An answer a card sent reads as the answer, not its quote of the ask (`claimedReply`).
+              withSkillWords(
+                withoutSkillDollars(claimedReply(entry.prompt) ?? entry.prompt, skills),
+                skills.words,
+                undefined,
+                skills.leading,
+              )
             )}
           </span>
         </button>
@@ -1189,7 +1208,7 @@ export function ComposerQueue({
       )}
     </>
   );
-}
+});
 
 /// A queued prompt's text, edited in its row: Return saves (it keeps its place), Shift-Return adds
 /// a line, Esc cancels. A textarea, so a prompt's lines stay lines.
@@ -1215,17 +1234,11 @@ function QueuedEdit({
     finished.current = true;
     onDone(text);
   };
-  // As tall as its lines.
-  const fit = () => {
-    const field = input.current;
-    if (!field) return;
-    field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
-  };
+  // As tall as its lines by CSS (`field-sizing: content`, composerStates.css): no height write and scrollHeight read
+  // (a forced layout) on each key.
   useEffect(() => {
-    input.current?.focus();
+    focusRoute(input.current, "system", "a queued row's editor");
     input.current?.select();
-    fit();
   }, []);
   return (
     <textarea
@@ -1234,10 +1247,7 @@ function QueuedEdit({
       aria-label={label}
       rows={1}
       defaultValue={initial ?? entry.prompt}
-      onInput={(event) => {
-        fit();
-        onInput(event.currentTarget.value);
-      }}
+      onInput={(event) => onInput(event.currentTarget.value)}
       // ui-allow: the edit field's own editing keys (Return saves, Shift-Return adds a line, Esc cancels).
       onKeyDown={(event) => {
         // Every key belongs to the input method while it composes (WebKit sends its Return as 229).

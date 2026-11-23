@@ -72,7 +72,7 @@ export default agentPaneEntry({
   title: "A streaming reply stays whole when a message lands",
   area: "Agent pane",
   height: 560,
-  covers: ["agent-session/acpmux/direct.ts", "agent-session/acpmux/conversation/turns.ts"],
+  covers: ["agent-session/acpmux/conversation/turns.ts"],
   variants: {
     split: {
       note: "Before: the steer's record ended the reply mid-sentence; its action row, the bubble and the rest of the sentence below.",

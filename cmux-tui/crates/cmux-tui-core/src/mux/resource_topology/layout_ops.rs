@@ -38,7 +38,16 @@ impl Mux {
                     None if layout.zoomed_pane == Some(pane) => None,
                     None => Some(pane),
                 };
-                let topology = registry.resource_topology_snapshot()?;
+                // `floating-panes-v1`: a floating pane is never zoomed, so the request is refused.
+                if Screen::zoom_beside_floating_panes(layout.zoomed_pane, &layout.floating)
+                    != layout.zoomed_pane
+                {
+                    return Err(anyhow::Error::new(ResourceError::validation_invalid(
+                        Some("enabled"),
+                        "a floating pane cannot be zoomed",
+                    )));
+                }
+                let topology = stored_workspace_topology(state, registry, workspace)?;
                 let durable = registry_screen_from_layout(
                     state,
                     workspace,
@@ -82,7 +91,8 @@ impl Mux {
                             screen.record_layout_change(before, Vec::new(), None);
                         }
                     },
-                ))
+                )
+                .keeping_dock_columns())
             },
         )
     }
@@ -130,7 +140,8 @@ impl Mux {
                 );
                 let mut layout = current.layout_snapshot();
                 set_layout_split_ratio(&mut layout, split, ratio)?;
-                let topology = registry.resource_topology_snapshot()?;
+                let keeps = keeps_indexed_structure(current, &layout);
+                let topology = stored_workspace_topology(state, registry, workspace)?;
                 let durable = registry_screen_from_layout(
                     state,
                     workspace,
@@ -157,7 +168,7 @@ impl Mux {
                     ("pane", pane_id.as_str(), value),
                     ("screen", durable.public_id.as_str(), screen_value),
                 ]);
-                Ok(ResourceMutationPlan::new(
+                let plan = ResourceMutationPlan::new(
                     ResourcePatch { changes: vec![ResourceChange::UpsertScreen(durable)] },
                     result,
                     deltas,
@@ -170,9 +181,111 @@ impl Mux {
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
                         target.record_prepared_layout_change(before, Vec::new(), coalesce);
-                        Self::rebuild_split_screen_index(state);
+                        if !keeps {
+                            Self::rebuild_split_screen_index(state);
+                        }
                     },
-                ))
+                );
+                Ok(size_plan(plan, keeps))
+            },
+        )
+    }
+
+    /// `set-divider-visible` (`split-divider-visibility-v1`): hide or show
+    /// one split's divider. It rides `pane.split_ratio.set` with the internal
+    /// [`DIVIDER_HIDDEN_FIELD`] in place of a ratio, so the change persists
+    /// to the registry and records an undo step as a ratio change does.
+    pub(super) fn resource_set_split_divider_hidden(
+        self: &Arc<Self>,
+        selectors: ResourceSelectors,
+        split_id: &str,
+        hidden: bool,
+        context: LayoutMutationContext<'_>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let LayoutMutationContext { coalesce, expected_revision, mutation, fingerprint } = context;
+        let split_id = SplitPublicId::parse(split_id.to_string()).map_err(anyhow::Error::new)?;
+        self.commit_resource_mutation_plan(
+            mutation,
+            "pane.split_ratio.set",
+            fingerprint,
+            None,
+            expected_revision,
+            move |state, registry| {
+                let resolved = self
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        ResourceTarget::Pane,
+                        &selectors,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let pane = resolved.pane.context("pane selector has no live pane")?;
+                let pane_id = resolved.path.pane.context("pane selector has no public id")?;
+                let split = state
+                    .resource_indexes
+                    .splits
+                    .get(&split_id)
+                    .copied()
+                    .with_context(|| format!("unknown split {split_id}"))?;
+                let (workspace, screen) =
+                    state.screen_of(pane).context("resolved pane has no screen")?;
+                let current = state
+                    .workspaces
+                    .get(workspace)
+                    .and_then(|workspace| workspace.screens.get(screen))
+                    .context("resolved pane's screen is gone")?;
+                anyhow::ensure!(
+                    current.root.contains_split(split),
+                    "split belongs to another screen"
+                );
+                let mut layout = current.layout_snapshot();
+                set_layout_divider_hidden(&mut layout, split, hidden)?;
+                let topology = stored_workspace_topology(state, registry, workspace)?;
+                let durable = registry_screen_from_layout(
+                    state,
+                    workspace,
+                    screen,
+                    &layout,
+                    &topology,
+                    current.name.clone(),
+                )?;
+                let mut after = topology;
+                *after
+                    .screens
+                    .iter_mut()
+                    .find(|screen| screen.public_id == durable.public_id)
+                    .context("screen is absent from durable topology")? = durable.clone();
+                let value = pane_value(state, topology_pane(&after, &pane_id)?, &after)?;
+                let screen_value = screen_value(
+                    &durable,
+                    &after,
+                    after.active_workspace.as_ref(),
+                    active_screen(&after, &durable.workspace_id),
+                )?;
+                let result = json!({"pane":pane_id,"screen":durable.public_id});
+                let deltas = upserts([
+                    ("pane", pane_id.as_str(), value),
+                    ("screen", durable.public_id.as_str(), screen_value),
+                ]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes: vec![ResourceChange::UpsertScreen(durable)] },
+                    result,
+                    deltas,
+                    move |state| {
+                        let Some(target) = state
+                            .workspaces
+                            .get_mut(workspace)
+                            .and_then(|workspace| workspace.screens.get_mut(screen))
+                        else {
+                            return;
+                        };
+                        let before = target.layout_snapshot_for_coalescing_change(coalesce);
+                        target.root = layout.root;
+                        target.layout_columns = layout.layout_columns;
+                        target.record_prepared_layout_change(before, Vec::new(), coalesce);
+                    },
+                )
+                .keeping_dock_columns())
             },
         )
     }
@@ -248,7 +361,8 @@ impl Mux {
                 layout.layout_columns[column_index].width = width;
                 // A lone column of rows fills the width again (1.0).
                 sync_layout_column_projection(&mut layout);
-                let topology = registry.resource_topology_snapshot()?;
+                let keeps = keeps_indexed_structure(current, &layout);
+                let topology = stored_workspace_topology(state, registry, workspace)?;
                 let durable = registry_screen_from_layout(
                     state,
                     workspace,
@@ -275,7 +389,7 @@ impl Mux {
                     ("pane", pane_id.as_str(), value),
                     ("screen", durable.public_id.as_str(), screen_value),
                 ]);
-                Ok(ResourceMutationPlan::new(
+                let plan = ResourceMutationPlan::new(
                     ResourcePatch { changes: vec![ResourceChange::UpsertScreen(durable)] },
                     result,
                     deltas,
@@ -287,9 +401,12 @@ impl Mux {
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
                         target.record_prepared_layout_change(before, Vec::new(), coalesce);
-                        Self::rebuild_split_screen_index(state);
+                        if !keeps {
+                            Self::rebuild_split_screen_index(state);
+                        }
                     },
-                ))
+                );
+                Ok(size_plan(plan, keeps))
             },
         )
     }
@@ -368,7 +485,8 @@ impl Mux {
                     // A lone column of rows fills the width again (1.0), as `set-viewport-pane-width` leaves it.
                     sync_layout_column_projection(&mut layout);
                 }
-                let topology = registry.resource_topology_snapshot()?;
+                let keeps = keeps_indexed_structure(current, &layout);
+                let topology = stored_workspace_topology(state, registry, workspace)?;
                 let durable = registry_screen_from_layout(
                     state,
                     workspace,
@@ -395,7 +513,7 @@ impl Mux {
                     ("pane", pane_id.as_str(), value),
                     ("screen", durable.public_id.as_str(), screen_value),
                 ]);
-                Ok(ResourceMutationPlan::new(
+                let plan = ResourceMutationPlan::new(
                     ResourcePatch { changes: vec![ResourceChange::UpsertScreen(durable)] },
                     result,
                     deltas,
@@ -415,12 +533,82 @@ impl Mux {
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
                         target.record_prepared_layout_change(before, Vec::new(), coalesce);
-                        Self::rebuild_split_screen_index(state);
+                        if !keeps {
+                            Self::rebuild_split_screen_index(state);
+                        }
                     },
-                ))
+                );
+                Ok(size_plan(plan, keeps))
             },
         )
     }
+}
+
+/// The stored subtree of the workspace at `workspace` alone: the screen row that a layout plan writes and the
+/// values that it publishes read no row of another workspace.
+fn stored_workspace_topology(
+    state: &State,
+    registry: &WorkspaceRegistry,
+    workspace: usize,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let workspace = state.workspaces.get(workspace).context("resolved pane's workspace is gone")?;
+    registry.resource_topology_of_scope(std::slice::from_ref(&workspace.public_id))
+}
+
+/// What the dock rules and the id indexes read of one viewport column.
+#[derive(PartialEq)]
+struct IndexedColumn {
+    id: SplitId,
+    dock: Option<ColumnDock>,
+    rows: Vec<SplitId>,
+    panes: Vec<PaneId>,
+}
+
+/// What the dock rules (`ResourceMutationPlan::stage_checked`) and the id indexes
+/// (`Mux::rebuild_split_screen_index`) read of one screen: the splits and the panes of its tree, in order, and
+/// its columns. Sizes, divider flags and the zoom are not in it.
+#[derive(PartialEq)]
+struct IndexedStructure {
+    splits: Vec<SplitId>,
+    panes: Vec<PaneId>,
+    columns: Vec<IndexedColumn>,
+}
+
+impl IndexedStructure {
+    fn of(root: &Node, columns: &[LayoutColumn]) -> Self {
+        fn split_ids(node: &Node, splits: &mut Vec<SplitId>) {
+            if let Node::Split { id, a, b, .. } = node {
+                splits.push(*id);
+                split_ids(a, splits);
+                split_ids(b, splits);
+            }
+        }
+        let mut splits = Vec::new();
+        split_ids(root, &mut splits);
+        let columns = columns
+            .iter()
+            .map(|column| IndexedColumn {
+                id: column.id,
+                dock: column.dock,
+                rows: column.row_ids().collect(),
+                panes: column.root.pane_ids_vec(),
+            })
+            .collect();
+        Self { splits, panes: root.pane_ids_vec(), columns }
+    }
+}
+
+/// True when `layout` holds the splits, panes and columns of `current`: a size command on a screen whose column
+/// projection is consistent. The column projection of a stale screen can take a column away; then this is false.
+fn keeps_indexed_structure(current: &Screen, layout: &ScreenLayoutSnapshot) -> bool {
+    IndexedStructure::of(&current.root, &current.layout_columns)
+        == IndexedStructure::of(&layout.root, &layout.layout_columns)
+}
+
+/// A size plan that keeps the indexed structure of its screen declares it, so no dock rule scans the session
+/// and the state is not cloned for it. A plan that changes the structure takes the whole check.
+fn size_plan(plan: ResourceMutationPlan, keeps: bool) -> ResourceMutationPlan {
+    if keeps { plan.keeping_dock_columns() } else { plan }
 }
 
 /// One batch value applied to `layout` (of the screen `on`) with the checks its single command makes, the split

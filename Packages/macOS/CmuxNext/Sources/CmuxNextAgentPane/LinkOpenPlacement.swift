@@ -6,13 +6,13 @@ package import CmuxNextSettings
 /// path link. The source pane never loses what it shows:
 ///
 /// - ``LinkPlacement/splitRight`` (default) and ``LinkPlacement/newColumn``: with no pane right of
-///   the source on its screen, a new split (or a new column) opens right of the source. With one,
-///   the right column (`column`, when the caller measured it) places it by ``RightColumnPlacement``:
-///   a split below that pane once, then tabs in the column's lower pane (Leo 2026-10-30: "if
-///   there's already a thing on the right, there should be logic for just putting it on the lower
-///   pane of the right"). A terminal or browser goes to a pane there that already holds its kind,
-///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing").
-///   Unmeasured, the pane on the right gets the tab.
+///   the source on its screen, a new split (or a new column) opens right of the source, however
+///   narrow the source. With one, a link (``Opening/link``) is a new tab in that pane: the one there
+///   already holding its kind, else the right column's lowest pane, never a split below it
+///   (Lawrence 2026-11-15, of a Cmd-clicked file that split below the browser on the right: "i
+///   expected it to just open in the right side tho"). A new tool or chat (``Opening/tool``) follows
+///   ``RightColumnPlacement``: a split below a lone pane of another kind once, then tabs in the
+///   column's lower pane (Leo 2026-10-30 and 2026-10-31). Unmeasured, the pane on the right gets the tab.
 /// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
 ///
 /// A source that takes no tabs (Home's pinned dock) never holds the opened tab, whatever the
@@ -50,6 +50,19 @@ package struct LinkOpenPlacement<Pane: Equatable> {
         }
     }
 
+    /// What opens, for the right column's rule.
+    package enum Opening: Equatable, Sendable {
+        /// A link, path, page or file the person opened (a Cmd-click in a terminal, a chat, a page or a
+        /// browser; a file from the Files pane, Home or a diff): a tab in the pane already on the right,
+        /// never a split below it, and with nothing on the right a split right, never a tab in the source.
+        /// Lawrence 2026-11-15: "it opened in bottom right. i expected it to just open in the right side tho".
+        case link
+        /// A new tool or chat beside the source (the chat header's Terminal or Browser, a New Tab page's
+        /// pick, a side chat): ``RightColumnPlacement`` decides, so a terminal beside a lone browser pane
+        /// (or the reverse) splits below it (Leo 2026-10-31), and a narrow source keeps it as a tab.
+        case tool
+    }
+
     package var setting: LinkPlacement
 
     /// Uses the caller's configured placement without reading shared settings.
@@ -61,18 +74,28 @@ package struct LinkOpenPlacement<Pane: Equatable> {
     /// `right`: the pane right of the source on its screen, if any; `column`: the right column it
     /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured). `kind`:
     /// what opens, which `holds` matches against the column's panes (``RightColumnPlacement/Kind``).
+    /// `left`: the pane left of a source that is a page beside it (``LinkOpener`` names one only for
+    /// a page, never a terminal or a chat): with nothing on the source's right, the open is a tab in
+    /// the source, which is already the side pane (Leo 2026-11-07: "it's already in the second pane,
+    /// and it therefore doesn't need to open the right split").
+    /// `holder`: the nearest pane on the source's right that already holds `kind`
+    /// (``nearestHolder(of:source:columns:frames:holds:)``); it gets the tab whatever pane `right` names.
     package func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
-                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
+                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, left: Pane? = nil,
+                holder: Pane? = nil, opening: Opening = .link) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
+        if let holder, holder != source { return .pane(holder) }
         if let right, right != source {
-            return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds)
+            return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds, opening: opening)
         }
         if !takesTabs { return .besideDock(source) }
         if setting == .newColumn { return .newColumn(rightOf: source) }
-        // A split halves the source: one that would leave it under the chat floor is a tab in it
-        // instead (RightColumnPlacement). A new column adds width to the strip, so it needs no floor.
-        if case .tab = RightColumnPlacement.decide(sourceWidth: sourceWidth, column: [Pane](), width: width) { return .pane(source) }
+        if let left, left != source { return .pane(source) }
+        // A tool's split halves the source: one that would leave it under the chat floor is a tab in it
+        // instead (RightColumnPlacement). A link never lands in its source (Lawrence 2026-11-15), and a
+        // new column adds width to the strip, so neither has a floor.
+        if opening == .tool, case .tab = RightColumnPlacement.decide(sourceWidth: sourceWidth, column: [Pane](), width: width) { return .pane(source) }
         return .splitRight(of: source)
     }
 
@@ -93,19 +116,71 @@ package struct LinkOpenPlacement<Pane: Equatable> {
         return panes.filter { $0 != source }
     }
 
-    /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``
-    /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
-    /// in `right` when the column was not measured. A `kind` a pane there already `holds` is a tab in
-    /// that pane. Main pane layout's strip column uses it too.
+    /// An item opened beside pane `right`, already on the source's right, or a tab in `right` when the
+    /// column was not measured. A `kind` a pane there already `holds` is a tab in that pane. A
+    /// ``Opening/link`` is otherwise a tab in the column's lowest pane, never a split below it; a
+    /// ``Opening/tool`` follows ``RightColumnPlacement`` over the measured `column` (a split below its
+    /// one pane, else a tab in its lower pane). Main pane layout's strip column uses it too.
     package static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?,
                          kind: RightColumnPlacement.Kind? = nil,
-                         holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
+                         holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, opening: Opening = .link) -> Target {
         guard !column.isEmpty else { return .pane(right) }
+        if opening == .link {
+            // The pane on the right already holding its kind (a diff's pane for a document), else the lowest.
+            return .pane(kind.flatMap { kind in column.last { holds($0, kind) } } ?? column.last ?? right)
+        }
         switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width, opening: kind, holds: holds) {
         case .splitBelow(let pane): return .splitBelow(of: pane)
         case .tab(let pane): return .pane(pane ?? right)
         case .splitRight: return .pane(right)
         }
+    }
+
+    /// The pane a terminal or browser opened from `source` joins: of the panes on the source's right
+    /// that already hold that kind (`holds`), the nearest in reading order. `columns` are the screen's
+    /// columns in layout order (docks and strip, left to right); every pane of a column after the
+    /// source's is on its right, drawn or not (a strip column scrolled away, a pane restored from the
+    /// last launch before its first layout). In the source's own column only panes whose frame starts
+    /// at or past the source's right edge count (a plain split with no strip). The nearest such column
+    /// answers with its lowest pane holding the kind, as ``RightColumnPlacement`` reuses one. Nil when
+    /// no pane on the right holds it: the open splits or takes a column as before.
+    ///
+    /// Leo 2026-11-11: "idk why those github links opened in a 3rd col instead of just to the right...";
+    /// "i think it forgot that there was browser on the right side". The chat's right side was the most
+    /// recently focused strip pane (the chat dock's rule for a new tab), and every link's tab takes the
+    /// focus, so once one link had opened a far column every later one went there, past the browser
+    /// right beside the chat.
+    package static func nearestHolder(of kind: RightColumnPlacement.Kind, source: Pane, columns: [[Pane]],
+                                      frames: [Pane: CGRect], holds: (Pane, RightColumnPlacement.Kind) -> Bool) -> Pane?
+    where Pane: Hashable {
+        guard let index = columns.firstIndex(where: { $0.contains(source) }) else { return nil }
+        if let origin = frames[source] {
+            let beside = columns[index].filter { $0 != source }.compactMap { pane in
+                frames[pane].flatMap { frame in
+                    // A pane below and to the right belongs to a different row, not to the
+                    // source's right edge. Keep the same vertical-overlap rule as the measured
+                    // right-column geometry so it cannot steal a link from the next row.
+                    frame.minX >= origin.maxX - 1 && frame.minY < origin.maxY && origin.minY < frame.maxY
+                        ? (pane, frame) : nil
+                }
+            }
+            if let found = lowestHolder(inNearest: beside, kind: kind, holds: holds) { return found }
+        }
+        for column in columns[(index + 1)...] {
+            let drawn = column.compactMap { pane in frames[pane].map { (pane, $0) } }
+            // A column drawn in full reads by its frames (a column split side by side); else tree order.
+            if drawn.count == column.count, let found = lowestHolder(inNearest: drawn, kind: kind, holds: holds) { return found }
+            if drawn.count != column.count, let found = column.last(where: { holds($0, kind) }) { return found }
+        }
+        return nil
+    }
+
+    /// Of `panes` (with frames), the lowest holding `kind` in the nearest left edge that has one.
+    private static func lowestHolder(inNearest panes: [(Pane, CGRect)], kind: RightColumnPlacement.Kind,
+                                     holds: (Pane, RightColumnPlacement.Kind) -> Bool) -> Pane? {
+        let holding = panes.filter { holds($0.0, kind) }
+        guard let nearest = holding.map(\.1.minX).min() else { return nil }
+        return holding.filter { abs($0.1.minX - nearest) <= 1 }.max { $0.1.minY < $1.1.minY }?.0
     }
 
     /// The pane right of `source` by layout order: `columns` are the screen's columns as the

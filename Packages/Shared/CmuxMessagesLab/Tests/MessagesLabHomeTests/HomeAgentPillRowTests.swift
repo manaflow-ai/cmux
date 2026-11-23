@@ -46,6 +46,50 @@ import Testing
         }
     }
 
+    /// User 2026-11-19: "would be useful to see how long it has been running for". A working pill says how
+    /// long its agent has worked ("12m", "1h 4m"), a reported or stopped one its task's total, a queued one
+    /// nothing (it has not started); under a minute a working pill says nothing yet.
+    @Test func eachPillSaysHowLongItsAgentHasWorkedOrTook() throws {
+        let start = Date(timeIntervalSince1970: 50_000)
+        var row = HomeAgentMessageRow(group: "0123456789abcdef", kind: .fold(count: 6, peers: ["a1", "a2", "a3", "a4", "a5"], expanded: false))
+        row.peerStates = [.told, .reported, .stopped, .queued, .told]
+        row.peerTitles = ["Fix the sidebar", "Nightly", "Audit", "Queued one", "Just told"]
+        row.peerStarted = [start, start, start, start, start.addingTimeInterval(12 * 60 + 40)]
+        row.peerEnded = [nil, start.addingTimeInterval(64 * 60 + 3), start.addingTimeInterval(30), nil, nil]
+        let now = start.addingTimeInterval(12 * 60 + 30)
+        let part = try #require(HomeAgentFoldRowProvider().part(row, now: now))
+        guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
+        let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
+        #expect(payload.times == ["12m", "1h 4m", "1m", "", ""])
+        // The time is drawn inside its pill: a pill with a time is wider than the same pill without one.
+        let pills = HomeAgentPills(payload, shape: .pill, width: 900).pills
+        var bare = payload
+        bare.times = []
+        let without = HomeAgentPills(bare, shape: .pill, width: 900).pills
+        #expect(pills[0].rect.width > without[0].rect.width)
+        #expect(pills[4].rect.width == without[4].rect.width)
+        // A new minute is a new part version, so the drawn row is drawn again; the same minute is not.
+        let later = try #require(HomeAgentFoldRowProvider().part(row, now: now.addingTimeInterval(1)))
+        let next = try #require(HomeAgentFoldRowProvider().part(row, now: now.addingTimeInterval(61)))
+        guard case let .custom(same) = later, case let .custom(moved) = next else { return }
+        #expect(same.version == custom.version)
+        #expect(moved.version != custom.version)
+        #expect(HomeAgentFoldRowProvider.payload(moved)?.times.first == "13m")
+    }
+
+    /// Only a row with a working agent needs the minute clock: every agent reported, stopped or queued
+    /// draws a time that no longer changes.
+    @Test func onlyARowWithAWorkingAgentTicks() {
+        let start = Date(timeIntervalSince1970: 50_000)
+        var row = HomeAgentMessageRow(group: "g", kind: .fold(count: 2, peers: ["a1", "a2"], expanded: false))
+        row.peerStates = [.reported, .queued]
+        row.peerStarted = [start, start]
+        row.peerEnded = [start.addingTimeInterval(90), nil]
+        #expect(!HomeAgentFoldRowProvider.ticks(row))
+        row.peerStates = [.reported, .told]
+        #expect(HomeAgentFoldRowProvider.ticks(row))
+    }
+
     /// User 2026-11-05 (msg 22013): the shipped pill is compact like the target, a 13 pt title in a 30 pt
     /// capsule whose width follows its title (a short title no longer gets a 120 pt pill).
     @Test func theShippedPillIsCompactAndHugsItsTitle() throws {
@@ -115,7 +159,7 @@ import Testing
         controller.demo?.layoutIfNeeded()
         controller.demo?.collection.layoutIfNeeded()
         var opened: [String] = []
-        controller.onAgentPill = { opened.append($0) }
+        controller.onAgentPill = { peer, _ in opened.append(peer) }
 
         let foldID = HomeMapping.id(fold, aliases: [:])
         let hit = try #require(pillCenter(in: controller, on: foldID, peer: "a931"), "no point is on a931's pill")

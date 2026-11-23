@@ -5,7 +5,13 @@
 // page's <head> loads English plus the app's language synchronously, before the pane's module
 // runs, into `window.__cmuxPaneStrings`. Tests (test/preload.ts) and the dev server (dev.tsx)
 // install the whole table there. The language is the first of the app's languages
-// (`navigator.languages`, which follows the app's preferred localizations) that is loaded.
+// (`appLanguages()`: the Language setting's, else `navigator.languages`, which follows the app's
+// preferred localizations) that is loaded. A setting change loads its locale file and dispatches
+// `languagechange` (shared/appLanguage.ts).
+//
+// A page whose head scripts did not install English by the time this module runs (a locale file
+// that failed to load) re-requests the same files itself (`recoverStrings`) and re-renders every
+// `useT()` caller when they arrive, so it never keeps showing raw keys.
 //
 // The language is a reactive value: a small store that follows the page window's
 // `languagechange` (and `setPaneLanguage`). Components read strings through `useT()`, so a language change
@@ -13,7 +19,10 @@
 // would look constant to the compiler and keep memoized strings stale. `translate` is for
 // code outside render (event handlers, clients), where the current language is read once.
 import { useSyncExternalStore } from "react";
+import { appLanguages } from "../../pages/shared/appLanguage";
 import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
+import { englishScriptSources, LANGUAGE_CODE, loadScript, localeScriptSource } from "../../pages/shared/localeScripts";
+import { intl } from "../../ui/intl";
 
 type Catalog = typeof import("./generated/strings.json");
 /** A plural string's text per CLDR category is `key#<category>` in the table (gen-strings.mjs). */
@@ -38,10 +47,13 @@ export type StringValues = Record<string, string | number>;
 export type Translate = (key: StringKey, values?: StringValues) => string;
 
 /** The pane's language: the first of the app's languages the pane has strings for. */
-export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): PaneLanguage {
+export function paneLanguage(languages: readonly string[] = appLanguages()): PaneLanguage {
   return resolveLanguage(languages, Object.keys(tables()));
 }
 
+// The language the head's loader picked (it sets <html lang> before it loads that table), read
+// before this module sets it: the file to ask for again when the tables are missing.
+const headLanguage = globalThis.document?.documentElement?.lang ?? "";
 let active: PaneLanguage = paneLanguage();
 setDocumentLanguage(active);
 const listeners = new Set<() => void>();
@@ -84,13 +96,47 @@ export function subscribeLanguage(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Tables arrived after this module loaded: the language is resolved again and every translator is
+ *  new, so components that memoized a missing string render it again. */
+function stringsArrived(): void {
+  translators.clear();
+  const next = paneLanguage();
+  setDocumentLanguage(next);
+  active = next;
+  for (const listener of listeners) listener();
+}
+
+/**
+ * When the page module runs without the English table (the head's `locales/en.js` failed to load),
+ * loads it again, plus the language the head's loader picked, by the same paths the head names
+ * (shared/localeScripts.ts, which retries a failed load twice; then the page keeps raw keys).
+ * Each arrival re-renders every `useT()` caller (``stringsArrived``). `<html data-strings-recovery>`
+ * records what happened (`loading`, `loaded`, `failed`) for a probe. Returns whether it started.
+ */
+export function recoverStrings(doc: Document | undefined = globalThis.document, language = headLanguage): boolean {
+  if (!doc?.head || tables().en) return false;
+  const english = englishScriptSources(doc)[0];
+  if (!english) return false;
+  const sources = [english];
+  if (language && language !== "en" && LANGUAGE_CODE.test(language))
+    sources.push(localeScriptSource(english, language));
+  const root = doc.documentElement;
+  root.dataset.stringsRecovery = "loading";
+  for (const src of sources)
+    loadScript(doc, src, (ok) => {
+      if (src === english) root.dataset.stringsRecovery = ok && tables().en ? "loaded" : "failed";
+      if (ok) stringsArrived();
+    });
+  return true;
+}
+
 const pluralRules = new Map<PaneLanguage, Intl.PluralRules>();
 /** `key`, or for a plural string the form `lang`'s plural rules pick for `values.n`. */
 function formKey(key: string, values: StringValues, lang: PaneLanguage): string {
   if (!(`${key}#other` in (tables().en ?? {}))) return key;
   let rules = pluralRules.get(lang);
   if (!rules) {
-    rules = new Intl.PluralRules(lang);
+    rules = intl.PluralRules(lang);
     pluralRules.set(lang, rules);
   }
   return `${key}#${rules.select(Number(values.n ?? 0))}`;
@@ -129,10 +175,18 @@ export function usePaneLanguage(): PaneLanguage {
   return useSyncExternalStore(subscribeLanguage, currentLanguage, currentLanguage);
 }
 
-/** The translator for the pane's current language; re-renders the caller when it changes. */
+/** The translator for the pane's language now; a new one after the language or the tables change. */
+export function currentTranslator(): Translate {
+  return translatorFor(currentLanguage());
+}
+
+/** The translator for the pane's current language; re-renders the caller when it or the tables change. */
 export function useT(): Translate {
-  return translatorFor(usePaneLanguage());
+  return useSyncExternalStore(subscribeLanguage, currentTranslator, currentTranslator);
 }
 
 /** Every loaded language's table, for tests that keep the tables complete. */
 export const STRING_TABLES: Record<string, Record<string, string>> = tables() as Record<string, Record<string, string>>;
+
+// Last, so every store above exists before a recovered table arrives.
+recoverStrings();
