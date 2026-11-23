@@ -8,6 +8,8 @@ import Foundation
 //
 // - Home inbox (`home-inbox` reply bytes, as the Mac's owner sends them): 20 rows vs 5,000 rows,
 //   with pins, Chiefs working, long Markdown previews and six months of activity dates.
+//   The small list is the god list's first 20 rows in what they say (one seed), so a first window
+//   costs the same to read in both and the ratio judges the list's size.
 // - Agent chat (acpmux records, the exact `{sessionId, seq, at, dir, kind, msg}` shape the fake
 //   hubs in CmuxMobileLiveTests use): ~40 records vs 50,000 records with tool outputs up to
 //   2 MB (logs and diffs), subagents nested 5 deep, 200 image parts and timestamps across six
@@ -98,7 +100,11 @@ enum HomeInboxFixture {
     /// The rows in the owner's order (newest first), as `home-inbox` sends them.
     static func rows(_ size: InstantPerfSize) -> [[String: Any]] {
         let count = rowCount(size)
-        var rng = SeededRandom(seed: size == .small ? 0x484F_4D45_0020 : 0x484F_4D45_5000)
+        // One seed for both sizes: the small list says what the god list's first 20 rows say, so
+        // the two first windows differ in the list behind them alone (ids, pins, dates, `total`).
+        // Seeded apart, the god window drew 1.4x the small one's preview bytes, and the bench read
+        // that as the list's size (`firstWindowsSayTheSame`, InstantPerfTests.swift).
+        var rng = SeededRandom(seed: 0x484F_4D45_5000)
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let pinned = size == .small ? 4 : 12
