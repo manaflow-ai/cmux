@@ -412,8 +412,6 @@ final class AppServices {
     private var runCommandAction: @MainActor (ConfigCommandAction, ActionInvocation) -> Void {
         { [weak self] in if let self { ConfigCommandRunner.run($0, invocation: $1, context: AppActionContext(services: self)) } }
     }
-    /// The focused project's own actions file, registered as `cmuxProject.<name>`.
-    private(set) lazy var projectActions = ProjectActionsController(context: AppActionContext(services: self))
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
