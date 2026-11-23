@@ -8,31 +8,22 @@ use cmux_action_catalog::customize_elements::{
 };
 use cmux_action_catalog::{ArgKind, CONTEXT_MENU, find, strings};
 
-const DEFAULTS: &str = include_str!("../../../../schemas/defaults/cmux-next.json");
+// The settings export, not the defaults snapshot: the snapshot is bot-only (#21946), so a pull
+// request that adds a setting and names it here carries a fresh export but the base's snapshot.
+const SETTINGS_SCHEMA: &str = include_str!("../../../../schemas/settings/settings-schema.json");
 const DESIGN_TOKENS: &str =
     include_str!("../../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json");
 
-/// The setting keys cmux knows, without their `setting.` prefix.
+/// The setting keys cmux knows (the export's rows; the defaults snapshot's `setting.` keys).
 fn setting_keys() -> BTreeSet<String> {
-    let defaults: serde_json::Value = serde_json::from_str(DEFAULTS).expect("defaults JSON");
-    let mut keys = BTreeSet::new();
-    fn walk(value: &serde_json::Value, path: &str, keys: &mut BTreeSet<String>) {
-        match value.as_object() {
-            Some(map) => {
-                for (key, child) in map {
-                    let next = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
-                    walk(child, &next, keys);
-                }
-            }
-            None => {
-                if let Some(key) = path.strip_prefix("setting.") {
-                    keys.insert(key.to_owned());
-                }
-            }
-        }
-    }
-    walk(&defaults["defaults"], "", &mut keys);
-    keys
+    let schema: serde_json::Value =
+        serde_json::from_str(SETTINGS_SCHEMA).expect("settings schema JSON");
+    schema["rows"]
+        .as_array()
+        .expect("settings schema rows")
+        .iter()
+        .map(|row| row["key"].as_str().expect("a row key").to_owned())
+        .collect()
 }
 
 /// The theme token names (`ThemeTokens`, the spec's formulas).
