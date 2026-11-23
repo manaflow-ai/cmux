@@ -18,6 +18,7 @@
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
 
+pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;
 pub mod domains;

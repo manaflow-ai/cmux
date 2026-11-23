@@ -656,6 +656,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -675,7 +688,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:

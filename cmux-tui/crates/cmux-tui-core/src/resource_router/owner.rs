@@ -159,6 +159,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::GitWorktreeSetupRun
         | ResourceOperation::ProjectActionsList
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
@@ -342,6 +343,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefAutomationList
+        | ResourceOperation::ChiefAutomationUpdate
         | ResourceOperation::ChiefContinue
         | ResourceOperation::ChiefRetry
         | ResourceOperation::ChiefProfileList
