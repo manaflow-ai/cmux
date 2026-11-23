@@ -205,7 +205,9 @@ jobs:
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
           GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
-          git -C trusted archive "$HEAD_SHA" backend/db/migrations | tar -x -C head-migrations --strip-components=3
+          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound it too.
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted archive -o head-migrations.tar "$HEAD_SHA" backend/db/migrations || { echo "::error::reading the head's migrations ($HEAD_SHA) failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          tar -x -C head-migrations --strip-components=3 -f head-migrations.tar && rm -f head-migrations.tar
           # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
           # so no later job can be made to read anything outside these SQL texts.
           odd=$(find head-migrations -mindepth 1 \( ! -type f -o -path 'head-migrations/*/*' -o -name '.*' \) -print -quit)
