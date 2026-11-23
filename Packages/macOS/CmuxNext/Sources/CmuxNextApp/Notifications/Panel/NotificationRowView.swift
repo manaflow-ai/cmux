@@ -172,7 +172,7 @@ final class NotificationRowView: NSView {
     /// The press already opened it.
     override func mouseUp(with event: NSEvent) {}
 
-    override func menu(for event: NSEvent) -> NSMenu? { callbacks.menu() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(callbacks.menu()) }
 
     override func accessibilityPerformPress() -> Bool {
         callbacks.open()

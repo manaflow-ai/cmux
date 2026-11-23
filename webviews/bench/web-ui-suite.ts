@@ -261,6 +261,19 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // A chat's cold open to its composer taking a key, ten rounds (goal startup-every-path; Leo 2026-11-22: "i hope
+  // we're still pursuing startup times for the app itself aka percieved time and percieved interactive time"):
+  // dom_content_loaded, first_row and composer_interactive with each round's value (COMPOSER=1, chat-open.bench.ts).
+  // cmuxterm-hq's synthetic-probes.yml web-startup job runs it (`--only chat-open-startup`) and records the
+  // web-chat-open-startup probe's p50 and p95; the perf cron does not.
+  {
+    name: "chat-open-startup",
+    file: "chat-open.bench.ts",
+    args: ["10", "300"],
+    env: { COMPOSER: "1" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   {
     name: "chat-switch-god",
     file: "chat-switch.bench.ts",

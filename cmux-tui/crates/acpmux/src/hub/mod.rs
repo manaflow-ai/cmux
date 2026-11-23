@@ -306,6 +306,8 @@ mod settings_watch;
 mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
+// Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
+pub(crate) mod auto_evacuate;
 mod start_retry;
 mod start_watch;
 pub(crate) mod task_list;
@@ -358,7 +360,8 @@ mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
-    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+    NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
+    suffixed_name, terminal_harness_refusal,
 };
 pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
