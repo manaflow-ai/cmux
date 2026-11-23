@@ -388,8 +388,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
         }
         let endReason = engine.handshake.isEnded ? engine.endReason : nil
+        let welcome = engine.handshake.welcome
         let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason,
-                                      connectingReason: engine.connectingReason)
+                                      connectingReason: engine.connectingReason,
+                                      streamWidth: welcome.map { Int($0.width) }, streamHeight: welcome.map { Int($0.height) })
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status
