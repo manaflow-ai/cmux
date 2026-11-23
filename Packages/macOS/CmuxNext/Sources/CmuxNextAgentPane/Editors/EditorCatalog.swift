@@ -199,7 +199,8 @@ public nonisolated struct EditorRefusal: Error, Equatable {
     public func open(_ url: URL, withApplicationAt app: URL) { fallback.open(url, withApplicationAt: app) }
 }
 
-public enum EditorStrings {
+public struct EditorStrings {
+    public init() {}
     public static var noEditor: String {
         String(localized: "editor.refusal.noEditor", defaultValue: "No code editor is installed on this Mac.", bundle: .module)
     }

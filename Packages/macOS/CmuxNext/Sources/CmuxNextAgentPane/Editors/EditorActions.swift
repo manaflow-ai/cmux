@@ -6,7 +6,8 @@ import CmuxNextCompat
 /// (Leo: "what do we think ab this thread?"). The editors are ``EditorCatalog``'s; the App supplies the folder
 /// lookups, which refuse with why (a remote or Cloud chat or workspace with `.remote`). A row that cannot run is
 /// disabled from the lookup its run uses.
-public enum EditorActions {
+public struct EditorActions {
+    public init() {}
     /// The App's side: a chat's folder (`local`: on this Mac only), a workspace's folder on this Mac, the clipboard,
     /// and a terminal tab in a workspace's folder; each lookup returns nil after refusing with why.
     @MainActor public struct Host {
