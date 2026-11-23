@@ -408,6 +408,8 @@
         "skills/cmux-customization/references/viewer-types.md",
         "skills/cmux-customization/templates/clock-weather/cmux-app.json",
         "skills/cmux-extension-author/recipes/**",
+        ".github/workflows/base-coalesce.yml",
+        "scripts/ci/cmux_tui_tree_key.py",
         "skills/cmux-customization/templates/clock-weather/main.js",
         "skills/cmux-customization/templates/my-prs/cmux-app.json",
         "skills/cmux-customization/templates/my-prs/main.js",
