@@ -719,7 +719,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let top = notifiedTop(note)
         notifiedKeyboardTop?.constant = top - view.bounds.maxY
         view.setNeedsLayout()
-        let remaining = UIView.inheritedAnimationDuration
         let layout = {
             self.view.layoutIfNeeded()
             // A docked keyboard the guide did not follow: switch to the
@@ -733,14 +732,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 self.view.layoutIfNeeded()
             }
         }
-        guard remaining > 0 else {
+        // The stack, the transcript's inset and its offset move in the
+        // keyboard's transaction, starting now, on the notification's own
+        // duration and curve (curve 7: the keyboard's spring), interruptible
+        // (`MobileKeyboardTransition.rideKeyboard`).
+        guard let transition = MobileKeyboardTransition(notification: note) else {
             layout()
             return
         }
-        // Interruptible: without `.allowUserInteraction` UIKit drops every
-        // touch on the views this pass moves (composer, transcript) until the
-        // keyboard settles: a tap inside the keyboard's animation did nothing.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { layout() }
+        transition.rideKeyboard(layout)
     }
 
     /// The keyboard's top in this view from a frame notification (the
