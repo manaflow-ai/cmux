@@ -161,8 +161,14 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::Hosts) {
+        Accepted::Shape(
+            "an array of hosts, each with a unique label and endpoints (ssh addresses tried in order)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
+    } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
+        Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
     } else {
         accepted(&row.kind, domains)
     };
@@ -176,16 +182,26 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 
 /// The stored value when valid, else the default (what the app applies).
 /// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does.
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
     let stored = crate::value::value_at(root, &row.path).or_else(|| {
         let replaced = super::replaced_by_row(&row.path)?;
         replaced.read(crate::value::value_at(root, &replaced.old)?)
     });
+    let stored = stored.map(|stored| aliased(row, stored));
     match stored {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {
@@ -262,6 +278,12 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::TranscriptTokens) => {
             return crate::transcript_look::accepts_tokens(value);
         }
+        super::Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return is_sidebar_section_ids(value);
+        }
+        super::Validation::Domain(DomainKind::Hosts) => {
+            return crate::hosts::accepts(value);
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
@@ -274,7 +296,8 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
-        return path || folder || is_accepted(&row.kind, value, domains);
+        let live = super::backdrop::is_live(text);
+        return path || folder || live || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -413,6 +436,24 @@ fn is_command_label(value: &Value) -> bool {
         && (members.contains_key("program") || members.contains_key("match"))
 }
 
+/// The most ids a sidebar section list holds, and the longest id
+/// (cmux-layout-reducer `sidebar_section_customization`).
+pub const MAX_SECTION_IDS: usize = 256;
+pub const MAX_SECTION_ID_CHARS: usize = 128;
+
+/// Swift `SidebarSectionIDsSetting.accepts`: at most 256 distinct ids of 1
+/// to 128 characters, the lists the sidebar planner reads with no problem.
+fn is_sidebar_section_ids(value: &Value) -> bool {
+    let Some(items) = value.as_array() else { return false };
+    let mut seen = BTreeSet::new();
+    items.len() <= MAX_SECTION_IDS
+        && items.iter().all(|item| {
+            item.as_str().is_some_and(|id| {
+                !id.is_empty() && id.chars().count() <= MAX_SECTION_ID_CHARS && seen.insert(id)
+            })
+        })
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -528,6 +569,8 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::SidebarRowLinesByKind => "sidebar_row_lines_by_kind",
         DomainKind::SidebarRowLinesByAgent => "sidebar_row_lines_by_agent",
         DomainKind::TranscriptTokens => "transcript_tokens",
+        DomainKind::SidebarSectionIds => "sidebar_section_ids",
+        DomainKind::Hosts => "hosts",
     }
 }
 
