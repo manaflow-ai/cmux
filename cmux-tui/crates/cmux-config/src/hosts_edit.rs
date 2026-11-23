@@ -67,13 +67,12 @@ pub fn apply(items: &[Value], edit: &HostEdit) -> Result<Vec<Value>, String> {
             items.remove(at);
         }
     }
-    let list = Value::Array(items);
+    let list = Value::Array(items.clone());
     if !hosts::accepts(&list) {
         let (_, problems) = hosts::parse(&list);
         let first = problems.into_iter().next().unwrap_or_else(|| "not a host list".to_owned());
         return Err(format!("{first}; fix it in cmux-next.json first"));
     }
-    let Value::Array(items) = list else { unreachable!("built as an array") };
     Ok(items)
 }
 
