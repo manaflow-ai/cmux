@@ -29,7 +29,7 @@ diff -ruN a/encoder/core/inc/cmux_damage.h b/encoder/core/inc/cmux_damage.h
 +#endif
 diff -ruN a/encoder/core/src/svc_encode_slice.cpp b/encoder/core/src/svc_encode_slice.cpp
 --- a/encoder/core/src/svc_encode_slice.cpp	2026-11-23 06:48:33.877705423 +0000
-+++ b/encoder/core/src/svc_encode_slice.cpp	2026-11-23 06:48:33.888587907 +0000
++++ b/encoder/core/src/svc_encode_slice.cpp	2026-11-23 07:16:52.729991806 +0000
 @@ -46,6 +46,7 @@
  #include "svc_set_mb_syn.h"
  #include "decode_mb_aux.h"
@@ -38,13 +38,23 @@ diff -ruN a/encoder/core/src/svc_encode_slice.cpp b/encoder/core/src/svc_encode_
  
  namespace WelsEnc {
  //#define ENC_TRACE
-@@ -1848,6 +1849,9 @@
+@@ -1848,6 +1849,19 @@
  
  TRY_REENCODING:
      WelsInitInterMDStruc (pCurMb, pMvdCostTable, kiMvdInterTableStride, pMd);
++    // Outside the damage: P_Skip forced. WelsMdPSkipEnc predicts the skip vector and builds the skip
++    // prediction (pSkipMb) that WelsMdInterDecidedPskip reconstructs from; an unbeatable SAD bound makes it
++    // accept. At a picture edge it declines and the ordinary mode decision runs.
++    bool bForced = false;
 +    if (CmuxDamageOutside (pCurMb->iMbX, pCurMb->iMbY)) {
-+      WelsMdInterDecidedPskip (pEncCtx, pSlice, pCurMb, pMbCache);
-+    } else
++      PredictSadSkip (pMbCache->sMvComponents.iRefIndexCache, pMbCache->bMbTypeSkip, pMbCache->iSadCostSkip, 0,
++                      & (pMd->iSadPredSkip));
++      pMd->iSadPredSkip = 0x7fffffff;
++      bForced = WelsMdPSkipEnc (pEncCtx, pMd, pCurMb, pMbCache);
++      if (bForced)
++        WelsMdInterDecidedPskip (pEncCtx, pSlice, pCurMb, pMbCache);
++    }
++    if (!bForced)
      pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
      //mb_qp
  
