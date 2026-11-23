@@ -341,6 +341,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// Agent tickets and the agent share's auto-off (remote_host/agent_share.rs).
+    pub(crate) remote_agents: Arc<crate::remote_host::agent_share::AgentShare>,
     /// The Linux and Windows Computer Use worker (computer_use_host.rs).
     pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
@@ -422,6 +424,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            remote_agents: Default::default(),
             computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),

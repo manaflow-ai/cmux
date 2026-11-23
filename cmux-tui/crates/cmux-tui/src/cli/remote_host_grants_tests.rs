@@ -263,3 +263,41 @@ fn the_probe_opens_the_same_panes_without_cmux_remote() {
         assert!(PROBE.contains(&format!("{}) pane='{}'", grant.key, grant.pane)), "{}", grant.key);
     }
 }
+
+#[test]
+fn the_screen_sharing_helpers_own_reading_names_the_item_that_captures() {
+    // NIGHTLY: no cmux Remote; the helper read its own grants when a share started it, and that
+    // reading wins over the app's (the app is not what captures a device hub share).
+    let share_host = json!({"helper": {"permissions": {
+        "screen_recording": false, "accessibility": true, "listed_as": "cmux NIGHTLY Screen Sharing"}}});
+    let probe = parse_probe(&format!(
+        "{}sharehost\t{share_host}\n",
+        output(&app_status(Some((true, true)), None, false), "", "off", "closed")
+    ));
+    assert_eq!(
+        first_missing(probe.status.as_ref()).map(|grant| grant.key),
+        Some("screen-recording")
+    );
+    let report = report(Some("studio"), &probe);
+    let screen = row(&report, "screen-recording");
+    assert_eq!(screen["granted"], false, "the helper's reading, not the app's");
+    assert_eq!(screen["holder"], "Screen Sharing helper");
+    assert_eq!(
+        screen["missing"],
+        "Screen Recording not granted on studio: on studio, open System Settings > Privacy & Security > \
+         Screen & System Audio Recording and turn on \"cmux NIGHTLY Screen Sharing\" (Screen Sharing and \
+         Computer Use screenshots)."
+    );
+    assert_eq!(row(&report, "accessibility")["granted"], true);
+
+    // No helper reading yet: the app's reading answers, as before.
+    let probe = parse_probe(&format!(
+        "{}sharehost\t{}\n",
+        output(&app_status(Some((false, true)), None, false), "", "off", "closed"),
+        json!({"helper": {"permissions": null}})
+    ));
+    assert_eq!(row(&super::report(None, &probe), "screen-recording")["holder"], "cmux app");
+    // A share host status with no cmux status is not a cmux Remote reading.
+    let probe = parse_probe(&format!("status\t\nsharehost\t{share_host}\n"));
+    assert_eq!(probe.status, None);
+}
