@@ -2671,6 +2671,10 @@ mod list_pending_tests;
 mod list_web_page_tests;
 
 #[cfg(test)]
+#[path = "list_flight_tests.rs"]
+mod list_flight_tests;
+
+#[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 

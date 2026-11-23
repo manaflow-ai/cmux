@@ -145,6 +145,7 @@ mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
+pub(crate) mod list_flight;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the

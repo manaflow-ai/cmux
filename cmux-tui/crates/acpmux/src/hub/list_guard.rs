@@ -836,6 +836,8 @@ impl Hub {
 pub(crate) struct ListGuard {
     /// A test's hold on requests (`Hub::hold_requests_for_tests`); unset in a daemon.
     pub(crate) hold: std::sync::OnceLock<RequestHold>,
+    /// Concurrent reads of one list reply, sharing its build (`list_flight.rs`).
+    pub(crate) flights: super::list_flight::ListFlights,
 }
 
 #[cfg(test)]
