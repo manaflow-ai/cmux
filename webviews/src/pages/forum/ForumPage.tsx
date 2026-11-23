@@ -8,6 +8,7 @@
 //   split    threads, spaces as a row of tabs | thread (the History and Stash pages' header)
 //   stream   one column: threads open in place        (a narrow pane, the agent column)
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 import type {
   ForumAuthor,
@@ -52,7 +53,7 @@ const KIND_KEY: Record<ForumThreadKind, string> = {
 /** A short relative age ("5 min. ago") in the page's language. */
 function age(strings: Strings, now: number, at: number): string {
   const minutes = Math.max(0, Math.round((now - at) / 60_000));
-  const format = new Intl.RelativeTimeFormat(strings.language, { style: "narrow", numeric: "auto" });
+  const format = intl.RelativeTimeFormat(strings.language, { style: "narrow", numeric: "auto" });
   if (minutes < 60) return format.format(-minutes, "minute");
   const hours = Math.round(minutes / 60);
   if (hours < 48) return format.format(-hours, "hour");
@@ -275,22 +276,15 @@ function SpaceTabs({
   onPick: (space: string | null) => void;
 }) {
   return (
-    <div className="forum-tabs" role="tablist" aria-label={strings.t("forum.spaces")}>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={current === null}
-        className="forum-tab"
-        onClick={() => onPick(null)}
-      >
+    <nav className="forum-tabs" aria-label={strings.t("forum.spaces")}>
+      <button type="button" aria-pressed={current === null} className="forum-tab" onClick={() => onPick(null)}>
         {strings.t("forum.space.all")}
       </button>
       {spaces.map((space) => (
         <button
           key={space.name}
           type="button"
-          role="tab"
-          aria-selected={current === space.name}
+          aria-pressed={current === space.name}
           className="forum-tab"
           onClick={() => onPick(space.name)}
         >
@@ -298,7 +292,7 @@ function SpaceTabs({
           {(space.unread ?? 0) > 0 && <span className="forum-count">{space.unread}</span>}
         </button>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -351,13 +345,12 @@ function ThreadList({
     );
   }
   return (
-    <ul className="forum-threads" role="listbox" aria-label={t("forum.title")}>
+    <ul className="forum-threads" aria-label={t("forum.title")}>
       {threads.map((thread) => (
         <li key={thread.number} className="forum-thread-item">
           <button
             type="button"
-            role="option"
-            aria-selected={selected === thread.number}
+            aria-current={selected === thread.number ? "true" : undefined}
             className="forum-thread-row"
             data-unread={thread.unread ? "true" : undefined}
             onClick={() => onSelect(thread.number)}
