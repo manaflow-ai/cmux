@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { TAB_ROW_GAP } from "./tabRow";
 
 /// One quick-action button's share of the row at the default interface size: its 24px square and
 /// the 2px gap (header.css). useHeaderFold measures the real pitch, which scales with the interface
@@ -25,6 +26,17 @@ export function headerFoldCount(
   const full = toolsWidth + folded * step;
   if (count <= 0 || full <= room) return 0;
   return Math.min(count, Math.ceil((full - room) / step));
+}
+
+/// The room the trailing group may take in a header `content` wide (its padding out). In its own row: all but the
+/// leading reserve. In the pane's tab row also at most half of it, less the gap the page adds to the width it reports:
+/// the App offers the row only while the tools take at most half (CmuxNextDesign `PaneTabRowSharing.fitsTabRow`), and
+/// tools wider than that dropped to a second row under the tabs, moving every button down (Leo, 2026-11-23: "the
+/// fucking buttons on the top right NEED to be done right, especially when things are at compressed width panes").
+/// Folding a quick action into "..." first keeps them in the row.
+export function headerFoldRoom(content: number, gap: number, tabRow: boolean): number {
+  const own = content - gap - HEADER_LEADING_RESERVE;
+  return tabRow ? Math.min(own, Math.floor(content / 2) - TAB_ROW_GAP) : own;
 }
 
 /// One tool's square plus the gap after it, as laid out now: the pitch grows with the interface
@@ -63,12 +75,8 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
       // A header not laid out (a hidden pane) has no width to fit: fold nothing until it shows.
       if (header.clientWidth <= 0) return setFold(0);
       const style = getComputedStyle(header);
-      const room =
-        header.clientWidth -
-        px(style.paddingLeft) -
-        px(style.paddingRight) -
-        px(style.columnGap) -
-        HEADER_LEADING_RESERVE;
+      const content = header.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
+      const room = headerFoldRoom(content, px(style.columnGap), header.hasAttribute("data-tab-row"));
       const width = element.getBoundingClientRect().width;
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
       setFold(headerFoldCount(width, folded.current, room, count, pitch));
