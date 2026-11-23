@@ -195,10 +195,13 @@ pub fn starts_as_person(by_person: bool, delegated: bool) -> bool {
     by_person || !crate::ask::agent_asks_first(delegated)
 }
 
-/// A personal send (the account's team none) on a non-production sign-in copies through the
-/// content-addressed store.
-pub fn copies_through_store(account: &[Option<String>], production_auth: bool) -> bool {
-    account.last().is_none_or(Option::is_none) && !production_auth
+/// Every send copies through the content-addressed store (cmux-platform `/v1/sync`), Personal or
+/// team, on every sign-in: the platform serves it in production and development (staging too), and
+/// a team account uses the same per-person store. Where the store is off (404 `sync.not_found`) or
+/// fails before the machine wrote a file, the copy goes over the link as before
+/// (cmux-tui `link/sync_cli/store.rs`), so a start never fails because the store is down.
+pub fn copies_through_store() -> bool {
+    true
 }
 
 /// `text` as one shell word: as it is when it is a plain name, else in single quotes.

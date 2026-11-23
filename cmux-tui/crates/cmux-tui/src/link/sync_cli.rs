@@ -71,6 +71,7 @@ mod relay;
 pub(super) use relay::relay;
 mod fresh;
 mod remote;
+mod roots;
 mod seed_pull;
 mod small_writes;
 mod timings;
@@ -1507,6 +1508,17 @@ fn push_inner(
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
     }
     stages.mark("finish");
+    // The store keeps what this folder's manifest and snapshots name ([`roots`]): after a push
+    // through it, or one with too little to send to be worth it, never after the store failed.
+    let store_ok = summary
+        .store
+        .as_ref()
+        .is_some_and(|part| part["used"] == json!(true) || part["reason"] == json!("small"));
+    if via_store && store_ok {
+        let size_of = |relative: &str| set.files.get(relative).and_then(|file| size(file).ok());
+        roots::register(&local, remote_root, &next, &size_of);
+        stages.mark("roots");
+    }
     stages.print();
     Ok(summary)
 }
@@ -1559,6 +1571,15 @@ fn send_through_store(
                    "fetched_files": sent.written.len()}),
             Some(sent.written),
         ),
+        // The person's store is full: this push copies over the link, said once.
+        Err(error) if error.downcast_ref::<store::QuotaExceeded>().is_some() => {
+            let message = format!("{error:#}; this copy goes over the link");
+            eprintln!(
+                "{}",
+                json!({"store": {"used": false, "code": "sync.quota_exceeded", "error": message}})
+            );
+            (json!({"used": false, "code": "sync.quota_exceeded", "error": message}), None)
+        }
         Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
     })
 }
