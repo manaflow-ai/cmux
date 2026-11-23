@@ -2978,6 +2978,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "memchr",
+ "mio",
  "notify",
  "parking_lot",
  "proptest",
