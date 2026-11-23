@@ -112,6 +112,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             stop_condition,
+            restricted,
             person,
             wait_start,
             throwaway,
@@ -228,6 +229,17 @@ impl Hub {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
         };
+        // Every model a chat starts on, from any entry point (`new -m`, `exec -m`, ACP and MCP
+        // starts, a preset, the defaults, a saved pick), as the catalog names it: `fable-5.2`
+        // runs as `claude-fable-5-2` (`model_alias.rs`).
+        let model_rewrite = match &model {
+            Some(m) => Some(self.canonical_model_for(agent, &profile, m)?).filter(|c| c.changed()),
+            None => None,
+        };
+        let model = match model_rewrite.as_ref() {
+            Some(c) => Some(c.model.clone()),
+            None => model,
+        };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
             (false, Some(start)) => (Some(start.value), true),
@@ -301,6 +313,11 @@ impl Hub {
         // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
             stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
+        // Read-only in a folder not trusted (`restricted.rs`): only a harness that can keep it.
+        if restricted && !super::restricted::kept_by(&profile) {
+            return Err(super::restricted::unsupported(&meta.harness));
+        }
+        meta.restricted = restricted;
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -326,6 +343,7 @@ impl Hub {
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && meta.stop_condition.is_none()
+            && !meta.restricted
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
@@ -449,6 +467,9 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(c) = &model_rewrite {
+            self.record_model_rewrite(&session, c, "new");
+        }
         // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
         cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
@@ -1323,6 +1344,8 @@ impl Hub {
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
             plan.args.extend(super::stop_condition::claude_args(&meta));
+            // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
+            plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
