@@ -1,0 +1,113 @@
+use super::*;
+use serde_json::json;
+
+fn meta(id: &str, name: &str, updated: u64) -> SessionMeta {
+    serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": name, "harness": "claude",
+        "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": updated
+    }))
+    .unwrap()
+}
+
+/// A hub with eviction after 1 ns and `n` closed chats, stored and in memory, none held.
+fn hub_with(n: usize) -> Arc<Hub> {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    for i in 0..n {
+        let meta = meta(&format!("s{i}"), &format!("chat-{i}"), 10 + i as u64);
+        hub.store.save(&meta).unwrap();
+        drop(hub.insert_test_session(meta));
+    }
+    hub.warm_list_order_for_test();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    hub
+}
+
+fn page(hub: &Hub) -> Vec<String> {
+    let (rows, _) = hub.session_page_rows(&json!({"limit": 50}), false).unwrap();
+    rows.iter()
+        .map(|row| match row {
+            BuiltRow::Tree(value) => value.to_string(),
+            BuiltRow::Peer(text, _) => text.to_string(),
+        })
+        .collect()
+}
+
+fn in_map(hub: &Hub, id: &str) -> bool {
+    hub.sessions.lock().unwrap().contains_key(id)
+}
+
+#[tokio::test]
+async fn an_evicted_chat_lists_as_it_did_and_counts_as_a_chat() {
+    let hub = hub_with(4);
+    let before = page(&hub);
+    let whole = hub.session_list_text(&json!({}), false, true, usize::MAX).unwrap();
+    assert_eq!(hub.evict_idle_chats(), 4);
+    assert!(!in_map(&hub, "s1"));
+    assert_eq!(hub.session_count(), 4);
+    assert_eq!(page(&hub), before, "the first page reads the same");
+    assert_eq!(
+        hub.session_list_text(&json!({}), false, true, usize::MAX).unwrap(),
+        whole,
+        "the whole list reads the same"
+    );
+    assert_eq!(hub.eviction_counts(), (4, 4, 0));
+}
+
+#[tokio::test]
+async fn a_read_by_id_brings_an_evicted_chat_back_with_its_metadata() {
+    let hub = hub_with(2);
+    let kept = hub.session_get("s0").unwrap().meta();
+    hub.evict_idle_chats();
+    assert!(!in_map(&hub, "s0"));
+    let back = hub.session_get("s0").expect("rehydrated");
+    assert!(in_map(&hub, "s0"));
+    assert_eq!(back.meta().name, kept.name);
+    assert_eq!(back.meta().updated_at, kept.updated_at);
+    assert!(!hub.evicted.contains("s0"));
+    assert!(hub.evicted.contains("s1"), "only the chat read comes back");
+    assert_eq!(hub.eviction_counts(), (1, 2, 1));
+    assert!(hub.session_get("nope").is_none());
+}
+
+#[tokio::test]
+async fn a_resolve_by_name_brings_an_evicted_chat_back() {
+    let hub = hub_with(3);
+    hub.evict_idle_chats();
+    let found = hub.resolve_here("chat-2").expect("resolved by name");
+    assert_eq!(found.id, "s2");
+    assert!(in_map(&hub, "s2"));
+}
+
+#[tokio::test]
+async fn a_held_chat_stays_in_memory() {
+    let hub = hub_with(2);
+    let held = hub.session_get("s0").unwrap();
+    assert_eq!(hub.evict_idle_chats(), 1);
+    assert!(in_map(&hub, "s0"), "a handle somebody holds keeps its chat");
+    assert!(!in_map(&hub, "s1"));
+    drop(held);
+    assert_eq!(hub.evict_idle_chats(), 1);
+    assert!(!in_map(&hub, "s0"));
+}
+
+#[tokio::test]
+async fn eviction_is_off_by_default_and_spares_an_attached_chat() {
+    let hub = hub_with(2);
+    hub.evicted.set_after(None);
+    assert_eq!(hub.evict_idle_chats(), 0);
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    hub.session_get("s0").unwrap().attached.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(hub.evict_idle_chats(), 1);
+    assert!(in_map(&hub, "s0"));
+}
+
+#[tokio::test]
+async fn the_kept_order_matches_a_sort_after_evictions_and_rehydrates() {
+    let hub = hub_with(5);
+    let want = hub.kept_order_for_test();
+    hub.evict_idle_chats();
+    assert_eq!(hub.kept_order_for_test(), want);
+    drop(hub.session_get("s3"));
+    assert_eq!(hub.kept_order_for_test(), want);
+}

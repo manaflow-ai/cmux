@@ -282,3 +282,7 @@ impl Hub {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "evict_tests.rs"]
+mod tests;

@@ -415,6 +415,8 @@ class Run:
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        if self.args.evict_idle_secs is not None:
+            env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
         return env
 
     def start(self):
@@ -900,6 +902,8 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
+    p.add_argument("--evict-idle-secs", type=int, default=None,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
     p.add_argument("--settle", type=float, default=5)
     p.add_argument("--window", type=float, default=10, help="idle window seconds per sample")
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")
