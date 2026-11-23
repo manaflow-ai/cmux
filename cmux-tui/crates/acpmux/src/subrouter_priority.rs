@@ -4,7 +4,11 @@
 //! ("I can't even talk to the GUI chats right now because of alleged
 //! overload", 2026-11-23). Interactive: a chat the person made (the app, the
 //! phone) and a coordinator (`claude-sr2-coord`, `interim-coord`, any name
-//! ending in `-coord`, or `-coord-old`). Everything else acpmux launches
+//! ending in `-coord`, or `-coord-old`), and a priority lane: a dictator (a
+//! name containing `dictator`, e.g. `ci-217x-dictator`, whose merges stalled
+//! 14:27Z-17:01Z on 2026-11-23 gateway 503s) or an ask lane (a name starting
+//! `ask-`). Lanes a coordinator starts stay background: that is nearly every
+//! lane, and a reserve everyone holds reserves nothing. Everything else acpmux launches
 //! (lanes, helpers, subagents, relays, scripts) is background.
 //!
 //! The hub decides at spawn ([`profile_with`], from what the session records)
@@ -26,10 +30,21 @@ pub fn is_coordinator(name: &str) -> bool {
     name == "interim-coord" || name.ends_with("-coord") || name.ends_with("-coord-old")
 }
 
+/// Whether `name` is a priority lane that keeps the interactive share: a
+/// dictator or an ask lane.
+pub fn is_priority_lane(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    name.contains("dictator") || name.starts_with("ask-")
+}
+
 /// The priority of a session named `name`; `for_person`: the person made it
 /// (`host_level::made_for_a_person`).
 pub fn classify(name: &str, for_person: bool) -> &'static str {
-    if for_person || is_coordinator(name) { INTERACTIVE } else { BACKGROUND }
+    if for_person || is_coordinator(name) || is_priority_lane(name) {
+        INTERACTIVE
+    } else {
+        BACKGROUND
+    }
 }
 
 /// `profile` with [`ENV`] set to this session's priority, unless the profile
@@ -87,7 +102,17 @@ mod tests {
         for coord in ["claude-sr2-coord", "claude-sr2-coord-old", "interim-coord", "web-coord"] {
             assert_eq!(classify(coord, false), INTERACTIVE, "{coord}");
         }
-        for lane in ["lane-gateway", "helper-3", "optchat-a-sub", "coordinator-relay", "coord"] {
+        for lane in ["ci-217x-dictator", "merge-dictator-2", "ask-efe8c0bf62", "ASK-gui-chats"] {
+            assert_eq!(classify(lane, false), INTERACTIVE, "{lane}");
+        }
+        for lane in [
+            "lane-gateway",
+            "helper-3",
+            "optchat-a-sub",
+            "coordinator-relay",
+            "coord",
+            "task-ask-x",
+        ] {
             assert_eq!(classify(lane, false), BACKGROUND, "{lane}");
         }
     }
