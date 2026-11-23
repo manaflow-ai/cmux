@@ -1552,6 +1552,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/executor_journey_dispatch.test.mjs
 
+      - name: Validate the Cloud VM image roll catch-up dispatches only a channel build the image lacks
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/cloud_vm_image_roll_catch_up.test.mjs
+
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_classic_publish_lease.py

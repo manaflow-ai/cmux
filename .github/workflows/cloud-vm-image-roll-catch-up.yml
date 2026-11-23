@@ -1,0 +1,143 @@
+name: Cloud VM image roll catch-up
+
+# A merged cmux-tui change reaches production Cloud machines only through a roll of its published build
+# (feat-cmux-next's cloud-vm-image-roll.yml). The only thing that starts one is cmux-tui-artifacts.yml's
+# "Dispatch the image roll" step, once per build. A lost dispatch is never replayed: job 137572017911
+# (2026-11-23) hit a rate limit on both tokens and timed out, and builds that fail overnight publish hours
+# later through a re-run. Production's image then lags the branch until the next build both publishes and
+# dispatches (316 min that morning, against a 180 min bound).
+#
+# Scheduled workflows run only from the default branch, hence this file on main. Every 30 minutes it reads
+# the build that Cloud machines are pointed at (files.cmux.com's cloud-machine channel, written by the
+# artifacts run's point-machine-channel job) and the cmux-tui pinned in feat-cmux-next's image lock. When the
+# channel's build is newer than the pin, it dispatches the same roll the artifacts run would have. It does
+# nothing when:
+# - a roll is already queued or running (a new dispatch would replace a waiting one);
+# - images/cmux-vm/auto-roll.json says off (a dispatch ignores off, so this checks it first);
+# - the channel's build is the pin or older than it;
+# - two rolls dispatched since the channel's build was published both failed (a red roll needs a fix, not
+#   a third bake of the same build).
+# The roll's own plan job keeps every guard (on the branch, published for the image, not older than the pin,
+# binaries changed), so a wrong channel read can only cause a plan that rolls nothing.
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cloud-vm-image-roll-catch-up
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 20
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+    steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      - name: Roll the Cloud machine channel's build unless the image has it
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cloud-vm-image-roll.yml';
+            const sha = /^[0-9a-f]{40}$/;
+
+            for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 1,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A roll is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
+                return;
+              }
+            }
+
+            const res = await fetch('https://files.cmux.com/cmux-tui/channels/cloud-machine.json', {
+              cache: 'no-store', signal: AbortSignal.timeout(30_000),
+            });
+            if (!res.ok) throw new Error(`cloud-machine channel: HTTP ${res.status}`);
+            const payload = JSON.parse(Buffer.from((await res.json()).payload, 'base64').toString('utf8'));
+            if (payload.channel !== 'cloud-machine' || payload.purpose !== 'cmux-cloud-machine-update' || !sha.test(payload.commit ?? '')) {
+              throw new Error(`cloud-machine channel: unexpected payload (channel ${payload.channel}, purpose ${payload.purpose})`);
+            }
+            const commit = payload.commit;
+            const publishedAt = new Date(Number(payload.published_at) * 1000);
+
+            const file = async (path) => {
+              const { data } = await github.rest.repos.getContent({ owner, repo, path, ref: `refs/heads/${source}` });
+              return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            };
+            const mode = (await file('images/cmux-vm/auto-roll.json')).mode;
+            if (mode === 'off') {
+              core.notice('images/cmux-vm/auto-roll.json says off; nothing to start');
+              return;
+            }
+            const pinned = (await file('images/cmux-vm/inputs.lock.json')).programs.find((p) => p.name === 'cmux-tui')?.version ?? '';
+            if (!sha.test(pinned)) throw new Error(`the image lock's cmux-tui pin is not a commit: ${pinned}`);
+            if (pinned === commit) {
+              core.notice(`The image already pins the channel's cmux-tui ${commit.slice(0, 12)}; nothing to start`);
+              return;
+            }
+            // "behind" or "identical": the channel's build is the pin or older than it.
+            const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${pinned}...${commit}`, per_page: 1,
+            });
+            if (cmp.status !== 'ahead' && cmp.status !== 'diverged') {
+              core.notice(`The channel's cmux-tui ${commit.slice(0, 12)} is ${cmp.status} of the pinned ${pinned.slice(0, 12)}; nothing to start`);
+              return;
+            }
+
+            const { data: recent } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch', status: 'completed',
+              created: `>=${publishedAt.toISOString()}`, per_page: 10,
+            });
+            const failed = recent.workflow_runs.filter((r) => r.conclusion === 'failure');
+            if (failed.length >= 2) {
+              core.warning(`${failed.length} rolls since cmux-tui ${commit.slice(0, 12)} was published failed (${failed.map((r) => r.id).join(', ')}); not baking it again until one is fixed`);
+              return;
+            }
+            // A roll whose plan rolls nothing (binaries unchanged, not published for the image) ends green and
+            // leaves the pin behind the channel: three dispatched rolls since the publish are enough.
+            if (recent.workflow_runs.length >= 3) {
+              core.warning(`${recent.workflow_runs.length} rolls ran since cmux-tui ${commit.slice(0, 12)} was published and the pin is still ${pinned.slice(0, 12)}; read their plans (${recent.workflow_runs.map((r) => r.id).join(', ')})`);
+              return;
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+              inputs: { commit },
+            });
+            core.notice(`Dispatched a roll of cmux-tui ${commit.slice(0, 12)} (pinned ${pinned.slice(0, 12)}, published ${publishedAt.toISOString()})`);
