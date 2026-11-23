@@ -264,7 +264,8 @@ test("a build that starts to compute gets the chip once acpmux says so, with its
   expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
   await advance(RUN_ELSEWHERE_RECHECK_MS);
   const chip = host.querySelector<HTMLElement>(".cv-run-elsewhere-chip");
-  expect(chip?.getAttribute("title")).toContain("6.0 cores");
+  const described = chip?.getAttribute("aria-describedby");
+  expect(described && host.ownerDocument.getElementById(described)?.textContent).toContain("6.0 cores");
   // A yes is kept: no more questions, and the chip stays.
   await advance(RUN_ELSEWHERE_RECHECK_MS * 2);
   expect(calls.offers.length).toBe(2);

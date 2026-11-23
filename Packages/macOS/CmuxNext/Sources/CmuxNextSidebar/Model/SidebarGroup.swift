@@ -75,7 +75,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// onto-drop, "group selected"): the home daemon refuses an empty name.
     public static func named(_ name: String) -> String {
         guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return name }
-        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .module)
+        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .localizedModule)
     }
 
     public init(

@@ -238,6 +238,12 @@ impl Customize {
         } else {
             PathBuf::from(source)
         };
+        if path.file_name().is_some_and(|name| name == crate::setup::SETUP_FILE) {
+            return crate::setup::read_dir(
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map(|setup| setup.profile);
+        }
         read_profile(&path)
     }
 
@@ -266,9 +272,12 @@ impl Customize {
             if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
                 // The key says where to look; the refused value (which may be
                 // a credential under the wrong key) stays in the file.
-                return Err(Error::Profile(format!(
-                    "the profile's value for {key} is not one that setting accepts"
-                )));
+                let message = if key == "workspaceColors.indicatorStyle" {
+                    "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                } else {
+                    format!("the profile's value for {key} is not one that setting accepts")
+                };
+                return Err(Error::Profile(message));
             }
         }
         for (path, text) in &profile.files {
@@ -486,16 +495,26 @@ pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<St
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
-    // Where it stops reading, never what it read there: the parser's own
-    // message quotes the value it did not expect.
-    serde_json::from_str::<Profile>(&text).map_err(|error| {
+    // Parse errors never quote a value, which might contain credentials.
+    let invalid = |error: serde_json::Error| {
         Error::Profile(format!(
             "{}: not a cmux profile (line {}, column {})",
             path.display(),
             error.line(),
             error.column()
         ))
-    })
+    };
+    let original_error = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => return Ok(profile),
+        Err(error) => error,
+    };
+    let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+    crate::file_refs::resolve(
+        &mut value,
+        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+    )
+    .map_err(Error::Profile)?;
+    serde_json::from_value(value).map_err(|_| invalid(original_error))
 }
 
 #[cfg(test)]

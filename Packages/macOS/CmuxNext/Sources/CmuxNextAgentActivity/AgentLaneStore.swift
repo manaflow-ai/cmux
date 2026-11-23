@@ -1,3 +1,4 @@
+public import Foundation
 public import Observation
 
 /// Every acpmux session's lane (cx-v9k2f): this Mac's and the acpmux peers' it mirrors, from the
@@ -62,6 +63,7 @@ public final class AgentLaneStore {
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
+        let startBefore = storage[session]?.createdAt
         if storage[session] != lane { revision &+= 1 }
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         let wasWaiting = waiting.contains(session)
@@ -76,12 +78,15 @@ public final class AgentLaneStore {
         // Rescan only when this session's Chief tags change, not on every step of its output.
         if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
         // Only a session that came, went or was renamed changes the names: a step of its output does not.
-        if lane?.name != nameBefore { syncNames() }
+        if lane?.name != nameBefore || lane?.createdAt != startBefore { syncNames() }
     }
 
     private func syncNames() {
         let current = Set(storage.values.map(\.name))
         if names != current { names = current }
+        let starts = Dictionary(storage.values.compactMap { lane in lane.createdAt.map { (lane.name, $0) } },
+                                uniquingKeysWith: max)
+        if sessionStarts != starts { sessionStarts = starts }
     }
 
     /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
@@ -127,6 +132,10 @@ public final class AgentLaneStore {
     /// `optchat-sub-<home>-a<n>` subagents). Changes only when a session comes, goes or is renamed, so a
     /// reader that needs which sessions exist (Home's queued agents that start) is not told of every step.
     public private(set) var names: Set<String> = []
+    /// When each named session began (its lane's `createdAt`), by session name; a session whose start is not known
+    /// is left out. Changes only when a session comes, goes, is renamed or learns its start, as ``names`` does, so
+    /// Home's agent pills count from a session's start without being told of every step.
+    public private(set) var sessionStarts: [String: Date] = [:]
 
     public init() {}
 

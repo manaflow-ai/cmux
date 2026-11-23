@@ -27,6 +27,20 @@ pub fn path(machine: &str) -> String {
     format!("/v1/cloud/machines/{machine}/carrier")
 }
 
+/// The bind answer's `carrier_ticket` (a platform that mints the machine's
+/// first Register ticket with its bind) as the reply line the session host
+/// gets, when it is a well-formed ticket for `slot`, the slot the bind file
+/// named; `None` otherwise (an older platform sends none, and the ticket is
+/// then asked for as before).
+pub fn bind_ticket(value: &Value, slot: &str) -> Option<Value> {
+    let ticket = value.get("carrier_ticket")?;
+    let body = json!({ "ok": true, "value": ticket });
+    let reply = reply_for(&Answer::Http { status: 200, body });
+    (reply.get("ok") == Some(&json!(true))
+        && reply.get("slot").and_then(Value::as_str) == Some(slot))
+    .then_some(reply)
+}
+
 /// The `carrier_ticket` object of a socket line: it takes no fields.
 pub fn check_ask(value: &Value) -> Result<(), String> {
     match value {

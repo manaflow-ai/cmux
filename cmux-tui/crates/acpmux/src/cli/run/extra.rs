@@ -1,6 +1,7 @@
 //! Owns the remaining daemon, session maintenance, peer, and output commands.
 
 use super::*;
+use anyhow::Context;
 
 fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
     let mut params = json!({"name": name, "url": url, "wait": false});
@@ -22,6 +23,20 @@ pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
         && info.get("movedTo").is_none_or(Value::is_null)
         && info["moving"] != true
         && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
+}
+
+/// `session pause` and `session wake` need a daemon that serves them (`hub/pause.rs`).
+fn unsupported_pause(client: &Client) -> Result<()> {
+    if client.daemon_lists(crate::hub::pause::FEATURE) {
+        return Ok(());
+    }
+    Err(crate::cli::errors::AppError::new(
+        crate::cli::errors::Code::Runtime,
+        "session_pause_unsupported",
+        "the running daemon predates `session pause` and `session wake`: restart it on the \
+         installed acpmux, then retry",
+    )
+    .into())
 }
 
 /// Runs the queue a failed turn held in chat `id` (`info` is its `MUX_INFO`), through `client`:
@@ -144,6 +159,55 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::PauseAgent { session } => {
+            let client = connect(true).await?;
+            unsupported_pause(&client)?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_PAUSE, json!({"sessionId": id})).await?;
+            if json_out {
+                print_json(&v);
+            } else if v["paused"] == true {
+                println!(
+                    "paused: its agent exited in {} ms; its next prompt or `acpmux session wake {session}` resumes the same conversation",
+                    v["exitMs"]
+                );
+            } else if v["reason"] == "paused" {
+                println!("already paused");
+            } else {
+                println!("not running: it is stopped, and its next prompt resumes it");
+            }
+            Ok(())
+        }
+        Command::WakeAgent { session } => {
+            let client = connect(true).await?;
+            unsupported_pause(&client)?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_WAKE, json!({"sessionId": id})).await?;
+            if json_out {
+                print_json(&v);
+            } else if v["woke"] == true {
+                println!("resumed its conversation in {} ms", v["tookMs"]);
+            } else if v["reason"] == "running" {
+                println!("not paused: its agent is running");
+            } else {
+                println!("not paused: it is stopped, and its next prompt resumes it");
+            }
+            Ok(())
+        }
+        Command::RouteDeath { facts } => {
+            let text = if facts.as_os_str() == "-" {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                buf
+            } else {
+                std::fs::read_to_string(&facts)
+                    .with_context(|| format!("reading {}", facts.display()))?
+            };
+            let f: crate::death_route::Facts =
+                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
+            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
+            Ok(())
+        }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -169,12 +233,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::SessionInboxCmd(crate::cli::command::SessionInboxTarget {
             session,
+            search,
+            before,
+            subscribe,
+            unsubscribe,
+            subscriptions,
             thread,
             unread,
         }) => {
             let client = connect(true).await?;
-            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
-                .await
+            crate::cli::session_inbox::run(
+                &client,
+                &session,
+                thread.as_deref(),
+                unread,
+                search.as_deref(),
+                before,
+                subscribe.as_deref(),
+                unsubscribe.as_deref(),
+                subscriptions,
+                json_out,
+            )
+            .await
         }
         Command::TurnCapCmd { session, minutes, off, clear } => {
             use crate::cli::session_turn_cap::Change;
@@ -269,7 +349,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
-        Command::Register { name, code } => {
+        Command::Register { renew: true, .. } => {
+            // A hook's step: bounded, silent, and never a failure the session sees.
+            let v = crate::cli::reply_address::renew().await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
+        Command::Register { name, code, renew: false } => {
+            let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
@@ -281,7 +370,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&v)
             } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
                 println!(
-                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `{} register {name} --code ...` it gives to finish",
+                    crate::cli::entry::program()
                 );
             } else {
                 let field =
@@ -380,12 +470,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         .await?
                 }
                 "model" => {
-                    client
+                    let v = client
                         .request(
                             method::SESSION_SET_MODEL,
                             json!({"sessionId": id, "modelId": val}),
                         )
-                        .await?
+                        .await?;
+                    // The daemon read the name as its catalog id (`hub/model_alias.rs`).
+                    if let (Some(from), Some(to)) = (
+                        v.pointer("/modelRewrite/from").and_then(Value::as_str),
+                        v.pointer("/modelRewrite/to").and_then(Value::as_str),
+                    ) {
+                        eprintln!("model {from} -> {to}");
+                    }
+                    v
                 }
                 "policy" => {
                     client
@@ -480,33 +578,39 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::MoveSessions {
+        Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
             all_idle,
             interrupt,
+            after_turn,
+            timeout,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
-        } => {
+            from_snapshot,
+        }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
+                turn_timeout: std::time::Duration::from_secs(timeout),
                 leave_dirty,
                 carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
                 from,
+                from_snapshot,
             };
             super::session_move::run(args, json_out).await
         }
-        Command::Transfer { session, to, cwd, name, interrupt } => {
-            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
         }
         Command::Import { path, name } => {
             let client = connect(true).await?;
@@ -699,6 +803,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        #[cfg(unix)]
+        Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::DaemonPrune { .. } => Err(anyhow!("daemon prune runs on macOS and Linux only")),
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();
@@ -748,7 +856,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_start_modes().await;
             Ok(())
         }
-        Command::Web { no_open, show_token, rotate_token } => {
+        Command::Web { app, no_open, show_token, rotate_token } => {
             let client = connect(true).await?;
             let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
             let v = client.request(m, json!({})).await?;
@@ -757,6 +865,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("daemon has no web listener"))?
                 .to_owned();
+            let url = if app {
+                let mut url = reqwest::Url::parse(&url).context("invalid web listener URL")?;
+                let listener_token = url
+                    .fragment()
+                    .and_then(|fragment| fragment.strip_prefix("token="))
+                    .filter(|token| !token.is_empty())
+                    .ok_or_else(|| anyhow!("web listener URL has no token fragment"))?;
+                let token = crate::ws_auth::browser_app_token(listener_token);
+                url.set_path("/app/");
+                url.set_query(None);
+                url.set_fragment(Some(&format!("token={token}")));
+                url.to_string()
+            } else {
+                url
+            };
             if json_out {
                 // JSON mode is for scripts: report the URL, open nothing.
                 print_json(&json!({"url": url}));
@@ -812,11 +935,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             // A process-wide file lock protects the check, redeem and commit as one
             // transaction. A second installer never redeems behind the first one.
-            let _lock = crate::cli::cloud_join::join_lock().map_err(|_| {
+            let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
                     "join.store",
-                    "local machine store is busy or unavailable",
+                    format!("local machine store is busy or unavailable: {e:#}"),
                 )
                 .with_exit(5)
             })?;
@@ -1229,6 +1352,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
                     let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    if !json_out
+                        && let Some(note) = crate::cli::host_enroll::hub_route_note(&list, &name)
+                    {
+                        println!("{note}");
+                    }
                     let plan = crate::cli::host_enroll::Plan {
                         name,
                         host,

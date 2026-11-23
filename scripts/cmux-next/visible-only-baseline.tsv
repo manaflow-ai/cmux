@@ -92,7 +92,7 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/PanesScreen.swift	visib
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	visible-only-eager-stack-in-scroll	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceIconPicker.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	visible-only-foreach-unstable-id	3
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/NotificationContent/ConversationPreview.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/NotificationContent/NotificationContentView.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/NotificationContent/NotificationContentView.swift	visible-only-foreach-unstable-id	1

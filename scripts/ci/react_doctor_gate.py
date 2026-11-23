@@ -23,8 +23,13 @@ Usage (repo root):
   python3 scripts/ci/react_doctor_gate.py --project webviews --update-baseline
   python3 scripts/ci/react_doctor_gate.py --from-json-dir DIR   # reuse reports (DIR/<name>.json)
 
-Exit 1 when a project gained an error or a scan failed; exit 0 otherwise.
-The scan runs with --no-score, --no-supply-chain and telemetry off: no project
+React Doctor findings are lint, so by default they never fail (Leo, 2026-11-20: "WHY IS
+LINT EVEN STOPPING SHIT INSTEAD OF JUST BEING OOPS"): an added error is a `::warning`
+annotation at its file and line plus a step-summary row, and it is fixed forward. A scan
+that could not run is a warning too: React Doctor does not type-check or build, and the
+projects' own type-check and build jobs catch a broken tree. Exit 0 then. --strict
+restores the ratchet's old verdict (exit 1 when a project gained an error or a scan
+failed) for a local run that wants it. The scan runs with --no-score, --no-supply-chain and telemetry off: no project
 data leaves the machine.
 """
 import argparse
@@ -143,8 +148,8 @@ def compare(project, counts, rows):
     return new, lowered
 
 
-def annotate(project, report, new_keys):
-    """Print each error of a (file, rule) that went over its row, with its file:line."""
+def annotate(project, report, new_keys, level="warning"):
+    """Print each error of a (file, rule) that went over its row, with its file:line, as a LEVEL annotation."""
     lines = []
     for d in report.get("diagnostics", []):
         key = f"{diagnostic_path(d)}::{d.get('plugin')}/{d.get('rule')}"
@@ -153,7 +158,7 @@ def annotate(project, report, new_keys):
         path = os.path.normpath(os.path.join(project, diagnostic_path(d)))
         msg = f"{d.get('plugin')}/{d.get('rule')}: {d.get('message', '')} Fix: {d.get('help', '')}".replace("\n", " ")
         if GITHUB:
-            print(f"::error file={path},line={d.get('line', 1)},col={d.get('column', 1)},"
+            print(f"::{level} file={path},line={d.get('line', 1)},col={d.get('column', 1)},"
                   f"title=React Doctor {d.get('rule')}::{msg}")
         lines.append(f"{path}:{d.get('line', '?')}  {msg}")
     return lines
@@ -195,7 +200,10 @@ def main(argv=None):
     parser.add_argument("--from-json-dir", metavar="DIR", help="read DIR/<project>.json instead of scanning")
     parser.add_argument("--out-dir", metavar="DIR", help="keep the JSON reports here")
     parser.add_argument("--update-baseline", action="store_true", help="write the scanned projects' counts")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit 1 on an added error or a failed scan (by default they are warnings: lint never stops a merge)")
     args = parser.parse_args(argv)
+    level = "error" if args.strict else "warning"
 
     if args.project:
         unknown = [p for p in args.project if p not in PROJECTS]
@@ -226,7 +234,7 @@ def main(argv=None):
                 path = scan(binary, project, out_dir)
             report = load_report(path)
         except (RuntimeError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as error:
-            print(f"::error title=React Doctor::{project}: {error}" if GITHUB else f"error: {project}: {error}")
+            print(f"::{level} title=React Doctor::{project}: {error}" if GITHUB else f"{level}: {project}: {error}")
             table.append(f"| {project} | scan failed | | | |")
             failed = True
             continue
@@ -243,7 +251,7 @@ def main(argv=None):
         if new:
             failed = True
             print(f"react-doctor: {project}: {len(new)} file/rule pair(s) gained errors:")
-            for line in annotate(project, report, set(new)):
+            for line in annotate(project, report, set(new), level):
                 print("  " + line)
             for key, (count, row) in sorted(new.items()):
                 print(f"    {key}: {count} (baseline {row})")
@@ -255,11 +263,18 @@ def main(argv=None):
     if args.update_baseline:
         write_baseline(baseline)
         print(f"react-doctor: wrote {os.path.relpath(BASELINE, REPO)}")
-    summary("### React Doctor\n\n" + "\n".join(table) + "\n\n" +
-            ("**Failed**: a change added React Doctor errors (see the annotations), or a scan failed. "
-             "Fix them, or see scripts/ci/react_doctor_gate.py for a reviewed rebaseline." if failed
-             else "Passed: no project gained an error."))
-    return 1 if failed else 0
+    if failed and args.strict:
+        verdict = ("**Failed** (--strict): a change added React Doctor errors (see the annotations), or a scan failed. "
+                   "Fix them, or see scripts/ci/react_doctor_gate.py for a reviewed rebaseline.")
+    elif failed:
+        verdict = ("**Passed with findings** (not blocking): a change added React Doctor errors (see the warning "
+                   "annotations), or a scan could not run. Lint never stops a merge; fix them forward, or see "
+                   "scripts/ci/react_doctor_gate.py for a reviewed rebaseline.")
+        print("react-doctor: findings reported as warnings; lint never fails this check")
+    else:
+        verdict = "Passed: no project gained an error."
+    summary("### React Doctor\n\n" + "\n".join(table) + "\n\n" + verdict)
+    return 1 if failed and args.strict else 0
 
 
 if __name__ == "__main__":

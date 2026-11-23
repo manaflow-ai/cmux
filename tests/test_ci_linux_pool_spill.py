@@ -383,6 +383,62 @@ class WithMainPolicy(unittest.TestCase):
         self.assertNotIn("_spill", json.loads(switch.variables["RUNNER_POOLS"]))
         self.assertEqual(switch.variables["LINUX_RUNNER"], FOUR)
 
+    def test_a_saturated_hosted_override_stays_off_the_paused_blacksmith_sizes(self):
+        # CI_LINUX_HOSTED_RUNNER (the Blacksmith pause) puts ubuntu-24.04 first in every x64 Linux pool (main's
+        # load_pools()); its later members are the paused Blacksmith sizes, so a saturated hosted label moves nowhere.
+        from unittest import mock
+        hosted = "ubuntu-24.04"
+        start = self.policy.render({"linux": hosted, "_dead": {}, "_updated": ago(60)})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": hosted, "CI_CLOUD_OVERFLOW_SAVED": ""})
+        admission = {"_admission": {"at": spill.iso(NOW), "target_s": 300,
+                                    "pools": {hosted: {"queued": 400, "running": 20, "slots": 20, "p50_s": 240,
+                                                       "wait_s": 5040, "saturated": True}}},
+                     "hosted_saturated": True}
+        env = {"GH_REPO": "manaflow-ai/cmux", "CI_LINUX_HOSTED_RUNNER": hosted}
+        with mock.patch.dict(os.environ, {"CI_LINUX_HOSTED_RUNNER": hosted}):
+            code = spill.main(["--policy-root", POLICY_ROOT], env, policy=self.policy, switch=switch,
+                              client=Client([], {}), api=self.Api(), now=NOW, admission=admission)
+            self.assertEqual(code, 0)
+            value = json.loads(switch.variables["RUNNER_POOLS"])
+            pools = self.policy.load_pools(Path(POLICY_ROOT) / ".github" / "runners.json")
+            self.assertEqual(pools["linux"]["members"][0], hosted)
+            for name in spill.ADMISSION_POOLS:
+                self.assertEqual(value[name], hosted, name)
+            self.assertEqual(value["provenance"], hosted)
+            self.assertIs(value["hosted_saturated"], True)
+            self.assertEqual(value["_admission"], admission["_admission"])
+            check = {"RUNNER_POOLS": switch.variables["RUNNER_POOLS"], "LINUX_RUNNER": switch.variables["LINUX_RUNNER"],
+                     "CI_CLOUD_OVERFLOW_SAVED": "", "CI_LINUX_HOSTED_RUNNER": hosted}
+            self.assertEqual(self.policy.main(["--check"], check, now=NOW), 0)
+
+    def test_a_steady_verdict_writes_nothing_until_it_is_refresh_old(self):
+        # The verdict's numbers move every pass; RUNNER_POOLS is rewritten only for routing or a REFRESH-old verdict.
+        import expected_wait
+        start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
+
+        def verdict(moment, queued):
+            found = {"ubuntu-24.04": {"queued": queued, "running": 20, "slots": 20, "p50_s": 240,
+                                      "wait_s": 3000, "saturated": True}}
+            previous = json.loads(switch.variables["RUNNER_POOLS"]).get(spill.ADMISSION_KEY)
+            return expected_wait.record(found, moment, previous=previous)
+
+        def run(moment, queued):
+            env = {"GH_REPO": "manaflow-ai/cmux"}
+            return spill.main(["--policy-root", POLICY_ROOT], env, policy=self.policy, switch=switch,
+                              client=Client([], {}), api=self.Api(), now=moment,
+                              admission=verdict(moment, queued))
+
+        self.assertEqual(run(NOW, 400), 0)
+        self.assertIn(spill.ADMISSION_KEY, json.loads(switch.variables["RUNNER_POOLS"]))
+        switch.writes.clear()
+        self.assertEqual(run(NOW + dt.timedelta(minutes=10), 380), 0)
+        self.assertEqual(switch.writes, [])
+        self.assertEqual(run(NOW + expected_wait.REFRESH, 360), 0)
+        self.assertEqual([name for name, _ in switch.writes], ["RUNNER_POOLS"])
+        published = json.loads(switch.variables["RUNNER_POOLS"])[spill.ADMISSION_KEY]
+        self.assertEqual(published["at"], spill.iso(NOW + expected_wait.REFRESH))
+
     def test_a_leftover_hosted_saturated_mark_is_dropped(self):
         # #45861's hosted-first valve wrote RUNNER_POOLS.hosted_saturated; no route reads it since every light job
         # left GitHub-hosted (cmux#45898), so the next pass drops a mark a live value may still hold.
@@ -481,6 +537,106 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(spill.main(["--policy-root", POLICY_ROOT], env, policy=self.policy, switch=switch,
                                     client=self.backlog_client(40), api=self.Api(), now=NOW), 0)
         self.assertEqual(switch.writes, [])
+
+
+
+HOSTED = "ubuntu-24.04"
+FLEET = "cmux-fleet-linux-x64"
+
+
+class Admission(unittest.TestCase):
+    """Admission by expected wait (cmuxterm-hq#16113 step 3): a saturated capped member takes the next rung."""
+
+    LINUX_LED_BY_HOSTED = [HOSTED, FLEET, FOUR, SIXTEEN]
+
+    def full(self, *labels):
+        return {spill.ADMISSION_KEY: {"at": spill.iso(NOW), "target_s": 300,
+                                      "pools": {label: {"saturated": True} for label in labels}}}
+
+    def test_a_saturated_member_takes_the_next_live_free_member(self):
+        full = spill.saturated(self.full(HOSTED))
+        self.assertEqual(spill.admit("linux", self.LINUX_LED_BY_HOSTED, {}, HOSTED, full)[0], FLEET)
+        self.assertEqual(spill.admit("linux", self.LINUX_LED_BY_HOSTED, {FLEET: "x"}, HOSTED, full)[0], FOUR)
+        both = spill.saturated(self.full(HOSTED, FLEET))
+        self.assertEqual(spill.admit("linux_16", self.LINUX_LED_BY_HOSTED, {}, HOSTED, both)[0], FOUR)
+
+    def test_no_free_later_member_stays(self):
+        full = spill.saturated(self.full(HOSTED))
+        member, lines = spill.admit("linux", [HOSTED], {}, HOSTED, full)
+        self.assertEqual(member, HOSTED)
+        self.assertTrue(any("staying" in line for line in lines))
+
+    def test_a_member_with_no_verdict_or_a_free_one_is_kept(self):
+        self.assertEqual(spill.admit("linux", self.LINUX_LED_BY_HOSTED, {}, HOSTED, set()), (HOSTED, []))
+        free = {spill.ADMISSION_KEY: {"pools": {HOSTED: {"saturated": False}}}}
+        self.assertEqual(spill.saturated(free), set())
+        for bad in (None, {}, {spill.ADMISSION_KEY: "x"}, {spill.ADMISSION_KEY: {"pools": []}},
+                    {spill.ADMISSION_KEY: {"pools": {HOSTED: {"saturated": "true"}}}}):
+            with self.subTest(bad=bad):
+                self.assertEqual(spill.saturated(bad), set())
+
+    def test_provenance_promotion_and_other_pools_never_move(self):
+        full = spill.saturated(self.full(HOSTED, FLEET))
+        for name in ("provenance", "promotion", "linux_arm64", "macos_26", "macos_intel"):
+            with self.subTest(name=name):
+                self.assertEqual(spill.admit(name, [HOSTED, FOUR], {}, HOSTED, full), (HOSTED, []))
+        self.assertNotIn("provenance", spill.ADMISSION_POOLS)
+        self.assertNotIn("promotion", spill.ADMISSION_POOLS)
+
+    class Policy:
+        """The parts of main's runner_pools.py apply() calls, as main has them."""
+        DEAD_KEY = "_dead"
+
+        @staticmethod
+        def parse_value(raw, pools):
+            value = json.loads(raw) if (raw or "").strip() else {}
+            clean = {name: value[name] for name in pools if isinstance(value.get(name), str)}
+            clean["_dead"] = value.get("_dead") if isinstance(value.get("_dead"), dict) else {}
+            return clean, []
+
+        @staticmethod
+        def members(spec):
+            return list(spec["members"])
+
+    POOLS = {"linux": {"members": [HOSTED, FLEET, FOUR, SIXTEEN]},
+             "linux_4": {"members": [HOSTED, FLEET, FOUR, SIXTEEN]},
+             "provenance": {"members": [HOSTED]}}
+
+    def apply(self, admission, raw=None):
+        raw = raw or json.dumps({"linux": HOSTED, "linux_4": HOSTED, "provenance": HOSTED, "_dead": {}})
+        return spill.apply(self.Policy, raw, None, self.POOLS, None, now=NOW, admission=admission)
+
+    def test_apply_moves_saturated_pools_and_publishes_the_verdict(self):
+        admission = self.full(HOSTED) | {spill.HOSTED_SATURATED_KEY: True}
+        value, lines = self.apply(admission)
+        self.assertEqual((value["linux"], value["linux_4"], value["provenance"]), (FLEET, FLEET, HOSTED))
+        self.assertEqual(value[spill.ADMISSION_KEY], admission[spill.ADMISSION_KEY])
+        self.assertIs(value[spill.HOSTED_SATURATED_KEY], True)
+        self.assertTrue(any("next rung" in line for line in lines))
+
+    def test_apply_never_moves_a_pool_while_blacksmith_linux_is_paused(self):
+        admission = self.full(HOSTED) | {spill.HOSTED_SATURATED_KEY: True}
+        value, lines = spill.apply(self.Policy, json.dumps({"linux": HOSTED, "linux_4": HOSTED, "_dead": {}}),
+                                   None, self.POOLS, None, now=NOW, admission=admission, paused=True)
+        self.assertEqual((value["linux"], value["linux_4"]), (HOSTED, HOSTED))
+        self.assertTrue(any("paused" in line for line in lines))
+        # Main's load_pools() marks a pool the override leads `hosted`: that alone keeps it too.
+        pools = {name: dict(spec, hosted=True) for name, spec in self.POOLS.items()}
+        value, _ = spill.apply(self.Policy, json.dumps({"linux": HOSTED, "linux_4": HOSTED, "_dead": {}}),
+                               None, pools, None, now=NOW, admission=admission)
+        self.assertEqual((value["linux"], value["linux_4"]), (HOSTED, HOSTED))
+        # The verdict is still published.
+        self.assertIs(value[spill.HOSTED_SATURATED_KEY], True)
+
+    def test_apply_without_a_verdict_routes_as_before_and_publishes_none(self):
+        raw = json.dumps({"linux": HOSTED, "linux_4": HOSTED, "provenance": HOSTED, "_dead": {},
+                          spill.HOSTED_SATURATED_KEY: True, spill.ADMISSION_KEY: self.full(HOSTED)[spill.ADMISSION_KEY]})
+        for admission in (None, {}):
+            with self.subTest(admission=admission):
+                value, _ = self.apply(admission, raw)
+                self.assertEqual((value["linux"], value["linux_4"]), (HOSTED, HOSTED))
+                self.assertNotIn(spill.ADMISSION_KEY, value)
+                self.assertNotIn(spill.HOSTED_SATURATED_KEY, value)
 
 
 if __name__ == "__main__":
