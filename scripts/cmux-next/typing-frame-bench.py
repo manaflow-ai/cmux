@@ -63,6 +63,7 @@ import argparse, csv, glob, json, math, os, re, shlex, socket, statistics, subpr
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -242,7 +243,9 @@ def set_arm(arm):
     row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}) or {}
     if row.get("value") is not arm:
         return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
-    time.sleep(0.5)  # the arm starts at rest: the switch reaches the open pages before the first key
+    # sleep-ok: a rest gap; the key is read per key (nothing to propagate), the gap keeps the set's own work out of
+    # the first measured key's frame.
+    time.sleep(0.5)
     return None
 
 
@@ -383,10 +386,23 @@ def rpc(method, params=None, timeout=30):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
+def layout_signature():
+    """What an action changes: the shown panes (kind, tab, focus, frame) and the windows' first responders."""
+    surfaces = rpc("debug.surfaces") or {}
+    panes = [(p.get("pane"), p.get("kind"), p.get("selected_tab"), p.get("focused"), json.dumps(p.get("frame")))
+             for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+    return json.dumps([panes, focus_report()["first_responders"]])
+
+
 def action(name, args=None, settle=0.0, focus=True, timeout=60):
+    """settle (s, the old fixed wait): wait for the action's change to show and the layout to stop changing."""
+    before = layout_signature() if settle else None
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        wait_until(lambda: layout_signature() != before, f"{name} to change the layout", timeout=max(5.0, settle * 4),
+                   raise_on_timeout=False)
+        wait_stable(layout_signature, f"the layout after {name}", timeout=max(10.0, settle * 6), interval=0.1, reads=4,
+                    raise_on_timeout=False)
     return reply
 
 
@@ -712,7 +728,9 @@ def measure_agentpane(phase, pid, pane, streams=()):
     for stream in streams:
         stream.start()
     if streams:
-        time.sleep(1.0)
+        # The streams run before the first key: each has made its first step.
+        wait_until(lambda: all(stream.calls >= 1 for stream in streams), "the streams' first step", timeout=30,
+                   raise_on_timeout=False)
     target = {"pane": pane}
     if LOAD.get("agentpane_engine") == "cef":
         target["target"] = "page"
@@ -838,7 +856,8 @@ def build_stress():
         if tab:
             stress.action("tab.focus", target=f"tab:{tab['id']}")
             action("terminal.sendText", {"text": "exec /bin/zsh -f\r"})
-            time.sleep(1)  # the prompt draws
+            wait_until(lambda: zsh_prompt(tab["id"]), "zsh -f's prompt in the stress pane", timeout=15,
+                       raise_on_timeout=False)
         LOAD["stress_pane"] = last["id"]
     return ws
 
@@ -868,7 +887,9 @@ def type_keys(count, params, column):
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    time.sleep(0.5)  # the last frame lands
+    # The last frame lands: a complete probe row for every key typed.
+    wait_until(lambda: sum(1 for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)) >= count,
+               "a probe row for the last key", timeout=5, raise_on_timeout=False)
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
     return rows, trips
 
@@ -962,7 +983,9 @@ def measure(surface, phase, params, column, pid, streams=()):
         sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", path],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), path)
     if streams:
-        time.sleep(1.0)  # the streams run before the first key
+        # The streams run before the first key: each has made its first step.
+        wait_until(lambda: all(stream.calls >= 1 for stream in streams), "the streams' first step", timeout=30,
+                   raise_on_timeout=False)
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
@@ -1034,6 +1057,27 @@ def measure(surface, phase, params, column, pid, streams=()):
     return entry
 
 
+def surface_panes():
+    surfaces = rpc("debug.surfaces", {"text": True}) or {}
+    return [p for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+
+
+def zsh_prompt(tab):
+    """The pane showing `tab` ends in a `zsh -f` prompt (`host% `)."""
+    for pane in surface_panes():
+        if pane.get("selected_tab") == tab:
+            lines = [line for line in (pane.get("text") or (pane.get("surface") or {}).get("text") or "").splitlines() if line.strip()]
+            return bool(lines) and lines[-1].rstrip().endswith(("%", "#"))
+    return False
+
+
+def workspace_shown(ws):
+    """A pane on screen shows one of workspace `ws`'s tabs (snapshot.get vs debug.surfaces)."""
+    tabs = {t.get("id") for w in workspaces() if w.get("id") == ws for sc in w.get("screens") or []
+            for p in sc.get("panes") or [] for t in p.get("tabs") or []}
+    return bool(tabs & {p.get("selected_tab") for p in surface_panes()})
+
+
 def named_workspace(name):
     """The id of the workspace named `name`, and its panes (snapshot.get)."""
     for w in workspaces():
@@ -1080,7 +1124,10 @@ def surface_terminal(phase, pid):
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
         ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 20) or (None, [])
         LOAD["terminal_ws"], LOAD["terminal_pane"] = ws, (panes[0].get("id") if panes else None)
-        time.sleep(2)  # the prompt draws
+        tab = next((t.get("id") for p in panes for t in p.get("tabs") or [] if t.get("kind") == "terminal"), None)
+        if tab:
+            wait_until(lambda: zsh_prompt(tab), "zsh -f's prompt in the typing workspace", timeout=20,
+                       raise_on_timeout=False)
     streams = []
     if phase == "load":
         make_load(LOAD["terminal_ws"])
@@ -1099,12 +1146,16 @@ def surface_home(phase, pid):
         ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("home typing")), 20) or (None, [])
         LOAD["home_ws"] = ws
         rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
-        time.sleep(1)  # the workspace shows
+        wait_until(lambda: workspace_shown(ws), "the home typing workspace shows", timeout=10, raise_on_timeout=False)
         opened = rpc("debug.home_native_fixture.open", {"new": True})
         note(f"home fixture in {ws}: {json.dumps(opened)[:160]}")
-        time.sleep(2)  # the transcript lays out
+        # The transcript lays out: the composer reports its geometry, then it and the rows stop changing.
+        wait_until(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), "the Home fixture's composer",
+                   timeout=20, raise_on_timeout=False)
+        wait_stable(lambda: (rpc("debug.home.drive", {"action": "geometry"}), rpc("debug.home.drive", {"action": "rows"})),
+                    "the Home fixture's transcript layout", timeout=20, interval=0.1, reads=5, raise_on_timeout=False)
     rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["home_ws"]}, "focus": True, "origin": "script"})
-    time.sleep(0.5)  # the workspace shows
+    wait_until(lambda: workspace_shown(LOAD["home_ws"]), "the home typing workspace shows", timeout=10, raise_on_timeout=False)
     if phase == "load":
         make_load(None)
     focused = rpc("debug.home.drive", {"action": "focus"})
@@ -1131,7 +1182,9 @@ def empty_draft():
         if opts.prefill:
             text = (SENTENCE * (opts.prefill // len(SENTENCE) + 1))[: opts.prefill]
             rpc("debug.home.drive", {"action": "type", "text": text})
-        time.sleep(0.3)  # the emptied (or filled) field lays out before the first measured key
+        # The emptied (or filled) field lays out before the first measured key: its geometry stops changing.
+        wait_stable(lambda: rpc("debug.home.drive", {"action": "geometry"}), "the Home composer's layout", timeout=10,
+                    interval=0.05, reads=4, raise_on_timeout=False)
 
 
 def surface_dock(phase, pid):
@@ -1235,7 +1288,9 @@ def run_session(session, phases=None, backdrop="default"):
             note(f"harness add: {json.dumps(added)[:300]}")
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
-            time.sleep(5)  # the grid settles
+            # The grid settles: the topology and the shown layout stop changing.
+            wait_stable(lambda: (json.dumps(workspaces(), sort_keys=True), layout_signature()), "the STRESS grid",
+                        timeout=60, interval=0.5, reads=4, raise_on_timeout=False)
         surfaces = opts.surfaces.split(",")
         global ROUND, ARM
         # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
