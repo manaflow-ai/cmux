@@ -47,7 +47,7 @@ import Testing
         // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
         #expect(body["machine"] as? String == DeviceMachine.current.id)
         #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
-        // remote.shareWithOwnDevicesByDefault off (the default): the hub hears nothing and keeps its default.
+        // The client called with its parameter default (false): the hub hears nothing and keeps its own default.
         #expect(body["shareWithOwnDevices"] == nil)
     }
 

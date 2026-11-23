@@ -66,7 +66,7 @@ interface DeviceRow {
   /** A one-way name of `machine` (`machineGroup`), listed so clients show one row per machine. */
   machine_group: string | null;
   /** 1 when the device's last registration sent `shareWithOwnDevices: true` (the host's setting
-   * `remote.shareWithOwnDevicesByDefault`, off by default): an unset switch then shares (sharesScreen). */
+   * `remote.shareWithOwnDevicesByDefault`, on by default): an unset switch then shares (sharesScreen). */
   share_own_default: number;
 }
 
@@ -246,7 +246,7 @@ export async function machineGroupOf(machine: string): Promise<string> {
  * Whether a host shares its screen with this account's devices. A switch the person set
  * (`mac_screen_chosen`) always wins: Stop Sharing, `share off`, or an explicit off. Unset, it is
  * `mac_screen_shared` (off, or on from a join), unless the host registered with
- * `shareWithOwnDevices` (its setting `remote.shareWithOwnDevicesByDefault`, off by default): then a
+ * `shareWithOwnDevices` (its setting `remote.shareWithOwnDevicesByDefault`, on by default): then a
  * Mac or Linux desktop of the account's own (`owner_kind` user) shares with the person's other
  * devices, so viewing your own machine asks for no Allow and no Share This Mac (Leo, 2026-11-18:
  * "the whole allow blah blah is so annoying"). A device of any other owner keeps sharing off.

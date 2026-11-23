@@ -163,13 +163,15 @@ fn refuses_identity(e: &(dyn std::error::Error + Send + Sync + 'static)) -> bool
         .is_some_and(|h| matches!(h.code.as_str(), "device_removed" | "device_key_mismatch"))
 }
 
-/// The setting `remote.shareWithOwnDevicesByDefault` (off by default) of a settings file's
+/// The setting `remote.shareWithOwnDevicesByDefault` (on by default) of a settings file's
 /// text: on, the hub lets the account's other devices view this Mac while its sharing switch
-/// was never set (PROTOCOL.md `shareWithOwnDevices`). Anything but `true` is off.
+/// was never set (PROTOCOL.md `shareWithOwnDevices`). Only an explicit `false` turns it off; no
+/// file, unreadable text or any other value leaves the default (Leo: "who's gonna walk over and
+/// click allow on a headless mac mini, or a remote macbook???").
 fn share_with_own_devices_from(text: Option<&str>) -> bool {
     text.and_then(crate::user_settings::document)
         .and_then(|doc| crate::user_settings::value(&doc, "remote.shareWithOwnDevicesByDefault"))
-        == Some(Value::Bool(true))
+        != Some(Value::Bool(false))
 }
 
 /// Signs in and registers this Mac (`POST /v1/devices` with `shareByJoin`, and
@@ -523,13 +525,13 @@ mod share_with_own_devices_tests {
     use super::share_with_own_devices_from as from;
 
     #[test]
-    fn only_an_explicit_true_turns_it_on() {
-        assert!(!from(None));
-        assert!(!from(Some("{}")));
-        assert!(!from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": false}}"#)));
-        assert!(!from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": "yes"}}"#)));
-        assert!(!from(Some("{not json")));
+    fn only_an_explicit_false_turns_it_off() {
+        assert!(from(None));
+        assert!(from(Some("{}")));
+        assert!(from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": "no"}}"#)));
+        assert!(from(Some("{not json")));
         assert!(from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": true}}"#)));
-        assert!(from(Some("{\n  // mine\n  \"remote.shareWithOwnDevicesByDefault\": true,\n}")));
+        assert!(!from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": false}}"#)));
+        assert!(!from(Some("{\n  // mine\n  \"remote.shareWithOwnDevicesByDefault\": false,\n}")));
     }
 }

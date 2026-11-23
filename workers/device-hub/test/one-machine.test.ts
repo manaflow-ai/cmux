@@ -103,10 +103,10 @@ describe("one machine, one device", () => {
 });
 
 /**
- * Same-account sharing with no Allow (Leo, 2026-11-18: "the whole allow blah blah is so annoying")
- * is opt-in while it is decided: a host turns it on with `shareWithOwnDevices` at registration, from
- * its setting `remote.shareWithOwnDevicesByDefault` (off by default). Without it the hub does what
- * it did before: an unset switch is off unless a join turned it on.
+ * Same-account sharing with no Allow (Leo, 2026-11-18: "the whole allow blah blah is so annoying"):
+ * a host turns it on with `shareWithOwnDevices` at registration, from its setting
+ * `remote.shareWithOwnDevicesByDefault` (on by default). Without it the hub does what it did
+ * before: an unset switch is off unless a join turned it on.
  */
 async function host(account: Awaited<ReturnType<typeof signIn>>, name: string, shareWithOwnDevices: boolean | undefined, platform: "macos" | "ios" | "linux" = "macos") {
   const d = await Device.create(account, name, platform);

@@ -73,7 +73,7 @@ public final class DeviceHub {
     /// (with its join's settings) and holds its sign-in, so this hub neither registers it
     /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
     @ObservationIgnored public var ownsDevice = true
-    /// Read at each registration: the setting `remote.shareWithOwnDevicesByDefault` (off by default), sent
+    /// Read at each registration: the setting `remote.shareWithOwnDevicesByDefault` (on by default), sent
     /// as `shareWithOwnDevices`. Set before ``start()``; nil sends nothing.
     @ObservationIgnored public var shareWithOwnDevices: (@MainActor () -> Bool)?
     @ObservationIgnored private var socketTask: Task<Void, Never>?

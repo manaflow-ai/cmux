@@ -1035,7 +1035,7 @@
             "text": "Your devices view it with no prompt"
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "cmux remote",
             "screen sharing",
