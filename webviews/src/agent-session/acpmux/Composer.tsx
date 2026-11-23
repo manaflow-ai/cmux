@@ -119,7 +119,7 @@ import {
   readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
-  useDraftActionsVersion,
+  onDraftActionsChanged,
   writePersistedDraft,
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -635,7 +635,6 @@ function ComposerFrame({
   useMenuPressGuard();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
-  const draftActionsVersion = useDraftActionsVersion();
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
   const openFileSearch = () => setFindingFiles(form.current?.parentElement ?? null);
@@ -1283,32 +1282,40 @@ function ComposerFrame({
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
   }, [switching]);
+  // Read again each time the native action map is installed or replaced (a reconnect), through a
+  // subscription rather than a render: a drop and its reconnect ("Waiting for the agent service")
+  // drew the composer again only to run this (Leo, 2026-11-22: "idk if the waiting for agent service
+  // bullshit has anything to do with it").
   useEffect(() => {
     let current = true;
-    void readDurableDraftState(sessionId).then((state) => {
-      if (!current) return;
-      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
-      // drafts, a dropped read): not while no client can ask yet.
-      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
-      // acpmux did not answer (its action map not installed yet, a connection that failed or
-      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
-      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
-      // merged it (the action map's next version runs this again). Before, an unanswered read
-      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
-      if (sessionId && !state) return;
-      applyDraftRead(sessionId, state?.draft);
-      // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
-      // caret after the text as it was (pages/shared/webSwap.ts).
-      if (takeWebSwapFocus("composer"))
-        requestAnimationFrame(() => {
-          focusRoute(field.current, "system", "the composer mounted");
-          field.current?.setCaret(Number.MAX_SAFE_INTEGER);
-        });
-    });
+    const read = () =>
+      void readDurableDraftState(sessionId).then((state) => {
+        if (!current) return;
+        // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+        // drafts, a dropped read): not while no client can ask yet.
+        if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
+        // acpmux did not answer (its action map not installed yet, a connection that failed or
+        // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+        // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+        // merged it (the action map's next version runs this again). Before, an unanswered read
+        // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+        if (sessionId && !state) return;
+        applyDraftRead(sessionId, state?.draft);
+        // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
+        // caret after the text as it was (pages/shared/webSwap.ts).
+        if (takeWebSwapFocus("composer"))
+          requestAnimationFrame(() => {
+            focusRoute(field.current, "system", "the composer mounted");
+            field.current?.setCaret(Number.MAX_SAFE_INTEGER);
+          });
+      });
+    read();
+    const off = onDraftActionsChanged(read);
     return () => {
       current = false;
+      off();
     };
-  }, [sessionId, draftActionsVersion, onDraftSettled]);
+  }, [sessionId, onDraftSettled]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
