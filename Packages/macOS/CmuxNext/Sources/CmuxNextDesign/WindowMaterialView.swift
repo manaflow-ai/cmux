@@ -130,6 +130,12 @@ public final class WindowMaterialView: NSView {
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
+    /// The art's blurred copy under Frosted (``artContents(for:)``), and the job making the next one.
+    var blurredArt: ArtBlur.Copy?
+    var artBlurJob: Task<Void, Never>?
+    /// Holds the video and the living wallpaper, clipped to this view: under Frosted they run
+    /// ``liveBlurReach(_:)`` past every edge, so their blur's fading rim falls outside it.
+    let liveArtClip = NSView()
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -166,12 +172,17 @@ public final class WindowMaterialView: NSView {
         artView.layer?.masksToBounds = true
         artView.isHidden = true
         addSubview(artView)
-        videoView.frame = bounds
+        liveArtClip.wantsLayer = true
+        liveArtClip.frame = bounds
+        liveArtClip.autoresizingMask = [.width, .height]
+        liveArtClip.layer?.masksToBounds = true
+        addSubview(liveArtClip)
+        videoView.frame = liveArtClip.bounds
         videoView.autoresizingMask = [.width, .height]
-        addSubview(videoView)
-        shaderView.frame = bounds
+        liveArtClip.addSubview(videoView)
+        shaderView.frame = liveArtClip.bounds
         shaderView.autoresizingMask = [.width, .height]
-        addSubview(shaderView)
+        liveArtClip.addSubview(shaderView)
         // The living wallpaper moves on the video wallpaper's terms, through its observers.
         shaderView.sight = { [weak videoView] in (videoView?.screensAsleep ?? false, videoView?.sessionInactive ?? false) }
         videoView.onSightChange = { [weak shaderView] closing in shaderView?.sightChanged(closing: closing) }
@@ -427,26 +438,36 @@ public final class WindowMaterialView: NSView {
 
     func showArt(_ image: NSImage?) {
         artImage = image
-        artView.layer?.contents = artImage
+        artView.layer?.contents = artContents(for: image)
         artView.isHidden = hidesArt || artImage == nil
         applyPlacement()
         noteGlassSourceChange()
     }
 
     /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
-    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    /// 0 clears the blur. The picture takes a blurred copy (``ArtBlur``): a filter on its
+    /// aspect-filled layer drew it in the bottom-left. Filters are made for each view: they are
+    /// mutable objects.
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, shaderView as NSView] {
+        if artImage != nil { artView.layer?.contents = artContents(for: artImage) }
+        // The video and living wallpaper change every frame, so they keep a live filter: the blur
+        // alone. A CIAffineClamp before it (an infinite extent) filled only the bottom left at 2x,
+        // as it did on the still (scripts/measure/frosted-art-2x.sh, cmux#51381). The views run past
+        // the clip instead, so the blur's edges read the picture and its fading rim is cut off.
+        let reach = Self.liveBlurReach(radius)
+        for view in [videoView as NSView, shaderView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
-            // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
-            // so the picture keeps no translucent rim.
+            view.frame = liveArtClip.bounds.insetBy(dx: -reach, dy: -reach)
             view.layer?.filters = radius > 0
-                ? [CIFilter(name: "CIAffineClamp"), CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])]
-                    .compactMap { $0 } : nil
+                ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 } : nil
         }
     }
+
+    /// How far a blurred video or living wallpaper runs past each edge, in points: three times the
+    /// blur's radius, where a Gaussian's weight is spent.
+    static func liveBlurReach(_ radius: Int) -> CGFloat { CGFloat(max(radius, 0) * 3) }
 
     /// The backdrop behind `window`'s content: its content view, or a direct subview of it.
     public static func backdrop(of window: NSWindow?) -> WindowMaterialView? {
