@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   aptClosureProblems,
   basePackageProblems,
@@ -40,6 +41,15 @@ const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
+/** Whether `want` is the release right after `pin`: the next patch, minor (patch 0) or major (minor and patch 0). */
+function nextRelease(pin: string, want: string): boolean {
+  const [a, b] = [pin, want].map((v) => v.split(/[-+]/)[0]!.split(".").map(Number));
+  if (b![0] === a![0]! + 1) return b![1] === 0 && b![2] === 0;
+  if (b![0] !== a![0]) return false;
+  if (b![1] === a![1]! + 1) return b![2] === 0;
+  return b![1] === a![1] && b![2] === a![2]! + 1;
+}
+
 function problemsOf(raw: unknown): string[] {
   try {
     validateInputsLock(raw);
@@ -53,9 +63,9 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261122T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
@@ -547,11 +557,62 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.2.3 is pinned from release cmux-rd-v0.2.3 (#39099, #39159, run 42567226980) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.8 is pinned from release cmux-rd-v0.2.8 (#49894, run 45005880299) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.3"), sha256: "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8", size: 7186170 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.8"), sha256: "cb62708f01683dc5b18da85f98c2dc8dc5e847598ab957c1d4f3b49cff5d230b", size: 9785324 });
+    // 0.2.9 (the own-display fix, #50463) is the release after it; the 0.2.9 pin PR clears this, as #50100 did for 0.2.8.
+    expect(pinned.pendingRelease).toBe("0.2.9");
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
+  });
+
+  // A joined or Cloud Linux machine runs the cmux-rd these pins name, and the viewer speaks the
+  // crate's version: a pin left behind the crate hands the machine a host many fixes old (0.2.3
+  // against 0.2.7, screen share part 9). Every cmux-rd pin (this lock, and any acpmux source that
+  // names a cmux-rd-v<V> release URL) must be at least cmux-rd-host's crate version.
+  // One exception, for the window between a crate bump and its release (the release builds from
+  // the bump's merge commit, so the bump cannot carry the pin): the lock's cmux-rd entry names
+  // the crate version as pendingRelease, and every pin is the release just before it. The PR
+  // that pins the published release clears the marker; a marker left behind fails too.
+  test("no cmux-rd pin falls behind cmux-rd-host's crate version, but by one pending release the lock names", () => {
+    const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const cargo = readFileSync(path.join(repo, "cmux-tui/crates/cmux-rd-host/Cargo.toml"), "utf8");
+    const packageTable = cargo.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0] ?? "";
+    const crate = /^version\s*=\s*"(\d+\.\d+\.\d+[^"]*)"/m.exec(packageTable)?.[1];
+    expect(crate).toBeDefined();
+    const parts = (v: string) => v.split(/[-+]/)[0]!.split(".").map(Number);
+    const behind = (pin: string, want: string) => {
+      const [a, b] = [parts(pin), parts(want)];
+      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+      return false;
+    };
+    const rd = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
+    const pending = rd.pendingRelease;
+    const pins = [{ where: "images/cmux-vm/inputs.lock.json", version: rd.version }];
+    const acpmux = path.join(repo, "cmux-tui/crates/acpmux/src");
+    const sources = readdirSync(acpmux, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".rs"));
+    for (const file of sources) {
+      for (const m of readFileSync(path.join(acpmux, file), "utf8").matchAll(/releases\/download\/cmux-rd-v(\d+\.\d+\.\d+[^/"]*)\//g)) {
+        pins.push({ where: `cmux-tui/crates/acpmux/src/${file}`, version: m[1]! });
+      }
+    }
+    expect(pins.filter((p) => behind(p.version, crate!) && !(pending === crate && nextRelease(p.version, crate!))).map((p) => `${p.where}: cmux-rd ${p.version} is behind the crate's ${crate}${pending === undefined ? "" : ` (pendingRelease ${pending})`}`)).toEqual([]);
+    const trailing = pins.some((p) => behind(p.version, crate!));
+    if (pending !== undefined) expect(trailing ? [] : [`pendingRelease ${pending} is left in the lock with every pin at the crate's ${crate}: clear it`]).toEqual([]);
+  });
+
+  test("a crate one release ahead of the pin is the only gap pendingRelease covers", () => {
+    expect(nextRelease("0.2.7", "0.2.8")).toBe(true);
+    expect(nextRelease("0.2.7", "0.3.0")).toBe(true);
+    expect(nextRelease("0.2.7", "1.0.0")).toBe(true);
+    expect(nextRelease("0.2.6", "0.2.8")).toBe(false);
+    expect(nextRelease("0.2.7", "0.3.1")).toBe(false);
+    expect(nextRelease("0.2.7", "0.2.7")).toBe(false);
+    expect(problemsOf(withRd({ pendingRelease: "next" }))).toContain(`programs[${rdIndex(withRd())}].pendingRelease: must be a version X.Y.Z`);
+    const raw = fresh();
+    const other = raw.programs.findIndex((p: { name: string }) => p.name !== "cmux-rd");
+    raw.programs[other].pendingRelease = "1.0.0";
+    expect(problemsOf(raw)).toContain(`programs[${other}].pendingRelease: only cmux-rd has a pending release`);
   });
 
   test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {

@@ -98,6 +98,59 @@ fn relay_op(id: &str, op: &str) -> Value {
 }
 
 #[test]
+fn lifecycle_fences_survive_the_credential_provider_roundtrip() {
+    let mut line = relay_op("fenced", "cloud.machine.pause");
+    line["expected_backend"] = json!("https://cloud-api.cmux.dev");
+    line["expected_team"] = json!("team_a");
+    line["expected_revision"] = json!("7");
+    let (f, outs) = setup(&[Probe::new("fenced", true, vec![line])]);
+    let rx = credential_provider(&f);
+    f.install("cmux/fenced");
+    let call = next_event(&rx, "apps-provider-request");
+    assert_eq!(call["params"]["expected_backend"], "https://cloud-api.cmux.dev");
+    assert_eq!(call["params"]["expected_team"], "team_a");
+    assert_eq!(call["params"]["expected_revision"], "7");
+    assert_eq!(call["params"]["idempotency_key"], "k1");
+    assert_eq!(call["params"]["origin"], "cli");
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            call["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":{"machine":{"status":"pausing"}},"revision":"8","replayed":true}),
+        )
+        .unwrap();
+    let answers = frames(&outs[0], 1);
+    assert_eq!(answers[0]["revision"], "8");
+    assert_eq!(answers[0]["replayed"], true);
+}
+
+#[test]
+fn partial_or_malformed_lifecycle_fences_never_reach_a_provider() {
+    let mut lines = vec![];
+    for (id, backend, team, revision) in [
+        ("missing-team", json!("https://cloud-api.cmux.dev"), Value::Null, json!("7")),
+        ("missing-backend", Value::Null, json!("team_a"), json!("7")),
+        ("missing-revision", json!("https://cloud-api.cmux.dev"), json!("team_a"), Value::Null),
+        ("bad-revision", json!("https://cloud-api.cmux.dev"), json!("team_a"), json!("seven")),
+    ] {
+        let mut line = relay_op(id, "cloud.machine.pause");
+        line["expected_backend"] = backend;
+        line["expected_team"] = team;
+        line["expected_revision"] = revision;
+        lines.push(line);
+    }
+    let (f, outs) = setup(&[Probe::new("badfence", true, lines)]);
+    let rx = credential_provider(&f);
+    f.install("cmux/badfence");
+    let answers = frames(&outs[0], 4);
+    assert!(
+        answers.iter().all(|a| a["type"] == "relay.error" && a["code"] == "validation.invalid")
+    );
+    assert!(!rx.try_iter().any(|v| v["event"] == "apps-provider-request"));
+}
+
+#[test]
 fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() {
     let lines = vec![
         relay_op("r1", "cloud.machine.connect_info"),
@@ -149,7 +202,7 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
     );
     assert_eq!(
         answers[1],
-        json!({ "type": "relay.session", "id": "r2", "signed_in": true, "team": "team_a" })
+        json!({ "type": "relay.session", "id": "r2", "signed_in": true, "team": "team_a", "backend": null })
     );
 }
 
