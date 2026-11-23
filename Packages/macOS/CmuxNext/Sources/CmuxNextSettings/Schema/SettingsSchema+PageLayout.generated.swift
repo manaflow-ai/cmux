@@ -74,6 +74,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case cloudModels
         /// Settings > Customize: every customization one click away (Leo 2026-11-22: "it should just be as easy as a click toggle"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize.
         case customizeChecklist
+        /// Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations.
+        case integrationsHub
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }

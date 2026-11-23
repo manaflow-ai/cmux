@@ -10,7 +10,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
-        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
+        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, integrationsCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -316,6 +316,13 @@ extension SettingsPageLayout {
         id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
         groups: [],
         lead: [.keys]
+    )
+
+    /// The integrations hub (Leo 2026-11-23: "an aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you etc."): linked accounts, the approvals waiting for the person, the rules, the pause switch and the audit log.
+    private static let integrationsCategory = CategorySpec(
+        id: "integrations", title: SettingsText.keyed("settings.category.integrations", "Integrations"), symbol: "link",
+        groups: [],
+        lead: [.integrationsHub]
     )
 
     /// Devices holds what the Server page showed; its old links open it (legacy_ids).
