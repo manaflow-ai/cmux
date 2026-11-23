@@ -17,7 +17,8 @@ by commit: each is a skip to audit, the only place a false skip the old gates di
 It prints, per job, how many of the pull requests each router runs it on, which ones changed, and, with --minutes
 (a JSON object of job id -> minutes per run), the job-minutes each spends over the window. It fails when the new
 router raises on a commit, or skips a job on a pull request that changes a file inside one of the job's own crates
-(a routing that drops the crate a job tests is broken whatever the graph says).
+(a routing that drops the crate a job tests is broken whatever the graph says); for a binaries_only job a crate's
+tests/, benches/ and examples/ are not part of it (own_crate_changes).
 
 cmux-tui-spec.yml's router-replay job runs it when a pull request changes the router (affected_jobs.py SELF).
 """
@@ -112,6 +113,24 @@ def gates_before_router(router, tree, changed: list[str], ref: str, jobs) -> dic
     return ran
 
 
+def own_crate_changes(router, job, changed: list[str]) -> list[str]:
+    """The changed paths inside one of JOB's own crates, as the job uses them: a binaries_only job (cmux-next.yml's
+    daemon-test runs the published binaries) builds no test, bench or example of its crates, so a change under a
+    crate's tests/, benches/ or examples/ is not its own (cmux#50031: a cmux-tui stage test). Every other path under
+    the crate, src/ and the manifest included, still is."""
+    unbuilt = router.cargo_test_verdict.UNBUILT_TARGET_DIRS if job.binaries_only else ()
+    own = []
+    for path in changed:
+        for crate in job.crates:
+            if router.under(path, crate):
+                rest = path[len(crate.rstrip("/")) + 1:]
+                if "/" in rest and rest.split("/", 1)[0] in unbuilt:
+                    continue
+                own.append(path)
+                break
+    return own
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base-ref", default="HEAD^1")
@@ -167,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 totals[job.id]["new"] += now
                 totals[job.id]["added"] += now and not was
                 totals[job.id]["dropped"] += was and not now
-                own = [p for p in changed if any(new.under(p, crate) for crate in job.crates)]
+                own = own_crate_changes(new, job, changed)
                 if own and not now:
                     failures.append(f"{sha[:12]}: {job.id} skipped although {own[0]} is in its own crate")
             rows.append({"sha": sha, "files": len(changed), "old": run_old, "new": run_new, "gates": run_gates,

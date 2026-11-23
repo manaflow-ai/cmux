@@ -21,6 +21,12 @@
 //! makes the table. `#[ignore]`d: the script runs it (`--ignored`), not every test run.
 //! Env: `NETCOND_PROFILES` (comma list, default every profile), `NETCOND_SCALES` (1x,10x,100x),
 //! `NETCOND_RUNS` (5), `NETCOND_SEED_BASE` (0), `NETCOND_PROFILES_FILE` (the crate's file).
+//!
+//! The Cloud machine peer: `NETCOND_RELAY=<profile>` puts a second shaped hop between the phone's
+//! link and the daemon, so the daemon stands for the one a Cloud machine runs and the hop for
+//! the relay between the signed-in Mac and that machine (PROTOCOL.md `cloud-acpmux`: the phone
+//! reaches a Cloud machine through the Mac's link to it). Each hop ends its own TCP connection,
+//! as the Mac does. Rows then name both hops: `lte@1+relay-80@1`.
 
 #![cfg(unix)]
 
@@ -65,6 +71,41 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
 }
 
+/// The second hop of the Cloud machine peer (`NETCOND_RELAY`), if this run has one.
+static RELAY: std::sync::OnceLock<Option<LinkProfile>> = std::sync::OnceLock::new();
+
+fn relay() -> Option<&'static LinkProfile> {
+    RELAY
+        .get_or_init(|| {
+            let name =
+                std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+            let file = match std::env::var("NETCOND_PROFILES_FILE") {
+                Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+                Err(_) => ProfileFile::builtin(),
+            };
+            Some(
+                file.get(name.trim())
+                    .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+                    .clone(),
+            )
+        })
+        .as_ref()
+}
+
+/// A row's profile: the phone's link, then the relay hop when the peer is a Cloud machine.
+fn label(profile: &LinkProfile) -> String {
+    profile.label(relay())
+}
+
+/// The phone's link to `upstream`, and the relay hop behind it when there is one.
+async fn link(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    seed: u64,
+) -> std::io::Result<(Shaper, Option<Shaper>)> {
+    Shaper::start_through(upstream, profile.clone(), relay(), seed, &Trace::new()).await
+}
+
 fn emit(
     profile: &LinkProfile,
     phase: &str,
@@ -74,17 +115,14 @@ fn emit(
     run: u64,
     seed: u64,
 ) {
-    let row = json!({"surface": "terminal", "profile": format!("{}@{}", profile.name, profile.version),
+    let row = json!({"surface": "terminal", "profile": label(profile),
         "phase": phase, "scale": scale, "metric": metric,
         "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": seed});
     println!("NETCOND {row}");
 }
 
 fn error(profile: &LinkProfile, phase: &str, scale: &str, run: u64, what: &str) {
-    println!(
-        "NETCOND-ERROR terminal {}@{} {phase} {scale} run {run}: {what}",
-        profile.name, profile.version
-    );
+    println!("NETCOND-ERROR terminal {} {phase} {scale} run {run}: {what}", label(profile));
 }
 
 fn ms(duration: Duration) -> f64 {
@@ -133,7 +171,8 @@ fn surface_of(data: &Value) -> u64 {
 }
 
 impl Daemon {
-    fn start(scales: &[String]) -> Self {
+    /// A fresh daemon (private socket, state and config) and a control client on it.
+    fn launch() -> (Self, SyncClient) {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-netcond-{}-{stamp}", std::process::id()));
@@ -166,15 +205,29 @@ impl Daemon {
             std::thread::sleep(Duration::from_millis(25));
         };
         stream.set_read_timeout(Some(Duration::from_secs(120))).unwrap();
-        let mut client = SyncClient {
+        let client = SyncClient {
             writer: stream.try_clone().unwrap(),
             reader: BufReader::new(stream),
             next: 0,
         };
-        let base = client
-            .call(json!({"cmd": "new-workspace", "name": "netcond", "cols": 120, "rows": 40}));
+        (
+            Self {
+                child,
+                dir,
+                socket,
+                history: Vec::new(),
+                ticker: 0,
+                pane: Value::Null,
+                serial: AtomicU64::new(0x800),
+            },
+            client,
+        )
+    }
+
+    /// The pane that holds `surface`.
+    fn pane_of(client: &mut SyncClient, surface: &Value) -> Value {
         let tree = client.call(json!({"cmd": "list-workspaces"}));
-        let pane = tree["workspaces"]
+        tree["workspaces"]
             .as_array()
             .unwrap()
             .iter()
@@ -182,13 +235,18 @@ impl Daemon {
             .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
             .find(|pane| {
                 pane["tabs"].as_array().into_iter().flatten().any(|tab| {
-                    tab == &base["surface"]
-                        || tab["id"] == base["surface"]
-                        || tab["surface"] == base["surface"]
+                    tab == surface || &tab["id"] == surface || &tab["surface"] == surface
                 })
             })
             .map(|pane| pane["id"].clone())
-            .unwrap_or_else(|| panic!("no pane holds the base surface: {tree}"));
+            .unwrap_or_else(|| panic!("no pane holds the base surface: {tree}"))
+    }
+
+    fn start(scales: &[String]) -> Self {
+        let (mut daemon, mut client) = Self::launch();
+        let base = client
+            .call(json!({"cmd": "new-workspace", "name": "netcond", "cols": 120, "rows": 40}));
+        let pane = Self::pane_of(&mut client, &base["surface"]);
         let mut serial = 0x100_u64;
         let mut tab = |client: &mut SyncClient, script: String| {
             serial += 1;
@@ -224,7 +282,10 @@ impl Daemon {
                 std::thread::sleep(Duration::from_millis(200));
             }
         }
-        Self { child, dir, socket, history, ticker, pane, serial: AtomicU64::new(0x800) }
+        daemon.history = history;
+        daemon.ticker = ticker;
+        daemon.pane = pane;
+        daemon
     }
 
     /// A new tab in the bench's pane running `script`; its surface.
@@ -298,7 +359,8 @@ enum Inbound {
 /// One phone channel to the daemon over the shaper.
 struct Conn {
     writer: tokio::net::tcp::OwnedWriteHalf,
-    inbound: mpsc::UnboundedReceiver<(Instant, Inbound)>,
+    /// Each item with when it was read and the bytes read on the connection up to it.
+    inbound: mpsc::UnboundedReceiver<(Instant, u64, Inbound)>,
     next: u64,
     down_bytes: Arc<AtomicU64>,
     up_bytes: u64,
@@ -321,12 +383,11 @@ impl Conn {
             let mut line = String::new();
             loop {
                 line.clear();
-                match lines.read_line(&mut line).await {
+                let read = match lines.read_line(&mut line).await {
                     Ok(0) | Err(_) => return,
-                    Ok(n) => {
-                        counted.fetch_add(n as u64, Ordering::SeqCst);
-                    }
-                }
+                    Ok(n) => n as u64,
+                };
+                let total = counted.fetch_add(read, Ordering::SeqCst) + read;
                 let at = Instant::now();
                 let parsed = serde_json::from_str::<Value>(&line);
                 tapped.lock().unwrap().down(parsed.as_ref().ok(), line.len());
@@ -350,7 +411,7 @@ impl Conn {
                         .unwrap_or_default();
                     Inbound::Output { surface, data, vt_state: event == "vt-state" }
                 };
-                if send.send((at, item)).is_err() {
+                if send.send((at, total, item)).is_err() {
                     return;
                 }
             }
@@ -385,7 +446,7 @@ impl Conn {
     ) -> Option<Value> {
         let deadline = Instant::now() + WAIT;
         loop {
-            let (at, item) =
+            let (at, _, item) =
                 tokio::time::timeout_at(deadline, self.inbound.recv()).await.ok()??;
             match item {
                 Inbound::Reply(got, value) if got == id => return Some(value),
@@ -407,7 +468,7 @@ impl Conn {
     ) -> Option<Instant> {
         let mut seen = Vec::new();
         loop {
-            let (at, item) =
+            let (at, _, item) =
                 tokio::time::timeout_at(deadline, self.inbound.recv()).await.ok()??;
             if let Inbound::Output { surface: got, data, vt_state: is_state } = item {
                 if got != surface || (vt_state && !is_state) {
@@ -478,9 +539,8 @@ impl Bench {
         run: u64,
         seed: u64,
     ) {
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "cold", scale, run, &format!("shaper: {e}")),
         };
         let started = Instant::now();
@@ -596,9 +656,8 @@ impl Bench {
 
     async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
         let scale = "1x";
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
@@ -634,7 +693,7 @@ impl Bench {
                 match timeout(wait.saturating_duration_since(Instant::now()), conn.inbound.recv())
                     .await
                 {
-                    Ok(Some((at, Inbound::Output { surface: got, .. }))) if got == surface => {
+                    Ok(Some((at, _, Inbound::Output { surface: got, .. }))) if got == surface => {
                         if at >= back {
                             break Some(at);
                         }
@@ -733,6 +792,480 @@ fn terminal_attach_under_link_profiles() {
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Duress (Leo, 2026-11-22, ask-bb9c69b84e: "testing under duress"): the phone's open path, the
+// Home first window and the terminal reattach, against a daemon that holds many workspaces and a
+// terminal with a long scrollback and output streaming into it while the measurement runs, over
+// the shaped link, next to an idle fixture (no shaper, no stream, small counts) for the 2x check.
+//
+// The requests are the phone's at each daemon (scripts/measure/mobile-open-path.py's forms):
+// - home: WorkspaceSync.prepare's one write: set-client-info, identify, subscribe {tree_events:
+//   deltas}, list-agents, list-workspaces, with {limit: 40} when the daemon's identify lists
+//   `list-workspaces-page-v1` (ListFirstWindow). First content: the last of the five replies.
+// - reattach: DaemonTerminalSession's reattach on a fresh connection, its input lane opening
+//   beside it: resolve-terminal, then set-client-info + identify, then attach-surface (3 round
+//   trips); with `attach-terminal-id-v1` listed, set-client-info, identify and attach-surface
+//   {terminal_id} in one write (1 round trip). First content: the surface's first vt-state;
+//   interactive: a typed key's echo on the attach stream.
+// The phone remembers the capabilities from its earlier connect: a probe identify before the runs.
+//
+// Env: NETCOND_DURESS_PROFILES (lte,lossy-3), NETCOND_RUNS (5), NETCOND_SEED_BASE (0),
+// NETCOND_IDLE_WORKSPACES (5), NETCOND_IDLE_SCROLLBACK (1000), NETCOND_DURESS_WORKSPACES (50),
+// NETCOND_DURESS_SCROLLBACK (10000), NETCOND_DURESS_STREAM_LINES (50 lines of ~80 bytes per
+// 20 ms tick). Rows: profile `none` (no shaper) or `NAME@VERSION`, phase `home` or `reattach`,
+// scale the fixture (`idle` or `duress`), plus phase `fixture` (the daemon's capabilities and the
+// stream's measured rate).
+
+const ATTACH_TERMINAL_ID_CAPABILITY: &str = "attach-terminal-id-v1";
+const FIRST_WINDOW_CAPABILITY: &str = "list-workspaces-page-v1";
+/// ListFirstWindow.limit.
+const FIRST_WINDOW_LIMIT: u64 = 40;
+const INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+const REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// The Mac pane's grid (the phone attaches at COLS x ROWS).
+const MAC_COLS: u64 = 160;
+const MAC_ROWS: u64 = 50;
+
+struct Fixture {
+    name: &'static str,
+    workspaces: u64,
+    scrollback: u64,
+    stream_lines: u64,
+    /// `none` (no shaper) or a link profile.
+    links: Vec<Option<LinkProfile>>,
+}
+
+/// The duress daemon: `workspaces` workspaces, one terminal (by `terminal_id`) with `scrollback`
+/// lines drawn, then output streaming into it until the daemon's directory goes, and `cat`
+/// echoing what is typed.
+struct OpenDaemon {
+    daemon: Daemon,
+    surface: u64,
+    terminal_id: String,
+    capabilities: Vec<String>,
+}
+
+fn duress_emit(link: &str, phase: &str, fixture: &str, metric: &str, value: Option<f64>, run: u64) {
+    let row = json!({"surface": "terminal", "profile": link, "phase": phase, "scale": fixture,
+        "metric": metric, "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": run});
+    println!("NETCOND {row}");
+}
+
+fn duress_error(link: &str, phase: &str, fixture: &str, run: u64, what: &str) {
+    println!("NETCOND-ERROR terminal {link} {phase} {fixture} run {run}: {what}");
+}
+
+impl OpenDaemon {
+    fn start(fixture: &Fixture) -> Self {
+        let (daemon, mut client) = Daemon::launch();
+        let base = client.call(json!({"cmd": "new-workspace", "name": "netcond-open",
+            "cols": MAC_COLS, "rows": MAC_ROWS}));
+        for index in 1..fixture.workspaces {
+            client.call(json!({"cmd": "new-workspace", "name": format!("netcond-ws-{index}"),
+                "cols": MAC_COLS, "rows": MAC_ROWS}));
+        }
+        let pane = Daemon::pane_of(&mut client, &base["surface"]);
+        let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x200);
+        // The stream starts once the scrollback is drawn (the go file) and stops when the
+        // daemon's directory is removed, so no writer outlives the bench.
+        let go = daemon.dir.join("stream-go");
+        let go = go.display();
+        let lines = fixture.scrollback;
+        let stream = if fixture.stream_lines > 0 {
+            format!(
+                "(while [ ! -f '{go}' ]; do sleep 0.05; done; exec awk 'BEGIN{{for(n=0;;){{for(i=0;i<{per};i++) printf \"stream %09d an agent build log line streaming into the attached terminal\\n\", n++; fflush(); if (system(\"[ -f {go} ] && sleep 0.02\") != 0) exit}}}}') & ",
+                per = fixture.stream_lines
+            )
+        } else {
+            String::new()
+        };
+        let script = format!(
+            "awk 'BEGIN{{for(i=0;i<{lines};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; printf 'READY-open\\n'; {stream}exec cat"
+        );
+        let surface = surface_of(&client.call(json!({"cmd": "new-tab", "pane": pane,
+            "terminal_id": terminal_id, "cols": MAC_COLS, "rows": MAC_ROWS,
+            "env": {"SHELL": "/bin/sh"}, "shell_args": ["-c", script]})));
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            let screen = client.call(json!({"cmd": "read-screen", "surface": surface}));
+            if screen.to_string().contains("READY-open") {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the scrollback did not finish drawing");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if fixture.stream_lines > 0 {
+            fs::write(daemon.dir.join("stream-go"), b"go").unwrap();
+        }
+        let capabilities = client.call(json!({"cmd": "identify"}))["capabilities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c.as_str().map(str::to_owned))
+            .collect();
+        Self { daemon, surface, terminal_id, capabilities }
+    }
+
+    fn lists(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|c| c == capability)
+    }
+}
+
+fn lists(capabilities: &Value, capability: &str) -> bool {
+    capabilities.as_array().into_iter().flatten().any(|c| c.as_str() == Some(capability))
+}
+
+/// set-client-info of the phone's setup batch (WorkspaceSync.prepare).
+fn setup_client_info() -> Value {
+    json!({"name": "bench iPhone", "kind": "ios", "device_kind": "iphone",
+        "device_name": "bench iPhone", "device_id": "bench-device-0001",
+        "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]})
+}
+
+/// set-client-info of the phone's attach channel (DaemonTerminalSession).
+fn attach_client_info() -> Value {
+    json!({"name": "bench iPhone", "kind": "ios", "device_kind": "iphone",
+        "device_name": "bench iPhone", "device_id": "bench-device-0001",
+        "capabilities": ["size-lease-v2", "size-lease-v1", "shared-sizing-v1", "host-grid-view-v1"]})
+}
+
+/// attach-surface as the phone sends it to a daemon with `capabilities`.
+fn phone_attach_params(surface: u64, capabilities: &Value) -> Value {
+    let mut params = json!({"surface": surface});
+    if lists(capabilities, INITIAL_SIZE_CAPABILITY) {
+        params["cols"] = json!(COLS);
+        params["rows"] = json!(ROWS);
+    }
+    if lists(capabilities, REPLAY_HISTORY_ROWS_CAPABILITY) {
+        params["replay_history_rows"] = json!(0);
+    }
+    params
+}
+
+/// Until reply `id` is ok and `surface`'s first vt-state came (either order): when, and the
+/// bytes read on the connection up to it.
+async fn first_state(conn: &mut Conn, id: u64, surface: u64) -> Result<(Instant, u64), String> {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| "no vt-state within the bound".to_owned())?
+            .ok_or("the connection closed")?;
+        match item {
+            Inbound::Reply(got, reply) if got == id && reply["ok"] != json!(true) => {
+                return Err(format!("attach-surface failed: {reply}"));
+            }
+            Inbound::Output { surface: got, vt_state: true, .. } if got == surface => {
+                return Ok((at, total));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Until every reply of `ids` came, each ok: when the last did, the bytes up to it, the replies.
+async fn all_replies(conn: &mut Conn, ids: &[u64]) -> Result<(Instant, u64, Vec<Value>), String> {
+    let deadline = Instant::now() + WAIT;
+    let mut pending: Vec<u64> = ids.to_vec();
+    let mut replies = Vec::new();
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| format!("replies {pending:?} missing at the bound"))?
+            .ok_or("the connection closed")?;
+        if let Inbound::Reply(got, reply) = item
+            && let Some(index) = pending.iter().position(|id| *id == got)
+        {
+            if reply["ok"] != json!(true) {
+                return Err(format!("request {got} failed: {reply}"));
+            }
+            pending.remove(index);
+            replies.push(reply);
+            if pending.is_empty() {
+                return Ok((at, total, replies));
+            }
+        }
+    }
+}
+
+struct OpenSample {
+    first_content_ms: f64,
+    interactive_ms: Option<f64>,
+    bytes_down: u64,
+    bytes_up: u64,
+    round_trips: u64,
+    /// home: the workspaces the first window holds.
+    shown: Option<u64>,
+}
+
+/// The Home tab's first window on a fresh connection.
+async fn home_once(addr: std::net::SocketAddr, daemon: &OpenDaemon) -> Result<OpenSample, String> {
+    let started = Instant::now();
+    let mut conn = Conn::open(addr).await.map_err(|e| format!("connect: {e}"))?;
+    let mut list = json!({});
+    if daemon.lists(FIRST_WINDOW_CAPABILITY) {
+        list["limit"] = json!(FIRST_WINDOW_LIMIT);
+    }
+    let ids = conn
+        .send(vec![
+            ("set-client-info", setup_client_info()),
+            ("identify", json!({})),
+            ("subscribe", json!({"tree_events": "deltas"})),
+            ("list-agents", json!({})),
+            ("list-workspaces", list),
+        ])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (at, bytes_down, replies) = all_replies(&mut conn, &ids).await?;
+    let list_id = ids.last().copied();
+    let shown = replies
+        .iter()
+        .find(|reply| reply["id"].as_u64() == list_id)
+        .and_then(|reply| reply["data"]["workspaces"].as_array())
+        .map(|rows| rows.len() as u64);
+    Ok(OpenSample {
+        first_content_ms: ms(at - started),
+        interactive_ms: None,
+        bytes_down,
+        bytes_up: conn.up_bytes,
+        round_trips: 1,
+        shown,
+    })
+}
+
+/// The reattach on the attach channel: the first vt-state, the bytes read to it, round trips.
+async fn attach_path(conn: &mut Conn, daemon: &OpenDaemon) -> Result<(Instant, u64, u64), String> {
+    let surface = daemon.surface;
+    if daemon.lists(ATTACH_TERMINAL_ID_CAPABILITY) {
+        let mut params = phone_attach_params(surface, &json!(daemon.capabilities));
+        params["terminal_id"] = json!(daemon.terminal_id);
+        let ids = conn
+            .send(vec![
+                ("set-client-info", attach_client_info()),
+                ("identify", json!({})),
+                ("attach-surface", params),
+            ])
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+        let (at, bytes) = first_state(conn, ids[2], surface).await?;
+        return Ok((at, bytes, 1));
+    }
+    let ids = conn
+        .send(vec![("resolve-terminal", json!({"terminal_id": daemon.terminal_id}))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (_, _, resolved) = all_replies(conn, &ids).await?;
+    if resolved.first().map(|r| r["data"]["surface"].clone()) != Some(json!(surface)) {
+        return Err(format!("resolve-terminal named another surface: {resolved:?}"));
+    }
+    let ids = conn
+        .send(vec![("set-client-info", attach_client_info()), ("identify", json!({}))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (_, _, setup) = all_replies(conn, &ids).await?;
+    let capabilities = setup
+        .iter()
+        .find(|reply| reply["id"].as_u64() == ids.last().copied())
+        .map(|reply| reply["data"]["capabilities"].clone())
+        .unwrap_or(Value::Null);
+    let ids = conn
+        .send(vec![("attach-surface", phone_attach_params(surface, &capabilities))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (at, bytes) = first_state(conn, ids[0], surface).await?;
+    Ok((at, bytes, 3))
+}
+
+/// The input lane's own set-client-info and identify.
+async fn input_ready(input: &mut Conn) -> Result<(), String> {
+    let ids = input
+        .send(vec![("set-client-info", attach_client_info()), ("identify", json!({}))])
+        .await
+        .map_err(|e| format!("input write: {e}"))?;
+    all_replies(input, &ids).await.map(|_| ())
+}
+
+/// The terminal reattach on fresh connections (attach channel and input lane), then a typed key.
+async fn reattach_once(
+    addr: std::net::SocketAddr,
+    daemon: &OpenDaemon,
+    run: u64,
+) -> Result<OpenSample, String> {
+    let surface = daemon.surface;
+    let started = Instant::now();
+    let (attach_conn, input_conn) = tokio::join!(Conn::open(addr), Conn::open(addr));
+    let mut conn = attach_conn.map_err(|e| format!("connect: {e}"))?;
+    let mut input = input_conn.map_err(|e| format!("connect: {e}"))?;
+    let (attached, input_ok) =
+        tokio::join!(attach_path(&mut conn, daemon), input_ready(&mut input));
+    let (first, bytes_down, round_trips) = attached?;
+    let bytes_up = conn.up_bytes + input.up_bytes;
+    let interactive = async {
+        input_ok.ok()?;
+        let key = format!("KQ{run}Z");
+        let typed = base64::engine::general_purpose::STANDARD.encode(key.as_bytes());
+        input.send(vec![("send", json!({"surface": surface, "bytes": typed}))]).await.ok()?;
+        conn.output(surface, Some(key.as_bytes()), false, Instant::now() + WAIT).await
+    };
+    let interactive_ms = interactive.await.map(|echo| ms(echo - started));
+    Ok(OpenSample {
+        first_content_ms: ms(first - started),
+        interactive_ms,
+        bytes_down,
+        bytes_up,
+        round_trips,
+        shown: None,
+    })
+}
+
+/// The stream's rate at the daemon, as a viewer on the unshaped socket sees it over 2 s.
+async fn stream_rate(addr: std::net::SocketAddr, surface: u64) -> Option<f64> {
+    let mut conn = Conn::open(addr).await.ok()?;
+    let ids = conn
+        .send(vec![("identify", json!({})), ("attach-surface", json!({"surface": surface}))])
+        .await
+        .ok()?;
+    first_state(&mut conn, ids[1], surface).await.ok()?;
+    let start = Instant::now();
+    let end = start + Duration::from_secs(2);
+    let mut bytes = 0_u64;
+    while let Ok(Some((_, _, item))) = tokio::time::timeout_at(end, conn.inbound.recv()).await {
+        if let Inbound::Output { surface: got, data, vt_state: false } = item
+            && got == surface
+        {
+            bytes += data.len() as u64;
+        }
+    }
+    Some(bytes as f64 / ms(start.elapsed()) * 1000.0)
+}
+
+fn emit_sample(link: &str, phase: &str, fixture: &str, run: u64, sample: &OpenSample) {
+    duress_emit(link, phase, fixture, "first_content_ms", Some(sample.first_content_ms), run);
+    if phase == "reattach" {
+        duress_emit(link, phase, fixture, "interactive_ms", sample.interactive_ms, run);
+        if sample.interactive_ms.is_none() {
+            duress_error(link, phase, fixture, run, "no echo of a typed key");
+        }
+    }
+    duress_emit(link, phase, fixture, "bytes_down", Some(sample.bytes_down as f64), run);
+    duress_emit(link, phase, fixture, "bytes_up", Some(sample.bytes_up as f64), run);
+    duress_emit(link, phase, fixture, "round_trips", Some(sample.round_trips as f64), run);
+    if let Some(shown) = sample.shown {
+        duress_emit(link, phase, fixture, "workspaces_shown", Some(shown as f64), run);
+    }
+}
+
+#[test]
+#[ignore = "the duress bench: scripts/measure/ios-network-conditions.sh mode=duress runs it"]
+fn open_path_under_duress() {
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+        Err(_) => ProfileFile::builtin(),
+    };
+    let mut duress_links = vec![None];
+    for name in env_list("NETCOND_DURESS_PROFILES", "lte,lossy-3") {
+        let profile = file.get(&name).unwrap_or_else(|| panic!("no link profile {name}"));
+        duress_links.push(Some(profile.clone()));
+    }
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let fixtures = [
+        Fixture {
+            name: "idle",
+            workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
+            scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
+            stream_lines: 0,
+            // The same links as duress, so a duress number is judged against the idle
+            // fixture on its own link, not against loopback.
+            links: duress_links.clone(),
+        },
+        Fixture {
+            name: "duress",
+            workspaces: env_u64("NETCOND_DURESS_WORKSPACES", 50),
+            scrollback: env_u64("NETCOND_DURESS_SCROLLBACK", 10_000),
+            stream_lines: env_u64("NETCOND_DURESS_STREAM_LINES", 50),
+            links: duress_links,
+        },
+    ];
+    for fixture in &fixtures {
+        let daemon = OpenDaemon::start(fixture);
+        println!(
+            "NETCOND-FIXTURE {} workspaces={} scrollback={} stream_lines_per_20ms={} attach-terminal-id-v1={} list-workspaces-page-v1={}",
+            fixture.name,
+            fixture.workspaces,
+            fixture.scrollback,
+            fixture.stream_lines,
+            daemon.lists(ATTACH_TERMINAL_ID_CAPABILITY),
+            daemon.lists(FIRST_WINDOW_CAPABILITY)
+        );
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let upstream = splice(&daemon.daemon.socket).await;
+            if fixture.stream_lines > 0 {
+                let rate = stream_rate(upstream, daemon.surface).await;
+                duress_emit("none", "fixture", fixture.name, "stream_bytes_per_s", rate, 0);
+            }
+            for link in &fixture.links {
+                let label = link
+                    .as_ref()
+                    .map_or_else(|| "none".to_owned(), |p| format!("{}@{}", p.name, p.version));
+                for run in 0..runs {
+                    let seed = seed_base + run;
+                    // One shaper per run: home, then the reattach, each on fresh connections.
+                    let shaper = match link {
+                        Some(profile) => {
+                            match Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+                                .await
+                            {
+                                Ok(shaper) => Some(shaper),
+                                Err(e) => {
+                                    duress_error(
+                                        &label,
+                                        "home",
+                                        fixture.name,
+                                        run,
+                                        &format!("shaper: {e}"),
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+                    let addr = shaper.as_ref().map_or(upstream, |s| s.addr());
+                    for phase in ["home", "reattach"] {
+                        let sample = if phase == "home" {
+                            home_once(addr, &daemon).await
+                        } else {
+                            reattach_once(addr, &daemon, run).await
+                        };
+                        match sample {
+                            Ok(sample) => emit_sample(&label, phase, fixture.name, run, &sample),
+                            Err(why) => {
+                                duress_emit(
+                                    &label,
+                                    phase,
+                                    fixture.name,
+                                    "first_content_ms",
+                                    None,
+                                    run,
+                                );
+                                duress_error(&label, phase, fixture.name, run, &why);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        drop(runtime);
+        daemon.daemon.stop();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -957,8 +1490,7 @@ fn terminal_bytes_per_minute() {
                 "read go; seq 1 200000; i=0; while :; do i=$((i+1)); printf 'trickle %06d\\n' $i; sleep 1; done",
             );
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let shaper =
-                Shaper::start(upstream, profile.clone(), 0, &Trace::new()).await.unwrap();
+            let (shaper, _relay) = link(upstream, &profile, 0).await.unwrap();
             let (Ok(mut control), Ok(mut conn)) =
                 (Conn::open(shaper.addr()).await, Conn::open(shaper.addr()).await)
             else {
