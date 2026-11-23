@@ -87,12 +87,12 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     let cursor_metadata = cursor_metadata && cursor::available();
     // The cursor is in the pictures unless the viewer draws it or asked for none at all.
     let in_pictures = !cursor_metadata && cfg.show_cursor;
-    let capture = match window::session_window(cfg.window, &cfg.display)? {
+    let mut capture = match window::session_window(cfg.window, &cfg.display)? {
         // One window, captured alone; a close or resize ends the session (`drain`).
         Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, in_pictures)?,
         None => Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?,
     };
-    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    capture.ready(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let mut encoder = VideoToolbox::new(
         width,
@@ -161,6 +161,10 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn ready_for_start(&mut self) -> Res<()> {
+        self.capture.ready(FIRST_FRAME_TIMEOUT_NS)
     }
 
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {

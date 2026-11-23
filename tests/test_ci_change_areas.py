@@ -714,8 +714,10 @@ def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
 
 def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
     changes = workflow_job_block("changes")
-    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
-    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    # A draft head's cheap tier (scripts/ci/head_tier.py, #48920) runs neither; every other tier takes the router's answer.
+    tier_off = "(steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false'"
+    assert f"browser: ${{{{ {tier_off} || (steps.standalone.outputs.browser) }}}}" in changes
+    assert f"remote_daemon: ${{{{ {tier_off} || (steps.standalone.outputs.remote_daemon) }}}}" in changes
     route = workflow_job_step_script("changes", "Route standalone project workflows")
     assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
     assert "daemon/remote/*|scripts/*remote_daemon*" in route
@@ -1901,7 +1903,7 @@ def ci_router_trigger_problems(workflow: str) -> list[str]:
     problems = []
     on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
     pull_request = on.get("pull_request") or {}
-    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled"]:
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled", "ready_for_review"]:
         problems.append(f"pull_request types are {pull_request.get('types')!r}")
     if set(pull_request) - {"types", "paths"}:
         problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
@@ -1930,7 +1932,8 @@ def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths()
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
     assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
-    assert ci_router_trigger_problems(workflow.replace(", unlabeled]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled, ready_for_review]", ", ready_for_review]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", ready_for_review]", "]", 1))
     assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
@@ -4578,7 +4581,7 @@ def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
 
 def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]" in workflow
+    assert re.search(r"(?m)^  pull_request:\n(?:    #.*\n)*    types: \[opened, synchronize, reopened, labeled, unlabeled, ready_for_review\]$", workflow)
 
     suite = workflow_step_block("changes", "Choose the macOS suite for this run")
     assert "gh api" not in suite
@@ -5737,6 +5740,37 @@ def _run_named_test(name: str) -> tuple[str, str | None]:
     except BaseException:
         return name, traceback.format_exc()
     return name, None
+
+
+def test_the_helper_walk_widens_a_narrow_sparse_checkout_before_it_searches() -> None:
+    # ci.yml's `changes` job checks out fewer paths than .github/checkout-lean.json's
+    # `sparse_checkout`; the walk's `git grep` sees only checked-out files, so it widens first
+    # and finds a referrer outside the narrow set. Without the table it cannot widen and
+    # answers None ("could not search"), which routes every area.
+    env = git_fixture_env.fixture_env()
+
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True, text=True)
+
+    for keep_table in (True, False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git_fixture_env.init_repo(Path(temp_dir) / "repo", env=env)
+            (repo / ".github").mkdir()
+            (repo / ".github" / "checkout-lean.json").write_text(
+                json.dumps({"sparse_checkout": ["/*", "!/drop/verify/"]}) if keep_table else "{}")
+            (repo / "drop").mkdir()
+            (repo / "drop" / "runner.sh").write_text("scripts/widen-probe.sh\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+            git(repo, "sparse-checkout", "set", "--no-cone", "/*", "!/drop/")
+            assert not (repo / "drop" / "runner.sh").exists()
+            module._tree_is_complete.cache_clear()
+            found = module._files_naming(repo, "scripts/widen-probe.sh")
+            if keep_table:
+                assert found == ["drop/runner.sh"], found
+            else:
+                assert found is None, found
+    module._tree_is_complete.cache_clear()
 
 
 def _main() -> int:
