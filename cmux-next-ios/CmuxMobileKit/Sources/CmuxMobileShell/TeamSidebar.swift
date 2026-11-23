@@ -68,7 +68,7 @@ struct TeamSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.colors.bg.color.ignoresSafeArea())
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
                 // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
@@ -152,7 +152,7 @@ struct TeamSidebar: View {
             .fixedSize()
             .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .capsule)
         .disabled(shell.isFetchingInvite)
         .accessibilityLabel("Invite to \(team.name)")

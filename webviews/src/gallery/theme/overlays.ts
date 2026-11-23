@@ -101,3 +101,73 @@ export function cardMaterial(
 
 /** ThemeTokens.scrim (Overlay/Scrim.swift): the modal dim, denser on a dark theme. */
 export const scrim = (tokens: ThemeTokens): ThemeRGB => rgb(0, 0, 0, tokens.isDark ? 0.25 : 0.12);
+
+/** GlassMenuMaterial.veil: the veil most themes lay on a menu's glass (TransientMaterial.standard.hostVeil). */
+export const MENU_VEIL = 0.4;
+/** GlassMenuMaterial.maximumVeil: the glass rule's 90% cap. */
+const MENU_MAXIMUM_VEIL = 0.9;
+/** GlassMenuMaterial.contrastHeadroom. */
+const MENU_CONTRAST_HEADROOM = 0.1;
+/** GlassLevel.menu.tintStrength (TransientMaterial.standard.nativeTintStrength, --ds-transient-native-tint-strength). */
+const MENU_TINT_STRENGTH = 1.25;
+
+/** GlassMenuMaterial.glass: a native menu's glass over `page`: the theme's glass tint at the menu level, then
+ * the theme surface at `veil`. */
+export function nativeMenuGlass(tokens: ThemeTokens, veil: number, page: ThemeRGB): ThemeRGB {
+  const tint = withAlpha(tokens.glassTint, Math.min(1, tokens.glassTint.alpha * MENU_TINT_STRENGTH));
+  return composited(withAlpha(tokens.surfaceBackground, veil), composited(tint, page));
+}
+
+/** GlassMenuMaterial.veil(for:): the veil `tokens` lay on a menu's glass, raised from 40% in 2% steps to at most
+ * 90% until the theme's primary text reads at 4.5:1 and its secondary at 3:1 (each plus the headroom) on the glass
+ * over its own window, a white and a black page (design/glass-system.md, rule 5). */
+export function menuVeil(tokens: ThemeTokens): number {
+  const surface = withAlpha(tokens.surfaceBackground, 1);
+  const primary = composited(tokens.textPrimary, surface);
+  const secondary = composited(tokens.textSecondary, surface);
+  const wants = {
+    primary: Math.min(4.5 + MENU_CONTRAST_HEADROOM, contrast(primary, surface) - 0.05),
+    secondary: Math.min(3 + MENU_CONTRAST_HEADROOM, contrast(secondary, surface) - 0.05),
+  };
+  const pages = [withAlpha(tokens.windowBackground, 1), WHITE, BLACK];
+  let share = MENU_VEIL;
+  while (share < MENU_MAXIMUM_VEIL) {
+    const grounds = pages.map((page) => nativeMenuGlass(tokens, share, page));
+    if (
+      grounds.every(
+        (ground) => contrast(primary, ground) >= wants.primary && contrast(secondary, ground) >= wants.secondary,
+      )
+    )
+      break;
+    share = Math.min(MENU_MAXIMUM_VEIL, share + 0.02);
+  }
+  return share;
+}
+
+/** TransientMaterial.standard.webTint / webTintDark: a web menu's own glass tint (--ds-transient-web-tint). */
+export const MENU_WEB_TINT = { light: 0.8, dark: 0.72 };
+/** GlassMenuMaterial.webSecondaryInkShare: the secondary ink on web glass, the theme's text at this share over the
+ * glass (--ds-glass-ink-secondary, design/glass-system.md rule 5). */
+const MENU_WEB_SECONDARY_INK = 0.68;
+
+/** GlassMenuMaterial.webClear(for:), WebTheme's `--cmux-menu-clear`: the share of what a web menu's own glass lets
+ * through, beside its level tint, that the theme keeps. It starts at the native veil's, (1 − veil) / (1 − 40%), and
+ * goes down in 0.02 steps, at most to the cap's 1/6, until the page's own inks read on that glass over a white and a
+ * black page: the text at 4.5:1 and the glass secondary ink (the text at 68%) at 3:1, each plus the headroom.
+ * glass.css lays a menu's own tint at 100% − (100% − its level tint) × this. */
+export function menuClear(tokens: ThemeTokens): number {
+  const base = tokens.isDark ? MENU_WEB_TINT.dark : MENU_WEB_TINT.light;
+  const surface = withAlpha(tokens.surfaceBackground, 1);
+  const primary = withAlpha(tokens.textPrimary, 1);
+  const wants = Math.min(4.5 + MENU_CONTRAST_HEADROOM, contrast(primary, surface) - 0.05);
+  const floor = (1 - MENU_MAXIMUM_VEIL) / (1 - MENU_VEIL);
+  const reads = (clear: number) =>
+    [WHITE, BLACK].every((page) => {
+      const ground = composited(withAlpha(surface, 1 - (1 - base) * clear), page);
+      const secondary = composited(withAlpha(primary, MENU_WEB_SECONDARY_INK), ground);
+      return contrast(primary, ground) >= wants && contrast(secondary, ground) >= 3 + MENU_CONTRAST_HEADROOM;
+    });
+  let clear = (1 - menuVeil(tokens)) / (1 - MENU_VEIL);
+  while (clear > floor && !reads(clear)) clear = Math.max(floor, clear - 0.02);
+  return Math.round(clear * 1000) / 1000;
+}

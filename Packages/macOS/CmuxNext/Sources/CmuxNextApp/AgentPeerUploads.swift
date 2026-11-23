@@ -134,9 +134,9 @@ struct AgentPeerUploads {
 /// beside the Cloud and local chat uploads'.
 enum AgentPeerUploadStrings {
     static func failed(_ machine: String) -> String {
-        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
     static func tooLarge(_ machine: String) -> String {
-        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }
