@@ -17,11 +17,11 @@ import { SCALE_JSON, SRC } from "./motion-scale";
 
 const ROOT = path.resolve(import.meta.dir, "../..");
 const AGENT_CHAT = path.join(ROOT, "agent-chat");
-/** The keyframes allowed to turn: the pages' `cmux-spin`, and agent-chat's stepped pinwheel. */
-const SPIN_KEYFRAMES = new Set(["cmux-spin", "pinwheelSpin"]);
+/** The keyframes allowed to turn: the pages' `cmux-spin`, and agent-chat's copy (no desktop.css there). */
+const SPIN_KEYFRAMES = new Set(["cmux-spin", "spinnerTurn"]);
 const HOMES: Record<string, string> = {
   "cmux-spin": "webviews/src/pages/shared/desktop.css",
-  pinwheelSpin: "agent-chat/public/app.css",
+  spinnerTurn: "agent-chat/public/app.css",
 };
 const GENERATED_PERIOD = /--cmux-spinner-period: (\d+)ms;/;
 const TOKEN = new RegExp(`^var\\(--cmux-spinner-period(?:,\\s*${SPINNER_PERIOD_MS}ms)?\\)$`);
