@@ -182,6 +182,57 @@ fn selected_team_uses_the_platform_team_header() {
     );
 }
 
+/// The generated client's calls send what the hand-written ones did: the bearer, the team, the
+/// cmux user agent, a rotation's `{}` (so the machine's recorded capabilities are kept), and they
+/// keep the answer's fields the spec does not name (`online`, `accessEndsWithinSeconds`).
+#[test]
+fn generated_calls_send_the_same_headers_and_bodies_and_keep_unnamed_fields() {
+    let (origin, requests) = fake(Arc::new(|request: &str| {
+        if request.starts_with("GET /v1/machines/credentials ") {
+            let mut row = entry("jt_1");
+            row["online"] = json!(false);
+            (200, json!({"machines": [row]}).to_string())
+        } else if request.contains("/revoke ") {
+            (200, json!({"accessEndsWithinSeconds": 45}).to_string())
+        } else if request.contains("/rotate ") {
+            (200, json!({"machineId": "m_1", "credential": MACHINE_CREDENTIAL}).to_string())
+        } else if request.starts_with("PUT /v1/machines/m_1/vault ") {
+            (200, json!({"machineId": "m_1", "granted": true}).to_string())
+        } else {
+            (403, json!({"code": "machine.vault_personal_only"}).to_string())
+        }
+    }));
+    let platform = platform(&origin).with_team(Some("team_1".into()));
+    let rows = platform.credentials().unwrap();
+    assert_eq!(rows[0]["online"], json!(false));
+    assert_eq!(platform.revoke("m_1").unwrap()["accessEndsWithinSeconds"], json!(45));
+    assert_eq!(platform.rotate("m_1").unwrap()["machineId"], json!("m_1"));
+    assert_eq!(platform.vault_grant("m_1", true).unwrap()["granted"], json!(true));
+    assert_eq!(
+        platform.mint(json!({"label": "x"})).unwrap_err(),
+        CallError::Status {
+            status: 403,
+            code: "machine.vault_personal_only",
+            facts: Some(refusals::Facts::read(
+                Some(&json!({"code": "machine.vault_personal_only"})),
+                None
+            )),
+        }
+    );
+    let sent: Vec<String> = (0..5).map(|_| requests.recv().unwrap()).collect();
+    for request in &sent {
+        let lower = request.to_ascii_lowercase();
+        assert!(lower.contains(&format!("authorization: bearer {CREDENTIAL}")), "{request}");
+        assert!(lower.contains("x-cmux-team: team_1"), "{request}");
+        assert!(lower.contains(&format!("user-agent: cmux/{}", env!("CARGO_PKG_VERSION"))));
+    }
+    let body = |request: &str| request.split_once("\r\n\r\n").unwrap().1.to_owned();
+    assert!(sent[2].starts_with("POST /v1/machines/credentials/m_1/rotate "), "{}", sent[2]);
+    assert_eq!(serde_json::from_str::<Value>(&body(&sent[2])).unwrap(), json!({}));
+    assert_eq!(serde_json::from_str::<Value>(&body(&sent[3])).unwrap(), json!({"granted": true}));
+    assert_eq!(serde_json::from_str::<Value>(&body(&sent[4])).unwrap(), json!({"label": "x"}));
+}
+
 #[test]
 fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
     assert_eq!(command(&["machine", "add"]).verb, Verb::Add(AddArgs::default()));
