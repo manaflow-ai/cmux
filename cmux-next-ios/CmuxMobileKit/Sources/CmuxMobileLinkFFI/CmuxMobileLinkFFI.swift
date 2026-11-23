@@ -6906,10 +6906,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -7025,7 +7025,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
