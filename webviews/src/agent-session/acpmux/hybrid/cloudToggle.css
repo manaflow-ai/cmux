@@ -275,3 +275,48 @@
 
 /* Three-state, Hybrid waiting for a slot: the cloud half dashed, no color, as the on/off cloud. */
 .acpmux-hybrid-tri__segment[data-waiting] .acpmux-hybrid-tri__cloud { stroke-dasharray: 2 2; }
+
+/* Three-state, blocked (a first run: signed out, no plan, no Cloud machine, hours or trial spent,
+   offline, a failed move). The cloud is dull even on the chosen glyph; the name says the state and
+   is itself a button. Only the failures (offline, move-failed) wear the small warning dot. */
+.acpmux-hybrid-tri[data-blocked] .acpmux-hybrid-tri__cloud,
+.acpmux-hybrid-tri__segment[data-blocked] .acpmux-hybrid-tri__cloud {
+  opacity: 0.6;
+  fill: none;
+}
+.acpmux-hybrid-tri__dot {
+  position: absolute;
+  top: 3px;
+  inset-inline-end: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--agent-warning);
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg, transparent);
+  pointer-events: none;
+}
+button.acpmux-hybrid-tri__name {
+  margin-inline-start: 0;
+  color: var(--agent-text);
+}
+
+/* The name as the slot holders' menu button (every slot taken): a quiet chevron after it. */
+.acpmux-hybrid-tri__chevron {
+  margin-inline-start: 2px;
+  color: var(--agent-muted);
+  line-height: 1;
+}
+.acpmux-hybrid-holder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-block: 4px;
+}
+.acpmux-hybrid-holder__title {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
