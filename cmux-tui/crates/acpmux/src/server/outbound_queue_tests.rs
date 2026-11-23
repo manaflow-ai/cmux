@@ -256,7 +256,11 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
 }
 
 fn row(n: usize) -> String {
-    let session = json!({"sessionId": format!("s{}", n % 7), "pad": "r".repeat(400)});
+    row_of(n, 400)
+}
+
+fn row_of(n: usize, pad: usize) -> String {
+    let session = json!({"sessionId": format!("s{}", n % 7), "pad": "r".repeat(pad)});
     let line = Message::notification(
         "_acpmux/session_changed",
         json!({"sessionId": format!("s{}", n % 7), "session": session, "listSeq": n}),
@@ -273,25 +277,27 @@ fn row(n: usize) -> String {
 /// again, and the connection stays.
 #[tokio::test]
 async fn a_lagging_list_reader_is_spared_its_rows_instead_of_disconnected() {
+    // Past the pump's window (`BULK_WINDOW`), which it takes out of the queue at once.
+    const BIG: usize = 2 << 20;
     let scope = cmux_scope::Scope::new("outbound-test");
     let (transport, mut rx) = mpsc::channel(1);
-    let (out, _) = start_bounded(&scope, None, transport, BOUND);
+    let (out, _) = start_bounded(&scope, None, transport, BIG);
     out.describe("local test-watcher".into(), true);
-    let before = OVERRUNS.load(Ordering::Relaxed);
     let (mut rows, mut updates) = (0, 0);
-    // About 20 bounds' worth, one update for every 24 rows, and the reader reads nothing.
-    for n in 0..200 {
+    // About six bounds' worth of 8 KB rows, one update for every 24 rows, and the reader reads
+    // nothing.
+    for n in 0..1500 {
         if n % 25 == 24 {
             assert!(out.push(note(updates)), "the stream is kept");
             updates += 1;
         } else {
-            assert!(out.push(row(n)), "a lagging list reader is not disconnected");
+            assert!(out.push(row_of(n, 8 << 10)), "a lagging list reader is not disconnected");
             rows += 1;
         }
-        assert!(out.held() <= BOUND, "held {} past the bound", out.held());
+        assert!(out.held() <= BIG, "held {} past the bound", out.held());
     }
-    assert!(!out.is_closed());
-    assert_eq!(OVERRUNS.load(Ordering::Relaxed), before, "no connection was ended");
+    // Not `OVERRUNS`: other tests' queues overrun beside this one.
+    assert!(!out.is_closed(), "no connection was ended");
     assert!(out.push(Message::ok(json!("end"), json!({})).to_line()));
     // The reader reads again: every update in order, the rows it was spared counted by the lag
     // markers (one queued at a time), which name the list to read again.
