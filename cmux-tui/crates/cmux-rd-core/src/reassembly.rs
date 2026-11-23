@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_proto::{
     DatagramHeader, DatagramKind, FrameBody, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE,
-    flags,
+    fec_blocks, flags,
 };
 
 use crate::fec;
@@ -270,7 +270,21 @@ impl Reassembler {
     }
 
     fn decodable(p: &Pending) -> bool {
-        p.shards.iter().filter(|s| s.is_some()).count() >= usize::from(p.count)
+        let count = usize::from(p.count);
+        if p.shards.iter().filter(|s| s.is_some()).count() < count {
+            return false;
+        }
+        // A frame over one FEC block needs enough shards in every block (design D6).
+        let blocks = Self::blocks(p);
+        blocks == 1
+            || p.shards.get(..count).is_some_and(|data| data.iter().all(Option::is_some))
+            || fec::decodable_blocks(&p.shards, count, blocks)
+    }
+
+    /// The frame's FEC blocks (cmux-rd-proto `fec_blocks`): one unless it is larger.
+    fn blocks(p: &Pending) -> usize {
+        let parity = p.shards.len().saturating_sub(usize::from(p.count));
+        fec_blocks(p.count, u16::try_from(parity).unwrap_or(u16::MAX))
     }
 
     fn expire(&mut self, now_us: u64) {
@@ -326,10 +340,11 @@ impl Reassembler {
 
     /// Rebuilds and parses a decodable frame's body, once.
     fn assemble(p: &mut Pending) -> &Result<FrameBody, ()> {
+        let (count, blocks) = (usize::from(p.count), Self::blocks(p));
+        let shards = &mut p.shards;
         p.body.get_or_insert_with(|| {
-            let count = usize::from(p.count);
-            fec::reconstruct(&mut p.shards, count).map_err(|_| ())?;
-            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
+            fec::reconstruct_blocks(shards, count, blocks).map_err(|_| ())?;
+            let bytes: Vec<u8> = shards[..count].iter().flatten().flatten().copied().collect();
             FrameBody::decode(&bytes).map_err(|_| ())
         })
     }
