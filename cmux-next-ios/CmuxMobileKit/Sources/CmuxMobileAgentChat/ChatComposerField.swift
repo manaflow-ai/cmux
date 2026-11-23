@@ -35,9 +35,13 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-        view.autocorrectionType = .no
-        view.autocapitalizationType = .none
+        // A chat composer is prose: autocorrect, spelling and sentence capitals stay on, as in the
+        // ChatGPT and Claude iPhone apps (Leo, 2026-11-23: "you need to not fucking entirely disable
+        // autocorrect in the gui. terminal, maybe you can get a pass"). Smart quotes and dashes stay
+        // off: a pasted command or path must reach the agent byte for byte.
+        view.autocorrectionType = .default
+        view.spellCheckingType = .default
+        view.autocapitalizationType = .sentences
         view.smartQuotesType = .no
         view.smartDashesType = .no
         view.returnKeyType = .default
@@ -137,8 +141,26 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
+    /// A finger is scrolling a draft taller than the field (past `maxLines`). The bottom stack's
+    /// swipe-down-to-dismiss reads it and leaves the keyboard up: a drag that scrolls the draft
+    /// scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios it fucking
+    /// swipes the entire thing down instead of scrolling through the composer").
+    @MainActor static var isScrollingDraft = false
+
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+        panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+    }
+
+    @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            Self.isScrollingDraft = contentSize.height > bounds.height + 1
+        case .ended, .cancelled, .failed:
+            Self.isScrollingDraft = false
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)

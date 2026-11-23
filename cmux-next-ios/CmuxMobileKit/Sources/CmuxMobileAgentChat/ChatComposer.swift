@@ -544,6 +544,11 @@ struct ChatComposer: View {
 
     private var primaryButton: some View {
         let state = primaryState
+        // A chosen hue fills Send; the monochrome Default takes the glass chrome's own fill with
+        // primary ink (`CmuxMobileAccentTheme.fillsWithAccent`).
+        let hued = CmuxMobileAccentTheme.shared.fillsWithAccent
+        let ink: Color = state == .empty ? Color(uiColor: .tertiaryLabel) : (hued ? Color.cmuxMobileOnAccent : Color.primary)
+        let fill: Color = state == .empty ? Color.cmuxMobileFill : (hued ? Color.cmuxMobileAccent : Color.cmuxMobileFillSelected)
         return Button {
             switch state {
             case .stop: store.cancel()
@@ -555,10 +560,10 @@ struct ChatComposer: View {
         } label: {
             Image(systemName: state == .stop ? "stop.fill" : "arrow.up")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnAccent)
+                .foregroundStyle(ink)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
+                .cmuxMobilePressBackground(fill, in: .circle)
                 .overlay {
                     if state == .queue {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)

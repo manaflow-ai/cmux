@@ -752,9 +752,11 @@ struct AgentChatJumpButton: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: metrics.smallCircle, height: metrics.smallCircle)
-                        .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
-                        // A tinted glass disc, so transcript text under it never reads through the arrow.
-                        .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
+                        // The composer's own glass (`ChatComposer.card`), so the two read as one set and
+                        // both follow the theme. An opaque disc under it drew a flat, unthemed button
+                        // (Leo, 2026-11-23: "the jump to bottom isn't themed properly. and isn't glassed
+                        // properly"); the theme's background tint keeps the arrow legible over text.
+                        .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.25)).interactive(), in: .circle)
                         // The 36 pt disc in a 44 pt target.
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
@@ -925,9 +927,11 @@ public struct AgentChatBottomStack: View {
             .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
-            // drags that start above it).
+            // drags that start above it). A drag scrolling a draft taller than
+            // the field is the field's own scroll, never a dismissal.
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
+                guard !ChatComposerTextView.isScrollingDraft else { return }
                 if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { composerFocused = false }
             })
         }

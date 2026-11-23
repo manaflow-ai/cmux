@@ -111,6 +111,13 @@ public final class CmuxMobileAccentTheme: @unchecked Sendable {
         return macTheme.token(accent.accent) { $0.accent }
     }
 
+    /// A hue was chosen (here or on the followed Mac): a primary control is filled with it.
+    /// The monochrome Default is no hue, and a white (dark) or black (light) disc on a glass
+    /// composer reads as a hole in the chrome, not a themed button (Leo, 2026-11-23: "the send
+    /// button has no reason to be white"); those controls take the chrome's own fill instead,
+    /// as the desktop composer's Send does.
+    public var fillsWithAccent: Bool { macAccent != nil || accent != .neutral }
+
     /// The ink on ``accentToken``.
     public var onAccentToken: CmuxMobileColorToken {
         guard macAccent != nil else { return accent.onAccent }
