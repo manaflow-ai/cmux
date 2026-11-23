@@ -94,10 +94,17 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./ArchivedWorkspacesCard").then(({ ArchivedWorkspacesCard }) => (_focus, _workspace, reveal) => (
       <ArchivedWorkspacesCard reveal={reveal} />
     )),
+  // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
   customizeLibrary: () =>
-    import("./CustomizeLibraryCard").then(({ CustomizeLibraryCard }) => (_focus, _workspace, reveal) => (
-      <CustomizeLibraryCard reveal={reveal} />
-    )),
+    Promise.all([import("./CustomizeLibraryCard"), import("./CustomizeDoctorCard")]).then(
+      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard }]) =>
+        (focus, _workspace, reveal) => (
+          <>
+            <CustomizeDoctorCard focus={focus} />
+            <CustomizeLibraryCard reveal={reveal} />
+          </>
+        ),
+    ),
   customizeChecklist: () =>
     import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
   keys: () =>

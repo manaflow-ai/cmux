@@ -102,6 +102,8 @@ import {
   type AllotmentView,
   type ArchivedRun,
   type ArchivedState,
+  type DoctorReport,
+  type DoctorRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1003,6 +1005,28 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
+   * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
+   * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
+   * offer), else null, and a fix's one line. */
+  async customizeDoctor(
+    run: DoctorRun,
+  ): Promise<{ doctor: DoctorReport | null; refusal: string | null; said: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A host that cannot run the doctor (an older build, no CLI) shows no card and no notice.
+    if (!reply.ok)
+      return {
+        doctor: null,
+        refusal: run.verb === "doctor" ? null : userMessage(reply.error, SETTINGS_SENTENCES),
+        said: null,
+      };
+    const answer = reply.value ?? {};
+    const refused = answer.code !== undefined || answer.message !== undefined;
+    const refusal = refused ? (answer.message ?? t("settingsPage.customizeDoctor.notChanged")) : null;
+    const said = answer.fixed?.said ?? (answer.recovered ? answer.recovered.said.join(" ") : null);
+    return { doctor: answer.doctor ?? null, refusal, said: said || null };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

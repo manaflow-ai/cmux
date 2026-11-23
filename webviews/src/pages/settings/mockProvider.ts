@@ -82,6 +82,9 @@ import {
   type ArchivedRun,
   type ArchivedState,
   type AgentSkillRow,
+  type DoctorReport,
+  type DoctorRun,
+  type LibraryAnswer,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -90,6 +93,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
+import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
@@ -122,6 +126,10 @@ export type MockOptions = {
   library?: LibraryListing;
   /** The CLI refuses every library change with this message (a preview is open). */
   libraryRefusal?: string;
+  /** `cmux customize doctor`'s report; default no findings (no card, no notice). */
+  doctor?: DoctorReport;
+  /** The CLI refuses every doctor change with this message. */
+  doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
 };
@@ -275,6 +283,8 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.doctor) this.doctor = options.doctor;
+    if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -1118,17 +1128,34 @@ export class MockSettingsProvider {
    * when the read began (a test's slow read that a change overtakes). */
   libraryReadHold: Promise<void> | null = null;
 
+  /** What `cmux customize doctor` reports; default nothing (the start state). */
+  doctor: DoctorReport = mockEmptyDoctor();
+  /** The CLI's refusal of every doctor change; null: changes run. */
+  doctorRefusal: string | null = null;
+  /** Every doctor verb but the read the page ran, in order (tests). */
+  readonly doctorRuns: DoctorRun[] = [];
+
+  /** `cmux --json customize doctor …` (and the host's own `doctor-open`): the report, or the CLI's
+   * error envelope. */
+  private runDoctor(run: DoctorRun) {
+    if (run.verb !== "doctor") {
+      this.doctorRuns.push(run);
+      if (this.doctorRefusal) return { code: "customize.doctor", message: this.doctorRefusal };
+    }
+    const answer = runDoctor(this.doctor, run);
+    if ("doctor" in answer && answer.doctor) this.doctor = answer.doctor;
+    return answer;
+  }
+
   /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
    * answers it (a refusal is an answer, not a failed call). */
-  private runLibrary(
-    run: LibraryRun,
-  ):
-    | { library?: LibraryListing; code?: string; message?: string }
-    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+  private runLibrary(run: LibraryRun): LibraryAnswer | Promise<LibraryAnswer> {
     if (run.verb === "list") {
       const listed = this.library;
       return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
     }
+    if (run.verb.startsWith("doctor")) return this.runDoctor(run as DoctorRun);
+    if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
     const next = runLibrary(this.library, run);
