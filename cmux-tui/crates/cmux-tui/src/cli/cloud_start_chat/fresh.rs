@@ -14,9 +14,10 @@
 //! caller asked for a new machine, never for this one) is bounded by [`START_BOUND`]; past it, or on the app's own
 //! "didn't connect" or timed-out "agent didn't" answer ([`STUCK_WORDS`]), the run deletes that machine and starts
 //! again on a fresh one, at most [`FRESH_RETRIES`] times. A machine it gives up on is always deleted (nobody else
-//! could have used it), so nothing is left counting against the team's machines; one it could not delete stops the
-//! retries and names the command that does. A `--from-folder` start is not bounded (its copy runs inside the step),
-//! but its app's own stuck answer is retried the same way.
+//! could have used it), so nothing is left counting against the team's machines. A delete that cannot happen yet
+//! (its create still on its way, the machine pausing) is tried again for up to [`RELEASE_WAIT`]; one it still could
+//! not delete stops the retries and names the command that does. A `--from-folder` start is not bounded (its copy
+//! runs inside the step), but its app's own stuck answer is retried the same way.
 
 use std::time::{Duration, Instant};
 
@@ -33,6 +34,7 @@ use super::{Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_
 pub(super) const START_BOUND: Duration = Duration::from_secs(90);
 
 /// How many fresh machines a run starts after the first one it gave up on.
+// short-gate: fresh machines started after one stuck past START_BOUND (a hang breaker), not retries of a slow start.
 pub(super) const FRESH_RETRIES: usize = 1;
 
 /// The code of a start whose new machine never came up ([`stuck`]); after the retries, the run's answer.
@@ -106,8 +108,37 @@ impl Released {
     }
 }
 
-/// Deletes the machine named `name` this run made: its id from the app's list, then `cloud kill-machine`.
-fn release(runner: &mut dyn Runner, name: &str) -> Released {
+/// How long a delete that cannot happen yet is tried again: a create of the machine still on its way, or a machine
+/// that is pausing ("This machine is pausing. Try again once it is paused."). Production, 2026-11-22 (cmuxterm-hq
+/// `app-chat-production`, jobs 137042288152, 137057804629 and 137099694829): the Cloud service held a create at
+/// `approval.pending` past [`START_BOUND`] twice, and paused a 45-minute-old spare just after its claim once; each
+/// time the one delete found nothing to delete yet, so the run ended "could not be deleted" with no fresh machine.
+pub(super) const RELEASE_WAIT: Duration = Duration::from_secs(30);
+/// How often within [`RELEASE_WAIT`] the delete is tried again.
+const RELEASE_EVERY: Duration = Duration::from_secs(3);
+
+/// Deletes the machine named `name` this run made ([`release_once`]); a delete that cannot happen yet (its create
+/// still on its way, the machine pausing) is tried again every [`RELEASE_EVERY`] for up to [`RELEASE_WAIT`], within
+/// the run's deadline.
+fn release(runner: &mut dyn Runner, name: &str, deadline: Deadline) -> Released {
+    let until = runner.now() + deadline.bound(runner, RELEASE_WAIT);
+    loop {
+        let released = release_once(runner, name);
+        if released.gone || !not_yet(&released) || runner.now() + RELEASE_EVERY > until {
+            return released;
+        }
+        runner.pause(RELEASE_EVERY);
+    }
+}
+
+/// The delete failed only for now: the machine's create is still on its way, or it is pausing.
+fn not_yet(released: &Released) -> bool {
+    let message = released.error.as_ref().map(|e| at(e, "message").as_str().unwrap_or_default());
+    message.is_some_and(|m| m.contains("still on its way") || m.contains("is pausing"))
+}
+
+/// One delete of the machine named `name` this run made: its id from the app's list, then `cloud kill-machine`.
+fn release_once(runner: &mut dyn Runner, name: &str) -> Released {
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
         Err(error) => return Released { machine_id: None, gone: false, error: Some(error) },
@@ -154,7 +185,7 @@ pub(super) fn replace_stuck(
         let details = at(error, "details");
         let Some(name) = at(details, "machine_name").as_str().map(str::to_owned) else { break };
         let why = at(details, "why").clone();
-        let released = release(runner, &name);
+        let released = release(runner, &name, deadline);
         replaced.push(released.json(&name, &why));
         if !released.gone {
             // The very command `release` ran, so the person's retry of it is the same step.

@@ -169,7 +169,7 @@ pub fn plan(request: &Request) -> Plan {
             Verdict::Failed => plan.kept.failed.push(index),
             Verdict::Lost => plan.kept.lost.push(index),
             Verdict::Working | Verdict::NeedsInput | Verdict::CiFailing => {
-                plan.kept.busy.push(index)
+                plan.kept.busy.push(index);
             }
             _ => {}
         }

@@ -26,6 +26,11 @@ pub enum NoScreen {
     /// A headless Linux server or VM with no cmux screen host set up: it has no desktop to share.
     NoDesktop,
     Phone,
+    /// A machine reached only through the mesh hub that the device hub lists no screen host for:
+    /// none signed in there, so there is nothing to view.
+    NoScreenHost,
+    /// A Linux machine whose screen host the device hub lists with sharing turned off.
+    SharingOff,
     Unknown,
 }
 

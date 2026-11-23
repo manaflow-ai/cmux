@@ -169,6 +169,21 @@ pub(crate) fn docked_workspaces_enabled(
     requested && !disables(DOCKED_WORKSPACES)
 }
 
+/// The `DisabledFeatures` name of `cmux tmux attach`.
+pub(crate) const TMUX_CONTROL_MODE: &str = "tmux-control-mode";
+/// Turns `cmux tmux attach` on.
+pub(crate) const TMUX_CONTROL_MODE_ENV: &str = "CMUX_TUI_TMUX_CONTROL_MODE";
+
+/// Whether `cmux tmux attach` (plans/feat-control-mode-terminals/DESIGN.md)
+/// is on. The experiment is off by default: `CMUX_TUI_TMUX_CONTROL_MODE=1`
+/// turns it on, and the managed policy or this tester's wave can still turn
+/// it off.
+pub(crate) fn tmux_control_mode_enabled(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    env(TMUX_CONTROL_MODE_ENV)
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "on" | "yes"))
+        && !disables(TMUX_CONTROL_MODE)
+}
+
 /// Whether the managed policy or this tester's wave turns `feature` off.
 pub(crate) fn disables(feature: &str) -> bool {
     let env = |name: &str| std::env::var(name).ok();

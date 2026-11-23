@@ -27,7 +27,8 @@ test("a copied preset's exact-size controls update, save and reload the native s
   expect(preview().dataset.rowHeight).toBe("40");
   await changeValue(slider("tabHeight"), "38");
   expect(slider("tabHeight").value).toBe("38");
-  expect(preview().style.getPropertyValue("--density-strip")).toBe("calc(44px * var(--page-density, 1))");
+  // The strip is the 38 pt tab plus Default's 5 pt strip padding above and below it (density.ts, #47658).
+  expect(preview().style.getPropertyValue("--density-strip")).toBe("calc(48px * var(--page-density, 1))");
   await changeValue(slider("itemCornerRadius"), "3");
   expect(slider("itemCornerRadius").value).toBe("3");
   await changeValue(slider("iconSize"), "20");

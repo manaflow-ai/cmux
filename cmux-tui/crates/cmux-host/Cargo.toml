@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-cloud-environment.workspace = true
+# The machine.toml idle window (`machine_config::idle`), reported with the activity.
+cmux-cloud-start-core.workspace = true
 # The gate's and the updater's flocks (unlock before close).
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
@@ -30,8 +32,12 @@ zeroize.workspace = true
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.
 cmux-server = { path = "../cmux-server" }
+# The signed envelope of the update channels (`updater/channel.rs`).
+cmux-signed-envelope.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
-# Role processes die with cmux-host (`ChildGroup`).
+# `cmux app` through the agent socket (`cloud/apps_call.rs`): the listener inference and slugs.
+cmux-apps = { path = "../cmux-apps" }
+# Role processes die with cmux-host (`ChildGroup`); `apps.spawn` (`cloud/apps_spawn.rs`) owns app processes.
 cmux-process.workspace = true
 libc.workspace = true
 serde.workspace = true

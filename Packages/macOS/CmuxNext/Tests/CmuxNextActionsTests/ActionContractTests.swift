@@ -50,7 +50,8 @@ import Testing
     /// Extension's Menu Row runs the row an extension added to a right-click menu, which passes it, #43369;
     /// List Team Cloud Sessions, Show Team Cloud Session, List Team Members and List, Add and Remove Cloud
     /// Group Member are `cmux cloud` commands that answer a record to the CLI and MCP, and the catalog's
-    /// data gives each the `familyMember` exemption, #40159).
+    /// data gives each the `familyMember` exemption, #40159; View Screen is a machine header menu's row
+    /// that the header's View screen button and the palette's Screen Sharing rows already reach, #47230).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -62,8 +63,8 @@ import Testing
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "cloud.group.memberRemove", "cloud.group.memberSet", "cloud.group.members",
                 "cloud.team.members", "cloud.team.session", "cloud.team.sessions", "commandPaletteNext", "commandPalettePrevious",
-                "computerUse.approval.forget", "computerUse.approval.set", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
-                "home.sendSelectionToChief", "list.next", "list.previous",
+                "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
+                "home.sendSelectionToChief", "list.next", "list.previous", "machine.viewScreen",
                 "import.card", "import.list", "import.suggest",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]

@@ -45,6 +45,9 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
+    /// Asks the journal to sync through an LSN now (`cmux_journal::Journal::ask_durable`): a
+    /// connection holds a line until it is durable (`server/durable_gate.rs`).
+    pub ask: Arc<dyn Fn(u64) + Send + Sync>,
     /// Called with how long a line has waited each time it waits another stall interval for the
     /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
     /// returned an error: it retries without end) the store asks the daemon to stop for a restart
@@ -66,7 +69,8 @@ pub(crate) fn streamed(record: &EventRecord) -> bool {
 pub(crate) enum RecordClass {
     /// Agent output: shown at once, raises no gate (C4).
     Stream,
-    /// The line of a kept change (a chat's `renamed`): shown once written ([`ShowAfter::Written`]).
+    /// The line of a kept change (a chat's `renamed`, and the `titled` a rename writes with it):
+    /// shown once written ([`ShowAfter::Written`]), so a rename never waits for the disk.
     Kept,
     /// Every other line: shown once durable.
     Acked,
@@ -75,7 +79,7 @@ pub(crate) enum RecordClass {
 pub(crate) fn record_class(record: &EventRecord) -> RecordClass {
     if agent_output(record) {
         RecordClass::Stream
-    } else if record.dir == "mux" && record.kind == "renamed" {
+    } else if record.dir == "mux" && matches!(record.kind.as_str(), "renamed" | "titled") {
         RecordClass::Kept
     } else {
         RecordClass::Acked

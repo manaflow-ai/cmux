@@ -145,7 +145,6 @@ export function HarnessStatusCard({ summary, onDismiss }: { summary: AcpmuxSnaps
                 type="button"
                 className="acpmux-harness-status__value"
                 data-copy-label={label}
-                title={value}
                 aria-label={`${t("turn.copy")} ${label}: ${value}`}
                 onClick={(event) => void copyField(label, value, event.currentTarget)}
               >

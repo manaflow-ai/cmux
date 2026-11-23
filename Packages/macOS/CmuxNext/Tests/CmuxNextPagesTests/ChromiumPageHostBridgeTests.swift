@@ -78,7 +78,7 @@ struct ChromiumPageHostBridgeTests {
             tops.append(message.isMainFrame && message.frameURL?.absoluteString == page.senderURL)
             return ["ok": true]
         }
-        var failures = ChromiumPageHostBridge.senderAttempts - 1
+        var failures = ChromiumPageHostBridge.senderTries - 1
         page.answer = { method, params in
             guard method == "Runtime.evaluate", params["expression"] as? String == ChromiumPageHostWire.senderExpression,
                   failures > 0 else { return nil }
@@ -87,25 +87,7 @@ struct ChromiumPageHostBridgeTests {
         }
         #expect(await Self.answerAll(page, bridge, seqs: 1...3))
         #expect(tops == [true, true, true], "calls behind a failed sender ask lost their sender: \(tops)")
-        #expect(Self.senderAsks(page) == ChromiumPageHostBridge.senderAttempts)
-    }
-
-    /// A sender that never answers is never assumed: its calls go on with no sender, which trust refuses.
-    @Test func aSenderThatNeverAnswersIsNeverAssumed() async {
-        let page = FakeChromiumPage()
-        let bridge = ChromiumPageHostBridge(page: page)
-        var tops: [Bool] = []
-        bridge.install { message in
-            tops.append(message.isMainFrame || message.frameURL != nil)
-            return ["ok": true]
-        }
-        page.answer = { method, params in
-            method == "Runtime.evaluate" && params["expression"] as? String == ChromiumPageHostWire.senderExpression
-                ? #"{"exceptionDetails":{"text":"Cannot find context with specified id"}}"# : nil
-        }
-        #expect(await Self.answerAll(page, bridge, seqs: 1...1))
-        #expect(tops == [false], "a call whose sender never answered carried a sender")
-        #expect(Self.senderAsks(page) == ChromiumPageHostBridge.senderAttempts)
+        #expect(Self.senderAsks(page) == ChromiumPageHostBridge.senderTries)
     }
 
     /// A new document's contexts are its own: a kept sender is forgotten at the commit.
@@ -166,6 +148,78 @@ struct ChromiumPageHostBridgeTests {
         }
         #expect(fromMain == "cmuxPagePainted 12")
         #expect(reached == 1)
+    }
+
+    /// Typing under load 2026-11-22: a sender check that failed once under full CPU load made the main
+    /// frame's input readiness look like a subframe's, and it was dropped, so every typed key stayed held.
+    /// The check is tried again, and the message arrives as the main frame's.
+    @Test func aSenderCheckThatFailsOnceIsTriedAgain() async {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: [PageInputReadiness.handlerName])
+        var checks = 0
+        page.answer = { method, params in
+            guard method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" else { return nil }
+            checks += 1
+            return checks == 1 ? #"{"result":{}}"# : nil
+        }
+        let arrived: String? = await PageTestWait.value("readiness") { done in
+            bridge.onMessage = { name, body in done("\(name) \(body)") }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": PageInputReadiness.handlerName, "body": 1]))
+        }
+        #expect(arrived == "\(PageInputReadiness.handlerName) 1")
+        #expect(checks == 2)
+        #expect(bridge.unknownSenders == 0)
+
+        // A call with a reply too: its handler sees the main frame's URL.
+        checks = 0
+        var received: PageHostMessage?
+        bridge.install { message in
+            received = message
+            return nil
+        }
+        let resolve = ChromiumPageHostWire.resolveExpression(seq: 3, reply: nil)
+        let replied: Bool? = await PageTestWait.value("reply") { done in
+            page.onCall = { if page.calls.contains(where: { $0.params["expression"] as? String == resolve }) { done(true) } }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 3, "body": ["op": "ping"]]))
+        }
+        #expect(replied == true)
+        #expect(received?.isMainFrame == true)
+        #expect(received?.frameURL?.absoluteString == page.senderURL)
+    }
+
+    /// A sender that never answers the check is not taken for a subframe: its message is dropped (and
+    /// counted), a fire-and-forget one never reaches ``ChromiumPageHostBridge/onMessage`` and a call's
+    /// handler never runs, but the call's promise settles with null.
+    @Test func aSenderThatNeverAnswersIsDroppedNotTakenForASubframe() async {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: [PageInputReadiness.handlerName])
+        page.answer = { method, params in
+            method == "Runtime.evaluate" && params["expression"] as? String == "[location.href, window === window.top]"
+                ? #"{"exceptionDetails":{"text":"context gone"}}"# : nil
+        }
+        var handled: [Bool] = []
+        bridge.install { message in
+            handled.append(message.isMainFrame)
+            return nil
+        }
+        bridge.onMessage = { _, _ in handled.append(false) }
+        let tries = ChromiumPageHostBridge.senderTries
+        let checks = { page.calls.filter { $0.params["expression"] as? String == "[location.href, window === window.top]" }.count }
+        let tried: Bool? = await PageTestWait.value("readiness checks") { done in
+            page.onCall = { if checks() == tries { done(true) } }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": PageInputReadiness.handlerName, "body": 1]))
+        }
+        #expect(tried == true)
+        let resolve = ChromiumPageHostWire.resolveExpression(seq: 4, reply: nil)
+        let settled: Bool? = await PageTestWait.value("call settles") { done in
+            page.onCall = { if page.calls.contains(where: { $0.params["expression"] as? String == resolve }) { done(true) } }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 4, "body": ["op": "ping"]]))
+        }
+        #expect(settled == true)
+        #expect(handled.isEmpty)
+        #expect(checks() == 2 * tries)
+        #expect(bridge.unknownSenders == 2)
+        #expect(bridge.answered == 0)
     }
 
     @Test func aNameTheBridgeDoesNotKnowGetsNoAnswer() async {
@@ -260,6 +314,20 @@ struct ChromiumPageHostBridgeTests {
         }
     }
 
+    /// The setup sends every call, in order, before it awaits the first answer: they come back in
+    /// about one round trip, not one each (one at a time took about 50 ms on the chat page).
+    @Test func setUpSendsEveryCallBeforeAwaitingTheFirstAnswer() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: ["cmuxPagePainted"])
+        let scripts = ["one()", "two()"]
+        try await bridge.setUp(documentScripts: scripts)
+        let expected = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: scripts)
+        #expect(page.calls.map(\.method) == expected.map(\.0))
+        #expect(Array(page.calls.compactMap { $0.params["source"] as? String }.suffix(2)) == scripts)
+        #expect(page.sentBeforeFirstAwait == expected.count)
+        #expect(bridge.runtimeEnabled)
+    }
+
     /// The setup leaves the Runtime domain on for the first document; its commit turns it off and adds
     /// the binding again. Measured (headless Chromium 157, cold, n=12): the chat page's modules evaluated
     /// in 116 ms with the domain on and 44 ms with it off from the commit, and the binding was there at
@@ -274,6 +342,15 @@ struct ChromiumPageHostBridgeTests {
         #expect(sent == ["Runtime.disable", "Runtime.addBinding"])
         #expect(page.calls.last?.params["name"] as? String == ChromiumPageHostBridge.bindingName)
         #expect(!bridge.runtimeEnabled)
+    }
+
+    @Test func aCommitCanResendInputReadinessAfterReaddingTheBinding() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        let sent = await calls(page, count: 3) { bridge.documentCommitted(resendInputReadiness: true) }
+        #expect(sent == ["Runtime.disable", "Runtime.addBinding", "Runtime.evaluate"])
+        #expect(page.calls.last?.params["expression"] as? String == "globalThis.__cmuxInputReadyResend?.();")
     }
 
     /// A reload and a navigation the app starts each turn the Runtime domain on (and add the binding,

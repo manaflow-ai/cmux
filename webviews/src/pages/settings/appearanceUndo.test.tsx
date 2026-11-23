@@ -93,7 +93,11 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     page = await renderPage({ path: "/settings/appearance" });
     const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
-    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
+    // Beside the step, the card keeps the picture Off showed (none); that write is no step of its own.
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([
+      { key: "appearance.background", value: "daily" },
+      { key: "appearance.backgroundMemory", value: { off: "none" } },
+    ]);
     expect(undoButton().disabled).toBe(false);
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 

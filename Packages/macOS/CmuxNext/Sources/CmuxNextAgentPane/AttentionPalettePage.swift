@@ -60,13 +60,13 @@ final class AttentionPaletteProvider: PaletteProvider {
 
 /// Text of the Go to What Needs Me page. Keys live in Resources/MiscHandlers.xcstrings.
 struct AttentionPaletteStrings {
-    static var title: String { String(localized: "handlers.attention.title", defaultValue: "What Needs You", table: "AttentionTabs", bundle: .module) }
-    static var placeholder: String { String(localized: "handlers.attention.placeholder", defaultValue: "Search what needs you", table: "AttentionTabs", bundle: .module) }
-    static var open: String { String(localized: "handlers.attention.open", defaultValue: "Go to Tab", table: "AttentionTabs", bundle: .module) }
+    static var title: String { String(localized: "handlers.attention.title", defaultValue: "What Needs You", table: "AttentionTabs", bundle: .localizedModule) }
+    static var placeholder: String { String(localized: "handlers.attention.placeholder", defaultValue: "Search what needs you", table: "AttentionTabs", bundle: .localizedModule) }
+    static var open: String { String(localized: "handlers.attention.open", defaultValue: "Go to Tab", table: "AttentionTabs", bundle: .localizedModule) }
     static var needsFocus: String {
         String(localized: "handlers.attention.needsFocus",
                defaultValue: "Go to What Needs Me opens only when focus is requested; read the marked tabs with tab.list",
-               table: "AttentionTabs", bundle: .module)
+               table: "AttentionTabs", bundle: .localizedModule)
     }
-    static var nothing: String { String(localized: "handlers.attention.nothing", defaultValue: "No agent needs you in a tab right now.", table: "AttentionTabs", bundle: .module) }
+    static var nothing: String { String(localized: "handlers.attention.nothing", defaultValue: "No agent needs you in a tab right now.", table: "AttentionTabs", bundle: .localizedModule) }
 }
