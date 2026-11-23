@@ -106,11 +106,12 @@ struct AutoChatsHost: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        @Bindable var auto = auto
+        // The page's binding only; the load below reads the presentation itself.
+        @Bindable var pages = auto
         content
             // New Chat is a page of this list, not a sheet: Cloud chats is a sheet already, and the
             // HIG shows one sheet at a time. Starting the chat puts it in New Chat's place.
-            .navigationDestination(item: $auto.route) { route in
+            .navigationDestination(item: $pages.route) { route in
                 switch route {
                 case .chat:
                     if let open = auto.opened {

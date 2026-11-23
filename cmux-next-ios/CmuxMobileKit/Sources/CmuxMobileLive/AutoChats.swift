@@ -95,9 +95,13 @@ public struct AutoChatRow: Hashable, Identifiable, Sendable {
     init?(_ value: JSONValue?) {
         guard let value, let id = value["id"]?.stringValue,
               let place = value["place"]?.stringValue.flatMap(AutoChatPlace.init(rawValue:)) else { return nil }
-        self.init(id: id, title: value["title"]?.stringValue ?? "", harness: value["harness"]?.stringValue ?? "",
-                  place: place, keepInCloud: value["keepInCloud"] == .bool(true), inCloud: value["inCloud"] == .bool(true),
-                  repo: AutoChatRepo(value["repo"]), closed: value["closed"] == .bool(true))
+        let title: String = value["title"]?.stringValue ?? ""
+        let harness: String = value["harness"]?.stringValue ?? ""
+        let keepInCloud: Bool = value["keepInCloud"] == .bool(true)
+        let inCloud: Bool = value["inCloud"] == .bool(true)
+        let closed: Bool = value["closed"] == .bool(true)
+        self.init(id: id, title: title, harness: harness, place: place, keepInCloud: keepInCloud, inCloud: inCloud,
+                  repo: AutoChatRepo(value["repo"]), closed: closed)
     }
 
     /// The row's name: the chat's title, else its repository, else "New Chat".
