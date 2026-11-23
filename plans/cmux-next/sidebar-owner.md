@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-23 (a590 Chief crown): Sidebar-Look: Lawrence 2026-11-23 (msg 48175): "get rid of the crown". The
+  Chief's top row (the Home item) and the Chief Activity item draw the sparkles SF Symbol, not the icon pack's
+  `agent.chief` crown: `SidebarBuiltIn.icon` is optional and nil for both. A Chief picture still replaces the glyph.
+  The crown came from Leo fd01d525 (#18971, 2026-10-10, the pack's glyph), was on the Chief item since Leo aeaa1dad
+  (#22759, 2026-10-20) and on the top row since f061b0e7 (2026-11-20, "the Chief replaces Home"). Other `agent.chief`
+  uses (server panel, App Store feature previews, first-run pet row) are unchanged. Regression:
+  `ChiefReplacesHomeTests.theChiefRowsDrawNoCrown`.
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
   the settings watcher. The existing title, detail and metadata slots move together using
