@@ -16,16 +16,24 @@ import CmuxNextWakeups
 public final class OwnMachinePortWatch {
     public static let interval: Duration = .seconds(3)
 
-    /// The own machines (not Cloud, not this Mac) with a chat open now: each one's daemon link, by machine id.
-    public var machines: @MainActor () -> [String: DaemonConnection] = { [:] }
+    /// The own machines (not Cloud, not this Mac) with a chat open now, by machine id (repeats allowed).
+    private var machineIDs: @MainActor () -> [String] = { [] }
+    /// A machine's daemon link, nil while it has none.
+    private var daemon: @MainActor (String) -> DaemonConnection? = { _ in nil }
     /// A port opened or closed on its machine.
-    public var deliver: @MainActor (CloudPortChange) -> Void = { _ in }
+    private var deliver: @MainActor (CloudPortChange) -> Void = { _ in }
 
     private var known: [String: Set<Int>] = [:]
     private var reading = false
     private let timer = DemandTimer(owner: "ownMachinePorts.pass")
 
     public init() {}
+
+    public func wire(deliver: @escaping @MainActor (CloudPortChange) -> Void, machineIDs: @escaping @MainActor () -> [String], daemon: @escaping @MainActor (String) -> DaemonConnection?) {
+        self.deliver = deliver
+        self.machineIDs = machineIDs
+        self.daemon = daemon
+    }
 
     /// A chat of an own machine was shown: reads now if the watch had stopped.
     public func poke() {
@@ -34,7 +42,8 @@ public final class OwnMachinePortWatch {
     }
 
     private func pass() async {
-        let machines = machines()
+        var machines: [String: DaemonConnection] = [:]
+        for id in machineIDs() where machines[id] == nil { machines[id] = daemon(id) }
         // A machine with no chat open any more starts over: its next read is a baseline again.
         for gone in known.keys where machines[gone] == nil { known[gone] = nil }
         guard !machines.isEmpty else { return }
