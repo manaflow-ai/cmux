@@ -6,7 +6,7 @@ import Testing
 /// Leo, 2026-11-23, Frosted over Desktop Wallpaper on a 2x display: "it went only to the bottom
 /// left", "as in it didnt fill the whole thing" (cmux#51381). On a Retina screen the live
 /// `CIAffineClamp` + `CIGaussianBlur` layer filter on the art covered the bottom half, and after a
-/// resize only the bottom-left quadrant (scripts/measure/frosted-art-2x.sh on air-blue's built-in
+/// resize only the bottom-left quadrant (scripts/measure/frosted-art-2x.sh on a MacBook's built-in
 /// Retina display); nothing tested the art at 2x. A still is now blurred into its own picture: these
 /// render the art layer at a 2x backing and check every quadrant, before and after a resize.
 @MainActor @Suite struct FrostedArtCoverageTests {
