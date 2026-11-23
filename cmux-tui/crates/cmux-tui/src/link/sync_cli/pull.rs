@@ -620,7 +620,7 @@ fn plan_scope(
                 None
             }
             (Some(pushed), _) if super::project::is_stand_in(&pushed.sha256) => {
-                Some(projected_base(&root, local, relative, pushed)?)
+                Some(projected_base(&root, relative, pushed)?)
             }
             _ => None,
         };
@@ -1192,18 +1192,31 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
 /// The base of a projected file ([`super::project::stand_in`]): this Mac's file, hashed, while it
 /// still has the size and mtime it was projected with; else the stand-in, which matches nothing
 /// (this Mac changed it since).
-fn projected_base(
-    root: &Dir,
-    local: &Path,
-    relative: &str,
-    pushed: &Pushed,
-) -> anyhow::Result<Pushed> {
-    let unchanged = std::fs::symlink_metadata(local.join(relative))
-        .is_ok_and(|meta| super::project::stand_in_matches(&pushed.sha256, &meta));
-    if unchanged && let Side::File { sha256, .. } = local_side(root, relative)? {
-        return Ok(Pushed { sha256, ..pushed.clone() });
+fn projected_base(root: &Dir, relative: &str, pushed: &Pushed) -> anyhow::Result<Pushed> {
+    Ok(match stand_in_hash(root, relative, &pushed.sha256)? {
+        Some(sha256) => Pushed { sha256, ..pushed.clone() },
+        None => pushed.clone(),
+    })
+}
+
+/// The hash of this Mac's file at `relative` while it is still the one `stand_in` names: checked
+/// on the opened file before and after it is read, so a save landing between the check and the
+/// read never becomes the base (it would let a later machine edit overwrite that save).
+fn stand_in_hash(root: &Dir, relative: &str, stand_in: &str) -> anyhow::Result<Option<String>> {
+    let Ok(Some((dir, name))) = place::parent_of(root, relative) else { return Ok(None) };
+    if !matches!(dir.entry(&name)?, Entry::File { .. }) {
+        return Ok(None);
     }
-    Ok(pushed.clone())
+    let mut file = dir.open_file(&name)?;
+    let matches = |file: &std::fs::File| {
+        file.metadata().is_ok_and(|meta| super::project::stand_in_matches(stand_in, &meta))
+    };
+    if !matches(&file) {
+        return Ok(None);
+    }
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(matches(&file).then(|| hex(&hasher.finalize())))
 }
 
 /// Every path of `paths` and every folder above one, by its name as a Mac's disk compares names

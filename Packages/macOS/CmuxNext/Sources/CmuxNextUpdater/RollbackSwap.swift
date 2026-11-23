@@ -152,13 +152,18 @@ nonisolated public struct RollbackSwap {
     }
 
     /// The helper that reopens the app once `pid` has exited: `waiter` (`caffeinate -w`) waits on
-    /// the kernel's exit event (no polling), then `opener` starts the swapped bundle. The waiter runs
-    /// as a job the shell waits on, so terminating the helper (a refused quit) ends the waiter too
-    /// and nothing opens (cmux#41013 review). `openOptions` follow the bundle as positional
-    /// arguments: the running app's home (``RelaunchHome``), so an app in a custom home reopens in
-    /// it; none for the account's own home, where `open`'s argv is just the bundle.
+    /// the kernel's exit event (no polling), then `opener` (`open -n`) starts the swapped bundle. The
+    /// waiter runs as a job the shell waits on, so terminating the helper (a refused quit) ends the
+    /// waiter too and nothing opens (cmux#41013 review). `-n` because LaunchServices learns of the
+    /// exit tens of ms after the kernel does: a plain `open` in that window resolves to the dead
+    /// instance, only tries to bring it forward, and nothing starts (Leo's NIGHTLY, 2026-11-23
+    /// 03:41Z: `open` at +31 ms, the old pid marked QUITTING at +80 ms, no relaunch). The old process
+    /// is gone by then, so `-n` never makes a second copy; one started meanwhile by someone else hands
+    /// off to it (``SingleInstanceGuard``). `openOptions` follow the bundle as positional arguments:
+    /// the running app's home (``RelaunchHome``), so an app in a custom home reopens in it; none for
+    /// the account's own home, where `open`'s argv is just `-n` and the bundle.
     public static func relaunchCommand(pid: Int32, app: URL, waiter: String = "/usr/bin/caffeinate -w",
-                                       opener: String = "/usr/bin/open",
+                                       opener: String = "/usr/bin/open -n",
                                        openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
         ["/bin/sh", "-c", "trap 'kill \"$w\" 2>/dev/null; wait \"$w\"; exit 143' TERM; \(waiter) \(pid) & w=$!; wait \"$w\"; \(opener) \"$@\" \"$0\"", app.path] + openOptions
     }

@@ -139,16 +139,16 @@ import Testing
         #expect(ownHome.isEmpty)
         let own = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: ownHome)
         #expect(own == ["/bin/sh", "-c",
-                        #"trap 'kill "$w" 2>/dev/null; wait "$w"; exit 143' TERM; /usr/bin/caffeinate -w 42 & w=$!; wait "$w"; /usr/bin/open "$@" "$0""#,
+                        #"trap 'kill "$w" 2>/dev/null; wait "$w"; exit 143' TERM; /usr/bin/caffeinate -w 42 & w=$!; wait "$w"; /usr/bin/open -n "$@" "$0""#,
                         app.path])
-        #expect(try Self.openArgv(own) == ["/usr/bin/open", app.path])
+        #expect(try Self.openArgv(own) == ["/usr/bin/open", "-n", app.path])
 
         let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
         let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: account)
         #expect(options == ["--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)"])
         let custom = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: options)
         #expect(custom[2] == own[2], "the home is an argument, never script text")
-        #expect(try Self.openArgv(custom) == ["/usr/bin/open", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)", app.path])
+        #expect(try Self.openArgv(custom) == ["/usr/bin/open", "-n", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)", app.path])
     }
 
     @Test func relaunchHomePassesOnlyTheVariablesThatAreSet() {

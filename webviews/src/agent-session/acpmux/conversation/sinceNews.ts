@@ -48,3 +48,34 @@ export function sinceNews(rows: readonly AcpmuxRow[], index: number): boolean {
   for (let at = index + 1; at < end; at += 1) if (isNews(rows[at]!)) return true;
   return end < rows.length;
 }
+
+/// The most messages the line counts: past it the label reads "999+", and counting stays bounded
+/// however long the chat ran while the person was away.
+export const SINCE_COUNT_CAP = 999;
+
+/// How many rows of any kind `sinceCount` reads per message it may count: status lines and tool runs
+/// between replies are read past, never counted.
+const ROWS_PER_MESSAGE = 16;
+
+/// What one news row counts as: a "Received N messages" run is its N, every other news row one.
+const messagesIn = (row: AcpmuxRow): number =>
+  row.kind === MESSAGE_RUN ? Math.max(1, row.messageRun?.received ?? 1) : 1;
+
+/// How many messages are under the line at `index` in `rows` (the drawn rows), for its "157 new
+/// messages" label (Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do somthing
+/// like this in the gui somehow"). A message is what `isNews` reads as news, so a line that draws
+/// counts at least one. Read from the end back to the line and bounded, so a chat that ran all day
+/// costs the same per update as one that ran a minute: past `cap` it answers `cap` + 1 (the label's
+/// "999+"); past `ROWS_PER_MESSAGE` times as many rows of any kind it answers `undefined` (the label
+/// reads "New": no number it cannot stand by). `undefined` too when `index` is not the line.
+export function sinceCount(rows: readonly AcpmuxRow[], index: number, cap = SINCE_COUNT_CAP): number | undefined {
+  if (rows[index]?.kind !== SINCE_DIVIDER) return undefined;
+  const stop = Math.max(index, rows.length - 1 - cap * ROWS_PER_MESSAGE);
+  let count = 0;
+  for (let at = rows.length - 1; at > stop; at -= 1) {
+    const row = rows[at]!;
+    if (isNews(row)) count += messagesIn(row);
+    if (count > cap) return cap + 1;
+  }
+  return stop === index ? count : undefined;
+}
