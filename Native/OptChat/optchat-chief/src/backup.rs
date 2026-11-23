@@ -466,7 +466,13 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
         ],
     );
     if merge.is_err() {
-        let conflicts = git(dir, &["diff", "--name-only", "--diff-filter=U"])?;
+        let conflicts = match git(dir, &["diff", "--name-only", "--diff-filter=U"]) {
+            Ok(conflicts) => conflicts,
+            Err(error) => {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(error);
+            }
+        };
         if conflicts.is_empty() {
             let _ = git(dir, &["merge", "--abort"]);
             return Err(merge.unwrap_err());
@@ -476,23 +482,35 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
                 let _ = git(dir, &["merge", "--abort"]);
                 return Err(format!("merge conflict in non-memory file {path}"));
             }
-            let merged = merge_jsonl(
+            let merged = match merge_jsonl(
                 index_blob(dir, 1, path).as_deref(),
                 index_blob(dir, 2, path).as_deref(),
                 index_blob(dir, 3, path).as_deref(),
-            )
-            .map_err(|why| format!("merge conflict in {path}: {why}"))?;
-            std::fs::write(dir.join(path), merged)
-                .map_err(|e| format!("write merged export {path}: {e}"))?;
-            git(dir, &["add", "--", path])?;
+            ) {
+                Ok(merged) => merged,
+                Err(why) => {
+                    let _ = git(dir, &["merge", "--abort"]);
+                    return Err(format!("merge conflict in {path}: {why}"));
+                }
+            };
+            if let Err(error) = std::fs::write(dir.join(path), merged) {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(format!("write merged export {path}: {error}"));
+            }
+            if let Err(error) = git(dir, &["add", "--", path]) {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(error);
+            }
         }
     }
-    git(
+    if let Err(error) = git(
         dir,
         &["commit", "-q", "-m", "Merge remote Chief memory backup"],
-    )
-    .map(|_| ())
-    .map_err(|e| format!("commit reconciled memory: {e}"))
+    ) {
+        let _ = git(dir, &["merge", "--abort"]);
+        return Err(format!("commit reconciled memory: {error}"));
+    }
+    Ok(())
 }
 
 impl Backup {
@@ -618,7 +636,7 @@ impl Backup {
         }
         if self.config.url.is_none() && !self.created {
             if gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err() {
-                gh(&[
+                let created = gh(&[
                     "repo",
                     "create",
                     &self.config.repo,
@@ -627,7 +645,15 @@ impl Backup {
                     "--disable-wiki",
                     "--description",
                     "OptChat Chief memory: the text export, pushed after every turn",
-                ])?;
+                ]);
+                if let Err(error) = created
+                    && gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err()
+                {
+                    return Err(format!(
+                        "create backup repository {}: {error}",
+                        self.config.repo
+                    ));
+                }
             }
             self.created = true;
         }
