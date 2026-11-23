@@ -222,7 +222,12 @@ extension AgentPaneTransport {
             }
             if wasFirst, sentFirst {
                 let relay = promptRelay
-                await provePerson(socket: socket, ids: ids)
+                // The proof goes out second and the line goes on: its answer is never awaited here.
+                // A daemon that holds an early proof until its key lands (after an update or a cold
+                // start, under load for many seconds) would otherwise hold every frame of the page
+                // behind it. The app's own pane is the person's sender while it is unproven
+                // (acpmux `app_pane_unproven`), so nothing the page sends meanwhile is misattributed.
+                await sendPersonProof(socket: socket, ids: ids)
                 // Journal replay bypasses the page send line, so it needs the same trust barrier.
                 await finishTrustBeforeReplay(socket: socket, ids: ids)
                 if self.socket === socket, !socket.isClosed { await relay?.resend(socket: socket, ids: ids) }
@@ -282,7 +287,20 @@ extension AgentPaneTransport {
     ///   the pane proves that key on the same connection.
     /// Nothing reconnects and nothing is shown. An older daemon without `reprove` refuses an early
     /// proof: then the key is enrolled and the pane reconnects once (``personProofSettled``).
-    func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+    /// Starts ``provePerson`` and returns once its first frame is on the socket, or once it sends
+    /// none: the proof stays the connection's second request, and its answer settles off the line.
+    func sendPersonProof(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let sent = ProofSent(continuation)
+            // task-owner: one proof per connection; it ends with its answer, a re-key cap or the socket's close
+            Task { @MainActor in
+                await provePerson(socket: socket, ids: ids, sent: sent.resume)
+                sent.resume()
+            }
+        }
+    }
+
+    func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds, sent: @escaping @MainActor () -> Void = {}) async {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
@@ -308,6 +326,7 @@ extension AgentPaneTransport {
                 proved: key, socketPath: challenge.reprove ? socketPath : nil,
                 send: { done in
                     ids.whenResult(id) { done($0) }
+                    defer { sent() }
                     if let error = socket.send(text) {
                         ids.cancel(id)
                         done(false)
@@ -665,5 +684,18 @@ extension AgentPaneTransport {
         if let method = facts.method {
             sessions.sent(method: method, id: facts.pageID, handoff: facts.handoffId, owned: facts.foreignSource)
         }
+    }
+}
+
+/// Resumes ``AgentPaneTransport/sendPersonProof(socket:ids:)``'s wait once, whichever comes first:
+/// the proof's first frame sent, or ``AgentPaneTransport/provePerson(socket:ids:sent:)`` ending.
+@MainActor private final class ProofSent {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+
+    func resume() {
+        continuation?.resume()
+        continuation = nil
     }
 }
