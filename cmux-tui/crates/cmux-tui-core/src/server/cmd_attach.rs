@@ -759,11 +759,14 @@ pub(super) fn attach_surface(
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
                         (None, None) => {
                             // The writer is free now: the reads that queued while it was
-                            // busy go out as one event, at once (no timer).
-                            attach_output_coalesce::push_merged(frame, &mut ready);
-                            while let Ok(next) = attach.stream.try_recv() {
-                                attach_output_coalesce::push_merged(next, &mut ready);
-                            }
+                            // busy go out as one event, at once (no timer), of at most
+                            // `DRAIN_MAX_BYTES`; a longer backlog waits for the next drain.
+                            attach_output_coalesce::drain_merged(
+                                frame,
+                                || attach.stream.try_recv().ok(),
+                                attach_output_coalesce::DRAIN_MAX_BYTES,
+                                &mut ready,
+                            );
                         }
                     }
                     false

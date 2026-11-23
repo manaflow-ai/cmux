@@ -142,19 +142,40 @@ impl OutputCoalescer {
     }
 }
 
-/// Pushes `frame` onto `out`, appending an `output`'s bytes to an `output` already at its end
-/// (up to `OUTPUT_COALESCE_MAX_BYTES`). The plain byte attach calls it for the reads that queued
-/// while its writer was busy, once the writer is free: no timer, and a read that finds the
-/// writer free goes out alone, as before. Same bytes, same order, fewer events.
-pub(super) fn push_merged(frame: AttachFrame, out: &mut Vec<AttachFrame>) {
-    if let AttachFrame::Output(bytes) = &frame
-        && let Some(AttachFrame::Output(last)) = out.last_mut()
-        && last.len() + bytes.len() <= OUTPUT_COALESCE_MAX_BYTES
-    {
-        last.extend_from_slice(bytes);
+/// The most bytes one drain (`drain_merged`) merges into one `output` event: the phone's batch
+/// size, so a backlog goes out as phone-sized events and the writer sends between them.
+pub(super) const DRAIN_MAX_BYTES: usize = 256 * 1024;
+
+/// The plain byte attach (no timer) once its writer frees, for the reads already pending:
+/// `first` and then `next()` merge into one `output` event of at most `max_bytes` (a single
+/// read over it goes alone, unsplit). The drain stops at the first frame that does not merge
+/// (another kind of event, or a read past the cap): that frame goes out as its own event and
+/// whatever is still queued waits for the next drain. So one drain pushes at most two frames
+/// and holds at most `max_bytes` plus one read. Same bytes, same order.
+pub(super) fn drain_merged(
+    first: AttachFrame,
+    mut next: impl FnMut() -> Option<AttachFrame>,
+    max_bytes: usize,
+    out: &mut Vec<AttachFrame>,
+) {
+    let AttachFrame::Output(mut merged) = first else {
+        out.push(first);
         return;
+    };
+    while merged.len() < max_bytes {
+        let Some(frame) = next() else { break };
+        match frame {
+            AttachFrame::Output(bytes) if merged.len() + bytes.len() <= max_bytes => {
+                merged.extend_from_slice(&bytes);
+            }
+            other => {
+                out.push(AttachFrame::Output(merged));
+                out.push(other);
+                return;
+            }
+        }
     }
-    out.push(frame);
+    out.push(AttachFrame::Output(merged));
 }
 
 #[cfg(test)]
@@ -251,18 +272,58 @@ mod tests {
     }
 
     #[test]
-    fn reads_queued_behind_the_writer_go_out_as_one_event_in_order() {
-        let mut out = Vec::new();
-        push_merged(AttachFrame::Output(b"a".to_vec()), &mut out);
-        push_merged(AttachFrame::Output(b"b".to_vec()), &mut out);
+    fn a_drain_past_the_cap_splits_into_events_under_it_in_order() {
+        const CAP: usize = 1000;
+        // 50 reads of 97 bytes each (4850 bytes, almost five caps), every byte numbered.
+        let burst: Vec<u8> = (0..50 * 97).map(|i| (i % 251) as u8).collect();
+        let mut queue: std::collections::VecDeque<AttachFrame> =
+            burst.chunks(97).map(|read| AttachFrame::Output(read.to_vec())).collect();
+        let mut sent = Vec::new();
+        while let Some(first) = queue.pop_front() {
+            let mut ready = Vec::new();
+            drain_merged(first, || queue.pop_front(), CAP, &mut ready);
+            assert!(ready.len() <= 2, "one drain pushes at most two frames");
+            sent.extend(ready);
+        }
+        let events = bytes(&sent);
+        assert!(events.len() > 1, "the burst split");
+        assert!(events.iter().all(|event| event.len() <= CAP), "each event is under the cap");
+        assert_eq!(events.concat(), burst, "every byte, in order");
+        assert_eq!(events.len(), 5, "10 reads per event");
+
+        // The real cap: a 1 MiB burst of 16 KiB reads goes out as four 256 KiB events.
+        let burst: Vec<u8> = (0..1 << 20).map(|i| (i % 253) as u8).collect();
+        let mut queue: std::collections::VecDeque<AttachFrame> =
+            burst.chunks(16 * 1024).map(|read| AttachFrame::Output(read.to_vec())).collect();
+        let mut sent = Vec::new();
+        while let Some(first) = queue.pop_front() {
+            drain_merged(first, || queue.pop_front(), DRAIN_MAX_BYTES, &mut sent);
+        }
+        let events = bytes(&sent);
+        assert_eq!(events.len(), 4);
+        assert!(events.iter().all(|event| event.len() <= DRAIN_MAX_BYTES));
+        assert_eq!(events.concat(), burst);
+    }
+
+    #[test]
+    fn a_drain_stops_at_another_event_and_a_big_read_goes_alone() {
         let colors =
             AttachFrame::ColorsChanged(std::sync::Arc::new(crate::TerminalColors::default()));
-        push_merged(colors, &mut out);
-        push_merged(AttachFrame::Output(b"c".to_vec()), &mut out);
-        assert_eq!(bytes(&out), [b"ab".to_vec(), b"<other>".to_vec(), b"c".to_vec()]);
-        let mut out = vec![AttachFrame::Output(vec![0; OUTPUT_COALESCE_MAX_BYTES])];
-        push_merged(AttachFrame::Output(b"d".to_vec()), &mut out);
-        assert_eq!(out.len(), 2, "the cap starts a new event");
+        let mut queue: std::collections::VecDeque<AttachFrame> = [
+            AttachFrame::Output(b"b".to_vec()),
+            colors,
+            AttachFrame::Output(b"c".to_vec()),
+            AttachFrame::Output(vec![b'x'; 20]),
+        ]
+        .into();
+        let mut out = Vec::new();
+        drain_merged(AttachFrame::Output(b"a".to_vec()), || queue.pop_front(), 10, &mut out);
+        assert_eq!(bytes(&out), [b"ab".to_vec(), b"<other>".to_vec()]);
+        assert_eq!(queue.len(), 2, "the rest waits for the next drain");
+        out.clear();
+        let first = queue.pop_front().unwrap();
+        drain_merged(first, || queue.pop_front(), 10, &mut out);
+        assert_eq!(bytes(&out), [b"c".to_vec(), vec![b'x'; 20]]);
     }
 
     #[test]
