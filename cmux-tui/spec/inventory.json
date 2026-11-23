@@ -199,6 +199,7 @@
     "pane.zoom",
     "participant.avatar.get",
     "participant.avatar.set",
+    "project.actions.list",
     "project.add",
     "project.list",
     "project.observe",
@@ -620,6 +621,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "process-census",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
