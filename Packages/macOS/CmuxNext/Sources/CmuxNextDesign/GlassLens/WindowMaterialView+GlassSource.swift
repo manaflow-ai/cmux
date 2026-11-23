@@ -18,7 +18,7 @@ extension WindowMaterialView {
         opacity >= Float(WindowBackdrop.windowGlassArtOpacity) - 0.001
     }
 
-    /// The art layer's frame in window coordinates; its image is aspect-filled into it.
+    /// The art layer's frame in window coordinates; its image is placed in it by ``artFit``.
     var glassArtFrame: CGRect { artView.convert(artView.bounds, to: nil) }
 
     /// Tells the pages lensing this backdrop that its art, blur or tint may have changed.
