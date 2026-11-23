@@ -59,7 +59,7 @@
       "setup": "codex/send-parity",
       "addon": null,
       "builtIn": null,
-      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply. Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
+      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply, plus the builder New Tab page (customize/, cmux.newtab/1, tabs.newTabApp). Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
     }
   ]
 }
