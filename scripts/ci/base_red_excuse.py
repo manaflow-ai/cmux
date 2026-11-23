@@ -1123,9 +1123,6 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")),
                ("ios-e2e.yml", "ios-e2e-status"))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
-# Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
-# own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
-ROLLUP_PLACEMENT_JOBS = frozenset({"portable-placement"})
 ROLLUPS_FILE = Path(__file__).with_name("base_red_rollups.json")
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 # The repo whose workflows sit beside this script: its contract is ROLLUPS_FILE.
@@ -1201,7 +1198,7 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
 # its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
-STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -1549,8 +1546,6 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 raise Refused(f"{where}: a routed rollup's workflow must be called only, with inputs")
             routes = {}
             for need in needs:
-                if need in ROLLUP_PLACEMENT_JOBS:
-                    continue
                 condition = jobs[need].get("if")
                 route = None
                 if condition is not None and not (isinstance(condition, str) and condition.strip() == STEP_TABLE_SKIP_IF):
@@ -5491,7 +5486,7 @@ GUARD_WORKFLOWS = {
     },
     "cmux-next.yml": {
         **dict.fromkeys(("push-head-preflight", "path_route", "dev-daily-tree-wait",
-                         "macos-placement", "portable-placement", "app-compile-placement",
+                         "macos-placement", "app-compile-placement",
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
