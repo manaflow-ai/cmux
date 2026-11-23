@@ -35,8 +35,15 @@ def sh(cmd, check=True):
     return subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True)
 
 
+# --rate: a bottleneck on both veth ends, in Mbit/s (0: none). A slow path drops a large
+# keyframe's tail the way loss alone does not (hq#19915).
+RATE_MBIT = 0.0
+
+
 def netem(rtt, loss, extra=""):
     half = rtt / 2
+    if RATE_MBIT > 0:
+        extra = f"rate {RATE_MBIT}mbit {extra}"
     for ns, dev in ((HOST_NS, "vh"), (VIEW_NS, "vv")):
         sh(f"ip netns exec {ns} tc qdisc replace dev {dev} root netem delay {half}ms "
            f"loss {loss}% {extra} limit 100000")
@@ -324,6 +331,8 @@ def main():
     ap.add_argument("bin")
     ap.add_argument("--rtt", type=float, default=50)
     ap.add_argument("--loss", type=float, default=0)
+    ap.add_argument("--rate", type=float, default=0,
+                    help="link rate in Mbit/s on both ends (default: no cap)")
     ap.add_argument("--attempts", type=int, default=50)
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--workload", default="marker")
@@ -348,6 +357,8 @@ def main():
                     "the bench's sample_times and the run ends with the per-stage table (one machine, "
                     "one CLOCK_MONOTONIC: the join needs no clock probe)")
     args = ap.parse_args()
+    global RATE_MBIT
+    RATE_MBIT = args.rate
     if args.drop_seconds is not None and args.blip_at is None:
         ap.error("--drop-seconds requires --blip-at")
     drop_seconds = args.drop_seconds
