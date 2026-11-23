@@ -134,6 +134,7 @@
     "git.worktree.create": "git.worktree.create",
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
+    "git.worktree.setup.run": "git.worktree.setup.run",
     "github.connect": "github.connect",
     "github.repos.checkout": "github.repos.checkout",
     "github.repos.list": "github.repos.list",
