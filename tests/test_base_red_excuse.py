@@ -3846,6 +3846,14 @@ class CancelledWebShardPerFile(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
             self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "PASS"))))
 
+    def test_a_red_file_that_only_timed_out_on_the_base_is_its_own(self):
+        # Review of #39840, F1: the base's TIMEOUT says nothing of how the file fares, so it matches no head red.
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.logs[5] = web_log(timeouts=[CAPSULES])
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
+                                                              f"run 40: {CAPSULES}")):
+            self.judge(gh)
+
     def test_a_file_that_timed_out_on_the_head_is_its_own(self):
         with self.assertRaisesRegex(excuse.Refused, "timed out \\(a cut-short file is never a base red\\)"):
             self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "TIMEOUT"))))

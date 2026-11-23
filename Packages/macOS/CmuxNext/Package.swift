@@ -1300,6 +1300,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFiles",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the files lister client (cmux-app-ffi src/files_lister.rs).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
             ],
             swiftSettings: daemonSwiftSettings
