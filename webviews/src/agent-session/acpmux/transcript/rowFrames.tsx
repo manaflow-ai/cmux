@@ -59,7 +59,18 @@ const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
   return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
 };
 
+/// The rows array is immutable. Keep the control list by that array and start index so a divider
+/// drag does not rescan every settled row under an open Worked-for disclosure on every frame.
+const disclosureControlsByRows = new WeakMap<readonly AcpmuxRow[], Map<number, string | undefined>>();
+
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  let byStart = disclosureControlsByRows.get(rows);
+  if (!byStart) {
+    byStart = new Map();
+    disclosureControlsByRows.set(rows, byStart);
+  }
+  if (byStart.has(after)) return byStart.get(after);
+
   const ids: string[] = [];
   for (let index = after; index < rows.length; index += 1) {
     const row = rows[index]!;
@@ -69,7 +80,9 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
     if (!row.settled) break;
     ids.push(rowDomId(row.id));
   }
-  return ids.length > 0 ? ids.join(" ") : undefined;
+  const controls = ids.length > 0 ? ids.join(" ") : undefined;
+  byStart.set(after, controls);
+  return controls;
 };
 
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
