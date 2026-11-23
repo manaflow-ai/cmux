@@ -91,6 +91,7 @@ import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessag
 import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
 import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
+import { shortcutKeycaps } from "../agent-session/acpmux/shortcutKeycaps.experiment";
 import { glassToolbarLook } from "../agent-session/acpmux/header/glassToolbar.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -226,6 +227,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpPairLook,
   holdToApprove,
   holdToApproveDuration,
+  shortcutKeycaps,
   jumpLatestPlace,
   outcomeAsk,
   glassToolbarLook,
