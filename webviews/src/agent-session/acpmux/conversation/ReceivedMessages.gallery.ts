@@ -110,9 +110,18 @@ function snapshot() {
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
-/// Opens the "Received N messages" row (level 1).
-const openRow: Play = async (ctx) => {
+/// Opens the finished turn's "Worked for": another agent's message in a finished turn folds there
+/// like work (turns.ts `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws inside it.
+const openWorked: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"), { capMs: 10_000 });
+  const closed = ".cv-worked[aria-expanded='false']";
+  if (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(HEAD), { capMs: 10_000 });
+};
+
+/// Opens the turn's Worked for, then its "Received N messages" row (level 1).
+const openRow: Play = async (ctx) => {
+  await openWorked(ctx);
   if (ctx.document.querySelector(HEAD)?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: HEAD });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-lane-batch__body .cv-received").length >= 7, {
     capMs: 10_000,
@@ -187,7 +196,7 @@ const hoverRow: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
-    note: 'Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
+    note: "Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, \"Received 7 messages\", closed, inside the finished turn's Worked for (closed here; the other variants open it). No session names at rest; the senders' short names are its hover.",
     snapshot: snapshot(),
   },
   "level-1": {

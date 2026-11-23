@@ -1,8 +1,12 @@
 // A turn that another agent's message started must hold still while it runs and when it ends
 // (Leo, 2026-11-17: "the jostles and shifts and spacing are still bad here"). Across the states of
 // agent-pane.turn-header-steady the header line ("Working for …", then "Worked for …") is there from
-// the first state and keeps its top and height, the prompt and the folded message run keep theirs,
+// the first state and keeps its top and height, the prompt and each finished step keep theirs,
 // the sender chip sits on the preview's baseline, and the timer keeps its width as its digits change.
+// Tops are read in the transcript's content (the scroller's top less its scrollTop): the shipped
+// live-turn-work arm `open` keeps every finished call on its own line until the turn ends (#48766,
+// 7a3104325dc: "i thought we dont fold while you're still going"), so in counts-grow the turn is
+// taller than the pane and the view follows its latest row; that scroll is not a row moving.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -10,7 +14,6 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { devHighlightWorker } from "./support/devHighlightWorker";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 
 await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -20,19 +23,15 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   const RUNNING: State[] = STATES.filter((state) => state !== "ended");
   const WIDTHS = [640, 420] as const;
   const HEIGHT = 420;
-  const ROW_IDS = [
-    "steady-prompt",
-    "working-steady-prompt",
-    "worked-steady-prompt",
-    "messageRun-steady-send",
-    "thinking-live",
-  ];
+  const ROW_IDS = ["steady-prompt", "working-steady-prompt", "worked-steady-prompt", "steady-send", "thinking-live"];
   const headerId = (state: State) => (state === "ended" ? "worked-steady-prompt" : "working-steady-prompt");
 
   type Box = { top: number; height: number };
   type Measured = {
     /** Every row in the scroller, top relative to the scroller's top. */
     rows: ({ id: string } & Box)[];
+    /** The scroller's scrollTop: the view following the latest row. */
+    scrollTop: number;
     /** The header row's inner `.cv-worked`. */
     worked: Box | null;
     /** The prompt row's chip and preview line. */
@@ -88,7 +87,8 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     const read = await page.evaluate(
       ({ header }) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const origin = scroller ? scroller.getBoundingClientRect().top : 0;
+        const scrollTop = scroller?.scrollTop ?? 0;
+        const origin = scroller ? scroller.getBoundingClientRect().top - scrollTop : 0;
         const box = (el: Element | null) => {
           if (!el) return null;
           const r = el.getBoundingClientRect();
@@ -124,7 +124,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
                 lineMid: line.top + line.height / 2,
               }
             : null;
-        return { rows, worked, baseline };
+        return { rows, worked, baseline, scrollTop };
       },
       { header: headerId(state) },
     );
@@ -159,10 +159,6 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         const page = await browser.newPage({ viewport: { width, height: HEIGHT }, colorScheme: "dark" });
         try {
           await installPaintedFrames(page);
-          // The folded message run is a finished run in a running turn: the `runs` arm of live-turn-work. The
-          // shipped `open` keeps every finished call on its own line until the turn ends (#48766), so the run
-          // never folds and the turn grows past the pane while it runs.
-          await pinLiveTurnRuns(page);
           const out = new Map<State, Measured>();
           for (const state of STATES) out.set(state, await measure(page, state, width));
           return out;
@@ -179,7 +175,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   /** Every row's top and height in every state, one line per row id, so a failure shows the shift. */
   function table(all: Map<State, Measured>, width: number): string {
     const ids = [...new Set([...ROW_IDS, ...[...all.values()].flatMap((m) => m.rows.map((r) => r.id))])];
-    const lines = [`width ${width}: top+height per state (relative to .acpmux-scroll top)`];
+    const lines = [`width ${width}: top+height per state (in the content: .acpmux-scroll top less scrollTop)`];
     lines.push(["row".padEnd(30), ...STATES.map((s) => s.padStart(14))].join(""));
     for (const id of ids) {
       const cells = STATES.map((state) => {
@@ -193,6 +189,9 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       return (w ? `${fmt(w.top)}+${fmt(w.height)}` : "-").padStart(14);
     });
     lines.push(["(header .cv-worked)".padEnd(30), ...workedCells].join(""));
+    lines.push(
+      ["(scrollTop)".padEnd(30), ...STATES.map((state) => fmt(all.get(state)!.scrollTop).padStart(14))].join(""),
+    );
     return lines.join("\n");
   }
 
@@ -253,17 +252,24 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       settle(all, width, failures);
     });
 
-    test(`${width}px: the folded message run holds still as the turn grows`, async () => {
+    test(`${width}px: each finished step holds still as the turn grows`, async () => {
       const all = await measureWidth(width);
       const failures: string[] = [];
-      same(
-        failures,
-        "messageRun-steady-send",
-        (["ticking", "minutes", "counts-grow"] as State[]).map((state) => [
-          state,
-          rowIn(all.get(state)!, "messageRun-steady-send"),
-        ]),
-      );
+      // Under the shipped `open` arm nothing folds while the turn runs (#48766): each step keeps its own line
+      // from the state it first shows in.
+      const STEPS: [string, State][] = [
+        ["steady-send", "first-step"],
+        ["steady-recv-1", "ticking"],
+        ["steady-run-1", "ticking"],
+        ["steady-recv-2", "minutes"],
+        ["steady-run-2", "minutes"],
+      ];
+      for (const [id, from] of STEPS)
+        same(
+          failures,
+          id,
+          RUNNING.slice(RUNNING.indexOf(from)).map((state) => [state, rowIn(all.get(state)!, id)]),
+        );
       settle(all, width, failures);
     });
 

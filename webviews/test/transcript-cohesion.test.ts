@@ -12,6 +12,7 @@ import {
   TRANSCRIPT_LIVE_LINE_BOX,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_HEIGHT,
+  transcriptLiveVars,
 } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
@@ -97,7 +98,10 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
               await page.locator(".acpmux-thinking .cv-worked").waitFor();
               await page.evaluate(() => document.fonts.ready);
-              const measured = await page.evaluate(() => {
+              // The live line's box as transcriptGrid.ts gives it for the shipped look (`--cv-live-line-box`), resolved at
+              // the live line rather than read back through the scroller's custom property.
+              const lineBox = transcriptLiveVars()["--cv-live-line-box"];
+              const measured = await page.evaluate((lineBox) => {
                 const live = document.querySelector(".acpmux-thinking .cv-worked")!;
                 let previous = live.closest(".acpmux-row")!.previousElementSibling;
                 while (previous && previous.getBoundingClientRect().height === 0)
@@ -119,7 +123,8 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                     };
                     const value = {
                       box: read("var(--cv-live-step-height)"),
-                      line: read("min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))"),
+                      line: read(`min(${lineBox}, var(--cv-live-step-height))`),
+                      inherited: getComputedStyle(live).getPropertyValue("--cv-live-line-box").trim(),
                     };
                     probe.remove();
                     return value;
@@ -130,7 +135,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                   ),
                   wholeTurnFolds: document.querySelectorAll(".acpmux-worked").length,
                 };
-              });
+              }, lineBox);
               const phase = process.env.CMUX_GAP_PHASE ?? "after";
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
