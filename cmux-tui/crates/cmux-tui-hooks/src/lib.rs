@@ -54,10 +54,10 @@ mod message_hooks;
 mod status_conflict;
 #[cfg(unix)]
 use codex_trust::{
-    CODEX_CONFIG_FILE, codex_event_state_label, codex_owned_entry_keys,
-    codex_present_expected_trust_entries, codex_state_key_hooks_path, codex_trust_hash,
+    CODEX_CONFIG_FILE, codex_owned_entry_keys, codex_present_expected_trust_entries,
     read_codex_config_text,
 };
+use codex_trust::{codex_event_state_label, codex_state_key_hooks_path, codex_trust_hash};
 use codex_trust::{
     codex_trust_state_verified, commit_codex_trust_state_or_rollback, prepare_codex_trust_state,
     snapshot_file,
@@ -71,7 +71,7 @@ use status_conflict::{conflict_row, ensure_replaceable_target};
 /// `pre_tool_use`), for tools that list and edit Codex hooks
 /// (cmux-agent-customize).
 pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
-    codex_trust::codex_event_state_label(event)
+    codex_event_state_label(event)
 }
 
 /// Codex's trust hash for one command handler as written in hooks.json:
@@ -99,7 +99,7 @@ pub fn codex_hook_trust_hash(
 /// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
 /// when `CODEX_HOME` came from the environment).
 pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
-    codex_trust::codex_state_key_hooks_path(hooks_path, from_env_override)
+    codex_state_key_hooks_path(hooks_path, from_env_override)
 }
 
 /// Whether a hook command is one this installer wrote (a journal hook).
@@ -2264,19 +2264,59 @@ fn codex_session_hook_settings_with_context(
     }
     for event in CODEX_EVENTS {
         let command = codex_contextual_hook_command(event, socket, terminal, launcher);
-        let timeout = codex_hook_timeout(event);
-        let label = codex_event_state_label(event)?;
-        let hash = codex_trust_hash(label, &command, timeout);
-        settings.push(format!(
-            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
-            toml_edit::Value::from(command),
-        ));
+        let flag = codex_session_flag_hook(event, &command, codex_hook_timeout(event))?;
+        settings.push(flag.setting);
         let mut entry = toml_edit::InlineTable::new();
-        entry.insert("trusted_hash", hash.into());
-        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+        entry.insert("trusted_hash", flag.trusted_hash.into());
+        state.insert(flag.state_key, entry.into());
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)
+}
+
+/// One command hook in a Codex launch's session-flag layer (`-c` values): the hook itself, and
+/// the trust-state key and hash Codex runs it under without a review prompt.
+pub struct CodexSessionFlagHook {
+    /// `hooks.<Event>=[{hooks=[{type="command",command=...,timeout=N}]}]`.
+    pub setting: String,
+    /// `/<session-flags>/config.toml:<event label>:0:0`.
+    pub state_key: String,
+    /// Codex's hash of the hook's normalized identity (`codex_trust.rs`).
+    pub trusted_hash: String,
+}
+
+/// [`CodexSessionFlagHook`] for `command` on `event`, the only hook of that event in the
+/// session-flag layer (group 0, handler 0).
+pub fn codex_session_flag_hook(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<CodexSessionFlagHook> {
+    let label = codex_event_state_label(event)?;
+    Ok(CodexSessionFlagHook {
+        setting: format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ),
+        state_key: format!("/<session-flags>/config.toml:{label}:0:0"),
+        trusted_hash: codex_trust_hash(label, command, timeout),
+    })
+}
+
+/// The `-c` values that run `command` as Codex's only session-flag hook for `event`, trusted:
+/// the hook and a `hooks.state` holding its trust entry alone, which Codex merges with the
+/// persisted state key by key (the user's own hooks keep their trust).
+pub fn codex_session_flag_hook_settings(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<[String; 2]> {
+    let flag = codex_session_flag_hook(event, command, timeout)?;
+    let mut entry = toml_edit::InlineTable::new();
+    entry.insert("trusted_hash", flag.trusted_hash.into());
+    let mut state = toml_edit::InlineTable::new();
+    state.insert(&flag.state_key, entry.into());
+    Ok([flag.setting, format!("hooks.state={state}")])
 }
 
 /// Returns persisted trust hashes for the current cmux-owned hook identities.

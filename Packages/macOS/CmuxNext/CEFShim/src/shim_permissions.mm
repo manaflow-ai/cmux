@@ -22,6 +22,9 @@ namespace {
 // permission_prompt_policy.h names CEF's bits without CEF's headers.
 static_assert(kPermissionGeolocation == CEF_PERMISSION_TYPE_GEOLOCATION, "geolocation bit");
 static_assert(kPermissionNotifications == CEF_PERMISSION_TYPE_NOTIFICATIONS, "notifications bit");
+static_assert(kPermissionCamera == CEF_PERMISSION_TYPE_CAMERA_STREAM, "camera bit");
+static_assert(kPermissionMicrophone == CEF_PERMISSION_TYPE_MIC_STREAM, "microphone bit");
+static_assert(kPermissionCameraPanTiltZoom == CEF_PERMISSION_TYPE_CAMERA_PAN_TILT_ZOOM, "camera pan-tilt-zoom bit");
 
 // Waiting prompts by token (prompt id + 1), UI thread. Never destroyed at
 // exit (its callbacks would outlive CefShutdown); ForgetPermissionPrompts

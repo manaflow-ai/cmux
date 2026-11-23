@@ -136,6 +136,14 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButton call:hitTest/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
   "NSButton call:accessibilityPerformPress/0": {
    "26.5.2": true,
    "26.7": true,
@@ -158,6 +166,9 @@
    "26.7": true,
    "26.5.1": true,
    "27.0": true,
+   "26.6": true
+  },
+  "NSButton call:highlight/1": {
    "26.6": true
   },
   "NSButton call:keyDown/1": {
@@ -346,7 +357,16 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButtonCell call:drawBezel/2:in": {
+   "27.0": true
+  },
   "NSButtonCell call:drawTitle/3:withFrame,in": {
+   "27.0": true
+  },
+  "NSPopUpButtonCell call:drawBezel/2:in": {
+   "27.0": true
+  },
+  "NSPopUpButtonCell call:drawTitle/3:withFrame,in": {
    "27.0": true
   },
   "NSClipView call:setBoundsOrigin/1": {
@@ -1234,6 +1254,15 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSTextView call:viewDidChangeEffectiveAppearance/0": {
+   "27.0": true
+  },
+  "NSTextView get:textContainerOrigin/0": {
+   "27.0.1": true
+  },
+  "NSTextView call:scrollRangeToVisible/1": {
+   "27.0.1": true
+  },
   "NSView call:accessibilityChildren/0": {
    "26.5.2": true,
    "26.7": true,
@@ -1936,6 +1965,22 @@
    "26.6": true
   },
   "WKWebView get:inputContext/0": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
+  "NSButton call:mouseUp/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
+  "NSButton call:mouseDragged/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,

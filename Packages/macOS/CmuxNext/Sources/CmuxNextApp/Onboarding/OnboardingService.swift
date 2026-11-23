@@ -67,8 +67,9 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
-    private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
+    /// Settings > Agents' cmux Tools card: `agents.cmuxMcp` and `cmux setup mcp`'s report.
+    private(set) lazy var agentTools = AgentToolsCLISource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
     private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
         _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
@@ -82,7 +83,7 @@ final class OnboardingService {
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = NextSupport.applicationSupportDirectory()
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
@@ -103,7 +104,7 @@ final class OnboardingService {
             }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools, choices: $0.firstRunChoices) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, choices: $0.firstRunChoices) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -152,30 +153,28 @@ final class OnboardingService {
     }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, on the empty Chief chat.
+    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, in its chat (no window: no `--onboarding` needed).
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
-                                                  skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+                                                  skipsOnboarding: services.environment.launchSteps == .none)
 
     /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
     /// (the Agents window and the CLI toast count as shown), else the first-run windows
     /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
     /// (``OnboardingWindowPresenter/historyShownKey``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        // The cmux Tools question comes at launch whatever owns the first run, for an existing
-        // installation too: until it is answered, the person's agents get no cmux server.
-        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) {
+        guard route == .windows else { return }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }
     }
 
     /// A new person's first launch opens a new agent chat, composer ready, in a workspace of its own (cmux#48416): after
-    /// the launch's tool windows close (Make cmux Yours, the cmux Tools answer), none over a top page or for terminal-first.
+    /// the launch's tool window closes (Make cmux Yours), none over a top page or for terminal-first.
     @discardableResult
     func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
         await presenter.untilClosed()

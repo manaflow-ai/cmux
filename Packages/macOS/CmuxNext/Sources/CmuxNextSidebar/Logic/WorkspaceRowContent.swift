@@ -63,7 +63,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
-    /// The workspace runs on a Cloud machine: a small cloud mark right after its name, the row's only sign of it.
+    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
     public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
@@ -156,7 +156,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -180,7 +180,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             icon: ws.icon,
             detail: Self.nonRedundantDetail(
                 (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? Self.summaryLine(ws) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                     ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
                 title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
@@ -188,7 +188,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
@@ -244,7 +244,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // The status block draws the reported entries; the line repeats none.
         case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
-        case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
+        case .lastActivity: ws.rowAge.map { activityText($0, now: now) }
         case .notification: nonEmpty(ws.notificationText)
         case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }
@@ -262,6 +262,14 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
         guard let progress = ws.progress else { return nil }
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
+    }
+
+    /// The agent chat's rolling summary, with its next action after an arrow ("Tests pass → Open
+    /// the PR"): where the chat stands, said better than its raw last reply.
+    static func summaryLine(_ ws: SidebarWorkspace) -> String? {
+        guard let summary = nonEmpty(ws.detail.summary) else { return nil }
+        guard let next = nonEmpty(ws.detail.nextAction) else { return summary }
+        return Strings.summaryWithNext(summary, next)
     }
 
     /// The description's first non-empty line, trimmed: what a row shows of it.

@@ -46,6 +46,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod published;
 mod renderers;
 mod right;
 mod run;
@@ -55,6 +56,9 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_pieces;
+pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -186,6 +190,10 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
+    /// `app renderers profile`: `renderers.profile` on one page (app/renderers.rs).
+    RendererProfile {
+        params: Value,
+    },
     /// `app chat perf`: `agent.chat.perf`, one chat page's frames and record-to-paint times over
     /// `seconds` (app/chat_perf.rs).
     ChatPerf {
@@ -208,8 +216,15 @@ pub(super) enum AppCommand {
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
     Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
+    /// `cmux app share`: the build you run as one `cmux app try` line (app/try_cmd/share.rs).
+    Share(try_cmd::ShareCommand),
+    /// `cmux app publish|versions|rollback|ls`: versioned apps from this machine (app/published.rs).
+    Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
+    /// signed switch file (app/web_pieces.rs).
+    WebPieces(web_pieces::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -310,11 +325,21 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
+        ("app", Some("share")) => {
+            AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
+        }
+        ("app", _) if published::owns(rest) => {
+            AppCommand::Published(published::parse(rest).map_err(UsageError::new)?)
+        }
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -330,8 +355,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
         }
         // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
-        // phase, whether a picture is up, time to first frame, fps, round trip and
-        // dropped frames; read-only, never a credential or a pixel of the screen.
+        // state (requesting, waiting_for_approval, connecting, viewing, failed, ...),
+        // the card's error text, whether a picture is up, frame size, time to first
+        // frame, fps, round trip and dropped frames; `--tab` takes the tab's id or its
+        // page key. Read-only, never a credential or a pixel of the screen.
         ("app", Some("mac-screens")) => {
             let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
             let mut params = Map::new();
@@ -585,7 +612,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-pub(super) fn argument_name(flag: &str) -> String {
+pub(in crate::cli) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -871,9 +898,16 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     match &command {
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
+        AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -900,6 +934,15 @@ pub(super) struct ConnectFailure {
 
 /// [`connect_command`] that says whether its failure may pass by waiting.
 pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
+    let stream = connect_command_or_wait_unchecked(global)?;
+    // Warns, once, when the app on the other end is older than this installed CLI.
+    if let Ok(socket) = command_socket(global) {
+        super::stale_app::warn_if_stale(global, &socket.path);
+    }
+    Ok(stream)
+}
+
+fn connect_command_or_wait_unchecked(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
     let fixed = |error| ConnectFailure { error, may_pass: false };
     let socket = command_socket(global).map_err(fixed)?;
     let uid = cmux_tui_core::platform::effective_uid();
@@ -996,6 +1039,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
         }
+        AppCommand::RendererProfile { params } => {
+            return Ran::Done(renderers::run_profile(global, stream, params));
+        }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
@@ -1003,9 +1049,16 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(&command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
+        AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

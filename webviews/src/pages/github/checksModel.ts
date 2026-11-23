@@ -3,6 +3,7 @@
 // person acts on them (failing, running, queued, then passed folded to one line); the tally, the
 // share done, and an ETA from how long each job took at the base branch's tip.
 import type { DashboardChecks, DashboardJob } from "./types";
+import { intl } from "../../ui/intl";
 
 export type JobState = DashboardJob["state"];
 
@@ -113,7 +114,7 @@ export function duration(seconds: number, locale?: string): string {
   const hours = Math.floor(whole / 3600);
   const minutes = Math.floor((whole % 3600) / 60);
   const unit = (value: number, name: "hour" | "minute" | "second") =>
-    new Intl.NumberFormat(locale, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(locale, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   if (hours) return `${unit(hours, "hour")} ${unit(minutes, "minute")}`;
   if (minutes) return `${unit(minutes, "minute")} ${unit(whole % 60, "second")}`;
   return unit(whole, "second");

@@ -104,6 +104,9 @@ import Testing
             planned.lastActivity = Date(timeIntervalSince1970: 1_000)
             var options = SidebarLayoutOptions()
             options.expanded = true
+            // Timestamps are off by default: the expanded row has no age, so the count may sit there.
+            #expect(options.rowContent(planned, machine: nil).trailingStatus == "1/3")
+            options.showsTimestamps = true
             let content = options.rowContent(planned, machine: nil)
             #expect(content.time != nil)
             #expect(content.trailingStatus == nil)

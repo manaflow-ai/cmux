@@ -132,12 +132,38 @@ public struct AgentChatDestinationView: View {
         self.destination = destination
     }
 
+    /// The tab and workspace last found, kept while the tab is missing from a reconnect's partial resync.
+    private final class Remembered {
+        var found: (workspace: Workspace, tab: WorkspaceTab)?
+        /// What to show: the tab found now (kept), else the one last found unless it closed.
+        func shown(_ now: (workspace: Workspace, tab: WorkspaceTab)?, closed: Bool) -> (workspace: Workspace, tab: WorkspaceTab)? {
+            if let now { found = now; return now }
+            return closed ? nil : found
+        }
+    }
+    @State private var remembered = Remembered()
+    /// The tab stayed missing on a connected Mac past the grace: it closed.
+    @State private var confirmedClosed = false
+
+    private var current: (workspace: Workspace, tab: WorkspaceTab)? {
+        guard let workspace = appStore.workspaces.first(where: { $0.id == destination.workspaceID }),
+              let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) else { return nil }
+        return (workspace, tab)
+    }
+
     public var body: some View {
-        if let workspace = appStore.workspaces.first(where: { $0.id == destination.workspaceID }),
-           let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) {
-            let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
-            AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac))
-                .onAppear { appStore.noteOpened(tabID: tab.id, in: workspace.id) }
+        let found = current
+        if let shown = remembered.shown(found, closed: confirmedClosed) {
+            let mac = appStore.teams.flatMap(\.macs).first { $0.id == shown.workspace.macID }?.name ?? "Mac"
+            AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: shown.workspace, tab: shown.tab, macName: mac))
+                .onAppear { appStore.noteOpened(tabID: shown.tab.id, in: shown.workspace.id) }
+                .task(id: found == nil ? (linkUp(shown.workspace.macID) ? 2 : 1) : 0) {
+                    // A reconnect can list the workspace without the tab for a few seconds: the chat
+                    // stays, and "Tab closed" shows only once the tab stays missing on a connected Mac.
+                    guard found == nil, linkUp(shown.workspace.macID) else { return }
+                    try? await Task.sleep(for: .seconds(10))
+                    if !Task.isCancelled, current == nil, linkUp(shown.workspace.macID) { confirmedClosed = true }
+                }
         } else if isLoading {
             // The workspaces are still on their way (a cold open from a notification): the
             // chat loads, it is not "closed".
@@ -147,6 +173,10 @@ public struct AgentChatDestinationView: View {
         } else {
             ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
         }
+    }
+
+    private func linkUp(_ macID: String) -> Bool {
+        appStore.macConnection[macID].map { $0 == .connected } ?? true
     }
 
     /// The tab may still come: the team's data or a Mac's list is loading (or showing last-known

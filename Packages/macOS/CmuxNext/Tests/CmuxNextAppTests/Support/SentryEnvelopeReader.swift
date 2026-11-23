@@ -4,10 +4,7 @@ import Foundation
 /// Sentry's ingest does, for end-to-end tests.
 nonisolated struct SentryEnvelopeReader {
     /// The first `event` item's JSON, or nil.
-    static func event(in envelope: Data) -> [String: Any]? { item("event", in: envelope) }
-
-    /// The first item of `type`'s JSON (`event`, `transaction`), or nil.
-    static func item(_ type: String, in envelope: Data) -> [String: Any]? {
+    static func event(in envelope: Data) -> [String: Any]? {
         var bytes = [UInt8](envelope)[...]
         guard nextLine(&bytes) != nil else { return nil }
         while let header = nextLine(&bytes) {
@@ -20,7 +17,7 @@ nonisolated struct SentryEnvelopeReader {
             } else {
                 payload = nextLine(&bytes) ?? []
             }
-            if item["type"] as? String == type {
+            if item["type"] as? String == "event" {
                 return try? JSONSerialization.jsonObject(with: Data(payload)) as? [String: Any]
             }
         }

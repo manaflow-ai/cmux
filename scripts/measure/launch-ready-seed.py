@@ -46,6 +46,19 @@ def rpc(path, method, params=None, timeout=60):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
+def tab_page(tab, node):
+    """The `page` of the tab with id TAB anywhere in snapshot.get's topology, or None (launch-ready.swift's tabPage)."""
+    if not tab:
+        return None
+    if isinstance(node, dict):
+        if node.get("id") == tab and isinstance(node.get("page"), str):
+            return node["page"]
+        node = list(node.values())
+    if isinstance(node, list):
+        return next((page for page in (tab_page(tab, v) for v in node) if page), None)
+    return None
+
+
 def wait(check, seconds, step=0.1):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:  # measurement script: a bounded wait for the app's own state
@@ -79,8 +92,12 @@ class Seed:
         key = next((w.get("key") for w in top.get("workspaces") or [] if w.get("id") == focused), None) or focused
         context = rpc(self.path, "context.keys", timeout=10)
         keys = (context.get("keys") or context) if isinstance(context, dict) and not context.get("error") else {}
-        return {"workspace": key, "tab": focus.get("tab"), "top_page": keys.get("topPage"),
-                "windows": len(top.get("windows") or [])}
+        page = tab_page(focus.get("tab"), top)
+        # As launch-ready.swift's front(): Home is in front when it covers the window (topPage) or the focused tab is
+        # the Home a launch docks in its workspace ("home-dock"); the judge reads "home" and "page", so a seed that
+        # left Home docked is not read as that workspace's plain tab (the fleet's 5-run stress3 read "landed on Home").
+        return {"workspace": key, "tab": focus.get("tab"), "page": page, "top_page": keys.get("topPage"),
+                "home": keys.get("topPage") == "home" or page == "home-dock", "windows": len(top.get("windows") or [])}
 
     def window_ids(self):
         return [w.get("id") for w in self.topology().get("windows") or [] if w.get("id")]
@@ -215,7 +232,16 @@ def main(argv=None):
         except RuntimeError as error:
             seed.row["error"], code = str(error), 1
         finally:
-            time.sleep(1)  # measurement script: the session's save after the last change, before the quit
+            # The session's save after the last change, before the quit: the app's model (topology and front) reads the
+            # same for 1 s (5 reads 0.25 s apart), so the last change has landed; 15 s at most, then the quit goes on.
+            last, same, deadline = None, 0, time.monotonic() + 15
+            while same < 5 and time.monotonic() < deadline:
+                now = (seed.topology(), seed.front())
+                same, last = (same + 1 if now == last else 1), now
+                if same < 5:
+                    time.sleep(0.25)  # measurement script: the poll interval of the model
+            if same < 5:
+                print("LR-SEED-WAIT the app's model kept changing for 15 s before the quit", file=sys.stderr, flush=True)
             # The seed quits the app itself, so the probe reads no front at its quit; this one is what run1 must reopen.
             if args.front_out:
                 try:

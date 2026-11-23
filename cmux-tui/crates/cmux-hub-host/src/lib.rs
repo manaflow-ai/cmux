@@ -6,6 +6,8 @@
 //! where the files live, the service manager) stay with each host.
 
 pub mod b64;
+// The device hub of a machine credential's deployment (deployment.rs).
+pub mod deployment;
 // The running linux-host process: holds its pid file locked, verified gone after a stop
 // (host_process.rs).
 #[cfg(unix)]

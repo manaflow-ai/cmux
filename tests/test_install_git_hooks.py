@@ -83,8 +83,11 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
+            *self.installed_sources(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -94,6 +97,16 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    @staticmethod
+    def installed_sources():
+        """Every scripts/ file the installer copies with `install`, so a new copy line never leaves the fixture behind.
+
+        #48396 added scripts/ci/workflow_job_bounds.py to the installer and every fixture install failed with
+        "cannot stat" until this list named it; reading the installer keeps the two in step.
+        """
+        text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
+        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
@@ -1060,7 +1073,10 @@ mkdir -p node_modules/.bin
         self.git("config", "user.email", "t@example.com")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+        driver = shlex.split(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip())
+        self.assertEqual([Path(driver[2]).name, *driver[3:]], ["merge-insertions.py", "--generated", "%O", "%A", "%B",
+                                                               "%P", "%L"])
+        self.assertNotEqual(Path(driver[2]).resolve(), (self.repo / "scripts/merge-insertions.py").resolve())
 
         pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
         chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
@@ -1113,15 +1129,8 @@ mkdir -p node_modules/.bin
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Other checked exports: lanes committed "regenerate after the tip
-            # merge" for these every day.
-            "plans/cmux-next/actions.md",
-            "plans/cmux-next/action-surfaces.json",
-            "schemas/settings/settings-schema.json",
             # The docs reference that follows the schema: 13 conflicts in a week.
             "web/data/next-docs/settings-reference.generated.json",
-            "docs/mdm/com.manaflow.cmux.plist",
-            "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
             "cmux-tui/bindings/rust/src/generated/types.rs",
         )]
@@ -1143,6 +1152,95 @@ mkdir -p node_modules/.bin
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         for path in outputs:
             self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
+
+    def test_mac_only_exports_never_keep_one_side(self):
+        """The exports only a Mac rebuilds (settings schema, docs/mdm, the action exports, the CI target graph)
+        kept this branch's copy until 2026-11-22, which dropped base's settings rows on cmux#45928 and cmux#47525
+        with no conflict. Now both sides' rows merge, and two rebuilds of one line stop the merge on that file."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exports = [self.repo / path for path in (
+            "plans/cmux-next/actions.md",
+            "schemas/settings/settings-schema.json",
+            "docs/mdm/com.manaflow.cmux.json",
+            "docs/mdm/com.manaflow.cmux.plist",
+            "docs/mdm/managed-preferences.md",
+            "Packages/macOS/CmuxNext/ci-target-graph.json",
+        )]
+        for path in exports:
+            self.assertEqual(self.git("check-attr", "merge", "--", str(path.relative_to(self.repo))).stdout.split()[-1],
+                             "cmux-export-v1", path)
+
+        def rows(*keys):
+            for path in exports:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".json":
+                    body = ",\n".join(f'  "{key}" : 1' for key in keys)
+                    path.write_text("{\n" + body + "\n}\n", encoding="utf-8")
+                elif path.suffix == ".plist":
+                    path.write_text("<dict>\n" + "".join(f"<key>{key}</key><true/>\n" for key in keys) + "</dict>\n",
+                                    encoding="utf-8")
+                else:
+                    path.write_text("# rows\n\n" + "".join(f"- {key}\n" for key in keys) + "\nend\n",
+                                    encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in exports:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("lane", text, path)
+            self.assertIn("base", text, path)  # base's row, which the old driver dropped
+
+        # A real disagreement (both sides rewrote one line) is a conflict on that file, never one side.
+        target = exports[0]
+        target.write_text("lane rewrite\n", encoding="utf-8")
+        self.commit_all("lane rewrite")
+        self.git("checkout", "--quiet", "main")
+        target.write_text("main rewrite\n", encoding="utf-8")
+        self.commit_all("main rewrite")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.split(), ["plans/cmux-next/actions.md"])
+
+    def test_generated_files_keep_both_sides_rows_when_they_merge(self):
+        """A file regenerate rebuilds still merges three-way when that is clean: a merge that stops on a
+        hand-written file never runs the post-merge rebuild, and cmux#47525 committed the kept copies of the
+        settings Swift without base's rows that way (AgentPolicy, PageLayoutCategories)."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        swift = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPolicy.generated.swift"
+        swift.parent.mkdir(parents=True, exist_ok=True)
+
+        def rows(*keys):
+            swift.write_text("let keys = [\n" + "".join(f'    "{key}",\n' for key in keys) + "]\n", encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(swift.read_text(encoding="utf-8"), 'let keys = [\n    "a",\n    "lane",\n    "base",\n    "z",\n]\n')
 
     def test_kept_generated_files_are_ones_the_ci_merger_rebuilds(self):
         """A kept copy is only safe where a rebuild replaces it: next_batch.py's

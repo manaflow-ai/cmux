@@ -13,6 +13,7 @@ import { ThreadRow } from "./ThreadRow";
 import type { HomeMessage, HomeParticipant } from "./types";
 import { useKeepInView } from "./useKeepInView";
 import { useTimelineWindow } from "./useTimelineWindow";
+import { intl } from "../../ui/intl";
 
 export interface TimelineProps {
   conversation?: string;
@@ -82,11 +83,11 @@ export function Timeline({
   stamp,
 }: TimelineProps) {
   const timeFormat = useMemo(
-    () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
+    () => intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
     [strings.language],
   );
   const dayFormat = useMemo(
-    () => new Intl.DateTimeFormat(strings.language, { weekday: "long", month: "long", day: "numeric" }),
+    () => intl.DateTimeFormat(strings.language, { weekday: "long", month: "long", day: "numeric" }),
     [strings.language],
   );
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);

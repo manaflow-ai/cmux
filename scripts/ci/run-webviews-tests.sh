@@ -35,6 +35,12 @@
 # be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
 # retry is cut at it, so the step stays inside its job's timeout-minutes however many files
 # timed out.
+# CMUX_WEB_TEST_STOP_AT: optional epoch second after which no file starts; a file still running then is stopped at it
+# and, like a file that never started, left out of the results (named NOT RUN, and the run fails). For a job whose
+# timeout-minutes are shorter than its files can take: react-apps-base-early runs files red on the base, which fail at
+# their long limits (accent-glass-invariants 7.7 min, control-contrast 9.9 min) one at a time while each Vite config
+# warms, and 41 of 73 of its runs (11-21 09:30-16:50Z) were cancelled at the job limit still testing, with no verdict
+# at all (jobs 136500566506, 136741984962, 136800345011). With it the step ends in time and keeps what it finished.
 # CMUX_WEB_TEST_BASE_REDS: optional JSON (webviews_test_history.py known-reds: the names red on the base's
 # newest recorded push). A pull request's shard sets it: a failed or timed-out file whose every first-run red
 # is in it gets no alone retry, and its first run goes to react-apps-base-check, which judges every red as
@@ -80,8 +86,8 @@
 # editor-page timed out the same way beside ui-a11y and text-field-focus. So one file per Vite
 # config runs first, alone, and warms that config's cache (CMUX_VITE_CACHE_DIR, which the dev
 # configs read); the rest then run CMUX_WEB_TEST_DEV_JOBS at once (default a quarter of the jobs), each
-# on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
-# cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
+# on its own copy of its config's warm cache. A warming file that fails with no committed dependency
+# cache (deps/_metadata.json) leaves no trustworthy cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
 # (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
 # Every file of the run shares one cache of the React Compiler's output (CMUX_VITE_TRANSFORM_CACHE,
 # a folder of the run's own unless set; webviews/reactCompiler.mjs), keyed by each module's exact code.
@@ -165,6 +171,18 @@ if [ "${1:-}" = --one ]; then
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
   started=$SECONDS
+  # CMUX_WEB_TEST_STOP_AT: past it the file does not start; before it, its limit is cut to what is left, and a file the
+  # cut stopped gets no verdict (a TIMEOUT there would be the deadline's, not the file's).
+  stop_at="${CMUX_WEB_TEST_STOP_AT:-}" cut=0
+  if [[ "$stop_at" =~ ^[1-9][0-9]*$ ]]; then
+    left=$((stop_at - $(date +%s)))
+    if [ "$left" -lt 1 ]; then
+      echo "NOT RUN $file: past CMUX_WEB_TEST_STOP_AT"
+      printf '%s\n' "$file" >> "$results/not-run"
+      exit 0
+    fi
+    if [ "$left" -lt "$timeout_seconds" ]; then timeout_seconds="$left" cut=1; fi
+  fi
   echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
@@ -185,7 +203,15 @@ if [ "${1:-}" = --one ]; then
     124 | 137) result=TIMEOUT ;;
     *) result=FAIL ;;
   esac
+  if [ "$result" = TIMEOUT ] && [ "$cut" -eq 1 ]; then
+    echo "NOT RUN $file: stopped at CMUX_WEB_TEST_STOP_AT after $((SECONDS - started))s"
+    printf '%s\n' "$file" >> "$results/not-run"
+    exit 0
+  fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+  # CMUX_WEB_TEST_PASSED_OUT: each file that passes, as it passes, so a run a newer head cancels still leaves its passes
+  # to that head's shard (ci-web.yml reuses those its change cannot reach).
+  if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
@@ -369,7 +395,36 @@ if [ -n "$shard" ] || [ -n "$shard_count" ]; then
     ${split_widths:+"$split_widths"} > "$results/shard-files"
   mv "$results/shard-files" "$results/files"
 fi
+# CMUX_WEB_TEST_REUSED: a file of test files (one a line) that passed at the pull request's previous head and that no
+# change since can reach (ci-web.yml reads them with webviews_affected.py). This run drops them as passed, after the
+# split, so every shard still picks the same files, and lists them in CMUX_WEB_TEST_PASSED_OUT for the head after it.
+: > "$results/reused"
+if [ -n "${CMUX_WEB_TEST_REUSED:-}" ] && [ -s "$CMUX_WEB_TEST_REUSED" ]; then
+  python3 - "$results/files" "$CMUX_WEB_TEST_REUSED" "$results/reused" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+reusable = {line.strip() for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()}
+path.write_bytes(b"".join(name.encode() + b"\0" for name in listed if name not in reusable))
+pathlib.Path(sys.argv[3]).write_text("".join(name + "\n" for name in listed if name in reusable))
+PY
+  if [ -s "$results/reused" ]; then
+    echo "passed at the previous head, and no change since reaches them, so not run again: $(grep -c . "$results/reused")"
+    sed 's/^/  REUSED /' "$results/reused"
+    if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ] && [ -s "$results/reused" ] && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
+  echo "### webviews tests: 0 files; all $(grep -c . "$results/reused") of this shard passed at the previous head"
+  if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+    : > "$results/summary"
+    python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+  fi
+  exit 0
+fi
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
@@ -405,6 +460,7 @@ if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $brows
 else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
+: > "$results/not-run"
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -414,16 +470,57 @@ warm_transforms() {
   : > "$results/transforms-warmed"
   [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
   { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
-  if run_with_timeout 300 bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
+  local limit=300
+  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+    limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
+    if [ "$limit" -lt 1 ]; then return 0; fi
+    if [ "$limit" -gt 300 ]; then limit=300; fi
+  fi
+  if run_with_timeout "$limit" bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
     grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
   else
     echo "warm-react-compiler-cache failed (exit $?); each file compiles its own modules"
     tail -n 20 "$results/warm-transforms.log" || true
   fi
 }
+# gallery_stages: once per run, when a selected file scans the gallery's stages (accent-glass-invariants,
+# control-contrast, gallery-control-surfaces), build the gallery (`bun run gallery:build`, about 60 s on
+# 16 cores) and name the folder in CMUX_GALLERY_STAGE_BUILD, which test/support/galleryStageServer.ts
+# serves in place of a Vite dev server. Each dev server stage loaded about 650 unbundled modules from
+# one Vite thread: 80 stages took 29.3 s pinned to 4 cores and 59.8 s pinned to 2, against 15.4 s from
+# the build. CMUX_GALLERY_STAGE_CSS=dev keeps the CSS as the dev server serves it (no Tailwind optimize,
+# no CSS minify): the shipped CSS lowers light-dark() and reorders rules, and the scans' baselines were
+# read from the dev server's. A build that fails or runs out of time leaves the dev servers, as before.
+# A later call (the serial phase, the retries) reuses the folder.
+gallery_stage_files='accentGlassInvariants|controlContrast|galleryControlSurfaces'
+gallery_stages() {
+  local build="$results/gallery-build"
+  if [ ! -e "$results/gallery-tried" ]; then
+    : > "$results/gallery-tried"
+    if grep -q '"gallery:build"' package.json 2> /dev/null && [ -f test/support/galleryStageServer.ts ] &&
+      xargs -0 grep -lE -- "$gallery_stage_files" < "$results/files" > /dev/null 2>&1; then
+      local limit=600
+      if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+        limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
+        if [ "$limit" -gt 600 ]; then limit=600; fi
+      fi
+      local started=$SECONDS
+      if [ "$limit" -ge 1 ] && CMUX_GALLERY_STAGE_CSS=dev CMUX_GALLERY_OUT_DIR="$build" run_with_timeout "$limit" bun run gallery:build > "$results/gallery-build.log" 2>&1 < /dev/null &&
+        [ -f "$build/frame.html" ]; then
+        echo "gallery-build: built the gallery stages in $((SECONDS - started))s"
+      else
+        echo "::warning::gallery-build failed or timed out after $((SECONDS - started))s; the gallery scans use Vite dev servers"
+        tail -n 20 "$results/gallery-build.log" 2> /dev/null || true
+        rm -rf "$build"
+      fi
+    fi
+  fi
+  if [ -f "$build/frame.html" ]; then export CMUX_GALLERY_STAGE_BUILD="$build"; fi
+  return 0
+}
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
-  { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
+  { warm_transforms; gallery_stages; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
@@ -436,10 +533,13 @@ else
   fi
   if [ -s "$results/browser" ]; then
     warm_transforms
+    gallery_stages
     xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
 [ ! -s "$results/serial" ] || warm_transforms
+# Builds for the serial files, or picks up the browser pool's build for them and the retries.
+gallery_stages
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {
@@ -469,6 +569,15 @@ while IFS= read -r -d '' file; do
   seed="$vite/seed-$config-$((tried + 1))"
   bash "$self" --one "$file" "$results" "$timeout_seconds" "$seed"
   if grep -qxF "PASS $file $results/$(printf '%s' "$file" | tr '/' '_').log" "$results/summary"; then
+    printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
+  elif [ -s "$seed/deps/_metadata.json" ]; then
+    # A red warming file whose dev server committed its optimized dependencies still warmed the cache: Vite
+    # optimizes into deps_temp_* and renames it to deps/ only once the bundle is whole, so deps/_metadata.json
+    # is a finished cache whatever the test then asserted. Red gallery files (accent-glass-invariants,
+    # control-contrast, red on the base too) each took the next warming try alone, 450-900 s apiece, and left
+    # the config's other files one at a time: 17.5 of a shard's 51 min ran one file at a time (33 shard logs,
+    # 2026-11-21 07:21-08:55Z).
+    echo "$config cache warm from $file's dev server (the file itself is red)"
     printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
   else
     rm -rf "$seed" || true
@@ -547,6 +656,17 @@ if [ "$retries" -ne 0 ] && [ -n "${CMUX_WEB_TEST_BASE_REDS:-}" ] && [ -s "$CMUX_
     : > "$results/base-red"
 fi
 base_red_skipped=0
+# CMUX_WEB_TEST_RETRY_BREAKER=K (0 or unset: off): once K alone retries have run and none passed, the rest of the red
+# files get no alone retry and go to react-apps-base-check with their first run, as a base red does. A shard where
+# nothing passes alone is not losing races for the CPU, so its retries only re-confirm reds: 24 h of shards to
+# 2026-11-22 07:17Z had 2,440 jobs with a 30-80 min test step, and in 8 sampled long shards 7 of 88 alone retries
+# passed, while the gallery files (accent-glass-invariants, control-contrast) failed again at 470-615 s apiece.
+# The verdict does not move: the base check replays every red on the base and re-runs alone on the head any red it
+# would charge to the change (up to 25 a shard), so a contention flake the breaker left unretried still passes there.
+# Retries with a pass among the first K run as before (their shard is contended). Undo: set it to 0.
+retry_breaker="${CMUX_WEB_TEST_RETRY_BREAKER:-0}"
+[[ "$retry_breaker" =~ ^[0-9]+$ ]] || retry_breaker=0
+breaker_skipped=0
 while read -r result file log; do
   if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
     if [ "$result" != PASS ] && [ "$retries" -gt 0 ]; then printf '%s\n' "$file" >> "$results/retry-skipped"; fi
@@ -556,6 +676,13 @@ while read -r result file log; do
   if grep -qxF -- "$file" "$results/base-red"; then
     echo "NO RETRY $result $file: every red of its first run is red on the base's push too; react-apps-base-check judges it"
     base_red_skipped=$((base_red_skipped + 1))
+    printf '%s\n' "$file" >> "$results/retry-skipped"
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  if [ "$retry_breaker" -gt 0 ] && [ $((retried + timeout_retried)) -ge "$retry_breaker" ] && [ ! -s "$results/retry-passed" ]; then
+    echo "NO RETRY $result $file: the first $retry_breaker alone retries all failed again (CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"
+    breaker_skipped=$((breaker_skipped + 1))
     printf '%s\n' "$file" >> "$results/retry-skipped"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
@@ -681,8 +808,17 @@ if [ "${TAP_CI_ENABLED:-1}" != 0 ]; then
 fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+if [ -s "$results/not-run" ]; then
+  echo "not run by CMUX_WEB_TEST_STOP_AT (no verdict, so the run fails): $(grep -c . "$results/not-run")"
+  sed 's/^/  NOT RUN /' "$results/not-run"
+fi
 if [ "$base_red_skipped" -gt 0 ]; then
   echo "red on the base's push too, so not retried (react-apps-base-check judges them): $base_red_skipped"
+fi
+if [ "$breaker_skipped" -gt 0 ]; then
+  breaker_line="alone retries skipped: $breaker_skipped, since the first $retry_breaker alone retries all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"
+  echo "$breaker_line"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$breaker_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
 fi
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
@@ -691,4 +827,4 @@ fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
-[ "$failed" -eq 0 ]
+[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ]

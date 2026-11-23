@@ -30,7 +30,11 @@ public final class CmuxRemoteService {
     public private(set) var available = false
     /// The hub made with cmux Remote's device identity, while it is the one running.
     var remoteHub: DeviceHub?
+    /// The switches the daemon took, and the connection that took them (held weakly, compared by
+    /// identity): a new daemon (one not ready at launch, restarted or reconnected) gets them again,
+    /// so its saved `config.json` never keeps Computer Use off while this app has it on.
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
+    private weak var lastConfigConnection: AnyObject?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
     /// The person's switches now (``follow`` sets it once the settings load): Computer Use on with
@@ -73,15 +77,16 @@ public final class CmuxRemoteService {
     /// The person's switches to the daemon (it saves them and starts or stops the host).
     public func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
         let next = (computerUse, screenSharing, headless)
-        if let lastConfig, lastConfig == next { return }
         guard let connection else {
             available = false
             return
         }
+        if let lastConfig, lastConfig == next, let sent = lastConfigConnection, sent === connection { return }
         do {
             _ = try await connection.request(RemoteHostConfigRequest(computerUse: computerUse, screenSharing: screenSharing,
                                                                      headless: headless))
             lastConfig = next
+            lastConfigConnection = connection
             available = true
         } catch {
             remoteLogger.notice("cmux Remote config refused: \(String(describing: error), privacy: .public)")
@@ -119,9 +124,8 @@ public final class CmuxRemoteService {
         }
         try Task.checkCancellation()
         guard let config = currentConfig?() else { return false }
-        if lastConfig == nil {
-            await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
-        }
+        // Skipped when this connection already took these switches; sent to a new daemon.
+        await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
         // Both switches off (Computer Use off, and signed out): nothing runs in cmux Remote.
         return available && (config.computerUse || config.screenSharing)
     }

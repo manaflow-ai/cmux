@@ -14,6 +14,15 @@ Owners are agent names (a590), workstreams (PL-*, plans/cmux-next/perf-lead.md s
 people. When a workstream ends, its row goes back to the Performance Lead. Change a row in the
 same commit that changes ownership, and name who decided it.
 
+A row's holder is whoever is live now, not the name written here: at push time the hook
+(`scripts/cmux-next/owner_live.py`) resolves the cell to a live acpmux session, in order: one tagged
+`owns=` the row's workstream (take one with `acpmux session tag SESSION owns=PL-acpmux`; a comma
+list holds several), the session the cell names, that session's successor (`succeeds=`,
+`failover=`), the Performance Lead (`owns=PL-lead`), then the coordinator. The owner line names that
+session and the hook sends it the push (a stand-in lead or coordinator hears once a day per area and
+is asked to give it a holder). Before 2026-11-22 a push into the acpmux crate named "PL-acpmux
+(session cmux-4f)" for a month after cmux-4f had ended, and reached no one (cmux#50549).
+
 | Area | Paths | Owner | Read first |
 |---|---|---|---|
 | Sidebar (rows, groups, rail, hover card, drag, density) | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 (sidebar-owner agent) | [sidebar-owner.md](sidebar-owner.md) |
@@ -37,7 +46,7 @@ same commit that changes ownership, and name who decided it.
 | Hang reports and their signposts | `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/` | PL-telemetry (session cmux-b6) | [hang-reports-DESIGN.md](hang-reports-DESIGN.md) |
 | Motion gate and animation switches | `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/`, `scripts/cmux-next/check-motion.sh` | Performance Lead | [motion-DESIGN.md](motion-DESIGN.md) |
 | Wakeup primitives (FrameScheduler, DemandTimer, Backoff) | `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/` | Performance Lead | [idle-wakeups.md](idle-wakeups.md) |
-| Perf gate and budgets (CI runs them; do not add rows) | `scripts/cmux-next/perf-gate.py`, `scripts/cmux-next/perf-budgets.json`, `scripts/cmux-next/perf-budgets-baseline/` | Aziz's agent and the Performance Lead | [perf-lead.md](perf-lead.md) |
+| Perf gate and budgets (CI runs them) | `scripts/cmux-next/perf-gate.py`, `scripts/cmux-next/perf-budgets.json`, `scripts/cmux-next/perf-budgets-baseline/` | Aziz's agent and the Performance Lead | [perf-lead.md](perf-lead.md) |
 | Guardrails, pre-push gate, codebase health | `scripts/cmux-next/guardrails.py`, `scripts/cmux-next/prepush-gate.py`, `scripts/cmux-next/perf-hot-benches.json`, `scripts/git-hooks/`, `plans/cmux-next/OWNERS.md` | Performance Lead (PL-guardrails) | [codebase-health.md](codebase-health.md) |
 | Package layering, signpost catalog (CmuxNextSignposts names; app moves out of CmuxNextApp) | `Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/`, `plans/cmux-next/architecture-layers.json`, `plans/cmux-next/architecture-refactor-DESIGN.md`, `scripts/cmux-next/arch-layers.py`, `scripts/cmux-next/perf-signposts.py` | PL-arch (Performance Lead, 2026-10-23); new signpost names: PL-arch + PL-telemetry | [architecture-refactor-DESIGN.md](architecture-refactor-DESIGN.md) |
 | Ghostty-default keys | `schemas/keybindings/ghostty-reserved-keys.json` | Lawrence (explicit OK only, `Ghostty-defaults-OK:` trailer) | `CLAUDE.md` "cmux-next checks before every push" |
