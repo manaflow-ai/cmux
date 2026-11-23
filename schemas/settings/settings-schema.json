@@ -2104,6 +2104,29 @@
 
         ],
         "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "integrations",
+        "lead" : [
+          "integrationsHub"
+        ],
+        "symbol" : "link",
+        "title" : {
+          "key" : "settings.category.integrations",
+          "text" : "Integrations"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
           "server"
         ],
         "groups" : [
@@ -2451,6 +2474,7 @@
           "mcpServers",
           "cloud",
           "keys",
+          "integrations",
           "devices",
           "import",
           "privacy",
