@@ -187,3 +187,12 @@ export function workedTurnRows(at: number): AcpmuxRow[] {
     },
   ] as AcpmuxRow[];
 }
+
+/// The worked turn whose prompt names a local page (http://localhost:5173/), so the header knows the
+/// chat's page too (`debug.agent_pane seed_rows` with `fixture: "worked-turn-page"`): the header
+/// icons' captures (header/headerRelevance.ts).
+export function workedTurnPageRows(at: number): AcpmuxRow[] {
+  return workedTurnRows(at).map((row) =>
+    row.kind === "user" ? { ...row, text: `${row.text ?? ""}, then check it at http://localhost:5173/` } : row,
+  );
+}

@@ -228,11 +228,6 @@ webviews/src/pages/home-channels/Composer.tsx	5
 webviews/src/pages/home-channels/HomeChannelsPage.tsx	2
 webviews/src/pages/home-channels/PeoplePicker.tsx	1
 webviews/src/pages/home-channels/useFileUndo.ts	1
-webviews/src/pages/home-messages/cards/firstRun/FirstRunPanel.tsx	1
-webviews/src/pages/home-messages/list/ConversationList.tsx	7
-webviews/src/pages/home-messages/sheets/GroupInfoSheet.tsx	1
-webviews/src/pages/home-messages/sheets/RecipientField.tsx	2
-webviews/src/pages/home-messages/transcript/MessageComposer.tsx	3
 webviews/src/pages/icon-picker/mount.tsx	1
 webviews/src/pages/keybindings/KeybindingsPage.tsx	2
 webviews/src/pages/markdown/MarkdownFindBar.tsx	1
