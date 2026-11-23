@@ -78,6 +78,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
+| `host-line-shift-duress.sh` | The agent pane's chat rows and composer moving when the link drops and comes back, during a long streaming chat, optionally on a loaded machine, at commits. | - | 2026-11-23 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
 | `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
@@ -137,6 +138,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
 | `pane-motion-films.py` | Python driver for pane-motion-films.sh. | - | 2026-11-15 | active |
+| `window-resize-feel.sh` | Films of a window corner drag (and a pane divider drag) over chat transcripts, one fresh launch per CEF resize-sync arm (`--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...`), with frame intervals and CEF fence/commit deltas; for a person or a frame analysis (judges nothing). | Leo 2026-11-22, #50940 | 2026-11-22 | active |
+| `window-resize-feel.py` | Python driver for window-resize-feel.sh. | Leo 2026-11-22, #50940 | 2026-11-22 | active |
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
