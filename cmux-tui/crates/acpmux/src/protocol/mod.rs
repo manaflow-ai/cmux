@@ -202,6 +202,8 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // Each caller's requests over a recent window (caller_stats.rs).
+        untyped(method::MUX_CALLERS, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -550,6 +552,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_SHARE_HOST_STATUS, Request),
         untyped(method::MUX_MACHINE_ENROLL, Request),
+        untyped(method::MUX_MACHINE_JOIN_SSH, Request),
+        untyped(method::MUX_MACHINE_CANDIDATES, Request),
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_DEVICE_HELLO, Request),
@@ -580,6 +584,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
+        untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }

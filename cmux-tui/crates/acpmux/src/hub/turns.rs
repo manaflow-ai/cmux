@@ -910,8 +910,8 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let scope = envelope.scope();
             let auth = Arc::new(
                 crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
@@ -2070,7 +2070,9 @@ impl Hub {
             self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
-            let alive = child.is_alive().await;
+            // A link that broke on an entry it could not store (a full disk) leaves its host
+            // running: the next request reattaches, so the chat is not disconnected.
+            let alive = child.is_alive().await || (child.is_broken() && !child.has_exited());
             // A subagent or background shell still waiting on the person
             // keeps the chat waiting after its turn (cx-jo8yo). The lock is
             // held across the write, so an answer in between cannot leave it
@@ -2208,11 +2210,15 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
+        // A store that refused the turn (a full disk) says nothing of its agent: the chat
+        // waits for the next prompt rather than reading disconnected.
+        let refused = msg["errorKind"] == crate::recovery::kind::DISK_FULL;
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
+            let status = if refused { SessionStatus::Ready } else { SessionStatus::Disconnected };
+            self.set_status(session, status);
         }
         self.save_meta(session);
         self.settle_view_at_turn_end(session);
@@ -2781,6 +2787,8 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
+            // Their ends go nowhere now: none stays watched (`bg_notify.rs`).
+            self.bg_unwatch_session(&session.id);
             {
                 // Under the breakdown's lock: a time breakdown save running now lands before the
                 // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).

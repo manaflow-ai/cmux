@@ -133,3 +133,77 @@ test("Edit and Reveal name the row's file; the switch turns it off on a click", 
   ).toBe("false");
   page.unmount();
 });
+
+/** Types `value` into a New Command field the way a person does. */
+async function fill(element: HTMLElement, field: string, value: string) {
+  const control = element.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    `[data-agent-command-field="${field}"]`,
+  )!;
+  await act(async () => {
+    const proto = Object.getPrototypeOf(control) as object;
+    Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(control, value);
+    control.dispatchEvent(new Event(control.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+  });
+}
+
+const click = async (element: HTMLElement, action: string) =>
+  act(async () => element.querySelector<HTMLButtonElement>(`[data-agent-skill-action="${action}"]`)!.click());
+
+test("New Command saves a prompt as a Claude Code slash command, listed at once", async () => {
+  const page = await renderPage({ path: "/settings/agents", setup: on });
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelector("[data-agent-command-form]")).toBeNull();
+  await click(element, "newCommand");
+  const form = card(page.container)!.querySelector<HTMLElement>("[data-agent-command-form]")!;
+  const save = () => form.querySelector<HTMLButtonElement>('[data-agent-skill-action="confirmNewCommand"]')!;
+  expect(save().disabled).toBe(true);
+  await fill(form, "name", "/standup");
+  await fill(form, "prompt", "Write my standup from today's commits.");
+  expect(form.textContent).toContain("/standup");
+  expect(save().disabled).toBe(false);
+  await click(form, "confirmNewCommand");
+  await settle();
+  expect(page.provider.agentSkillRuns).toEqual([
+    { action: "add", agent: "claude", name: "standup", prompt: "Write my standup from today's commits." },
+  ]);
+  const after = card(page.container)!;
+  expect(after.querySelector("[data-agent-command-form]")).toBeNull();
+  expect(after.querySelector('[data-agent-skill="claude:standup"]')).not.toBeNull();
+  expect(after.querySelector("[data-agent-command-added]")!.textContent).toContain("~/.claude/commands/standup.md");
+  page.unmount();
+}, 20_000);
+
+test("New Command for every chat or Codex names what to type; a taken name is refused in the form", async () => {
+  const page = await renderPage({ path: "/settings/agents", setup: on });
+  await settle();
+  await click(card(page.container)!, "newCommand");
+  let form = card(page.container)!.querySelector<HTMLElement>("[data-agent-command-form]")!;
+  await fill(form, "agent", "codex");
+  await fill(form, "name", "review");
+  expect(form.textContent).toContain("/prompts:review");
+  await fill(form, "agent", "cmux");
+  await fill(form, "description", "Review the diff");
+  await fill(form, "prompt", "Review the staged diff.");
+  await click(form, "confirmNewCommand");
+  await settle();
+  expect(page.provider.agentSkillRuns.at(-1)).toEqual({
+    action: "add",
+    agent: "cmux",
+    name: "review",
+    prompt: "Review the staged diff.",
+    description: "Review the diff",
+  });
+  expect(card(page.container)!.querySelector("[data-agent-command-added]")!.textContent).toContain("/review");
+  // A name Claude Code already has: the CLI's refusal shows and the form stays open.
+  await click(card(page.container)!, "newCommand");
+  form = card(page.container)!.querySelector<HTMLElement>("[data-agent-command-form]")!;
+  await fill(form, "agent", "claude");
+  await fill(form, "name", "ship");
+  await fill(form, "prompt", "Ship it.");
+  await click(form, "confirmNewCommand");
+  await settle();
+  const refused = card(page.container)!.querySelector<HTMLElement>("[data-agent-command-form]")!;
+  expect(refused.querySelector("[data-agent-command-refusal]")!.textContent).toContain("already exists");
+  page.unmount();
+}, 20_000);
