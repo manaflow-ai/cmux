@@ -31,8 +31,8 @@
   content: "";
   position: absolute;
   inset-inline: 8px;
-  bottom: 1px;
-  height: 1px;
+  bottom: var(--cmux-hairline-ring);
+  height: var(--cmux-hairline);
   background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f));
   background-size: 220% 100%;
   opacity: 0.7;
@@ -44,9 +44,9 @@
 .acpmux-auto-arrival {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-height: 24px;
-  padding: 2px 4px 2px 8px;
+  padding: var(--grid-half-step) 4px var(--grid-half-step) 8px;
   border-radius: 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -67,7 +67,7 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-weight: 500;
+  font-weight: var(--font-weight-emphasis);
   cursor: default;
 }
 .acpmux-auto-arrival-move { color: var(--agent-text); }
@@ -79,18 +79,18 @@
      while deciding (cmux-spin, pages/shared/desktop.css). */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is([data-auto-look="orbit"], .acpmux-location-button:hover, .acpmux-menu-item:is(:hover, [data-highlighted]), .acpmux-auto-arrival[data-went="deciding"]) .acpmux-auto-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
   /* Constellation: the small spark breathes; the big one twinkles once on hover. */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="constellation"] .acpmux-auto-spark-small { animation: acpmux-auto-breathe 2.8s ease-in-out infinite; }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="constellation"] .acpmux-auto-spark-small { animation: acpmux-auto-breathe calc(var(--cmux-spinner-period) * 1.4) var(--cmux-ease-out) infinite; }
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-spark,
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-auto-spark {
-    animation: acpmux-auto-twinkle 520ms var(--agent-ease-out, ease-out) 1;
+    animation: acpmux-auto-twinkle calc(var(--cmux-motion-large) * 2) var(--agent-ease-out, ease-out) 1;
   }
   /* Aurora: the wash and the hairline drift. */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:has(> [data-auto-look="aurora"])::before,
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-picker[data-auto-look="aurora"] .acpmux-location-button::after {
-    animation: acpmux-auto-drift 7s ease-in-out infinite alternate;
+    animation: acpmux-auto-drift calc(var(--cmux-spinner-period) * 3.5) var(--cmux-ease-out) infinite alternate;
   }
   /* The arrival line comes in once, by opacity only (no layout change). */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival { animation: acpmux-auto-arrive 280ms var(--agent-ease-out, ease-out) 1; }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival { animation: acpmux-auto-arrive var(--cmux-motion-large) var(--agent-ease-out, ease-out) 1; }
 }
 @keyframes acpmux-auto-breathe {
   0%, 100% { opacity: 0.45; transform: scale(0.8); }
