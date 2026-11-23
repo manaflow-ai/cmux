@@ -551,3 +551,118 @@
   max-height: min(420px, var(--available-height, 420px));
   overflow-y: auto;
 }
+
+/* A page-drawn context menu's submenu (ContextMenu `submenu`): its panel opens at the row's inline
+   end, its edge on the parent panel's edge and its first row level with the row (the row sits the
+   highlight inset in from both). No measurement: the row's host is the containing block. A menu
+   with no submenu row draws none of this. */
+.ui-context-submenu-host {
+  position: relative;
+}
+.ui-popup.ui-context-menu.ui-context-submenu {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--cmux-menu-highlight-inset));
+  inset-inline-start: calc(100% + var(--cmux-menu-highlight-inset));
+  min-width: 180px;
+  z-index: var(--layer-raised);
+}
+
+/* MENU STYLE V2 (experiment menu-style-v2, menuStyleV2.experiment.ts; Leo's taste build list): the
+   arm is `data-menu-style` on a page-drawn menu's root (Menu.tsx MenuPopup, ContextMenu.tsx), and
+   these rules move only the tokens the grid above already reads, so every row, check, icon,
+   separator and submenu moves together. A menu without the attribute (arm off) is untouched.
+   - an inset pill: the highlight 4 in from the panel's edge, radius 6 (the panel's 10 less the
+     inset, concentric), 28 px rows;
+   - the shortcut column at the trailing edge in the secondary text colour;
+   - a submenu flush with its row (Menu.tsx Submenu offsets, MENU_V2_INSET; the context submenu above);
+   - destructive rows red (ContextMenu also moves them into one last group, menuArrange.ts);
+   - light: a soft shadow; dark: a 1 px hairline and no shadow. */
+.ui-popup:is(.ui-menu, .ui-context-menu):is([data-menu-style="v2"], [data-menu-style="v2-glass"]) {
+  --cmux-menu-highlight-inset: 4px;
+  --cmux-menu-highlight-radius: 6px;
+  --ui-popup-radius: 10px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  border-radius: var(--ui-popup-radius);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu)[data-menu-style="v2"] {
+  --glass-edge: light-dark(
+    color-mix(in srgb, currentColor 10%, transparent),
+    color-mix(in srgb, currentColor 18%, transparent)
+  );
+  /* The shadow's colour is clear in dark, where the inset 1 px hairline is the panel's only edge. */
+  --glass-elevation:
+    0 6px 20px light-dark(rgb(0 0 0 / 12%), transparent), 0 1px 3px light-dark(rgb(0 0 0 / 8%), transparent),
+    inset 0 0 0 1px light-dark(transparent, color-mix(in srgb, currentColor 18%, transparent));
+}
+/* V2 glass: the same rows on a clearer, more frosted 12 px panel with a soft shadow in both schemes. */
+.ui-popup:is(.ui-menu, .ui-context-menu)[data-menu-style="v2-glass"] {
+  --ui-popup-radius: 12px;
+  --cmux-menu-highlight-radius: 8px;
+  --glass-tint: color-mix(in srgb, var(--glass-surface, Canvas) 62%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.6);
+  --glass-elevation: 0 10px 30px color-mix(in srgb, black 18%, transparent), var(--elevation-1, 0 1px 3px color-mix(in srgb, black 10%, transparent));
+}
+.ui-popup[data-menu-style] .ui-menu-item .ui-menu-shortcut {
+  margin-inline-start: auto;
+  color: var(--ui-fg-2, color-mix(in srgb, currentColor 55%, transparent));
+}
+.ui-popup[data-menu-style] .ui-menu-item.ui-menu-item-destructive {
+  color: var(--ds-color-danger, var(--cmux-app-danger, light-dark(#c0392b, #ff6b6b)));
+}
+
+/* MENU ROW STATES (experiment menu-row-states, menuRowStates.experiment.ts): `data-menu-states` on
+   the menu's root. The check column is already every row's when any row is checkable (the grid
+   above). A disabled row with a reason draws it, one amber line under its label, and keeps only its
+   label and marks dimmed; an async row's trailing slot is reserved from the start, so its spinner
+   moves nothing. */
+.ui-popup[data-menu-states] .ui-menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.ui-popup[data-menu-states] .ui-menu-reason {
+  overflow: hidden;
+  color: var(--ds-color-attention, light-dark(#a15c00, #f0c674));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
+  padding-block: var(--grid-half-step);
+  opacity: 1;
+}
+.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
+  opacity: 0.45;
+}
+.ui-popup[data-menu-states] .ui-menu-async {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+  margin-inline-start: auto;
+}
+.ui-popup[data-menu-states] .ui-menu-shortcut + .ui-menu-async {
+  margin-inline-start: var(--cmux-menu-icon-gap);
+}
+.ui-popup[data-menu-states] .ui-menu-spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-block-start-color: currentColor;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ui-popup[data-menu-states] .ui-menu-spinner {
+    animation: cmux-spin var(--cmux-spinner-period) linear infinite;
+  }
+}
+/* The open trigger takes the panel's fill, so the button and its menu read as one (arm "on"). */
+.ui-button.ui-button[data-menu-join][data-popup-open] {
+  background: var(--glass-tint, var(--surface-popup, Canvas));
+}

@@ -223,6 +223,7 @@ pub(super) async fn handle_notification(
     m: &str,
     mut params: Value,
 ) {
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
     match m {
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
@@ -275,6 +276,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                         person_admitted(conn, &params),
                     );
+                    super::remote_guard::attest_owner_phone(hub, conn, &params, &mut forwarded);
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
@@ -301,7 +303,13 @@ fn dispatch_text(params: &Value) -> Result<String, RpcError> {
     Ok(text.to_owned())
 }
 
+/// The child's name: the caller's `name` as given, else one made from its title or brief.
 fn dispatch_name(params: &Value, brief: &str) -> String {
+    if let Some(name) =
+        params.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty())
+    {
+        return name.to_owned();
+    }
     let title = params
         .get("title")
         .and_then(Value::as_str)
@@ -524,10 +532,11 @@ async fn dispatch_brief(
         // Its session there is this caller's (a workflow's remote activity: its owning agent).
         crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
         // Its chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-        crate::hub::cmux_tools_answer::stamp(
-            &mut params,
-            crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+        let answer = crate::hub::cmux_tools_answer::here_for(
+            crate::user_settings::text().as_deref(),
+            &params,
         );
+        crate::hub::cmux_tools_answer::stamp(&mut params, answer);
         let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
             Ok(result) => result,
             Err(e) => {
@@ -595,6 +604,12 @@ async fn dispatch_brief(
         (None, None) => (None, None),
     };
     let mut new_params = json!({"mcpServers": [], "_meta": {"acpmux": {"name": name}}});
+    // A taken name is kept with a `-N` suffix, never the agent's; a replay with an identity
+    // keeps its exact name, so the same child is found again.
+    if identity.is_none() {
+        new_params
+            .set_path(&["_meta", "acpmux", "ifNameTaken"], json!(crate::hub::SUFFIX_TAKEN_NAME));
+    }
     if let Some(obj) = new_params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         for (key, value) in [
             ("harness", harness),
@@ -1127,6 +1142,9 @@ pub(super) async fn handle_request(
     } else {
         heap(|| dispatch_request(hub, conn, m, params, resolved)).await
     };
+    // A session only the hub reaches, for a verb the hub does not carry: said so, never
+    // `no session` (`mesh_read.rs`).
+    super::mesh_relay::read::explain_no_session(hub, conn, m, key.as_deref(), &mut reply);
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
@@ -1607,10 +1625,11 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-                crate::hub::cmux_tools_answer::stamp(
-                    &mut p,
-                    crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                let answer = crate::hub::cmux_tools_answer::here_for(
+                    crate::user_settings::text().as_deref(),
+                    &p,
                 );
+                crate::hub::cmux_tools_answer::stamp(&mut p, answer);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
@@ -1758,6 +1777,10 @@ async fn dispatch_request_with_identity(
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
+            // Read-only work in a folder not trusted (`hub/restricted.rs`): review, or narrower.
+            let restricted = crate::hub::restricted::requested(meta)?;
+            let policy =
+                if restricted { crate::hub::restricted::start_policy(policy)? } else { policy };
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1802,6 +1825,8 @@ async fn dispatch_request_with_identity(
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
+                suffix_taken_name: pick("ifNameTaken").as_deref()
+                    == Some(crate::hub::SUFFIX_TAKEN_NAME),
                 cwd,
                 policy,
                 model: copy.model.or_else(|| pick("model")),
@@ -1826,6 +1851,7 @@ async fn dispatch_request_with_identity(
                 checked_cwd: None,
                 additional_directories,
                 stop_condition,
+                restricted,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 // Purged by its creator right after its work (the Chief compactor's nodes): its
@@ -1890,6 +1916,11 @@ async fn dispatch_request_with_identity(
             if let Some(w) = worktree {
                 summary.set("worktree", w);
             }
+            // A taken name kept with a suffix (`ifNameTaken`): the caller hears the name asked
+            // for beside the one it got (`name`).
+            if let Some(asked) = pick("name").filter(|n| *n != meta.name) {
+                summary.set("requestedName", Value::String(asked));
+            }
             // Started past the lane cap: the caller hears it (`hub/admission.rs`).
             if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
                 summary.set("admission", w);
@@ -1899,6 +1930,10 @@ async fn dispatch_request_with_identity(
             // and does not see it here knows its agent can stop at any turn end.
             if meta.stop_condition.is_some() {
                 summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+            }
+            // Read-only in a folder not trusted (`hub/restricted.rs`).
+            if meta.restricted {
+                summary.set(crate::hub::restricted::FIELD, Value::Bool(true));
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -3078,6 +3113,9 @@ async fn dispatch_request_with_identity(
             }
             reply
         }
+        name if super::account_sign_in::METHODS.contains(&name) => {
+            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+        }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
             if reply.is_ok() && super::connections::changes_connections(m) {
@@ -3287,7 +3325,11 @@ async fn dispatch_request_with_identity(
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    Ok(hub.inbox_thread(&s, thread()?, mark))
+                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
+                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
                 }
                 _ => {
                     let text = text_of("text")
@@ -3714,6 +3756,7 @@ async fn dispatch_request_with_identity(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
+            crate::hub::restricted::refuse_widening(&s.meta(), policy)?;
             heap(|| hub.set_policy_unless_moving(&s, policy)).await?;
             Ok(hub.session_summary(&s))
         }
@@ -3875,6 +3918,15 @@ mod dispatch_policy_tests;
 #[cfg(test)]
 mod admission_force_tests {
     use super::*;
+
+    #[test]
+    fn a_dispatch_keeps_the_name_its_caller_gave() {
+        let named = json!({"name": "slam-09", "title": "Fix the bug"});
+        assert_eq!(dispatch_name(&named, "brief"), "slam-09");
+        // No name (or a blank one): made from the title, never the agent's.
+        assert_eq!(dispatch_name(&json!({"title": "Fix the bug"}), "brief"), "fix-the-bug");
+        assert_eq!(dispatch_name(&json!({"name": "  "}), "Do it\nmore"), "do-it");
+    }
 
     #[test]
     fn force_admit_is_honoured_only_from_this_machine() {
@@ -4211,6 +4263,11 @@ mod cloud_preparation_tests {
 pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
         *conn.name.lock_or_recover() = name.to_owned();
+        let link = conn.origin == Origin::Peer || name == crate::peer::CLIENT_NAME;
+        conn.out.describe(
+            format!("{} {name} {}", super::origin_usage_key(conn.origin), conn.id),
+            !link,
+        );
     }
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
