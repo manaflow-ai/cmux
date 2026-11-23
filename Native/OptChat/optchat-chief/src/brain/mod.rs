@@ -620,6 +620,10 @@ pub struct ReactionFields {
     /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
     /// this box so `EngineRequest` stays small (clippy large_enum_variant).
     pub permission_mode: Option<String>,
+    /// The Cloud machine this Chief does computer use on (engine.rs
+    /// `computer`, cmux issue 36047): `machine:<id>`, or `none`/`default` to
+    /// detach. Not a reaction field either; boxed here for the same reason.
+    pub computer: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -929,6 +933,9 @@ pub struct Brain {
     landed_refused: bool,
     /// The subagents the running turn started (spawn_text.rs).
     turn_spawned: Vec<String>,
+    /// The newest top-level texts of the Chief conversation by seq, true for
+    /// a person's: the loop guard's count (budget_hold.rs).
+    guard_rows: std::collections::BTreeMap<u64, bool>,
     /// The running turn posted words by `send` or `reply` (spawn_text.rs).
     turn_said: bool,
     /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
@@ -1275,6 +1282,7 @@ impl Brain {
             turn_posts: String::new(),
             landed_refused: false,
             turn_spawned: Vec::new(),
+            guard_rows: Default::default(),
             turn_said: false,
             spawn_text_nudged: false,
             owner_stopped: false,
