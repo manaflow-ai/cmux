@@ -100,7 +100,7 @@ fn minted_body() -> Value {
         "expires_at": "2026-11-23T03:00:00Z",
         "repo": "o/r",
         "permissions": gh_ask("o/r", false).permissions,
-        "token_id": "0123456789abcdef",
+        "token_id": "0000000000000001",
     })
 }
 
