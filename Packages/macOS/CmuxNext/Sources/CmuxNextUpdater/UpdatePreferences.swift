@@ -22,9 +22,13 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     public var oneClickInstall: Bool
     /// `updates.whatsNewInstall`: What's New lists Install on each build (ChangelogInstallProvider).
     public var whatsNewInstall: Bool
+    /// `updates.keepWindowsDuringRestart`: a relaunch keeps a picture of each window on screen until the new
+    /// process drew (``RelaunchAfterimage``). Off, the windows leave and the relaunched app opens them again.
+    public var keepWindowsDuringRestart: Bool
 
     public init(installOnQuit: Bool = false, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1,
-                oneClickInstall: Bool = false, whatsNewInstall: Bool = false) {
+                oneClickInstall: Bool = false, whatsNewInstall: Bool = false, keepWindowsDuringRestart: Bool = false) {
+        self.keepWindowsDuringRestart = keepWindowsDuringRestart
         self.whatsNewInstall = whatsNewInstall
         self.installOnQuit = installOnQuit
         self.notify = notify

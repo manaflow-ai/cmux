@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -34,7 +35,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.orderFrontRegardless()
         defer { window.close() }
-        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry(), stateDirectory: root) { false }
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry(), stateDirectory: root)
         handoff.relaunchDecided()
         #expect(handoff.hide())
         #expect(window.alphaValue == 0)
@@ -53,7 +54,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         var keeps = false
         var started = 0
-        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry(), stateDirectory: root) { keeps }
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry(), stateDirectory: root)
+        handoff.keepsWindows = { keeps }
         handoff.startsPictures = { started += 1 }
         handoff.relaunchDecided()
         #expect(started == 0)
@@ -63,5 +65,32 @@ import Testing
         keeps = false
         handoff.relaunchDecided()
         #expect(started == 1)
+    }
+
+    /// The App's wiring (`attach(to:)`): the gate follows the updater's preferences, which follow the setting.
+    @Test func attachedItFollowsTheUpdatersPreference() throws {
+        _ = NSApplication.shared
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let defaults = try #require(UserDefaults(testSuiteName: "UpdateWindowHandoffKeepWindowsTests.\(UUID().uuidString)"))
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "1.0.0", build: "100",
+                                           minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false)
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry(), stateDirectory: root)
+        var started = 0
+        handoff.startsPictures = { started += 1 }
+        handoff.attach(to: updater)
+        handoff.relaunchDecided()
+        #expect(started == 0)
+        updater.preferences.keepWindowsDuringRestart = true
+        handoff.relaunchDecided()
+        #expect(started == 1)
+    }
+
+    @Test func thePreferenceIsOffByDefault() {
+        #expect(UpdatePreferences.defaults.keepWindowsDuringRestart == false)
+        #expect(UpdatePreferences(keepWindowsDuringRestart: true).keepWindowsDuringRestart)
     }
 }
