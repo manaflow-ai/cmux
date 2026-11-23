@@ -46,8 +46,10 @@
 # cmux-tui-artifacts.yml "cargo test cmux_next_"), then acpmux for x86_64-unknown-linux-musl as the
 # machine channel builds it (acpmux-standalone with the shipping features, thin profile), and
 # .build/artifacts/channel/{acpmux-x86_64-unknown-linux-musl,candidate.json} (commit, tree key,
-# sha256, test summary). Report-only: nothing reads it yet; the R2 channel still moves on the
-# Actions path. Linux only. No TEST_FILTER.
+# sha256, test summary). The hq controller's channel roll (build-fleet/cmd/controller/channel_roll.go)
+# runs it at each feat-cmux-next tip on our own Linux workers; its pass is the channel marker lane
+# hosts install from (`acpmux host self-update`), with the Actions-written R2 channel as fallback.
+# A failed or timed-out run writes no marker. Linux only. No TEST_FILTER.
 # acpmux-hot: cmux-tui/crates/acpmux-hot/bench.sh (the daemon's hot wasm modules: the guest
 # variants, the swap and rollback bench, and a running daemon's sign-in through a module swapped
 # under it), its outputs at .build/artifacts/acpmux-hot (fetch them with --artifact). No TEST_FILTER.
