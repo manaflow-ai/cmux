@@ -71,6 +71,11 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
+                        // A new turn (not a steer into this one): the task list ages a turn
+                        // (`task_plan.rs`).
+                        if !steer {
+                            self.task_plan.lock().await.begin_turn();
+                        }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
                         if p.pointer("/_meta/carried").and_then(Value::as_bool) == Some(true) {

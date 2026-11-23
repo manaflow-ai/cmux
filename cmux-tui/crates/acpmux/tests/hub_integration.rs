@@ -58,6 +58,9 @@ mod lanes;
 mod log_retention;
 #[path = "hub_integration/mcp_connect.rs"]
 mod mcp_connect;
+#[cfg(unix)]
+#[path = "hub_integration/paused_fs.rs"]
+mod paused_fs;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
@@ -1771,6 +1774,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 

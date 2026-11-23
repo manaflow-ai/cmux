@@ -1665,6 +1665,9 @@ reload_finalize() {
     echo
     echo "App path:"
     echo "  $APP_PATH"
+    # Sharing a build means a line, not a zipped bundle (docs/cmux-next/hot-reload.md, "Share your build").
+    echo "Share it with a teammate (one line to send; a SHA when the commit is merged):"
+    echo "  cmux app share --app $(printf '%q' "$APP_PATH")"
   fi
   if [[ -n "${CMUX_DEV_ORIGIN:-}" ]]; then
     echo
@@ -1774,6 +1777,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
+  -skipPackagePluginValidation
   -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
@@ -2283,7 +2287,7 @@ fi
 # TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
 # while the stamp stayed skips the phase, and the app falls back to sharing from its own process.
 # Bundle the same binary into the final app here, named and signed as the phase would.
-cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
 if [[ -x "${cmux_screen_helper_bins[0]}" ]]; then
   echo "Preserving Xcode-built Screen Sharing helper at ${cmux_screen_helper_bins[0]%/Contents/MacOS/*}"
 elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" ]]; then

@@ -136,4 +136,34 @@ import Testing
                                           hostColumns: 120, hostRows: 20, visibleRows: 40)
         #expect(!fits.isCapped)
     }
+
+    /// Leo, 2026-11-22: "zoming in and out eith the magnifying glass layout
+    /// shifts unnecessarily when resizing". A zoom in takes the page from 50
+    /// to 43 columns while the Mac still holds the phone's old 50 (its claim
+    /// is a settle and a round trip away): the primary screen's mirror is the
+    /// phone's new width at once, not 50 columns of the bigger cells panning
+    /// sideways until the Mac answers.
+    @Test func aZoomOnThePrimaryScreenNeverShowsThePhonesOldClaim() {
+        let zoomed = CGSize(width: 9, height: 18)
+        let columns = TerminalHostGridLayout.followedHostColumns(remoteColumns: 50, gridIsPhonesOwn: true, alternateScreen: false)
+        #expect(columns == nil)
+        let page = TerminalHostGridLayout(viewportWidth: 390, cell: zoomed, scale: 3,
+                                          hostColumns: columns, hostRows: nil, visibleRows: 40)
+        #expect(page.columns == 43)
+        #expect(page.surfaceWidth == 390)
+        #expect(page.maxPanX == 0)
+        #expect(!page.differsFromPhone)
+        // Before the fix: the old claim followed, wider than the page.
+        let followed = TerminalHostGridLayout(viewportWidth: 390, cell: zoomed, scale: 3,
+                                              hostColumns: 50, hostRows: 40, visibleRows: 40)
+        #expect(followed.maxPanX > 0)
+    }
+
+    /// Another device's grid, and any grid under a full-screen app, is
+    /// followed as before (the alternate screen does not rewrap).
+    @Test func anotherDevicesGridAndAFullScreenAppStillFollowTheMac() {
+        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: 120, gridIsPhonesOwn: false, alternateScreen: false) == 120)
+        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: 50, gridIsPhonesOwn: true, alternateScreen: true) == 50)
+        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: nil, gridIsPhonesOwn: false, alternateScreen: false) == nil)
+    }
 }

@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -601,6 +602,10 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
+        terminal.scrollFramesSink = { [weak self] pan in await self?.sendScrollFrames(pan, macID: macID) }
+        terminal.paintSink = { [weak self] samples, program in
+            await self?.sendPaint(samples, program: program, macID: macID)
+        }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
@@ -610,6 +615,67 @@ extension LiveCoordinator {
         openSurface(macID: macID)
         terminal.setMacOffline(sessions[macID]?.terminalsOffline ?? false)
         return terminal
+    }
+
+    /// One terminal pan's frame times (``TerminalPanFrames``) to the Mac's `phone-frames`
+    /// service, which logs them where an agent on the Mac reads them. Only a Mac that lists
+    /// `phone-frames-v1`; nothing waits past 10 s, and a line that cannot go is dropped.
+    /// It adds the link's last round trip, the pan's network load.
+    func sendScrollFrames(_ pan: TerminalPanFrames, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        var pan = pan
+        if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
+        guard let line = pan.line() else { return }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await channel.send(line) },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
+    }
+
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`): a few clock probes first, so
+    /// hostd puts the phone's times on its clock (the probe with the shortest round trip).
+    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
+            measured.map(Int.init)
+        } else {
+            nil
+        }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: {
+                var clock: [[Double]] = []
+                for _ in 0..<4 {
+                    try await channel.send(TerminalPaintReport.clockProbe(t0: TerminalPaintReport.nowMs))
+                    // A Mac without clock probes closes or ignores it: report without an offset.
+                    guard let answer = try await channel.receive() else { break }
+                    if let sample = TerminalPaintReport.clockSample(answer: answer, t3: TerminalPaintReport.nowMs) {
+                        clock.append(sample)
+                    }
+                }
+                let report = TerminalPaintReport(
+                    program: program, samples: samples, clock: clock, rttMs: rtt,
+                    agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
+                )
+                if let line = report.line() { try await channel.send(line) }
+            },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
@@ -1053,36 +1119,45 @@ extension LiveCoordinator {
         let phase = session.link.phase
         bannerTask?.cancel()
         let name = session.link.target?.name ?? "Mac"
+        // A link coming up or coming back shows nothing until it took longer than
+        // the shared 10 s bound (QuietStatusGate.threshold); a state with an
+        // action (offline with Retry, can't reach, sign in) shows at once.
         switch phase {
         case .idle:
-            banner = nil
+            bannerHold.show(nil)
         case .macOffline:
-            banner = .macOffline(name, identity: session.macID)
+            bannerHold.show(.macOffline(name, identity: session.macID))
         case .signedOut:
-            banner = .signedOut
+            bannerHold.show(.signedOut)
         case .connected:
-            if everConnected, banner != nil, banner != .connected {
-                banner = .connected
+            // "Connected" only answers a banner that was on screen; a held one never showed.
+            if everConnected, let shown = banner, shown != .connected {
+                bannerHold.show(.connected)
                 bannerTask = Task { [weak self, clock] in
                     do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = nil
+                    self?.bannerHold.show(nil)
                 }
             } else {
-                banner = nil
+                bannerHold.show(nil)
             }
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
             if attempt == 1, !everConnected {
-                banner = .connecting(to: name, identity: session.macID)
+                bannerHold.hold(.connecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             } else {
-                banner = .reconnecting(to: name, identity: session.macID)
+                bannerHold.hold(.reconnecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             }
         case .waiting(let transport, let attempt, let reason, _):
-            banner = Self.waitingBanner(
+            let state = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: session.link.target.map { connectedMacIDs.contains($0.macID) } ?? false,
                 relayAvailable: relayAvailable, identity: session.macID)
+            if state == .reconnecting(to: name, identity: session.macID) {
+                bannerHold.hold(state, for: QuietStatusGate.threshold)
+            } else {
+                bannerHold.show(state)
+            }
         }
     }
 
