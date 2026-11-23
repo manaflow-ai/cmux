@@ -59,6 +59,9 @@ export type Subagent = {
   action?: string;
   /// `action` is a shell call's title, the command as typed (its call's ACP kind is `execute`).
   actionShell?: boolean;
+  /// The ACP kind of that call (`read`, `edit`, `execute`, `fetch`, `think`, `other`; acpmux's
+  /// `tool_kind`): the composer hat says it as one bounded word, never the call (hatStep.ts).
+  actionKind?: string;
   /// Tokens it has used and tool calls it has made so far (Claude's task progress).
   tokens?: number;
   toolUses?: number;
@@ -443,6 +446,8 @@ export class SubagentFold {
           (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
+        if (typeof update.kind === "string") owner.actionKind = update.kind;
+        else if (title !== undefined) delete owner.actionKind;
       }
       const kind = update?.sessionUpdate;
       // The Agent call that spawned it is the parent's, not a step of its own.
@@ -1186,6 +1191,9 @@ export class SubagentFold {
     if (action && !isPlumbingName(action)) {
       agent.action = action;
       delete agent.actionShell;
+      const actionKind = text(change.actionKind);
+      if (actionKind) agent.actionKind = actionKind;
+      else delete agent.actionKind;
     }
     // The agentId a SendMessage names it by, which acpmux puts on its progress, so a
     // "Sent to" row names it when its Agent call's result is on a page not loaded.

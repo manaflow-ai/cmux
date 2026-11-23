@@ -1060,6 +1060,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.",
+      "keys": [
+        "agents.chats.terminalChatWritable"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
@@ -1392,6 +1399,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on.",
+      "keys": [
+        "labs.bundledCodexAppServer"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
@@ -1459,6 +1473,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "How long a nightly waits before it restarts into an update: the person's call.",
       "keys": [
@@ -1508,6 +1529,13 @@
         "agents.cmuxMcp",
         "agents.cmuxMcpClaude",
         "agents.cmuxMcpCodex"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether agents may change the app or only read it: the person's switch over every agent, so an agent must not widen (or even change) it.",
+      "keys": [
+        "agents.appControl"
       ]
     },
     {
