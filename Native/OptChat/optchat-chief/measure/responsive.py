@@ -373,7 +373,10 @@ def run(ctx):
                   and e.get("ev") in ("turn.start", "turn.end", "turn.interrupt", "tool", "spawn", "spawn.report")]
             log(f"probe-trace {probe['id']}: " + json.dumps([
                 [e["ts"] - t_first, e["ev"], e.get("name") or e.get("status") or e.get("why") or "",
-                 e.get("ms")] for e in tr]))
+                 e.get("ms")] + ([{"ttft": e.get("ttft_ms"), "start": e.get("start_ms"),
+                                   "cost": e.get("cost_usd"), "req": e.get("requests"),
+                                   "first": e.get("first_usage")}] if e.get("ev") == "turn.end" else [])
+                for e in tr]))
             time.sleep(3)
     finally:
         json.dump({"results": results, "events": rec.snapshot()}, open(os.path.join(out, "responsive.json"), "w"))

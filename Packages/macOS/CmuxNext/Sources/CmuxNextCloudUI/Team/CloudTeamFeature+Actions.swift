@@ -13,6 +13,10 @@ import Foundation
 extension CloudTeamFeature {
     public func bind(into registry: ActionRegistry, reason: @escaping @MainActor () -> String?) {
         self.registry = registry
+        #if DEBUG
+        // Command Palette > Environment Secrets Playground (DEV only), bound with the other Cloud UI actions.
+        EnvSecretsPlaygroundAction().bind(into: registry)
+        #endif
         let store = store
         let host = { [weak self] in self?.host }
         // The publisher starts with the actions it shares the store with, once per app.
@@ -63,6 +67,11 @@ extension CloudTeamFeature {
                 NSPasteboard.general.setString(link, forType: .string)
             }
             return { ["link": link, "key": ref.key, "kind": kind.wireKind, "copied": copied] }
+        }
+        // A local workspace or tab has no Cloud session: its menu leaves the row out. The palette and
+        // the CLI keep it, and a run there refuses with cloud_session.not_cloud.
+        ActionTargetVisibility.hide("cloud.team.copyLink", in: registry) { invocation in
+            (try? Self.session(invocation, host())) == nil
         }
         for (id, follow) in [("cloud.team.follow", true), ("cloud.team.unfollow", false)] as [(ActionID, Bool)] {
             bind(id) { invocation in

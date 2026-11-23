@@ -116,20 +116,20 @@ extension AppBrowserPage {
 enum BrowserPageStrings {
     static func captureFailed(_ reason: String) -> String {
         String(format: String(localized: "handlers.browserPage.captureFailed", defaultValue: "The page could not be captured (%@); show the tab and retry",
-                              table: "MiscHandlers", bundle: .module), reason)
+                              table: "MiscHandlers", bundle: .module.inAppLanguage), reason)
     }
     static var wakeFailed: String {
         String(localized: "handlers.browserPage.wakeFailed", defaultValue: "The hibernated page did not wake in time; retry",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var encodeFailed: String {
-        String(localized: "handlers.browserPage.encodeFailed", defaultValue: "The screenshot could not be encoded as PNG", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.browserPage.encodeFailed", defaultValue: "The screenshot could not be encoded as PNG", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static func saveFailed(_ reason: String) -> String {
         String(format: String(localized: "handlers.browserPage.saveFailed", defaultValue: "The screenshot could not be saved: %@",
-                              table: "MiscHandlers", bundle: .module), reason)
+                              table: "MiscHandlers", bundle: .module.inAppLanguage), reason)
     }
     static var clipOutside: String {
-        String(localized: "handlers.browserPage.clipOutside", defaultValue: "The element is outside the captured viewport", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.browserPage.clipOutside", defaultValue: "The element is outside the captured viewport", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

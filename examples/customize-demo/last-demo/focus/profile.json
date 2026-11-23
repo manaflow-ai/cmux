@@ -18,6 +18,34 @@
     "ui.calm": "still",
     "agentPane.display.font.lineHeight": 1.6,
     "agentPane.display.font.size": 15,
-    "layout.paneCornerRadius": 10
+    "layout.paneCornerRadius": 10,
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.groupHeader.background": "solid",
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.notification": false,
+    "workspaceColors.indicatorStyle": "dot"
   }
 }

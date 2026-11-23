@@ -47,6 +47,46 @@ export function runResume(
   );
 }
 
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QUOTES = /^["'`<]+|["'`>]+$/g;
+
+/// The chat New Tab's text names to resume (user 2026-11-20: "resuming claude sessions needs to
+/// 'just work'"): `/resume <ref>` (any reference acpmux's `_acpmux/chat_resolve` reads), a pasted
+/// session id alone, or the harness's own resume command (`claude --resume <id>`, `claude -r <id>`,
+/// `codex resume <id>`, other flags anywhere). Undefined for anything else: a bare `/resume` (the
+/// slash menu's row opens the chats search), prose that mentions an id, more than one line.
+export function resumeReference(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed || /[\r\n]/.test(trimmed)) return undefined;
+  const slash = /^\/resume\s+(.+)$/i.exec(trimmed);
+  if (slash) return slash[1]!.trim();
+  const bare = trimmed.replace(QUOTES, "");
+  if (SESSION_ID.test(bare)) return bare;
+  const words = trimmed.split(/\s+/);
+  const program = words[0]!.toLowerCase();
+  const id = (word: string | undefined) => {
+    const unquoted = word?.replace(QUOTES, "");
+    return unquoted && SESSION_ID.test(unquoted) ? unquoted : undefined;
+  };
+  if (program === "claude") {
+    for (let at = 1; at < words.length; at += 1) {
+      const word = words[at]!;
+      const inline = /^--resume=(.+)$/.exec(word);
+      if (inline) return id(inline[1]);
+      if (word === "--resume" || word === "-r") return id(words[at + 1]);
+    }
+    return undefined;
+  }
+  if (program === "codex" && words[1] === "resume") return words.slice(2).map(id).find(Boolean);
+  return undefined;
+}
+
+/// How the Resume row names its reference: a session id's first block, a path's file name.
+export function shownResumeReference(ref: string): string {
+  if (SESSION_ID.test(ref)) return `${ref.slice(0, 8)}…`;
+  return shown(ref);
+}
+
 /// A long pasted path reads as its file name in the refusal.
 function shown(ref: string): string {
   const name = ref.split("/").at(-1) || ref;

@@ -12,7 +12,10 @@ main window (debug.window_snapshot), so nothing else on the Mac shows up.
 
 A state is {"settings": {...} | null, "launch_args": [...], "steps": [...]}.
 A step has a `title`, at most one of a `cmux` argv or an `rpc` {"method",
-"params"} (neither: it only waits), a `wait` (seconds, default 1.5),
+"params"} (neither: it only waits), a `wait` (seconds, default 1.5: the
+step waits until the main window's picture has held still that long, so a
+still is never taken sooner than a fixed wait took it, within a deadline of
+four times it, at least 10 s; 0 waits not at all),
 `optional` (true or a reason: an optional step that fails is `unavailable`, any
 other is `failed`) and `cite` (where its handler lives; not read). `--showcase` in
 launch_args also sets CMUX_NEXT_SHOWCASE=1.
@@ -35,6 +38,7 @@ captured both stills with no failed step, 1 otherwise, 2 on a bad state file.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -43,17 +47,19 @@ import signal
 import socket
 import sys
 import tempfile
-import time
 from typing import Any
 
 MEDIA = Path(__file__).resolve().parents[1] / "media"
 sys.path.insert(0, str(MEDIA))
 import tour  # noqa: E402  (scripts/cmux-next/media/tour.py)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from state_wait import wait_stable, wait_until  # noqa: E402  (scripts/cmux-next/state_wait.py)
 
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 60.0
 SNAPSHOT_TIMEOUT = 30.0
-APPEARANCE_SETTLE = 2.0
+APPEARANCE_TIMEOUT = 10.0
+SETTLE_INTERVAL = 0.25
 STATE_KEYS = {"title", "settings", "launch_args", "steps"}
 # `cite` is documentation (the handler's file:line); a step with neither `cmux` nor `rpc` only waits.
 STEP_KEYS = {"title", "cmux", "rpc", "wait", "optional", "cite"}
@@ -119,8 +125,33 @@ def run_step(app: Any, step: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError, tour.TourError) as error:
         record["status"] = "unavailable" if step.get("optional") else "failed"
         record["detail"] = str(error)[-400:]
-    time.sleep(float(step.get("wait", DEFAULT_WAIT)))
+    wait = float(step.get("wait", DEFAULT_WAIT))
+    if wait > 0:
+        picture_settled(app, f"the window after {step['title']!r}", hold=wait, timeout=max(10.0, wait * 4))
     return record
+
+
+def picture_settled(app: Any, what: str, hold: float, timeout: float) -> bool:
+    """Until the main window's own snapshot (the picture the still is taken from) is the same for `hold`
+    seconds; False, logged, past `timeout` s (the still is taken anyway, as it always was)."""
+    probe_dir = Path(tempfile.mkdtemp(prefix="cmux-visual-gate-settle-"))
+    probe = probe_dir / "window.png"
+
+    def picture() -> str:
+        probe.unlink(missing_ok=True)
+        app.request("debug.window_snapshot", {"kind": "main", "path": str(probe)}, timeout=SNAPSHOT_TIMEOUT)
+        return hashlib.sha1(probe.read_bytes()).hexdigest()
+
+    reads = max(2, int(round(hold / SETTLE_INTERVAL)) + 1)
+    try:
+        value = wait_stable(picture, what, timeout=timeout, interval=SETTLE_INTERVAL, reads=reads,
+                            raise_on_timeout=False)
+    finally:
+        probe.unlink(missing_ok=True)
+        probe_dir.rmdir()
+    if value is None:
+        print(f"note: {what} did not hold still in {timeout:g} s", flush=True)
+    return value is not None
 
 
 def window_points(app: Any) -> list[float] | None:
@@ -131,9 +162,11 @@ def window_points(app: Any) -> list[float] | None:
 def take_still(app: Any, mode: str, path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """(debug.appearance read back after the switch settled, debug.window_snapshot's reply)."""
     app.request("debug.appearance", {"mode": mode})
-    time.sleep(APPEARANCE_SETTLE)
     # No mode: only reports. The gate reads it to tell a build that did not switch from a host
-    # whose configuration pins a dark theme.
+    # whose configuration pins a dark theme, so a switch that never shows is the gate's to judge.
+    wait_until(lambda: (app.request("debug.appearance", {}) or {}).get("effective") == mode,
+               f"the {mode} appearance", timeout=APPEARANCE_TIMEOUT, interval=0.1, raise_on_timeout=False)
+    picture_settled(app, f"the window repainted {mode}", hold=0.5, timeout=APPEARANCE_TIMEOUT)
     appearance = app.request("debug.appearance", {})
     path.unlink(missing_ok=True)
     reply = app.request("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=SNAPSHOT_TIMEOUT)

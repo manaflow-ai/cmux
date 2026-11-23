@@ -48,6 +48,10 @@ const STOPPED_BY_PERSON: c_long = -3817;
 /// the session ends with the reason instead of leaving the viewer on a frozen or black picture.
 const MAX_RESTARTS: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(30);
+/// How often, and how far apart, an exclusion update asks again for a window ScreenCaptureKit does
+/// not list yet (the app sends a window's id as it first shows).
+const MISSING_WINDOW_RETRIES: u32 = 8;
+const MISSING_WINDOW_RETRY: Duration = Duration::from_millis(250);
 
 /// The streamed display in global points (CGEvent coordinates).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -226,6 +230,191 @@ fn sinks() -> &'static SinkList {
     SINKS.get_or_init(Mutex::default)
 }
 
+/// SECURITY: the windows every capture leaves out, by window id (CGWindowID, the app's
+/// `NSWindow.windowNumber`): prompts only the person at this Mac may see, such as the join consent
+/// ask or a revealed password. Their `NSWindow.sharingType = .none` alone does not keep them out of
+/// a ScreenCaptureKit capture since macOS 15.4. The app sends the list (`serve`'s
+/// `exclude_windows` line); sorted, no duplicates, no 0.
+fn excluded_ids() -> &'static Mutex<Vec<u32>> {
+    static IDS: OnceLock<Mutex<Vec<u32>>> = OnceLock::new();
+    IDS.get_or_init(Mutex::default)
+}
+
+fn current_exclusions() -> Vec<u32> {
+    excluded_ids().lock().unwrap_or_else(|p| p.into_inner()).clone()
+}
+
+/// The running streams (SCStream address, display id). Held while a capture starts or restarts
+/// and while a new exclusion list is applied, so a stream made during a change still gets the
+/// newest list, and a stream leaves the list (under this lock) before its capture releases it.
+fn live_streams() -> &'static Mutex<Vec<(usize, u32)>> {
+    static STREAMS: OnceLock<Mutex<Vec<(usize, u32)>>> = OnceLock::new();
+    STREAMS.get_or_init(Mutex::default)
+}
+
+/// The ids as the list keeps them: sorted, no duplicates, no 0 (no window has it).
+fn exclusion_list(ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
+    let mut ids: Vec<u32> = ids.into_iter().filter(|&id| id != 0).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// Leaves the windows `ids` out of every capture: those that start or restart later, and the
+/// running ones, whose filters are replaced on a background thread (ScreenCaptureKit is asked for
+/// its window list again, which may take a moment). Returns at once. Only `serve` (the `link`
+/// feature) sends it.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+pub fn set_excluded_windows(ids: impl IntoIterator<Item = u32>) {
+    let ids = exclusion_list(ids);
+    {
+        let mut current = excluded_ids().lock().unwrap_or_else(|p| p.into_inner());
+        if *current == ids {
+            return;
+        }
+        *current = ids;
+    }
+    spawn_apply_exclusions();
+}
+
+/// Runs [`apply_exclusions`] on its own thread. Each pass applies the newest list once it holds the
+/// live streams' lock, so updates that overlap still end on the last list sent.
+fn spawn_apply_exclusions() {
+    let spawned =
+        std::thread::Builder::new().name("cmux-rd-exclude".into()).spawn(apply_exclusions);
+    if let Err(e) = spawned {
+        eprintln!("cmux-rd host: could not update the excluded windows: {e}");
+    }
+}
+
+/// Replaces every live stream's filter with one that leaves out the newest list. A window the app
+/// just showed may not be in ScreenCaptureKit's window list yet: while one is missing, it asks again
+/// a few times, [`MISSING_WINDOW_RETRY`] apart.
+fn apply_exclusions() {
+    for attempt in 0..=MISSING_WINDOW_RETRIES {
+        if attempt > 0 {
+            std::thread::sleep(MISSING_WINDOW_RETRY);
+        }
+        if apply_exclusions_once() {
+            return;
+        }
+    }
+    eprintln!("cmux-rd host: an excluded window is not in ScreenCaptureKit's window list");
+}
+
+/// One pass of [`apply_exclusions`]; false when an excluded window was not found (so not left out).
+fn apply_exclusions_once() -> bool {
+    // The running streams, each retained, so the update below runs with the list unlocked: a slow
+    // ScreenCaptureKit answer never holds a capture's start, restart or end.
+    let streams: Vec<(usize, u32)> = {
+        let live = live_streams().lock().unwrap_or_else(|p| p.into_inner());
+        live.iter()
+            .map(|&(stream, display_id)| {
+                // SAFETY: -[NSObject retain] on a stream still in the list (Drop takes it out under
+                // this lock before releasing it); balanced by the release after its update below.
+                unsafe {
+                    msg::<unsafe extern "C" fn(Id, Sel) -> Id>()(stream as Id, sel(c"retain"))
+                };
+                (stream, display_id)
+            })
+            .collect()
+    };
+    if streams.is_empty() {
+        return true;
+    }
+    let release_streams = |streams: &[(usize, u32)]| {
+        for &(stream, _) in streams {
+            sys::release(stream as Id);
+        }
+    };
+    let excluded = current_exclusions();
+    let (content, displays) = match shareable_displays() {
+        Ok(found) => found,
+        Err(e) => {
+            eprintln!("cmux-rd host: excluded windows not updated: {e}");
+            release_streams(&streams);
+            return false;
+        }
+    };
+    let _pool = AutoreleasePool::new();
+    let mut all_found = true;
+    for &(stream, display_id) in streams.iter() {
+        let Some(&(display, _)) = displays.iter().find(|d| d.1 == display_id) else { continue };
+        // SAFETY: a display and the content it came from, both retained until release_all below,
+        // under the pool above.
+        let (filter, found) = unsafe { display_filter(content, display, &excluded) };
+        all_found &= found == excluded.len();
+        if filter.is_null() {
+            eprintln!("cmux-rd host: excluded windows not updated: no filter");
+            continue;
+        }
+        let (tx, rx) = sync_channel::<StartAnswer>(1);
+        let updated = block(capture_started as *const c_void, c"v@?@", tx);
+        // SAFETY: -[SCStream updateContentFilter:completionHandler:] on a live stream (this thread
+        // holds its own reference until release_streams below), with a block of the (NSError *)
+        // handler type. A stream its capture stopped meanwhile answers with an error, which is logged.
+        unsafe {
+            msg::<unsafe extern "C" fn(Id, Sel, Id, *mut c_void)>()(
+                stream as Id,
+                sel(c"updateContentFilter:completionHandler:"),
+                filter,
+                updated.cast(),
+            );
+        }
+        sys::release(filter);
+        match rx.recv_timeout(ANSWER_TIMEOUT) {
+            Ok(Ok(())) => eprintln!(
+                "cmux-rd host: display {display_id} now leaves out {} window(s)",
+                excluded.len()
+            ),
+            Ok(Err(e)) => eprintln!("cmux-rd host: excluded windows not updated: {e}"),
+            Err(_) => eprintln!("cmux-rd host: excluded windows not updated: no answer"),
+        }
+    }
+    release_all(content, &displays);
+    release_streams(&streams);
+    all_found
+}
+
+/// A filter (+1 reference, null when ScreenCaptureKit makes none) on `display` that leaves out the
+/// windows of `content` whose id is in `excluded`, and how many of those windows it found.
+///
+/// # Safety
+/// `content` is a live SCShareableContent and `display` one of its SCDisplays; an autorelease
+/// pool is in place.
+unsafe fn display_filter(content: Id, display: Id, excluded: &[u32]) -> (Id, usize) {
+    let mut found = 0;
+    let windows = sys::send_id(sys::class(c"NSMutableArray"), c"array");
+    // SAFETY: -[NSArray count] and -objectAtIndex: (an index below count) on the content's
+    // windows, -[SCWindow windowID] (a CGWindowID), -[NSMutableArray addObject:] with a live
+    // window, and -[SCContentFilter initWithDisplay:excludingWindows:] with the caller's display.
+    unsafe {
+        if !excluded.is_empty() {
+            let list = sys::send_id(content, c"windows");
+            let count = msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count"));
+            for index in 0..count {
+                let window = msg::<unsafe extern "C" fn(Id, Sel, usize) -> Id>()(
+                    list,
+                    sel(c"objectAtIndex:"),
+                    index,
+                );
+                let id = msg::<unsafe extern "C" fn(Id, Sel) -> u32>()(window, sel(c"windowID"));
+                if excluded.binary_search(&id).is_ok() {
+                    found += 1;
+                    msg::<unsafe extern "C" fn(Id, Sel, Id)>()(windows, sel(c"addObject:"), window);
+                }
+            }
+        }
+        let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
+            sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
+            sel(c"initWithDisplay:excludingWindows:"),
+            display,
+            windows,
+        );
+        (filter, found)
+    }
+}
+
 pub struct Capture {
     stream: Id,
     /// The output was added to the stream (removed again before the stream is released).
@@ -237,6 +426,9 @@ pub struct Capture {
     size: (u32, u32),
     bounds: Bounds,
     restart: Restart,
+    /// The stream is in [`live_streams`] (only a started capture is; `start` holds that lock while
+    /// a failed one drops).
+    registered: bool,
 }
 
 /// What a restart needs to make the same stream again, and when it last did.
@@ -262,27 +454,26 @@ fn restart_allowed(code: c_long, reason: &str, at: &mut Vec<Instant>, now: Insta
     Ok(())
 }
 
-/// A stream of `display` at `size`, its stops reported to `delegate` (the capture's output).
+/// A stream of `display` at `size`, its stops reported to `delegate` (the capture's output),
+/// leaving out the windows `excluded`; and whether every one of them was found in `content`.
 ///
 /// # Safety
-/// `display` is a live SCDisplay and `delegate` a live CmuxRdCaptureOutput.
+/// `content` is a live SCShareableContent, `display` one of its SCDisplays and `delegate` a live
+/// CmuxRdCaptureOutput; an autorelease pool is in place.
 unsafe fn new_stream(
+    content: Id,
     display: Id,
+    excluded: &[u32],
     size: (u32, u32),
     fps: u32,
     shows_cursor: bool,
     delegate: Id,
-) -> Res<Id> {
+) -> Res<(Id, bool)> {
     // SAFETY: each message is sent with its documented C signature to the object just created
-    // (alloc/init pairs return +1 references released here or by the caller).
+    // (alloc/init pairs return +1 references released here or by the caller); `display_filter`
+    // gets the caller's content, display and pool.
     unsafe {
-        let empty = sys::send_id(sys::class(c"NSArray"), c"array");
-        let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
-            sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
-            sel(c"initWithDisplay:excludingWindows:"),
-            display,
-            empty,
-        );
+        let (filter, found) = display_filter(content, display, excluded);
         let config = sys::send_id(sys::class(c"SCStreamConfiguration"), c"new");
         if filter.is_null() || config.is_null() {
             sys::release(filter);
@@ -322,7 +513,7 @@ unsafe fn new_stream(
         if stream.is_null() {
             return Err("ScreenCaptureKit did not make a stream".into());
         }
-        Ok(stream)
+        Ok((stream, found == excluded.len()))
     }
 }
 
@@ -459,7 +650,7 @@ fn hz_to_fps(hz: f64) -> Option<u32> {
     (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
 }
 
-/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// The refresh rate of the display `which` names (`main`, an index or `id:<n>`, as [`Capture::start`] picks
 /// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
 pub fn refresh_fps(which: &str) -> u32 {
     let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
@@ -490,9 +681,10 @@ extern "C" fn shareable_content_done(
     }
 }
 
-/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
-/// Empty, or an error, when Screen Recording is not allowed.
-fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+/// What ScreenCaptureKit can capture now, as a retained SCShareableContent the caller releases
+/// (also the Computer Use screenshots, `super::cu_host`). An error when Screen Recording is not
+/// allowed.
+pub(super) fn shareable_content() -> Res<Id> {
     sys::load()?;
     let _pool = AutoreleasePool::new();
     let (tx, rx) = sync_channel::<ContentAnswer>(1);
@@ -510,6 +702,14 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
         .recv_timeout(ANSWER_TIMEOUT)
         .map_err(|_| "screen capture did not answer (is Screen Recording allowed?)")?
         .map_err(|e| format!("screen capture is not allowed or failed: {e}"))?;
+    Ok(content)
+}
+
+/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
+/// Empty, or an error, when Screen Recording is not allowed.
+fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+    let content = shareable_content()?;
+    let _pool = AutoreleasePool::new();
     let list = sys::send_id(content, c"displays");
     // SAFETY: -[NSArray count] and -objectAtIndex: on the displays array.
     let count = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count")) };
@@ -538,15 +738,20 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
     sys::release(content);
 }
 
+/// Every display's streamed size, the index `which` picks, and every display's CGDirectDisplayID.
+pub type Displays = (Vec<(u32, u32)>, usize, Vec<u32>);
+
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
-/// `link` feature) asks.
+/// captures it), left to right, the index of the display `which` picks (as [`Capture::start`]
+/// picks it), and every display's CGDirectDisplayID in the same order. Only `serve` (the `link`
+/// feature) asks.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
-pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+pub fn displays(which: &str) -> Res<Displays> {
     let (content, displays) = shareable_displays()?;
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
-    let current = displays.iter().position(|d| d.1 == main).unwrap_or(0);
+    let current = super::display_pick::pick_index(&ids, main, which).unwrap_or(0);
     let sizes = displays
         .iter()
         .map(|&(_, id)| {
@@ -555,41 +760,41 @@ pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
         })
         .collect();
     release_all(content, &displays);
-    Ok((sizes, current))
+    Ok((sizes, current, ids))
 }
 
-/// `main` (the menu bar display) or a display's index counted left to right.
+/// `main` (the menu bar display), a display's index counted left to right, or `id:<n>`, the
+/// display whose CGDirectDisplayID is n (a run's virtual display, from a screen link).
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
-    if which == "main" {
-        // SAFETY: CGMainDisplayID has no preconditions.
-        let main = unsafe { cg::CGMainDisplayID() };
-        return displays
-            .iter()
-            .find(|d| d.1 == main)
-            .or(displays.first())
-            .copied()
-            .ok_or_else(|| "no display to capture (is Screen Recording allowed?)".into());
+    if displays.is_empty() {
+        return Err(crate::permissions::no_display_here().into());
     }
-    let index: usize =
-        which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;
-    displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
+    // SAFETY: CGMainDisplayID has no preconditions.
+    let main = unsafe { cg::CGMainDisplayID() };
+    let index = super::display_pick::pick_index(&ids, main, which)?;
+    Ok(displays[index])
 }
 
-/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// The mach timebase (numerator, denominator: ns a tick). The Mach timebase and clock calls are
 /// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
 /// defective.
 #[allow(deprecated)]
-fn mach_age_us(then: u64) -> u64 {
-    static BASE: OnceLock<(u64, u64)> = OnceLock::new();
-    let (numer, denom) = *BASE.get_or_init(|| {
+fn mach_timebase() -> (u32, u32) {
+    static BASE: OnceLock<(u32, u32)> = OnceLock::new();
+    *BASE.get_or_init(|| {
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: mach_timebase_info writes into a valid struct.
         unsafe { libc::mach_timebase_info(&mut base) };
-        (u64::from(base.numer), u64::from(base.denom.max(1)))
-    });
+        (base.numer, base.denom.max(1))
+    })
+}
+
+/// The mach clock now (see [`mach_timebase`] for the deprecation).
+#[allow(deprecated)]
+fn mach_now() -> u64 {
     // SAFETY: mach_absolute_time has no preconditions.
-    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
-    (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
+    unsafe { libc::mach_absolute_time() }
 }
 
 /// The CoreFoundation number at `key` in `dictionary`, as an i64.
@@ -648,10 +853,15 @@ extern "C" fn did_output(
                 }
             }
         }
+        // Both clocks read together: the display time (mach absolute time: the vsync the window
+        // server composited this frame for, usually still ahead when the frame arrives here)
+        // moves onto the protocol clock by its distance from `mach`, ahead or behind.
+        let mach = mach_now();
         let arrived = crate::clock::now_ns() / 1000;
-        // The display time is in mach absolute time: its age now, taken off the protocol clock.
-        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
-            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime()).map(|display| {
+            let (numer, denom) = mach_timebase();
+            crate::clock::mach_to_protocol_us(arrived, mach, display as u64, numer, denom)
+        });
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
         let (counter, nonce) = sink.marker.map_or((None, None), |marker| {
@@ -770,6 +980,8 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 }
 
 impl Capture {
+    /// A capture that draws the cursor, for the bench's observer (`observe.rs`, its one caller).
+    #[cfg(feature = "bench")]
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
         Self::start_with_marker(which, fps, max_width, true, None)
     }
@@ -803,24 +1015,40 @@ impl Capture {
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
+        // Held from reading the exclusion list until the stream is in the live list: a change sent
+        // meanwhile is applied to this stream once it is there.
+        let mut streams = live_streams().lock().unwrap_or_else(|p| p.into_inner());
+        let excluded = current_exclusions();
+        crate::permissions::require_screen_recording()?;
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
         let result = picked.and_then(|(display, id)| {
-            Self::stream(display, id, fps, max_width, shows_cursor, marker)
+            Self::stream(content, display, id, fps, max_width, shows_cursor, &excluded, marker)
         });
         release_all(content, &displays);
-        result
+        let (mut capture, all_found) = result?;
+        streams.push((capture.stream as usize, capture.restart.display));
+        capture.registered = true;
+        drop(streams);
+        if !all_found {
+            // A window the app just showed is not listed yet: ask again until it is.
+            spawn_apply_exclusions();
+        }
+        Ok(capture)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn stream(
+        content: Id,
         display: Id,
         id: u32,
         fps: u32,
         max_width: Option<u32>,
         shows_cursor: bool,
+        excluded: &[u32],
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
-    ) -> Res<Self> {
+    ) -> Res<(Self, bool)> {
         #[cfg(not(feature = "bench"))]
         let _ = marker;
         let _pool = AutoreleasePool::new();
@@ -836,7 +1064,8 @@ impl Capture {
         let size = fit(native.0, native.1, max_width);
         let scale = f64::from(size.0) / bounds.width.max(1.0);
         // SAFETY: each message below is sent with its documented C signature to the object
-        // just created (alloc/init pairs return +1 references this capture releases).
+        // just created (alloc/init pairs return +1 references this capture releases); `content`
+        // and `display` are retained by `start_with_marker` for this call, under the pool above.
         unsafe {
             // The pipe, the output and its queue first: every later error path releases them.
             let (wake_read, wake_write) = wake_pipe()?;
@@ -846,8 +1075,9 @@ impl Capture {
                 c"com.cmuxterm.rd.capture".as_ptr(),
                 std::ptr::null(),
             );
-            let stream = match new_stream(display, size, fps, shows_cursor, output) {
-                Ok(stream) => stream,
+            let made = new_stream(content, display, excluded, size, fps, shows_cursor, output);
+            let (stream, all_found) = match made {
+                Ok(made) => made,
                 Err(e) => {
                     sys::release(output);
                     sys::system::dispatch_release(queue);
@@ -882,14 +1112,15 @@ impl Capture {
                 bounds,
                 added: added.is_ok(),
                 restart,
+                registered: false,
             };
             added?;
             start_stream(stream)?;
             eprintln!(
-                "cmux-rd host: capturing display {id} ({}x{} px, {}x{} pt at {},{}), {fps} fps",
-                size.0, size.1, bounds.width, bounds.height, bounds.x, bounds.y
+                "cmux-rd host: capturing display {id} ({}x{} px, {}x{} pt at {},{}), {fps} fps, leaving out {} window(s)",
+                size.0, size.1, bounds.width, bounds.height, bounds.x, bounds.y, excluded.len()
             );
-            Ok(capture)
+            Ok((capture, all_found))
         }
     }
 
@@ -921,6 +1152,11 @@ impl Capture {
     /// same output, queue and wake pipe: the session and the encode thread keep their handles.
     fn restart_stream(&mut self) -> Res<()> {
         let _pool = AutoreleasePool::new();
+        // As in `start_with_marker`: held from reading the exclusion list until the new stream
+        // replaces the old one in the live list, so a change sent meanwhile reaches it.
+        let mut streams = live_streams().lock().unwrap_or_else(|p| p.into_inner());
+        let excluded = current_exclusions();
+        crate::permissions::require_screen_recording()?;
         let (content, displays) = shareable_displays()?;
         let wanted = self.restart.display;
         let made = displays
@@ -929,10 +1165,13 @@ impl Capture {
             .map(|d| d.0)
             .ok_or_else(|| format!("display {wanted} is no longer there").into())
             .and_then(|display| {
-                // SAFETY: a display ScreenCaptureKit just listed, and this capture's own output.
+                // SAFETY: a display ScreenCaptureKit just listed and its content (both retained
+                // until release_all below), this capture's own output, under the pool above.
                 unsafe {
                     new_stream(
+                        content,
                         display,
+                        &excluded,
                         self.size,
                         self.restart.fps,
                         self.restart.shows_cursor,
@@ -941,7 +1180,13 @@ impl Capture {
                 }
             });
         release_all(content, &displays);
-        let stream = made?;
+        let (stream, all_found) = made?;
+        // The new stream takes the old one's place in the live list before the old is released.
+        if self.registered {
+            if let Some(entry) = streams.iter_mut().find(|e| e.0 == self.stream as usize) {
+                entry.0 = stream as usize;
+            }
+        }
         // The old stream already stopped: its output leaves it before it is released.
         if self.added {
             let mut error: Id = null_mut();
@@ -962,7 +1207,14 @@ impl Capture {
         add_output(stream, self.output, self.queue)?;
         self.added = true;
         start_stream(stream)?;
-        eprintln!("cmux-rd host: the screen capture restarted");
+        drop(streams);
+        if !all_found {
+            spawn_apply_exclusions();
+        }
+        eprintln!(
+            "cmux-rd host: the screen capture restarted, leaving out {} window(s)",
+            excluded.len()
+        );
         Ok(())
     }
 
@@ -1037,6 +1289,14 @@ impl Frames {
 
 impl Drop for Capture {
     fn drop(&mut self) {
+        // Out of the live list first (waiting for an exclusion update that uses it), so nothing
+        // messages the stream after it is released below.
+        if self.registered {
+            live_streams()
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .retain(|(stream, _)| *stream != self.stream as usize);
+        }
         let _pool = AutoreleasePool::new();
         let (tx, rx) = sync_channel::<()>(1);
         let stopped = block(capture_stopped as *const c_void, c"v@?@", tx);
@@ -1127,6 +1387,13 @@ mod tests {
         assert!(seconds(min_frame_interval(120)) < 1.0 / 120.0 - 0.0005);
         assert!(seconds(min_frame_interval(0)) > 0.0);
         assert_eq!(min_frame_interval(1000).timescale, (MAX_REFRESH_FPS * 10) as i32);
+    }
+
+    #[test]
+    fn exclusion_lists_are_sorted_unique_and_skip_zero() {
+        assert_eq!(exclusion_list([456, 0, 123, 456]), vec![123, 456]);
+        assert_eq!(exclusion_list([]), Vec::<u32>::new());
+        assert!(exclusion_list([9, 3, 7]).binary_search(&7).is_ok());
     }
 
     #[test]
